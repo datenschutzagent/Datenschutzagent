@@ -5,6 +5,8 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.celery_app import extract_document_text
+from app.config import settings
 from app.database import get_db
 from app.models import DocumentModel, DocumentResponse, orm_to_document_response
 from app.models.db import CaseModel
@@ -39,9 +41,10 @@ async def _process_one_upload(
     document_type: str,
     uploaded_by: str,
     db: AsyncSession,
+    async_extraction: bool = True,
 ) -> DocumentModel:
-    """Validate, store and extract one uploaded file; return created DocumentModel. Caller must ensure case exists.
-    Version is auto-assigned per (case_id, document_type): first document of a type gets v1, next v2, etc."""
+    """Validate, store and optionally extract text. If async_extraction=True (default), content is set in a Celery task; otherwise inline.
+    Returns created DocumentModel. Caller must ensure case exists. Version is auto-assigned per (case_id, document_type)."""
     filename = file.filename or "document"
     ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
     if ext not in ALLOWED_EXTENSIONS:
@@ -52,7 +55,7 @@ async def _process_one_upload(
     file_format = EXT_TO_FORMAT[ext]
     content = await file.read()
     size_bytes = len(content)
-    text_content = extract_text(filename, content)
+    text_content = None if async_extraction else extract_text(filename, content)
     version = await _next_version_for_type(db, case_id, document_type)
     doc = DocumentModel(
         case_id=case_id,
@@ -113,14 +116,18 @@ async def upload_document(
     uploaded_by: str = Form(""),
     db: AsyncSession = Depends(get_db),
 ):
-    """Upload a single document for a case. document_type: vvt, screening, info_sheet_de, info_sheet_en, dsfa, avv, other."""
+    """Upload a single document for a case. Text extraction runs asynchronously (Celery). document_type: vvt, screening, info_sheet_de, info_sheet_en, dsfa, avv, other."""
     result = await db.execute(select(CaseModel).where(CaseModel.id == case_id))
     case = result.scalar_one_or_none()
     if not case:
         raise HTTPException(status_code=404, detail="Case not found")
+    use_async = settings.celery_enabled and bool((settings.celery_broker_url or "").strip())
     doc = await _process_one_upload(
-        case_id=case_id, file=file, document_type=document_type, uploaded_by=uploaded_by, db=db
+        case_id=case_id, file=file, document_type=document_type, uploaded_by=uploaded_by, db=db, async_extraction=use_async
     )
+    if use_async:
+        await db.commit()
+        extract_document_text.delay(str(doc.id))
     return DocumentResponse(**orm_to_document_response(doc))
 
 
@@ -132,25 +139,33 @@ async def upload_documents_bulk(
     uploaded_by: str = Form(""),
     db: AsyncSession = Depends(get_db),
 ):
-    """Upload multiple documents for a case in one request. Same document_type and uploaded_by apply to all. Returns list of created documents."""
+    """Upload multiple documents for a case in one request. Text extraction runs asynchronously (Celery). Same document_type and uploaded_by apply to all."""
     if not files:
         raise HTTPException(status_code=400, detail="At least one file is required")
     result = await db.execute(select(CaseModel).where(CaseModel.id == case_id))
     case = result.scalar_one_or_none()
     if not case:
         raise HTTPException(status_code=404, detail="Case not found")
+    use_async = settings.celery_enabled and bool((settings.celery_broker_url or "").strip())
     created: list[DocumentResponse] = []
+    doc_ids: list[UUID] = []
     errors: list[str] = []
     for f in files:
         try:
             doc = await _process_one_upload(
-                case_id=case_id, file=f, document_type=document_type, uploaded_by=uploaded_by, db=db
+                case_id=case_id, file=f, document_type=document_type, uploaded_by=uploaded_by, db=db, async_extraction=use_async
             )
             created.append(DocumentResponse(**orm_to_document_response(doc)))
+            if use_async:
+                doc_ids.append(doc.id)
         except HTTPException as e:
             errors.append(f"{f.filename or 'file'}: {e.detail}")
     if errors and not created:
         raise HTTPException(status_code=400, detail="; ".join(errors))
+    if use_async and doc_ids:
+        await db.commit()
+        for did in doc_ids:
+            extract_document_text.delay(str(did))
     return created
 
 

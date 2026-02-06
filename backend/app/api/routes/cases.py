@@ -386,6 +386,30 @@ async def get_annotated_document(
     )
 
 
+@router.get("/{case_id}/run-checks/status")
+async def get_run_checks_status(
+    case_id: UUID,
+    db: AsyncSession = Depends(get_db),
+):
+    """Return the latest run_checks activity for this case (for polling / status display)."""
+    result = await db.execute(select(CaseModel).where(CaseModel.id == case_id))
+    if result.scalar_one_or_none() is None:
+        raise HTTPException(status_code=404, detail="Case not found")
+    activity_result = await db.execute(
+        select(ActivityLogModel)
+        .where(ActivityLogModel.case_id == case_id, ActivityLogModel.event_type == "run_checks")
+        .order_by(ActivityLogModel.created_at.desc())
+        .limit(1)
+    )
+    last = activity_result.scalar_one_or_none()
+    if not last:
+        return {"status": "never_run", "last_run": None}
+    return {
+        "status": "completed",
+        "last_run": orm_to_activity_response(last),
+    }
+
+
 @router.post("/{case_id}/run-checks", response_model=CaseResponse)
 async def run_checks(
     case_id: UUID,

@@ -58,6 +58,7 @@ services:
     environment:
       # Hostname "postgres" = Service-Name im Docker-Netz (nicht localhost)
       DATABASE_URL: postgresql+asyncpg://postgres:postgres@postgres:5432/datenschutzagent
+      CELERY_BROKER_URL: redis://redis:6379/0
       # CORS: Zugriff vom Browser aus dem LAN (z. B. http://192.168.1.20:3001) erlauben.
       # Überschreibbar per .env: CORS_ORIGINS=http://...
       CORS_ORIGINS: "${CORS_ORIGINS:-http://localhost:3000,http://127.0.0.1:3000,http://localhost:3001,http://127.0.0.1:3001,http://localhost:5173,http://127.0.0.1:5173,http://192.168.1.20:3001,http://192.168.1.20:5173}"
@@ -69,6 +70,25 @@ services:
         condition: service_healthy
     volumes:
       - backend_storage:/app/storage
+    restart: on-failure
+
+  celery_worker:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: postgresql+asyncpg://postgres:postgres@postgres:5432/datenschutzagent
+      CELERY_BROKER_URL: redis://redis:6379/0
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - backend_storage:/app/storage
+    command: celery -A app.celery_app worker -l info
     restart: on-failure
 
   frontend:

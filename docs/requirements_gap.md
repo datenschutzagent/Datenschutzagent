@@ -79,3 +79,4 @@ Abgleich der Projektbeschreibung (Anforderungen) mit dem aktuellen Implementieru
 4. **Artefakte:** ~~DSB-Report~~ ✅, ~~kommentierte DOCX~~ ✅, ~~PDF-Export~~ ✅ (`?format=pdf` bei annotated-documents Download).
 5. **Dokument-Versionierung:** ~~v1/v2 pro Dokumenttyp~~ ✅ (Version pro (case_id, document_type) beim Upload; GET /documents?document_type=…; Frontend Version + Hinweis).
 6. **Sicherheit & Audit:** ~~Audit-Log~~ ✅ (activity_log, Activities-API, Timeline). AuthN/AuthZ noch offen.
+7. ~~**Asynchrone Jobs (Celery + Redis)**~~ ✅ Extraktion nach Upload asynchron (Task `extract_document_text`); Upload 201 sofort. Run-Checks-Status: `GET /cases/{id}/run-checks/status`. Siehe sprint_plan.md.

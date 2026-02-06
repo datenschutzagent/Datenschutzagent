@@ -15,6 +15,10 @@ class Settings(BaseSettings):
     # Database
     database_url: str = "postgresql+asyncpg://postgres:postgres@localhost:5432/datenschutzagent"
 
+    # Celery (Redis as broker; worker uses sync DB). If empty, document extraction runs synchronously.
+    celery_broker_url: str = "redis://localhost:6379/0"
+    celery_enabled: bool = True  # Set False or leave broker empty to skip async extraction
+
     # Storage (MinIO/S3 or local path)
     storage_backend: str = "local"
     storage_local_path: str = "./storage"
@@ -41,6 +45,11 @@ class Settings(BaseSettings):
     ollama_model: str = "llama3.2"
     ollama_timeout_seconds: float = 120.0
     ollama_enabled: bool = True
+
+    @property
+    def database_sync_url(self) -> str:
+        """Sync DB URL for Celery worker (psycopg2)."""
+        return self.database_url.replace("postgresql+asyncpg", "postgresql+psycopg2", 1)
 
     class Config:
         env_file = ".env"

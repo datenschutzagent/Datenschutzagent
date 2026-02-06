@@ -1,6 +1,6 @@
 # Sprint-Plan (aktuell)
 
-Stand: Nach Umsetzung Sprint „Dokument-Versionierung“. Vorherige Sprints (Dokumente beim Anlegen; Reproduzierbarkeit + Artefakte; Cross-Document-Checks; Fachbereiche, Playbook-YAML, Playbook-CRUD; Audit-Log + Activity-Timeline; Playbook-Detail; Mehrfach-Upload; Annotated Documents) abgeschlossen.
+Stand: Nach Umsetzung Sprint „Asynchrone Jobs (Celery + Redis)“. Abgeschlossen: Dokument-Versionierung; Asynchrone Jobs. Vorherige Sprints (Dokumente beim Anlegen; Reproduzierbarkeit + Artefakte; Cross-Document-Checks; Fachbereiche, Playbook-YAML, Playbook-CRUD; Audit-Log + Activity-Timeline; Playbook-Detail; Mehrfach-Upload; Annotated Documents) abgeschlossen.
 
 ---
 
@@ -102,6 +102,26 @@ Stand: Nach Umsetzung Sprint „Dokument-Versionierung“. Vorherige Sprints (Do
 
 ---
 
-## Folgesprint (optional)
+## Sprint – Asynchrone Jobs (Celery + Redis) (abgeschlossen)
 
-- Optional: OCR (gescannte PDFs), DE/EN-Ausbau, AuthN/AuthZ, Celery/Redis für asynchrone Jobs.
+**Ziel:** Lange laufende Extraktion blockiert nicht mehr den HTTP-Request; bessere UX bei großen Dateien.
+
+1. **Backend – Celery & Redis** – Celery-App an Redis; Worker-Service in docker-compose; Konfiguration `CELERY_BROKER_URL`, `celery_enabled`; Fallback: bei fehlendem Broker synchrone Extraktion.
+2. **Backend – Task Dokument-Extraktion** – Task `extract_document_text`; Upload speichert Datei und erstellt Dokument mit `content=None`, sendet Task; Worker liest Datei, extrahiert Text, aktualisiert `Document.content`. Einzel- und Bulk-Upload geben sofort 201.
+3. **Backend – Run-Checks-Status** – `GET /cases/{id}/run-checks/status` liefert letzten run_checks-Activity-Eintrag (für Polling); Run-Checks selbst weiterhin synchron ausgeführt.
+4. **Frontend** – Unverändert (Backend async; optional später Polling für Extraktion).
+5. **Dokumentation** – sprint_plan.md, roadmap.md, requirements_gap.md, api.md aktualisiert.
+
+| # | Aufgabe | Status |
+| :--- | :--- | :--- |
+| 1 | Celery-App + Redis; Worker in docker-compose | ✅ |
+| 2 | Task Dokument-Extraktion; Upload → async Extraktion | ✅ |
+| 3 | Optional: Task Run-Checks + Status/Polling-API | ✅ (Status-Endpoint) |
+| 4 | Optional: Frontend Status/Polling für Upload bzw. Run-Checks | ✅ (unverändert) |
+| 5 | Doku (sprint_plan, roadmap, requirements_gap, api) | ✅ |
+
+---
+
+## Folgesprint (optional, danach)
+
+- OCR (gescannte PDFs), DE/EN-Ausbau, AuthN/AuthZ.

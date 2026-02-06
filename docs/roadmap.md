@@ -23,7 +23,7 @@
 - ~~Frontend an echte API angebunden~~ ✅ Erledigt (Cases, Dokumente, Findings, Playbooks, Run-Checks, Finding-Status, **Playbook-Detail** nutzen `api.ts`).
 - ~~**Activity-Timeline:** nutzt Mock-Daten bis ein Audit-Log/Activities-API existiert~~ ✅ Erledigt: Audit-Log (`activity_log`), `GET /cases/{id}/activities`; Frontend Activity-Timeline nutzt echte API.
 - ~~Dokument-Versionierung: v1/v2 pro Dokumenttyp noch offen~~ ✅ Erledigt: Version pro (case_id, document_type) beim Upload automatisch (v1, v2, …); `GET /documents?document_type=…`; Sortierung nach Typ, Version; Frontend zeigt Version und Hinweis bei Upload.
-- Asynchrone Jobs: Redis/Celery noch nicht genutzt; Extraktion synchron.
+- ~~Asynchrone Jobs: Redis/Celery noch nicht genutzt; Extraktion synchron~~ ✅ Celery + Redis; Worker in docker-compose; Task `extract_document_text`; Upload gibt sofort 201, Extraktion asynchron. Bei fehlendem Broker synchrone Extraktion. `GET /cases/{id}/run-checks/status` für Polling.
 
 ---
 
@@ -63,7 +63,7 @@
 **Ziel:** Sicherheit, Skalierung, Nachvollziehbarkeit.
 
 - **Sicherheit:** Authentifizierung (OAuth2/OIDC), RBAC.
-- **Betrieb:** Celery (o. ä.) für lange LLM-/Export-Jobs; Logging/Monitoring.
+- **Betrieb:** ~~Celery für lange Jobs~~ ✅ Dokument-Extraktion asynchron (Celery + Redis). Run-Checks weiterhin synchron; Status-Endpoint für Polling. Logging/Monitoring optional.
 - **Audit:** ✅ Audit-Log (`activity_log`) für Check-Läufe und Finding-Status; Activity-Timeline an API. Payload bei `run_checks` enthält `playbook_version` und `model` (Reproduzierbarkeit). Erweiterung (z. B. unveränderlich, weitere Event-Typen) optional.
 
 ---
