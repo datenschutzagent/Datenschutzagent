@@ -44,7 +44,15 @@ Details und Optionen: [docs/architecture.md](docs/architecture.md) (Abschnitt De
 
 ## Datenbank-Migrationen
 
-Tabellen werden beim Backend-Start per `Base.metadata.create_all` angelegt. Zusätzliche Schema-Änderungen liegen als SQL-Skripte unter [backend/migrations/](backend/migrations/). Diese werden **nicht** automatisch ausgeführt – bei Bedarf manuell gegen die Datenbank ausführen (oder Migrations-Tool wie Alembic anbinden).
+Tabellen werden beim Backend-Start per `Base.metadata.create_all` angelegt. Zusätzliche Schema-Änderungen liegen als SQL-Skripte unter [backend/migrations/](backend/migrations/). Diese müssen **einmalig** bei bestehenden Datenbanken ausgeführt werden, z. B.:
+
+```bash
+# Einzelne Migration (Beispiel: extraction_method)
+docker compose exec -T postgres psql -U postgres -d datenschutzagent < backend/migrations/001_add_document_extraction_method.sql
+
+# Alle Migrationen nacheinander
+for f in backend/migrations/*.sql; do docker compose exec -T postgres psql -U postgres -d datenschutzagent < "$f"; done
+```
 
 ## Benutzerprofil und Verwaltung
 
