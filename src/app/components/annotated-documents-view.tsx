@@ -102,6 +102,7 @@ export function AnnotatedDocumentsView({ caseId }: AnnotatedDocumentsViewProps) 
                 )}
                 Alle herunterladen
               </Button>
+            )}
           </div>
         </CardHeader>
       </Card>
