@@ -1,95 +1,90 @@
+import { useCallback, useEffect, useState } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "./ui/card";
 import { Badge } from "./ui/badge";
 import { Button } from "./ui/button";
 import { Separator } from "./ui/separator";
 import { Alert, AlertDescription } from "./ui/alert";
-import { 
-  FileText, 
-  Download, 
-  AlertCircle, 
-  CheckCircle2, 
+import {
+  FileText,
+  Download,
+  AlertCircle,
+  CheckCircle2,
   Shield,
   TrendingUp,
   Clock,
-  Users
+  Users,
+  Loader2,
 } from "lucide-react";
+import { getDSBReport, getDSBReportBlob, downloadBlob, type DSBReportViewData } from "../lib/api";
 
-interface DSBReportData {
+interface DSBReportViewProps {
   caseId: string;
-  caseTitle: string;
-  generatedAt: string;
-  playbookVersion: string;
-  status: string;
-  summary: {
-    totalDocuments: number;
-    totalFindings: number;
-    criticalFindings: number;
-    highFindings: number;
-    dsfaRequired: boolean;
-    vvtCompleteness: number;
-  };
-  risks: Array<{
-    title: string;
-    severity: "critical" | "high" | "medium";
-    description: string;
-  }>;
-  openQuestions: string[];
-  recommendations: string[];
-  nextSteps: string[];
 }
 
-const mockReportData: DSBReportData = {
-  caseId: "case-001",
-  caseTitle: "Longitudinalstudie zur Burnout-Prävention",
-  generatedAt: "2026-02-06T10:30:00",
-  playbookVersion: "v2.3.0",
-  status: "in_review",
-  summary: {
-    totalDocuments: 4,
-    totalFindings: 5,
-    criticalFindings: 1,
-    highFindings: 3,
-    dsfaRequired: true,
-    vvtCompleteness: 87,
-  },
-  risks: [
-    {
-      title: "Speicherdauer nicht dokumentiert",
-      severity: "critical",
-      description: "Die Speicherdauer fehlt im Informationsblatt (Art. 13 DSGVO) und ist im VVT nicht ausgefüllt. Dies ist eine kritische Informationspflicht.",
-    },
-    {
-      title: "Inkonsistente Rechtsgrundlage",
-      severity: "high",
-      description: "Im VVT ist Art. 6 Abs. 1 lit. e DSGVO angegeben, im Informationsblatt wird jedoch von Einwilligung gesprochen. Dies muss rechtssicher geklärt werden.",
-    },
-    {
-      title: "Fehlender AVV für US-Dienstleister",
-      severity: "high",
-      description: "Der Cloud-Provider in den USA ist als Empfänger genannt, jedoch fehlen AVV und TOMs sowie Drittlandtransfer-Garantien (z.B. SCCs).",
-    },
-  ],
-  openQuestions: [
-    "Welche konkrete Speicherdauer gilt für die Forschungsdaten? (z.B. 10 Jahre nach Projektende gemäß institutioneller Richtlinie)",
-    "Ist die Verarbeitung tatsächlich auf Art. 6 Abs. 1 lit. e DSGVO gestützt oder wird eine Einwilligung eingeholt?",
-    "Liegt ein unterzeichneter AVV mit CloudProvider Inc. vor? Falls ja, bitte nachreichen.",
-    "Welche Standard-Vertragsklauseln (SCCs) werden für den Drittlandtransfer verwendet?",
-  ],
-  recommendations: [
-    "Speicherdauer im VVT und Informationsblatt ergänzen",
-    "Rechtsgrundlage zwischen VVT und Informationsblatt konsistent darstellen",
-    "AVV, TOMs-Anlage und SCCs für US-Cloud-Provider nachreichen",
-    "DSFA vollständig erstellen (Schwellenwertanalyse deutet auf Erfordernis hin)",
-  ],
-  nextSteps: [
-    "Rückmeldung an Forschungsleitung mit offenen Fragen",
-    "Nach Revision: Playbook neu durchlaufen",
-    "DSFA-Erstellung begleiten",
-    "Abschließende Entscheidungsvorlage für DSB",
-  ],
+const statusLabel: Record<string, string> = {
+  intake: "Eingang",
+  in_review: "In Vorprüfung",
+  questions_pending: "Rückfragen",
+  revision: "Revision",
+  ready_for_decision: "Entscheidungsreife",
+  completed: "Abgeschlossen",
 };
 
-export function DSBReportView() {
+export function DSBReportView({ caseId }: DSBReportViewProps) {
+  const [data, setData] = useState<DSBReportViewData | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [downloadLoading, setDownloadLoading] = useState(false);
+
+  const load = useCallback(() => {
+    setLoading(true);
+    setError(null);
+    getDSBReport(caseId)
+      .then(setData)
+      .catch((e) => setError(e instanceof Error ? e.message : "Fehler beim Laden"))
+      .finally(() => setLoading(false));
+  }, [caseId]);
+
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  const handleDownloadMarkdown = async () => {
+    setDownloadLoading(true);
+    try {
+      const blob = await getDSBReportBlob(caseId, "markdown");
+      const date = new Date().toISOString().slice(0, 10);
+      const slug = (data?.caseTitle ?? caseId).replace(/[^\w\s-]/g, "").slice(0, 50).trim().replace(/\s+/g, "-") || "Report";
+      downloadBlob(blob, `DSB-Report-${slug}-${date}.md`);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Download fehlgeschlagen");
+    } finally {
+      setDownloadLoading(false);
+    }
+  };
+
+  if (loading && !data) {
+    return (
+      <div className="flex items-center justify-center py-12 gap-2 text-slate-600">
+        <Loader2 className="size-5 animate-spin" />
+        <span>Report wird geladen…</span>
+      </div>
+    );
+  }
+
+  if (error && !data) {
+    return (
+      <Alert variant="destructive">
+        <AlertDescription>{error}</AlertDescription>
+        <Button variant="outline" size="sm" className="mt-2" onClick={load}>
+          Erneut versuchen
+        </Button>
+      </Alert>
+    );
+  }
+
+  const reportData = data!;
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -103,18 +98,19 @@ export function DSBReportView() {
               <div>
                 <CardTitle>DSB Summary Report</CardTitle>
                 <CardDescription className="mt-1">
-                  Vorprüfung: {mockReportData.caseTitle}
+                  Vorprüfung: {reportData.caseTitle}
                 </CardDescription>
               </div>
             </div>
             <div className="flex gap-2">
-              <Button variant="outline" className="gap-2">
-                <Download className="size-4" />
-                Als PDF exportieren
-              </Button>
-              <Button variant="outline" className="gap-2">
-                <Download className="size-4" />
-                Als Markdown
+              <Button
+                variant="outline"
+                className="gap-2"
+                onClick={handleDownloadMarkdown}
+                disabled={downloadLoading}
+              >
+                {downloadLoading ? <Loader2 className="size-4 animate-spin" /> : <Download className="size-4" />}
+                Bericht herunterladen (Markdown)
               </Button>
             </div>
           </div>
@@ -130,21 +126,21 @@ export function DSBReportView() {
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
             <div>
               <p className="text-slate-600 mb-1">Report-ID</p>
-              <p className="font-medium">{mockReportData.caseId}-report-001</p>
+              <p className="font-medium">{reportData.caseId}-report</p>
             </div>
             <div>
               <p className="text-slate-600 mb-1">Generiert am</p>
               <p className="font-medium">
-                {new Date(mockReportData.generatedAt).toLocaleString("de-DE")}
+                {new Date(reportData.generatedAt).toLocaleString("de-DE")}
               </p>
             </div>
             <div>
               <p className="text-slate-600 mb-1">Playbook Version</p>
-              <p className="font-medium">{mockReportData.playbookVersion}</p>
+              <p className="font-medium">{reportData.playbookVersion || "–"}</p>
             </div>
             <div>
               <p className="text-slate-600 mb-1">Status</p>
-              <Badge className="bg-blue-100 text-blue-700">In Vorprüfung</Badge>
+              <Badge className="bg-blue-100 text-blue-700">{statusLabel[reportData.status] ?? reportData.status}</Badge>
             </div>
           </div>
         </CardContent>
@@ -165,16 +161,16 @@ export function DSBReportView() {
                 <FileText className="size-4 text-slate-400" />
                 <span className="text-sm text-slate-600">Dokumente</span>
               </div>
-              <p className="text-2xl font-semibold">{mockReportData.summary.totalDocuments}</p>
+              <p className="text-2xl font-semibold">{reportData.summary.totalDocuments}</p>
             </div>
             <div className="p-4 border rounded-lg">
               <div className="flex items-center gap-2 mb-2">
                 <AlertCircle className="size-4 text-red-600" />
                 <span className="text-sm text-slate-600">Findings</span>
               </div>
-              <p className="text-2xl font-semibold">{mockReportData.summary.totalFindings}</p>
+              <p className="text-2xl font-semibold">{reportData.summary.totalFindings}</p>
               <p className="text-xs text-red-600 mt-1">
-                {mockReportData.summary.criticalFindings} kritisch, {mockReportData.summary.highFindings} hoch
+                {reportData.summary.criticalFindings} kritisch, {reportData.summary.highFindings} hoch
               </p>
             </div>
             <div className="p-4 border rounded-lg">
@@ -182,11 +178,11 @@ export function DSBReportView() {
                 <CheckCircle2 className="size-4 text-green-600" />
                 <span className="text-sm text-slate-600">VVT-Vollständigkeit</span>
               </div>
-              <p className="text-2xl font-semibold">{mockReportData.summary.vvtCompleteness}%</p>
+              <p className="text-2xl font-semibold">{reportData.summary.vvtCompleteness}%</p>
             </div>
           </div>
 
-          {mockReportData.summary.dsfaRequired && (
+          {reportData.summary.dsfaRequired && (
             <Alert className="border-amber-200 bg-amber-50">
               <Shield className="size-4 text-amber-600" />
               <AlertDescription className="text-amber-800">
@@ -210,7 +206,10 @@ export function DSBReportView() {
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-3">
-          {mockReportData.risks.map((risk, index) => (
+          {reportData.risks.length === 0 ? (
+            <p className="text-sm text-slate-600">Keine Findings.</p>
+          ) : (
+          reportData.risks.map((risk, index) => (
             <div
               key={index}
               className={`p-4 border rounded-lg ${
@@ -250,7 +249,7 @@ export function DSBReportView() {
                 </div>
               </div>
             </div>
-          ))}
+          )))}
         </CardContent>
       </Card>
 
@@ -267,7 +266,7 @@ export function DSBReportView() {
         </CardHeader>
         <CardContent>
           <ol className="space-y-3">
-            {mockReportData.openQuestions.map((question, index) => (
+            {reportData.openQuestions.map((question, index) => (
               <li key={index} className="flex gap-3">
                 <span className="font-semibold text-blue-600">{index + 1}.</span>
                 <span className="text-sm text-slate-700">{question}</span>
@@ -287,7 +286,9 @@ export function DSBReportView() {
         </CardHeader>
         <CardContent>
           <ul className="space-y-2">
-            {mockReportData.recommendations.map((rec, index) => (
+            {reportData.recommendations.length === 0 ? (
+              <p className="text-sm text-slate-600">Keine.</p>
+            ) : reportData.recommendations.map((rec, index) => (
               <li key={index} className="flex gap-3 text-sm">
                 <CheckCircle2 className="size-4 text-green-600 mt-0.5 flex-shrink-0" />
                 <span className="text-slate-700">{rec}</span>
@@ -307,7 +308,7 @@ export function DSBReportView() {
         </CardHeader>
         <CardContent>
           <ol className="space-y-3">
-            {mockReportData.nextSteps.map((step, index) => (
+            {reportData.nextSteps.map((step, index) => (
               <li key={index} className="flex gap-3">
                 <div className="flex items-center justify-center size-6 rounded-full bg-blue-100 text-blue-700 text-sm font-medium flex-shrink-0">
                   {index + 1}

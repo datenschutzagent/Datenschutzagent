@@ -1,7 +1,12 @@
 """Case management CRUD API."""
+import csv
+import io
+import re
+from datetime import datetime
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.responses import JSONResponse, Response
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -9,8 +14,14 @@ from sqlalchemy.orm import selectinload
 from app.database import get_db
 from app.models import CaseCreate, CaseModel, CaseResponse, CaseUpdate, orm_to_case_response
 from app.models.db import DocumentModel, FindingModel, PlaybookModel
-from app.models.schemas import RunChecksRequest, VVTFieldResponse, VVTNormalizationResponse
+from app.models.schemas import (
+    DSBReportResponse,
+    RunChecksRequest,
+    VVTFieldResponse,
+    VVTNormalizationResponse,
+)
 from app.services.check_runner import run_check
+from app.services.dsb_report_service import build_dsb_report, render_report_markdown
 from app.services.vvt_service import normalize_vvt
 
 router = APIRouter()
@@ -99,6 +110,67 @@ async def delete_case(
     return None
 
 
+@router.get("/{case_id}/vvt-normalization/export", response_class=Response)
+async def get_vvt_normalization_export(
+    case_id: UUID,
+    document_id: UUID | None = Query(None, alias="document_id"),
+    format: str = Query("csv", alias="format"),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Export VVT normalization as CSV. Uses first VVT document if document_id not given.
+    Response: Content-Disposition attachment; filename="VVT-Export-{case_id}-{date}.csv".
+    """
+    result = await db.execute(
+        select(CaseModel)
+        .where(CaseModel.id == case_id)
+        .options(selectinload(CaseModel.documents))
+    )
+    case = result.scalar_one_or_none()
+    if not case:
+        raise HTTPException(status_code=404, detail="Case not found")
+
+    vvt_docs = [d for d in case.documents if d.type == "vvt"]
+    if not vvt_docs:
+        raise HTTPException(status_code=404, detail="No VVT document in this case")
+
+    if document_id is not None:
+        doc = next((d for d in vvt_docs if d.id == document_id), None)
+        if not doc:
+            raise HTTPException(
+                status_code=404,
+                detail="Document not found or is not a VVT document of this case",
+            )
+    else:
+        doc = vvt_docs[0]
+
+    raw_text = doc.content or ""
+    extraction = await normalize_vvt(raw_text)
+
+    buf = io.StringIO()
+    writer = csv.writer(buf)
+    writer.writerow(["document_name", "source_template", "field_name", "status", "canonical_value", "evidence", "finding"])
+    for f in extraction.fields:
+        writer.writerow([
+            doc.name,
+            extraction.source_template or "",
+            f.field_name,
+            f.status,
+            (f.canonical_value or "").replace("\r\n", " ").replace("\n", " "),
+            (f.evidence or "").replace("\r\n", " ").replace("\n", " "),
+            (f.finding or "").replace("\r\n", " ").replace("\n", " "),
+        ])
+    csv_content = buf.getvalue()
+    date_str = datetime.utcnow().strftime("%Y-%m-%d")
+    filename = f"VVT-Export-{case_id}-{date_str}.csv"
+    body = "\ufeff" + csv_content  # UTF-8 BOM for Excel
+    return Response(
+        content=body.encode("utf-8"),
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
 @router.get("/{case_id}/vvt-normalization", response_model=VVTNormalizationResponse)
 async def get_vvt_normalization(
     case_id: UUID,
@@ -157,6 +229,33 @@ async def get_vvt_normalization(
         document_name=doc.name,
         source_template=extraction.source_template or "Unbekannt",
         fields=fields,
+    )
+
+
+@router.get("/{case_id}/dsb-report")
+async def get_dsb_report(
+    case_id: UUID,
+    format: str = Query("markdown", alias="format"),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Get DSB summary report for the case. format=markdown (default) or format=json.
+    Markdown returns file download with Content-Disposition.
+    """
+    report = await build_dsb_report(case_id, db)
+    if format == "json":
+        return JSONResponse(content=report.model_dump(mode="json"))
+    md = render_report_markdown(report)
+    slug = re.sub(r"[^\w\s-]", "", report.case_title)[:50].strip() or "Report"
+    slug = re.sub(r"[-\s]+", "-", slug)
+    date_str = report.generated_at.strftime("%Y-%m-%d")
+    filename = f"DSB-Report-{slug}-{date_str}.md"
+    return Response(
+        content=md,
+        media_type="text/markdown; charset=utf-8",
+        headers={
+            "Content-Disposition": f'attachment; filename="{filename}"',
+        },
     )
 
 

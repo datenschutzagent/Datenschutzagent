@@ -547,7 +547,7 @@ export function CaseDetailPage() {
 
           {/* DSB Report Tab */}
           <TabsContent value="report">
-            <DSBReportView />
+            <DSBReportView caseId={caseData.id} />
           </TabsContent>
 
           {/* Annotated Documents Tab */}

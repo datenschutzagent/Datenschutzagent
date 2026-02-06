@@ -14,7 +14,7 @@ import {
   RefreshCw,
   Loader2
 } from "lucide-react";
-import { getVVTNormalization, type ApiVVTField } from "../lib/api";
+import { getVVTNormalization, getVVTExportBlob, downloadBlob, type ApiVVTField } from "../lib/api";
 
 interface VVTNormalizationViewProps {
   caseId: string;
@@ -25,6 +25,7 @@ export function VVTNormalizationView({ caseId, documentId }: VVTNormalizationVie
   const [data, setData] = useState<{ fields: ApiVVTField[]; documentName: string; sourceTemplate: string } | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [exportLoading, setExportLoading] = useState(false);
 
   const load = useCallback(() => {
     setLoading(true);
@@ -44,6 +45,19 @@ export function VVTNormalizationView({ caseId, documentId }: VVTNormalizationVie
   useEffect(() => {
     load();
   }, [load]);
+
+  const handleExport = async () => {
+    setExportLoading(true);
+    try {
+      const blob = await getVVTExportBlob(caseId, documentId, "csv");
+      const date = new Date().toISOString().slice(0, 10);
+      downloadBlob(blob, `VVT-Export-${caseId}-${date}.csv`);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Export fehlgeschlagen");
+    } finally {
+      setExportLoading(false);
+    }
+  };
 
   const fields = data?.fields ?? [];
   const totalFields = fields.length;
@@ -104,9 +118,9 @@ export function VVTNormalizationView({ caseId, documentId }: VVTNormalizationVie
                 {loading ? <Loader2 className="size-4 animate-spin" /> : <RefreshCw className="size-4" />}
                 Neu analysieren
               </Button>
-              <Button className="gap-2" disabled>
-                <Download className="size-4" />
-                Gold Standard exportieren
+              <Button className="gap-2" onClick={handleExport} disabled={exportLoading}>
+                {exportLoading ? <Loader2 className="size-4 animate-spin" /> : <Download className="size-4" />}
+                Als CSV exportieren
               </Button>
             </div>
           </div>

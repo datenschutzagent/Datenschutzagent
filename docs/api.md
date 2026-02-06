@@ -19,6 +19,8 @@ Das Backend ist mit FastAPI umgesetzt. Interaktive Doku:
 | PATCH | `/api/v1/cases/{id}` | Case aktualisieren (Titel, Status, Assignee, …). |
 | DELETE | `/api/v1/cases/{id}` | Case löschen (204). |
 | GET | `/api/v1/cases/{id}/vvt-normalization` | VVT-Normalisierung für den Case (erstes VVT-Dokument). Optional: `?document_id=uuid` für ein bestimmtes VVT-Dokument. Liefert kanonische VVT-Felder und Template-Erkennung (LLM). |
+| GET | `/api/v1/cases/{id}/vvt-normalization/export` | VVT-Normalisierung als CSV exportieren. Query: `format=csv` (Standard), optional `document_id=uuid`. Response: `text/csv` mit `Content-Disposition: attachment`; Spalten: document_name, source_template, field_name, status, canonical_value, evidence, finding. |
+| GET | `/api/v1/cases/{id}/dsb-report` | DSB Summary Report. Query: `format=markdown` (Standard) oder `format=json`. Markdown: Download mit `Content-Disposition: attachment`. JSON: Struktur mit case_id, case_title, generated_at, status, summary (total_documents, total_findings, critical_findings, high_findings, dsfa_required, vvt_completeness), risks, recommendations, open_questions, next_steps. |
 | POST | `/api/v1/cases/{id}/run-checks` | Playbook-Checks für den Case ausführen; Body: `{ "playbook_id": "uuid" }`. Findings werden persistiert. |
 
 ### Documents
@@ -55,4 +57,4 @@ Das Backend ist mit FastAPI umgesetzt. Interaktive Doku:
 
 ### Umgesetzt (Stand Roadmap)
 
-*   Run-Checks, DELETE Document, PATCH/DELETE Playbook, PATCH Finding (Status), GET VVT-Normalisierung sind implementiert.
+*   Run-Checks, DELETE Document, PATCH/DELETE Playbook, PATCH Finding (Status), GET VVT-Normalisierung, GET VVT-Export (CSV), GET DSB-Report (Markdown/JSON) sind implementiert.

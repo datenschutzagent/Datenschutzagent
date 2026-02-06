@@ -1,6 +1,6 @@
 # Nächste Schritte – Plan nach Roadmap & Gap-Analyse
 
-Stand: Aktualisiert nach Abgleich mit Code. Die Punkte 1–3 und optionale Backend-Erweiterungen (Run-Checks, Frontend-API, Finding-Status, DELETE Document, Playbook PATCH/DELETE) sind umgesetzt.
+Stand: Aktualisiert nach Abgleich mit Code. Die Punkte 1–3 (Run-Checks, Frontend-API, Finding-Status, DELETE Document, Playbook PATCH/DELETE) und **VVT** (Backend + Frontend mit echter API) sind umgesetzt. Siehe `docs/sprint_plan.md` für den nächsten Sprint.
 
 ---
 
@@ -18,7 +18,7 @@ Stand: Aktualisiert nach Abgleich mit Code. Die Punkte 1–3 und optionale Backe
 | **Run-Checks API** | Implementiert | ✅ `POST /api/v1/cases/{id}/run-checks` in `cases.py`; ruft Check Runner auf, persistiert Findings |
 | **Finding-Status API** | Implementiert | ✅ `PATCH /api/v1/findings/{id}` in `findings.py` (Body: `status`) |
 | **Ollama Health** | Implementiert | ✅ `/health` prüft bei `ollama_enabled` Ollama (`/api/tags`); bei Fehler `status: degraded`. |
-| **VVT** | Nicht implementiert | ❌ Kein Fingerprinting, kein kanonisches Modell, kein Export; Frontend nur Platzhalter |
+| **VVT** | Implementiert | ✅ `vvt_service.py` (Fingerprinting via source_template, kanonisches Modell, LLM-Mapping), `GET /cases/{id}/vvt-normalization` in `cases.py`; Frontend `VVTNormalizationView` nutzt `getVVTNormalization()` aus `api.ts`. Export Ziel-Template optional offen. |
 
 ### Frontend
 
@@ -32,7 +32,7 @@ Stand: Aktualisiert nach Abgleich mit Code. Die Punkte 1–3 und optionale Backe
 | **UI „Checks starten“** | Implementiert | ✅ Case-Detail: Run-Checks-Dialog mit Playbook-Auswahl, `runChecks()` |
 | **UI Finding-Status** | Implementiert | ✅ Case-Detail: Status-Buttons, `updateFindingStatus()` |
 | **Dashboard Playbooks** | Echte API | ✅ `dashboard-stats.tsx` lädt Playbooks via `getPlaybooks()`; Fallback leere Liste. |
-| **UI VVT-Normalisierung** | Platzhalter | VVT-View mit `mockVVTData`; keine echte VVT-Logik |
+| **UI VVT-Normalisierung** | Echte API | ✅ `vvt-normalization-view.tsx` lädt per `getVVTNormalization(caseId, documentId)`; Anzeige Felder, Template, Fortschritt. |
 
 ---
 
@@ -93,7 +93,7 @@ Stand: Aktualisiert nach Abgleich mit Code. Die Punkte 1–3 und optionale Backe
 - **Phase 2:**  
   - Run-Checks API: **implementiert** (`POST /cases/{id}/run-checks`, Findings persistiert).  
   - Ollama-Status: **implementiert** (`/health` prüft Ollama bei `ollama_enabled`).  
-  - VVT (Fingerprinting, Modell, Mapping, Frontend): **fehlt** (nur Platzhalter-UI).
+  - VVT (Fingerprinting, Modell, Mapping, Frontend): **implementiert** (`vvt_service.py`, `GET /cases/{id}/vvt-normalization`, `VVTNormalizationView` mit `getVVTNormalization()`). Optional: Export Ziel-Template noch offen.
 
 - **Gap „Findings maschinenlesbar“:**  
   - Modell + Case-Response + Erzeugung durch Run-Checks + PATCH Findings: **erledigt.**
@@ -101,7 +101,7 @@ Stand: Aktualisiert nach Abgleich mit Code. Die Punkte 1–3 und optionale Backe
 - **Gap „Finding-Status in UI“:**  
   - Enum/DB + API `PATCH /findings/{id}` + UI (Case-Detail Status-Buttons): **erledigt.**
 
-- **Verbleibende Lücken:** VVT-Backend, Phase 3 (DSB-Report, kommentierte Docs), Dokument-Versionierung, Auth/Audit.
+- **Verbleibende Lücken:** Phase 3 (DSB-Report, kommentierte Docs, Cross-Document), optional VVT-Export, Dokument-Versionierung, Auth/Audit.
 
 ---
 

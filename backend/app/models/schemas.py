@@ -146,3 +146,35 @@ class VVTNormalizationResponse(BaseModel):
     document_name: str = ""
     source_template: str = ""
     fields: list[VVTFieldResponse] = []
+
+
+# --- DSB Report ---
+class DSBReportSummary(BaseModel):
+    """Summary section of the DSB report."""
+    total_documents: int = 0
+    total_findings: int = 0
+    critical_findings: int = 0
+    high_findings: int = 0
+    dsfa_required: bool = False
+    vvt_completeness: int = 0
+
+
+class DSBReportRisk(BaseModel):
+    """Single risk entry (from finding) in the DSB report."""
+    title: str
+    severity: Literal["critical", "high", "medium", "low", "info"]
+    description: str
+
+
+class DSBReportResponse(BaseModel):
+    """Full DSB summary report for a case."""
+    case_id: UUID
+    case_title: str
+    generated_at: datetime
+    playbook_version: str = ""
+    status: str
+    summary: DSBReportSummary
+    risks: list[DSBReportRisk] = []
+    open_questions: list[str] = []
+    recommendations: list[str] = []
+    next_steps: list[str] = []

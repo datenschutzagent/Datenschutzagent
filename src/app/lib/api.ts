@@ -226,6 +226,35 @@ export interface ApiPlaybook {
   checks: unknown[];
 }
 
+// --- DSB Report (API returns snake_case; we map to camelCase for UI) ---
+export interface ApiDSBReportSummary {
+  total_documents: number;
+  total_findings: number;
+  critical_findings: number;
+  high_findings: number;
+  dsfa_required: boolean;
+  vvt_completeness: number;
+}
+
+export interface ApiDSBReportRisk {
+  title: string;
+  severity: "critical" | "high" | "medium" | "low" | "info";
+  description: string;
+}
+
+export interface ApiDSBReport {
+  case_id: string;
+  case_title: string;
+  generated_at: string;
+  playbook_version: string;
+  status: string;
+  summary: ApiDSBReportSummary;
+  risks: ApiDSBReportRisk[];
+  open_questions: string[];
+  recommendations: string[];
+  next_steps: string[];
+}
+
 // --- Cases ---
 export async function getCases(skip = 0, limit = 100): Promise<ApiCase[]> {
   const list = (await request<Record<string, unknown>[]>("GET", `/cases?skip=${skip}&limit=${limit}`)) ?? [];
@@ -256,6 +285,84 @@ export async function runChecks(caseId: string, playbookId: string): Promise<Api
     body: { playbook_id: playbookId },
   });
   return mapCase(c) as ApiCase;
+}
+
+// --- DSB Report ---
+export interface DSBReportViewData {
+  caseId: string;
+  caseTitle: string;
+  generatedAt: string;
+  playbookVersion: string;
+  status: string;
+  summary: {
+    totalDocuments: number;
+    totalFindings: number;
+    criticalFindings: number;
+    highFindings: number;
+    dsfaRequired: boolean;
+    vvtCompleteness: number;
+  };
+  risks: ApiDSBReportRisk[];
+  openQuestions: string[];
+  recommendations: string[];
+  nextSteps: string[];
+}
+
+function mapDSBReport(r: ApiDSBReport): DSBReportViewData {
+  const s = r.summary;
+  return {
+    caseId: r.case_id,
+    caseTitle: r.case_title,
+    generatedAt: r.generated_at,
+    playbookVersion: r.playbook_version ?? "",
+    status: r.status,
+    summary: {
+      totalDocuments: s?.total_documents ?? 0,
+      totalFindings: s?.total_findings ?? 0,
+      criticalFindings: s?.critical_findings ?? 0,
+      highFindings: s?.high_findings ?? 0,
+      dsfaRequired: s?.dsfa_required ?? false,
+      vvtCompleteness: s?.vvt_completeness ?? 0,
+    },
+    risks: r.risks ?? [],
+    openQuestions: r.open_questions ?? [],
+    recommendations: r.recommendations ?? [],
+    nextSteps: r.next_steps ?? [],
+  };
+}
+
+export async function getDSBReport(caseId: string): Promise<DSBReportViewData> {
+  const r = await request<ApiDSBReport>("GET", `/cases/${caseId}/dsb-report?format=json`);
+  return mapDSBReport(r);
+}
+
+export async function getDSBReportBlob(
+  caseId: string,
+  format: "markdown" | "json"
+): Promise<Blob> {
+  const url = `${API_BASE}${API_PREFIX}/cases/${caseId}/dsb-report?format=${format}`;
+  const res = await fetch(url);
+  if (!res.ok) {
+    const text = await res.text();
+    let detail = text;
+    try {
+      const j = JSON.parse(text);
+      detail = j.detail ?? text;
+    } catch {
+      // use text
+    }
+    throw new Error(detail);
+  }
+  return res.blob();
+}
+
+/** Trigger download of a blob with suggested filename. */
+export function downloadBlob(blob: Blob, filename: string): void {
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(a.href);
 }
 
 // --- Documents ---
@@ -334,4 +441,27 @@ export async function getVVTNormalization(
     sourceTemplate: (r.source_template as string) ?? "",
     fields,
   };
+}
+
+export async function getVVTExportBlob(
+  caseId: string,
+  documentId?: string,
+  format: "csv" = "csv"
+): Promise<Blob> {
+  const params = new URLSearchParams({ format });
+  if (documentId) params.set("document_id", documentId);
+  const url = `${API_BASE}${API_PREFIX}/cases/${caseId}/vvt-normalization/export?${params}`;
+  const res = await fetch(url);
+  if (!res.ok) {
+    const text = await res.text();
+    let detail = text;
+    try {
+      const j = JSON.parse(text);
+      detail = j.detail ?? text;
+    } catch {
+      // use text
+    }
+    throw new Error(detail);
+  }
+  return res.blob();
 }
