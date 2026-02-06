@@ -38,7 +38,7 @@ graph TD
 ### 1. Case Service
 *   **Location**: `backend/app/api/routes/cases.py`
 *   **Entities**: `Case` (status, department, case_type, language, etc.), `ActivityLog` (Audit-Events pro Case).
-*   **Responsibilities**: CRUD inkl. Löschen, Status-Übergänge, Assignee. Run-Checks-Endpoint implementiert (`POST /cases/{id}/run-checks`). Audit-Log (`activity_log`) für Run-Checks und Finding-Status; `GET /cases/{id}/activities` für die Activity-Timeline im Frontend.
+*   **Responsibilities**: CRUD inkl. Löschen, Status-Übergänge, Assignee. Run-Checks-Endpoint implementiert (`POST /cases/{id}/run-checks`). Agent-Runs (Run-Checks) werden ausschließlich manuell ausgelöst (Button „Playbook-Checks ausführen“ in der Case-Detail-Seite); kein automatischer oder zeitgesteuerter Trigger. Audit-Log (`activity_log`) für Run-Checks und Finding-Status; `GET /cases/{id}/activities` für die Activity-Timeline im Frontend.
 
 ### 2. Document Service
 *   **Location**: `backend/app/api/routes/documents.py`, `backend/app/services/document_processor.py`, `backend/app/storage.py`

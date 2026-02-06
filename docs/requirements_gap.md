@@ -10,8 +10,8 @@ Abgleich der Projektbeschreibung (Anforderungen) mit dem aktuellen Implementieru
 
 | Anforderung | Status | Anmerkung |
 | :--- | :--- | :--- |
-| Vorgang anlegen mit Metadaten | ✅ | Backend + Frontend; API Create/Update. |
-| Mehrere Dokumente je Vorgang | ✅ | Einzelupload + Mehrfach-Upload: `POST /api/v1/documents/bulk` (mehrere Dateien, gleicher Typ); Frontend nutzt Bulk bei gleichem Dokumenttyp. |
+| Vorgang anlegen mit Metadaten | ✅ | Backend + Frontend; API Create/Update. Optional: Dokumente bereits im Dialog „Neuer Vorgang“ hochladbar (Frontend-Flow: nach Create sofort `uploadDocumentsBulk`). |
+| Mehrere Dokumente je Vorgang | ✅ | Einzelupload + Mehrfach-Upload: `POST /api/v1/documents/bulk` (mehrere Dateien, gleicher Typ); Frontend nutzt Bulk bei gleichem Dokumenttyp. Optional: Dokumente im Dialog „Neuer Vorgang“ (Schritt 3) auswählbar. |
 | Versionierung (Stände je Dokument) | ❌ | Keine Logik für v1/v2 pro Dokumenttyp. |
 | Statusmodell | ✅ | `CaseStatusEnum`; Status im Case-Modell. |
 | Vorgang löschen | ✅ | `DELETE /api/v1/cases/{id}`. |

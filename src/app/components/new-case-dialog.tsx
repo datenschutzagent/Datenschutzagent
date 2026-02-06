@@ -6,8 +6,9 @@ import { Label } from "./ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./ui/select";
 import { Textarea } from "./ui/textarea";
 import { Badge } from "./ui/badge";
-import { FileText, CheckCircle2 } from "lucide-react";
-import { getDepartments, getPlaybooks, createCase, type ApiCase, type ApiDepartment, type ApiPlaybook } from "../lib/api";
+import { FileText, CheckCircle2, Upload, X } from "lucide-react";
+import { getDepartments, getPlaybooks, createCase, uploadDocumentsBulk, type ApiCase, type ApiDepartment, type ApiPlaybook } from "../lib/api";
+import { documentTypeLabels, type DocumentType } from "../lib/mock-data";
 
 interface NewCaseDialogProps {
   open: boolean;
@@ -15,12 +16,17 @@ interface NewCaseDialogProps {
   onSuccess?: (newCase: ApiCase) => void;
 }
 
+const ALLOWED_EXTENSIONS = [".docx", ".pdf", ".xlsx", ".doc"];
+const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
+
 export function NewCaseDialog({ open, onOpenChange, onSuccess }: NewCaseDialogProps) {
-  const [step, setStep] = useState<1 | 2>(1);
+  const [step, setStep] = useState<1 | 2 | 3>(1);
   const [departmentsFromApi, setDepartmentsFromApi] = useState<ApiDepartment[]>([]);
   const [playbooks, setPlaybooks] = useState<ApiPlaybook[]>([]);
   const [loading, setLoading] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
+  const [pendingFiles, setPendingFiles] = useState<File[]>([]);
+  const [pendingDocumentType, setPendingDocumentType] = useState<DocumentType>("other");
   const [formData, setFormData] = useState({
     title: "",
     department: "",
@@ -58,8 +64,13 @@ export function NewCaseDialog({ open, onOpenChange, onSuccess }: NewCaseDialogPr
         created_by: "",
         assignee: formData.assignee,
       });
+      if (pendingFiles.length > 0) {
+        await uploadDocumentsBulk(newCase.id, pendingFiles, pendingDocumentType, formData.assignee || "");
+      }
       onOpenChange(false);
       setStep(1);
+      setPendingFiles([]);
+      setPendingDocumentType("other");
       setFormData({
         title: "",
         department: "",
@@ -76,6 +87,21 @@ export function NewCaseDialog({ open, onOpenChange, onSuccess }: NewCaseDialogPr
     }
   };
 
+  const addPendingFiles = (files: FileList | null) => {
+    if (!files?.length) return;
+    const valid: File[] = [];
+    for (let i = 0; i < files.length; i++) {
+      const f = files[i];
+      const ext = "." + (f.name.split(".").pop()?.toLowerCase() ?? "");
+      if (ALLOWED_EXTENSIONS.includes(ext) && f.size <= MAX_FILE_SIZE) valid.push(f);
+    }
+    setPendingFiles((prev) => [...prev, ...valid]);
+  };
+
+  const removePendingFile = (index: number) => {
+    setPendingFiles((prev) => prev.filter((_, i) => i !== index));
+  };
+
   const canProceedToStep2 = formData.title && formData.department;
   const canSubmit = formData.title && formData.department && formData.caseType;
 
@@ -85,24 +111,33 @@ export function NewCaseDialog({ open, onOpenChange, onSuccess }: NewCaseDialogPr
         <DialogHeader>
           <DialogTitle>Neuen Vorgang anlegen</DialogTitle>
           <DialogDescription>
-            {step === 1 ? "Geben Sie die Grundinformationen zum Forschungsvorhaben ein." : "Wählen Sie das passende Playbook für die Vorprüfung."}
+            {step === 1 && "Geben Sie die Grundinformationen zum Forschungsvorhaben ein."}
+            {step === 2 && "Wählen Sie das passende Playbook für die Vorprüfung."}
+            {step === 3 && "Optional: Dokumente hinzufügen. Sie können auch später auf der Vorgangsseite hochladen."}
           </DialogDescription>
         </DialogHeader>
 
         {/* Step Indicator */}
-        <div className="flex items-center gap-4 mb-4">
+        <div className="flex items-center gap-2 mb-4">
           <div className="flex items-center gap-2">
-            <div className={`size-8 rounded-full flex items-center justify-center ${step >= 1 ? 'bg-blue-600 text-white' : 'bg-slate-200 text-slate-600'}`}>
+            <div className={`size-8 rounded-full flex items-center justify-center ${step >= 1 ? "bg-blue-600 text-white" : "bg-slate-200 text-slate-600"}`}>
               {step > 1 ? <CheckCircle2 className="size-5" /> : "1"}
             </div>
             <span className="text-sm font-medium">Grunddaten</span>
           </div>
-          <div className="flex-1 h-px bg-slate-200" />
+          <div className="flex-1 h-px bg-slate-200 max-w-4" />
           <div className="flex items-center gap-2">
-            <div className={`size-8 rounded-full flex items-center justify-center ${step >= 2 ? 'bg-blue-600 text-white' : 'bg-slate-200 text-slate-600'}`}>
-              2
+            <div className={`size-8 rounded-full flex items-center justify-center ${step >= 2 ? "bg-blue-600 text-white" : "bg-slate-200 text-slate-600"}`}>
+              {step > 2 ? <CheckCircle2 className="size-5" /> : "2"}
             </div>
             <span className="text-sm font-medium">Playbook</span>
+          </div>
+          <div className="flex-1 h-px bg-slate-200 max-w-4" />
+          <div className="flex items-center gap-2">
+            <div className={`size-8 rounded-full flex items-center justify-center ${step >= 3 ? "bg-blue-600 text-white" : "bg-slate-200 text-slate-600"}`}>
+              3
+            </div>
+            <span className="text-sm font-medium">Dokumente (optional)</span>
           </div>
         </div>
 
@@ -237,12 +272,61 @@ export function NewCaseDialog({ open, onOpenChange, onSuccess }: NewCaseDialogPr
           </div>
         )}
 
+        {step === 3 && (
+          <div className="space-y-4">
+            <p className="text-sm text-slate-600">
+              Sie können jetzt Dokumente hinzufügen oder den Vorgang ohne Dokumente anlegen und später hochladen.
+            </p>
+            <div className="space-y-2">
+              <Label>Dokumenttyp (für alle ausgewählten Dateien)</Label>
+              <Select value={pendingDocumentType} onValueChange={(v) => setPendingDocumentType(v as DocumentType)}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {Object.entries(documentTypeLabels).map(([type, label]) => (
+                    <SelectItem key={type} value={type}>
+                      {label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="border-2 border-dashed border-slate-300 rounded-lg p-6 text-center">
+              <Upload className="size-10 mx-auto mb-2 text-slate-400" />
+              <Label className="text-blue-600 hover:text-blue-700 cursor-pointer">
+                Dateien auswählen
+                <input
+                  type="file"
+                  multiple
+                  accept=".docx,.pdf,.xlsx,.doc"
+                  className="hidden"
+                  onChange={(e) => addPendingFiles(e.target.files)}
+                />
+              </Label>
+              <p className="text-sm text-slate-500 mt-1">DOCX, PDF, XLSX, DOC (max. 10 MB)</p>
+            </div>
+            {pendingFiles.length > 0 && (
+              <ul className="space-y-2">
+                {pendingFiles.map((f, i) => (
+                  <li key={i} className="flex items-center justify-between rounded border border-slate-200 px-3 py-2 text-sm">
+                    <span className="truncate">{f.name}</span>
+                    <Button type="button" variant="ghost" size="sm" onClick={() => removePendingFile(i)}>
+                      <X className="size-4" />
+                    </Button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        )}
+
         {submitError && (
           <p className="text-sm text-red-600">{submitError}</p>
         )}
         <DialogFooter>
-          {step === 2 && (
-            <Button variant="outline" onClick={() => setStep(1)}>
+          {step >= 2 && (
+            <Button variant="outline" onClick={() => setStep((s) => (s - 1) as 1 | 2 | 3)}>
               Zurück
             </Button>
           )}
@@ -252,8 +336,18 @@ export function NewCaseDialog({ open, onOpenChange, onSuccess }: NewCaseDialogPr
             </Button>
           )}
           {step === 2 && (
-            <Button onClick={handleSubmit} disabled={!canSubmit || loading}>
-              {loading ? "Wird angelegt…" : "Vorgang anlegen"}
+            <>
+              <Button onClick={() => setStep(3)} disabled={!canSubmit}>
+                Weiter
+              </Button>
+              <Button onClick={handleSubmit} disabled={!canSubmit || loading}>
+                {loading ? "Wird angelegt…" : "Vorgang anlegen (ohne Dokumente)"}
+              </Button>
+            </>
+          )}
+          {step === 3 && (
+            <Button onClick={handleSubmit} disabled={loading}>
+              {loading ? "Wird angelegt…" : pendingFiles.length > 0 ? "Vorgang anlegen & Dokumente hochladen" : "Vorgang anlegen"}
             </Button>
           )}
         </DialogFooter>

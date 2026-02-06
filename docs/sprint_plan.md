@@ -1,10 +1,22 @@
 # Sprint-Plan (aktuell)
 
-Stand: Nach Umsetzung Sprint Reproduzierbarkeit + optionale Artefakte. Vorherige Sprints (Cross-Document-Checks; Fachbereiche, Playbook-YAML, Playbook-CRUD; Audit-Log + Activity-Timeline; Playbook-Detail; Mehrfach-Upload; Annotated Documents) abgeschlossen.
+Stand: Nach Umsetzung Sprint „Dokumente beim Anlegen (optional)“. Vorherige Sprints (Reproduzierbarkeit + Artefakte; Cross-Document-Checks; Fachbereiche, Playbook-YAML, Playbook-CRUD; Audit-Log + Activity-Timeline; Playbook-Detail; Mehrfach-Upload; Annotated Documents) abgeschlossen.
 
 ---
 
-## Letzter Sprint – Reproduzierbarkeit + optionale Artefakte (abgeschlossen)
+## Aktueller Sprint – Dokumente beim Anlegen (optional) (abgeschlossen)
+
+1. **Neuer Vorgang Dialog** – Optionaler dritter Schritt „Dokumente (optional)“ im Dialog; Nutzer können Dateien auswählen und einen Dokumenttyp für alle setzen. Nach `createCase()` wird bei vorhandenen Dateien `uploadDocumentsBulk(newCase.id, files, documentType, assignee)` aufgerufen; danach Navigation zur Case-Detailseite (bestehender `onSuccess`-Flow).
+2. **Dokumentation** – sprint_plan.md, roadmap.md, requirements_gap.md um den neuen Flow ergänzt.
+
+| # | Aufgabe | Status |
+| :--- | :--- | :--- |
+| 1 | Optionaler Schritt „Dokumente“ im Neuer-Vorgang-Dialog (Frontend) | ✅ |
+| 2 | Doku (sprint_plan, roadmap, requirements_gap) | ✅ |
+
+---
+
+## Vorheriger Sprint – Reproduzierbarkeit + optionale Artefakte (abgeschlossen)
 
 1. **Reproduzierbarkeit** – Bei `run_checks` im `activity_log.payload`: `playbook_version` (aus Playbook) und `model` (aus `settings.ollama_model`) ergänzt; Doku (api.md, requirements_gap.md) angepasst.
 2. **finding_status_updated** – Payload unverändert (Playbook-Kontext am Finding nicht gespeichert; bewusst weggelassen).

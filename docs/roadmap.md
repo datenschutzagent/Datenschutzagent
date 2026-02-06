@@ -12,9 +12,9 @@
 | :--- | :--- | :--- |
 | Projekt-Setup | ✅ | Docker Compose: Postgres, MinIO, Redis, Backend, Frontend. |
 | Datenmodelle | ✅ | `Case`, `Document` (inkl. `content`), `Finding`, `Playbook`. |
-| Case-API | ✅ | CRUD inkl. `DELETE /api/v1/cases/{id}`. |
+| Case-API | ✅ | CRUD inkl. `DELETE /api/v1/cases/{id}`. Optional: Dokumente bereits im Dialog „Neuer Vorgang“ hochladbar (Frontend-Flow: Create Case → Upload Bulk). |
 | Storage | ✅ | Lokal und MinIO in `backend/app/storage.py`. |
-| Dokumenten-Upload | ✅ | Einzelupload + Mehrfach-Upload (`POST /documents/bulk`); Extraktion bei Upload (PDF/DOCX/XLSX). |
+| Dokumenten-Upload | ✅ | Einzelupload + Mehrfach-Upload (`POST /documents/bulk`); Extraktion bei Upload (PDF/DOCX/XLSX). Optional: Dokumente im Dialog „Neuer Vorgang“ (Schritt 3) auswählbar, Upload nach Case-Erstellung. |
 | Textextraktion | ✅ | `document_processor.py`; Ergebnis in `Document.content`. |
 | Playbook-API | ✅ | CRUD Playbooks (`/api/v1/playbooks/`). |
 | LLM / Check Runner | ✅ | PydanticAI + Ollama (`core/llm.py`), `check_runner.run_check()`. |
