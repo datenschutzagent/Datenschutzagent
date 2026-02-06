@@ -552,7 +552,7 @@ export function CaseDetailPage() {
 
           {/* Annotated Documents Tab */}
           <TabsContent value="annotated">
-            <AnnotatedDocumentsView />
+            <AnnotatedDocumentsView caseId={caseData.id} />
           </TabsContent>
         </Tabs>
       </main>

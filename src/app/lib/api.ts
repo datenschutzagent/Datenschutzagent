@@ -465,3 +465,40 @@ export async function getVVTExportBlob(
   }
   return res.blob();
 }
+
+// --- Annotated Documents (DOCX with findings) ---
+export interface ApiAnnotatedDocumentItem {
+  document_id: string;
+  document_name: string;
+  finding_count: number;
+}
+
+export async function getAnnotatedDocuments(caseId: string): Promise<ApiAnnotatedDocumentItem[]> {
+  const list =
+    (await request<Record<string, unknown>[]>("GET", `/cases/${caseId}/annotated-documents`)) ?? [];
+  return list.map((d) => ({
+    document_id: d.document_id as string,
+    document_name: (d.document_name as string) ?? "",
+    finding_count: (d.finding_count as number) ?? 0,
+  }));
+}
+
+export async function getAnnotatedDocumentBlob(
+  caseId: string,
+  documentId: string
+): Promise<Blob> {
+  const url = `${API_BASE}${API_PREFIX}/cases/${caseId}/annotated-documents/${documentId}`;
+  const res = await fetch(url);
+  if (!res.ok) {
+    const text = await res.text();
+    let detail = text;
+    try {
+      const j = JSON.parse(text);
+      detail = j.detail ?? text;
+    } catch {
+      // use text
+    }
+    throw new Error(detail);
+  }
+  return res.blob();
+}

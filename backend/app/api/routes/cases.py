@@ -15,11 +15,13 @@ from app.database import get_db
 from app.models import CaseCreate, CaseModel, CaseResponse, CaseUpdate, orm_to_case_response
 from app.models.db import DocumentModel, FindingModel, PlaybookModel
 from app.models.schemas import (
+    AnnotatedDocumentListItem,
     DSBReportResponse,
     RunChecksRequest,
     VVTFieldResponse,
     VVTNormalizationResponse,
 )
+from app.services.annotated_document_service import build_annotated_docx, list_annotatable_documents
 from app.services.check_runner import run_check
 from app.services.dsb_report_service import build_dsb_report, render_report_markdown
 from app.services.vvt_service import normalize_vvt
@@ -256,6 +258,40 @@ async def get_dsb_report(
         headers={
             "Content-Disposition": f'attachment; filename="{filename}"',
         },
+    )
+
+
+@router.get("/{case_id}/annotated-documents", response_model=list[AnnotatedDocumentListItem])
+async def list_annotated_documents(
+    case_id: UUID,
+    db: AsyncSession = Depends(get_db),
+):
+    """List documents that have findings and can be downloaded as annotated DOCX."""
+    result = await db.execute(select(CaseModel).where(CaseModel.id == case_id))
+    if result.scalar_one_or_none() is None:
+        raise HTTPException(status_code=404, detail="Case not found")
+    items = await list_annotatable_documents(case_id, db)
+    return [
+        AnnotatedDocumentListItem(document_id=doc_id, document_name=name, finding_count=count)
+        for doc_id, name, count in items
+    ]
+
+
+@router.get("/{case_id}/annotated-documents/{document_id}", response_class=Response)
+async def get_annotated_document(
+    case_id: UUID,
+    document_id: UUID,
+    db: AsyncSession = Depends(get_db),
+):
+    """Download annotated DOCX for a document (content + findings section)."""
+    try:
+        content, filename = await build_annotated_docx(case_id, document_id, db)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    return Response(
+        content=content,
+        media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
 
 

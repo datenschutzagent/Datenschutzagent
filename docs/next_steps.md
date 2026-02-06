@@ -1,6 +1,6 @@
 # Nächste Schritte – Plan nach Roadmap & Gap-Analyse
 
-Stand: Aktualisiert nach Abgleich mit Code. Die Punkte 1–3 (Run-Checks, Frontend-API, Finding-Status, DELETE Document, Playbook PATCH/DELETE) und **VVT** (Backend + Frontend mit echter API) sind umgesetzt. Siehe `docs/sprint_plan.md` für den nächsten Sprint.
+Stand: Aktualisiert nach Abgleich mit Code. Die Punkte 1–3 (Run-Checks, Frontend-API, Finding-Status, DELETE Document, Playbook PATCH/DELETE), **VVT** (Backend + Frontend mit echter API) und **DSB-Report** sind umgesetzt. Nächster Sprint: siehe `docs/sprint_plan.md` bzw. Roadmap Phase 3.
 
 ---
 
@@ -18,7 +18,9 @@ Stand: Aktualisiert nach Abgleich mit Code. Die Punkte 1–3 (Run-Checks, Fronte
 | **Run-Checks API** | Implementiert | ✅ `POST /api/v1/cases/{id}/run-checks` in `cases.py`; ruft Check Runner auf, persistiert Findings |
 | **Finding-Status API** | Implementiert | ✅ `PATCH /api/v1/findings/{id}` in `findings.py` (Body: `status`) |
 | **Ollama Health** | Implementiert | ✅ `/health` prüft bei `ollama_enabled` Ollama (`/api/tags`); bei Fehler `status: degraded`. |
-| **VVT** | Implementiert | ✅ `vvt_service.py` (Fingerprinting via source_template, kanonisches Modell, LLM-Mapping), `GET /cases/{id}/vvt-normalization` in `cases.py`; Frontend `VVTNormalizationView` nutzt `getVVTNormalization()` aus `api.ts`. Export Ziel-Template optional offen. |
+| **VVT** | Implementiert | ✅ `vvt_service.py` (Fingerprinting via source_template, kanonisches Modell, LLM-Mapping), `GET /cases/{id}/vvt-normalization` in `cases.py`; Frontend `VVTNormalizationView` nutzt `getVVTNormalization()` aus `api.ts`. VVT CSV-Export: `GET /cases/{id}/vvt-normalization/export`. Ziel-Template (DOCX) optional. |
+| **DSB Report** | Implementiert | ✅ `dsb_report_service.py`, `GET /cases/{id}/dsb-report` (format=json \| markdown); Frontend `DSBReportView`. |
+| **Annotierte Dokumente** | Implementiert | ✅ `annotated_document_service.py`; `GET /cases/{id}/annotated-documents` (Liste), `GET /cases/{id}/annotated-documents/{document_id}` (DOCX-Download); Frontend `AnnotatedDocumentsView` mit `caseId`, echte API. |
 
 ### Frontend
 
@@ -33,6 +35,7 @@ Stand: Aktualisiert nach Abgleich mit Code. Die Punkte 1–3 (Run-Checks, Fronte
 | **UI Finding-Status** | Implementiert | ✅ Case-Detail: Status-Buttons, `updateFindingStatus()` |
 | **Dashboard Playbooks** | Echte API | ✅ `dashboard-stats.tsx` lädt Playbooks via `getPlaybooks()`; Fallback leere Liste. |
 | **UI VVT-Normalisierung** | Echte API | ✅ `vvt-normalization-view.tsx` lädt per `getVVTNormalization(caseId, documentId)`; Anzeige Felder, Template, Fortschritt. |
+| **UI Annotierte Dokumente** | Echte API | ✅ `annotated-documents-view.tsx` mit `caseId`; `getAnnotatedDocuments()`, `getAnnotatedDocumentBlob()`; Liste und DOCX-Download. |
 
 ---
 
@@ -101,7 +104,7 @@ Stand: Aktualisiert nach Abgleich mit Code. Die Punkte 1–3 (Run-Checks, Fronte
 - **Gap „Finding-Status in UI“:**  
   - Enum/DB + API `PATCH /findings/{id}` + UI (Case-Detail Status-Buttons): **erledigt.**
 
-- **Verbleibende Lücken:** Phase 3 (DSB-Report, kommentierte Docs, Cross-Document), optional VVT-Export, Dokument-Versionierung, Auth/Audit.
+- **Verbleibende Lücken:** Phase 3 (Cross-Document); optional VVT Ziel-Template (DOCX), PDF für annotierte Dokumente, Dokument-Versionierung, Auth/Audit. DSB-Report, VVT CSV-Export und annotierte DOCX sind erledigt.
 
 ---
 

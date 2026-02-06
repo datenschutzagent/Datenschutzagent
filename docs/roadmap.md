@@ -41,7 +41,7 @@
 **Nächste Schritte Phase 2:**
 1. ~~API-Endpoint Run-Checks~~ ✅ Erledigt (`POST /api/v1/cases/{id}/run-checks`; Findings werden persistiert).
 2. ~~Optional: Ollama-Erreichbarkeit im Health-Check~~ ✅ Erledigt.
-3. ~~VVT: Fingerprinting, kanonisches Modell, Mapping, Frontend-Ansicht~~ ✅ Erledigt (`GET /cases/{id}/vvt-normalization`, VVTNormalizationView mit API). Export Ziel-Template optional in Folgesprint.
+3. ~~VVT: Fingerprinting, kanonisches Modell, Mapping, Frontend-Ansicht~~ ✅ Erledigt (`GET /cases/{id}/vvt-normalization`, VVTNormalizationView mit API). VVT CSV-Export ✅; Ziel-Template (DOCX) optional in Folgesprint.
 
 ---
 
@@ -50,7 +50,8 @@
 **Ziel:** Konsistenzprüfungen über Dokumente hinweg, DSB-Reports, kommentierte Rückgabedokumente.
 
 - **Consistency Engine:** Multi-Dokument-Kontext für LLM; Cross-Document-Findings.
-- **Artefakte:** DSB Summary Report (Markdown/PDF); kommentierte DOCX/PDF.
+- **Artefakte:** DSB Summary Report (Markdown/JSON) ✅ (`GET /cases/{id}/dsb-report`); kommentierte DOCX ✅ (`GET /cases/{id}/annotated-documents`, Download); PDF optional.
+- **VVT-Export:** CSV ✅ (`GET /cases/{id}/vvt-normalization/export`); Ziel-Template (DOCX) optional.
 - **Feedback:** Finding-Status (Accepted/Overruled/Fixed) in UI; Audit bei Statusänderungen.
 
 ---

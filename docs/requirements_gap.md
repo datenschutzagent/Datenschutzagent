@@ -40,14 +40,14 @@ Abgleich der Projektbeschreibung (Anforderungen) mit dem aktuellen Implementieru
 | :--- | :--- | :--- |
 | Template-Fingerprinting | ✅ | Im VVT-Service (LLM); `source_template` in `GET /cases/{id}/vvt-normalization`. |
 | Kanonisches VVT-Datenmodell | ✅ | Pydantic-Schema (`VVTFieldResponse`, `VVTNormalizationResponse`); LLM-Mapping in `vvt_service.py`. |
-| Export Ziel-Template | ❌ | Noch nicht implementiert (optional Folgesprint). |
+| Export (CSV / Ziel-Template) | ✅ / optional | CSV-Export implementiert: `GET /cases/{id}/vvt-normalization/export`; Ziel-Template (z. B. DOCX) optional Folgesprint. |
 
 ### E) Artefakte / Output
 
 | Anforderung | Status | Anmerkung |
 | :--- | :--- | :--- |
-| DSB Summary Report | ❌ | Keine Report-Generierung. |
-| Kommentierte Dokumente (DOCX/PDF) | ❌ | Keine Kommentar-/Annotation-Erzeugung. |
+| DSB Summary Report | ✅ | `dsb_report_service.py`, `GET /api/v1/cases/{id}/dsb-report` (format=json \| markdown); Frontend DSBReportView. |
+| Kommentierte Dokumente (DOCX/PDF) | ✅ | DOCX mit Findings-Abschnitt: `annotated_document_service.py`, `GET /cases/{id}/annotated-documents` (Liste) und `.../annotated-documents/{document_id}` (Download). Frontend: AnnotatedDocumentsView. PDF optional. |
 | Findings maschinenlesbar (JSON) | ✅ | Finding-Modell, Case-Response inkl. Findings, Erzeugung via Run-Checks; PATCH `/api/v1/findings/{id}` für Status. |
 
 ### F) Auditierbarkeit
@@ -75,5 +75,5 @@ Abgleich der Projektbeschreibung (Anforderungen) mit dem aktuellen Implementieru
 
 1. ~~**Run-Checks-API**~~ ✅ Erledigt. ~~**Frontend**~~ ✅ Erledigt (Cases, Documents, Findings, Playbooks, Run-Checks, Finding-Status nutzen echte API).
 2. ~~**VVT:** Fingerprinting, kanonisches Modell, Mapping, Frontend-Ansicht~~ ✅ Erledigt (`GET /cases/{id}/vvt-normalization`, `vvt_service.py`, VVTNormalizationView an API). **Export Ziel-Template** noch offen (optional).
-3. **Artefakte:** DSB-Report, kommentierte DOCX/PDF.
+3. **Artefakte:** ~~DSB-Report~~ ✅, ~~kommentierte DOCX~~ ✅ (annotated-documents API + Frontend). PDF-Export optional.
 4. **Sicherheit & Audit:** AuthN/AuthZ, Audit-Log.

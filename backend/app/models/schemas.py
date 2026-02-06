@@ -178,3 +178,10 @@ class DSBReportResponse(BaseModel):
     open_questions: list[str] = []
     recommendations: list[str] = []
     next_steps: list[str] = []
+
+
+class AnnotatedDocumentListItem(BaseModel):
+    """One document that has findings and can be downloaded as annotated DOCX."""
+    document_id: UUID
+    document_name: str
+    finding_count: int
