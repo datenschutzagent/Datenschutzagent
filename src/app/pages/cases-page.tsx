@@ -2,33 +2,106 @@ import { Link, useNavigate } from "react-router";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../components/ui/card";
 import { Badge } from "../components/ui/badge";
 import { Button } from "../components/ui/button";
-import { Input } from "../components/ui/input";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "../components/ui/tabs";
 import { DashboardStats } from "../components/dashboard-stats";
 import { NewCaseDialog } from "../components/new-case-dialog";
-import { mockCases, statusLabels, statusColors } from "../lib/mock-data";
-import { Plus, Search, Filter, FileText, AlertCircle, CheckCircle2, Clock, LayoutDashboard } from "lucide-react";
-import { useState } from "react";
+import { CasesSearchFilter, CasesFilters } from "../components/cases-search-filter";
+import { mockCases, statusLabels, statusColors, priorityColors, priorityLabels } from "../lib/mock-data";
+import { Plus, FileText, AlertCircle, CheckCircle2, Clock, LayoutDashboard, Calendar, AlertTriangle } from "lucide-react";
+import { useState, useMemo } from "react";
 
 export function CasesPage() {
   const navigate = useNavigate();
-  const [searchTerm, setSearchTerm] = useState("");
-  const [statusFilter, setStatusFilter] = useState<string>("all");
   const [isNewCaseDialogOpen, setIsNewCaseDialogOpen] = useState(false);
-
-  const filteredCases = mockCases.filter((c) => {
-    const matchesSearch = c.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                         c.department.toLowerCase().includes(searchTerm.toLowerCase());
-    const matchesStatus = statusFilter === "all" || c.status === statusFilter;
-    return matchesSearch && matchesStatus;
+  const [filters, setFilters] = useState<CasesFilters>({
+    searchQuery: "",
+    status: "all",
+    priority: "all",
+    department: "all",
+    hasDeadline: null,
+    tags: [],
   });
+
+  // Extract unique departments and tags for filters
+  const availableDepartments = useMemo(
+    () => [...new Set(mockCases.map(c => c.department))].sort(),
+    []
+  );
+
+  const availableTags = useMemo(
+    () => [...new Set(mockCases.flatMap(c => c.tags || []))].sort(),
+    []
+  );
+
+  const filteredCases = useMemo(() => {
+    return mockCases.filter((c) => {
+      // Search query
+      if (filters.searchQuery) {
+        const query = filters.searchQuery.toLowerCase();
+        const matchesSearch = 
+          c.title.toLowerCase().includes(query) ||
+          c.department.toLowerCase().includes(query) ||
+          c.createdBy.toLowerCase().includes(query) ||
+          c.id.toLowerCase().includes(query);
+        if (!matchesSearch) return false;
+      }
+
+      // Status filter
+      if (filters.status !== "all" && c.status !== filters.status) {
+        return false;
+      }
+
+      // Priority filter
+      if (filters.priority !== "all" && c.priority !== filters.priority) {
+        return false;
+      }
+
+      // Department filter
+      if (filters.department !== "all" && c.department !== filters.department) {
+        return false;
+      }
+
+      // Deadline filter
+      if (filters.hasDeadline !== null) {
+        const hasDeadline = !!c.deadline;
+        if (filters.hasDeadline !== hasDeadline) {
+          return false;
+        }
+      }
+
+      // Tags filter
+      if (filters.tags.length > 0) {
+        const caseTags = c.tags || [];
+        const hasAllTags = filters.tags.every(tag => caseTags.includes(tag));
+        if (!hasAllTags) return false;
+      }
+
+      return true;
+    });
+  }, [filters]);
 
   const getStatsForCase = (caseItem: typeof mockCases[0]) => {
     const critical = caseItem.findings.filter(f => f.severity === "critical" && f.status === "open").length;
     const high = caseItem.findings.filter(f => f.severity === "high" && f.status === "open").length;
     const fixed = caseItem.findings.filter(f => f.status === "fixed").length;
     return { critical, high, fixed, total: caseItem.findings.length };
+  };
+
+  // Check if deadline is overdue or soon
+  const getDeadlineStatus = (deadline?: string) => {
+    if (!deadline) return null;
+    const today = new Date("2026-02-06"); // Using current mock date
+    const deadlineDate = new Date(deadline);
+    const daysUntil = Math.ceil((deadlineDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+    
+    if (daysUntil < 0) return "overdue";
+    if (daysUntil <= 3) return "soon";
+    return "ok";
+  };
+
+  const formatDeadline = (deadline: string) => {
+    const date = new Date(deadline);
+    return date.toLocaleDateString("de-DE", { day: "2-digit", month: "2-digit", year: "numeric" });
   };
 
   return (
@@ -94,32 +167,12 @@ export function CasesPage() {
             {/* Filters */}
             <Card>
               <CardContent className="pt-6">
-                <div className="flex gap-4">
-                  <div className="flex-1 relative">
-                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-slate-400" />
-                    <Input
-                      placeholder="Suche nach Titel oder Fachbereich..."
-                      value={searchTerm}
-                      onChange={(e) => setSearchTerm(e.target.value)}
-                      className="pl-10"
-                    />
-                  </div>
-                  <Select value={statusFilter} onValueChange={setStatusFilter}>
-                    <SelectTrigger className="w-[200px]">
-                      <Filter className="size-4 mr-2" />
-                      <SelectValue placeholder="Status filtern" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="all">Alle Status</SelectItem>
-                      <SelectItem value="intake">Intake</SelectItem>
-                      <SelectItem value="in_review">In Vorprüfung</SelectItem>
-                      <SelectItem value="questions_pending">Rückfragen ausstehend</SelectItem>
-                      <SelectItem value="revision">Revision</SelectItem>
-                      <SelectItem value="ready_for_decision">Entscheidungsvorlage</SelectItem>
-                      <SelectItem value="completed">Abgeschlossen</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
+                <CasesSearchFilter
+                  filters={filters}
+                  onFiltersChange={setFilters}
+                  availableDepartments={availableDepartments}
+                  availableTags={availableTags}
+                />
               </CardContent>
             </Card>
 
@@ -127,6 +180,7 @@ export function CasesPage() {
             <div className="space-y-4">
               {filteredCases.map((caseItem) => {
                 const stats = getStatsForCase(caseItem);
+                const deadlineStatus = getDeadlineStatus(caseItem.deadline);
                 return (
                   <Card
                     key={caseItem.id}
@@ -136,11 +190,16 @@ export function CasesPage() {
                     <CardHeader>
                       <div className="flex items-start justify-between">
                         <div className="flex-1">
-                          <div className="flex items-center gap-3 mb-2">
+                          <div className="flex items-center gap-3 mb-2 flex-wrap">
                             <CardTitle className="text-lg">{caseItem.title}</CardTitle>
                             <Badge className={statusColors[caseItem.status]}>
                               {statusLabels[caseItem.status]}
                             </Badge>
+                            {caseItem.priority && (
+                              <Badge className={priorityColors[caseItem.priority]}>
+                                {priorityLabels[caseItem.priority]}
+                              </Badge>
+                            )}
                           </div>
                           <CardDescription className="flex items-center gap-4 text-sm">
                             <span>{caseItem.department}</span>
@@ -149,6 +208,15 @@ export function CasesPage() {
                             <span>•</span>
                             <span>Erstellt: {new Date(caseItem.createdAt).toLocaleDateString("de-DE")}</span>
                           </CardDescription>
+                          {caseItem.tags && caseItem.tags.length > 0 && (
+                            <div className="flex flex-wrap gap-2 mt-2">
+                              {caseItem.tags.map((tag) => (
+                                <Badge key={tag} variant="outline" className="text-xs">
+                                  {tag}
+                                </Badge>
+                              ))}
+                            </div>
+                          )}
                         </div>
                       </div>
                     </CardHeader>
@@ -183,6 +251,30 @@ export function CasesPage() {
                           <span>Playbook: {caseItem.playbookVersion}</span>
                         </div>
                       </div>
+                      {caseItem.deadline && (
+                        <div className="mt-4">
+                          <div className="flex items-center gap-2">
+                            <Calendar className="size-4 text-slate-400" />
+                            <span className="text-slate-600">Fällig: {formatDeadline(caseItem.deadline)}</span>
+                          </div>
+                          {deadlineStatus === "overdue" && (
+                            <div className="mt-2">
+                              <Badge className="bg-red-600 text-white">
+                                <AlertTriangle className="size-4 mr-1" />
+                                Überfällig
+                              </Badge>
+                            </div>
+                          )}
+                          {deadlineStatus === "soon" && (
+                            <div className="mt-2">
+                              <Badge className="bg-orange-600 text-white">
+                                <AlertTriangle className="size-4 mr-1" />
+                                Bald fällig
+                              </Badge>
+                            </div>
+                          )}
+                        </div>
+                      )}
                     </CardContent>
                   </Card>
                 );

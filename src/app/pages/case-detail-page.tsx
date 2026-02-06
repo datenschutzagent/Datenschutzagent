@@ -5,11 +5,12 @@ import { Button } from "../components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "../components/ui/tabs";
 import { Alert, AlertDescription } from "../components/ui/alert";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "../components/ui/dialog";
-import { mockCases, statusLabels, statusColors, documentTypeLabels, severityColors, findingStatusLabels, Finding } from "../lib/mock-data";
+import { mockCases, statusLabels, statusColors, documentTypeLabels, severityColors, findingStatusLabels, Finding, priorityLabels, priorityColors } from "../lib/mock-data";
 import { VVTNormalizationView } from "../components/vvt-normalization-view";
 import { DSBReportView } from "../components/dsb-report-view";
 import { AnnotatedDocumentsView } from "../components/annotated-documents-view";
 import { DocumentUploadZone } from "../components/document-upload-zone";
+import { ActivityTimeline } from "../components/activity-timeline";
 import { 
   ArrowLeft, 
   Upload, 
@@ -173,6 +174,41 @@ export function CaseDetailPage() {
                     <span className="text-slate-600">Sprache:</span>
                     <p className="font-medium">{caseData.language.toUpperCase()}</p>
                   </div>
+                  {caseData.priority && (
+                    <div>
+                      <span className="text-slate-600">Priorität:</span>
+                      <div className="mt-1">
+                        <Badge className={priorityColors[caseData.priority]}>
+                          {priorityLabels[caseData.priority]}
+                        </Badge>
+                      </div>
+                    </div>
+                  )}
+                  {caseData.deadline && (
+                    <div>
+                      <span className="text-slate-600">Frist:</span>
+                      <p className="font-medium">{new Date(caseData.deadline).toLocaleDateString("de-DE", { day: "2-digit", month: "2-digit", year: "numeric" })}</p>
+                      {(() => {
+                        const today = new Date("2026-02-06");
+                        const deadline = new Date(caseData.deadline);
+                        const daysUntil = Math.ceil((deadline.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+                        if (daysUntil < 0) {
+                          return (
+                            <Badge className="mt-1 bg-red-600 text-white">
+                              {Math.abs(daysUntil)} Tage überfällig
+                            </Badge>
+                          );
+                        } else if (daysUntil <= 3) {
+                          return (
+                            <Badge className="mt-1 bg-orange-600 text-white">
+                              Noch {daysUntil} {daysUntil === 1 ? "Tag" : "Tage"}
+                            </Badge>
+                          );
+                        }
+                        return null;
+                      })()}
+                    </div>
+                  )}
                   <div>
                     <span className="text-slate-600">Playbook:</span>
                     <p className="font-medium">{caseData.playbookVersion}</p>
@@ -402,53 +438,7 @@ export function CaseDetailPage() {
                 <CardDescription>Nachvollziehbare Historie aller Änderungen</CardDescription>
               </CardHeader>
               <CardContent>
-                <div className="space-y-4">
-                  <div className="flex gap-4">
-                    <div className="flex flex-col items-center">
-                      <div className="size-2 rounded-full bg-blue-600" />
-                      <div className="w-px h-full bg-slate-200" />
-                    </div>
-                    <div className="flex-1 pb-4">
-                      <p className="text-sm font-medium text-slate-900">Playbook-Check durchgeführt</p>
-                      <p className="text-xs text-slate-600 mt-1">
-                        Version {caseData.playbookVersion} • {new Date(caseData.updatedAt).toLocaleString("de-DE")}
-                      </p>
-                      <p className="text-xs text-slate-500 mt-1">
-                        System: 5 neue Findings generiert
-                      </p>
-                    </div>
-                  </div>
-                  <div className="flex gap-4">
-                    <div className="flex flex-col items-center">
-                      <div className="size-2 rounded-full bg-green-600" />
-                      <div className="w-px h-full bg-slate-200" />
-                    </div>
-                    <div className="flex-1 pb-4">
-                      <p className="text-sm font-medium text-slate-900">Dokument aktualisiert</p>
-                      <p className="text-xs text-slate-600 mt-1">
-                        VVT v2 hochgeladen • {new Date("2026-02-03").toLocaleString("de-DE")}
-                      </p>
-                      <p className="text-xs text-slate-500 mt-1">
-                        {caseData.createdBy}: VVT_Burnout_Studie_v2.xlsx
-                      </p>
-                    </div>
-                  </div>
-                  <div className="flex gap-4">
-                    <div className="flex flex-col items-center">
-                      <div className="size-2 rounded-full bg-slate-400" />
-                      <div className="w-px h-full bg-slate-200" />
-                    </div>
-                    <div className="flex-1 pb-4">
-                      <p className="text-sm font-medium text-slate-900">Vorgang angelegt</p>
-                      <p className="text-xs text-slate-600 mt-1">
-                        {new Date(caseData.createdAt).toLocaleString("de-DE")}
-                      </p>
-                      <p className="text-xs text-slate-500 mt-1">
-                        {caseData.createdBy}: Initiale Dokumentation hochgeladen
-                      </p>
-                    </div>
-                  </div>
-                </div>
+                <ActivityTimeline caseId={caseData.id} />
               </CardContent>
             </Card>
           </TabsContent>

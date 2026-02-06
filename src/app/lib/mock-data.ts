@@ -21,6 +21,36 @@ export type FindingSeverity = "critical" | "high" | "medium" | "low" | "info";
 
 export type FindingStatus = "open" | "accepted" | "overruled" | "fixed";
 
+export type ActivityType = 
+  | "case_created"
+  | "document_uploaded"
+  | "document_updated"
+  | "status_changed"
+  | "playbook_run"
+  | "finding_status_changed"
+  | "comment_added"
+  | "deadline_set"
+  | "deadline_changed"
+  | "assigned";
+
+export type Priority = "low" | "medium" | "high" | "urgent";
+
+export interface Activity {
+  id: string;
+  caseId: string;
+  type: ActivityType;
+  timestamp: string;
+  performedBy: string;
+  description: string;
+  metadata?: {
+    oldValue?: string;
+    newValue?: string;
+    documentName?: string;
+    findingId?: string;
+    comment?: string;
+  };
+}
+
 export interface Document {
   id: string;
   name: string;
@@ -58,6 +88,9 @@ export interface Case {
   documents: Document[];
   findings: Finding[];
   playbookVersion: string;
+  priority?: Priority;
+  deadline?: string;
+  tags?: string[];
 }
 
 export interface PlaybookCheck {
@@ -95,6 +128,9 @@ export const mockCases: Case[] = [
     assignee: "DSB Team",
     language: "de_en",
     playbookVersion: "v2.3.0",
+    priority: "high",
+    deadline: "2026-02-15",
+    tags: ["Klinische Studie", "Burnout", "Art. 9 DSGVO"],
     documents: [
       {
         id: "doc-001",
@@ -209,6 +245,9 @@ export const mockCases: Case[] = [
     assignee: "DSB Team",
     language: "de",
     playbookVersion: "v2.1.0",
+    priority: "low",
+    deadline: "2026-02-28",
+    tags: ["Archiv", "Historie"],
     documents: [
       {
         id: "doc-101",
@@ -257,6 +296,9 @@ export const mockCases: Case[] = [
     assignee: "DSB Team",
     language: "en",
     playbookVersion: "v2.3.1",
+    priority: "urgent",
+    deadline: "2026-02-10",
+    tags: ["KI/ML", "Gesundheitsdaten", "DSFA", "Drittland"],
     documents: [
       {
         id: "doc-201",
@@ -566,3 +608,378 @@ export const documentTypeLabels: Record<DocumentType, string> = {
   avv: "AVV / DPA",
   other: "Sonstiges",
 };
+
+export const priorityLabels: Record<Priority, string> = {
+  low: "Niedrig",
+  medium: "Mittel",
+  high: "Hoch",
+  urgent: "Dringend",
+};
+
+export const priorityColors: Record<Priority, string> = {
+  low: "bg-slate-100 text-slate-700",
+  medium: "bg-blue-100 text-blue-700",
+  high: "bg-orange-100 text-orange-700",
+  urgent: "bg-red-100 text-red-700",
+};
+
+export const activityTypeLabels: Record<ActivityType, string> = {
+  case_created: "Vorgang erstellt",
+  document_uploaded: "Dokument hochgeladen",
+  document_updated: "Dokument aktualisiert",
+  status_changed: "Status geändert",
+  playbook_run: "Playbook ausgeführt",
+  finding_status_changed: "Finding-Status geändert",
+  comment_added: "Kommentar hinzugefügt",
+  deadline_set: "Frist gesetzt",
+  deadline_changed: "Frist geändert",
+  assigned: "Zugewiesen",
+};
+
+// Mock Activities
+export const mockActivities: Activity[] = [
+  // Activities for case-001
+  {
+    id: "act-001",
+    caseId: "case-001",
+    type: "case_created",
+    timestamp: "2026-01-15T09:23:00Z",
+    performedBy: "Dr. Schmidt",
+    description: "Vorgang erstellt",
+  },
+  {
+    id: "act-002",
+    caseId: "case-001",
+    type: "document_uploaded",
+    timestamp: "2026-01-15T09:45:00Z",
+    performedBy: "Dr. Schmidt",
+    description: "Dokument hochgeladen: Schwellenwertanalyse_v1.docx",
+    metadata: {
+      documentName: "Schwellenwertanalyse_v1.docx",
+    },
+  },
+  {
+    id: "act-003",
+    caseId: "case-001",
+    type: "document_uploaded",
+    timestamp: "2026-01-15T09:47:00Z",
+    performedBy: "Dr. Schmidt",
+    description: "Dokument hochgeladen: Probandeninformation_DE.pdf",
+    metadata: {
+      documentName: "Probandeninformation_DE.pdf",
+    },
+  },
+  {
+    id: "act-004",
+    caseId: "case-001",
+    type: "document_uploaded",
+    timestamp: "2026-01-15T09:48:00Z",
+    performedBy: "Dr. Schmidt",
+    description: "Dokument hochgeladen: Participant_Information_EN.pdf",
+    metadata: {
+      documentName: "Participant_Information_EN.pdf",
+    },
+  },
+  {
+    id: "act-005",
+    caseId: "case-001",
+    type: "document_uploaded",
+    timestamp: "2026-01-15T10:12:00Z",
+    performedBy: "Dr. Schmidt",
+    description: "Dokument hochgeladen: VVT_Burnout_Studie_v1.xlsx",
+    metadata: {
+      documentName: "VVT_Burnout_Studie_v1.xlsx",
+    },
+  },
+  {
+    id: "act-006",
+    caseId: "case-001",
+    type: "deadline_set",
+    timestamp: "2026-01-15T10:30:00Z",
+    performedBy: "DSB Team",
+    description: "Frist gesetzt auf 15.02.2026",
+    metadata: {
+      newValue: "2026-02-15",
+    },
+  },
+  {
+    id: "act-007",
+    caseId: "case-001",
+    type: "playbook_run",
+    timestamp: "2026-01-15T11:00:00Z",
+    performedBy: "System",
+    description: "Playbook ausgeführt: Klinische Forschung (Psychologie) v2.3.0",
+  },
+  {
+    id: "act-008",
+    caseId: "case-001",
+    type: "status_changed",
+    timestamp: "2026-01-15T11:05:00Z",
+    performedBy: "System",
+    description: "Status geändert: Intake → In Vorprüfung",
+    metadata: {
+      oldValue: "Intake",
+      newValue: "In Vorprüfung",
+    },
+  },
+  {
+    id: "act-009",
+    caseId: "case-001",
+    type: "comment_added",
+    timestamp: "2026-01-20T14:22:00Z",
+    performedBy: "DSB Team",
+    description: "Kommentar hinzugefügt",
+    metadata: {
+      comment: "VVT Version 1 unvollständig - Rückmeldung an Antragsteller gesendet.",
+    },
+  },
+  {
+    id: "act-010",
+    caseId: "case-001",
+    type: "document_updated",
+    timestamp: "2026-02-03T16:15:00Z",
+    performedBy: "Dr. Schmidt",
+    description: "Dokument aktualisiert: VVT_Burnout_Studie_v2.xlsx (Version 2)",
+    metadata: {
+      documentName: "VVT_Burnout_Studie_v2.xlsx",
+    },
+  },
+  {
+    id: "act-011",
+    caseId: "case-001",
+    type: "playbook_run",
+    timestamp: "2026-02-03T16:30:00Z",
+    performedBy: "System",
+    description: "Playbook erneut ausgeführt nach Dokumenten-Update",
+  },
+  {
+    id: "act-012",
+    caseId: "case-001",
+    type: "finding_status_changed",
+    timestamp: "2026-02-05T10:10:00Z",
+    performedBy: "DSB Team",
+    description: "Finding-Status geändert: find-001 → Behoben",
+    metadata: {
+      findingId: "find-001",
+      oldValue: "Offen",
+      newValue: "Behoben",
+    },
+  },
+  
+  // Activities for case-002
+  {
+    id: "act-101",
+    caseId: "case-002",
+    type: "case_created",
+    timestamp: "2026-01-20T11:15:00Z",
+    performedBy: "Prof. Müller",
+    description: "Vorgang erstellt",
+  },
+  {
+    id: "act-102",
+    caseId: "case-002",
+    type: "document_uploaded",
+    timestamp: "2026-01-20T11:30:00Z",
+    performedBy: "Prof. Müller",
+    description: "Dokument hochgeladen: VVT_Archivdigitalisierung.docx",
+    metadata: {
+      documentName: "VVT_Archivdigitalisierung.docx",
+    },
+  },
+  {
+    id: "act-103",
+    caseId: "case-002",
+    type: "document_uploaded",
+    timestamp: "2026-01-20T11:32:00Z",
+    performedBy: "Prof. Müller",
+    description: "Dokument hochgeladen: DSFA_Screening.pdf",
+    metadata: {
+      documentName: "DSFA_Screening.pdf",
+    },
+  },
+  {
+    id: "act-104",
+    caseId: "case-002",
+    type: "deadline_set",
+    timestamp: "2026-01-20T11:40:00Z",
+    performedBy: "DSB Team",
+    description: "Frist gesetzt auf 28.02.2026",
+    metadata: {
+      newValue: "2026-02-28",
+    },
+  },
+  {
+    id: "act-105",
+    caseId: "case-002",
+    type: "playbook_run",
+    timestamp: "2026-01-20T12:00:00Z",
+    performedBy: "System",
+    description: "Playbook ausgeführt: Archivprojekte (Geschichte) v2.1.0",
+  },
+  {
+    id: "act-106",
+    caseId: "case-002",
+    type: "status_changed",
+    timestamp: "2026-01-20T12:05:00Z",
+    performedBy: "System",
+    description: "Status geändert: Intake → In Vorprüfung",
+    metadata: {
+      oldValue: "Intake",
+      newValue: "In Vorprüfung",
+    },
+  },
+  {
+    id: "act-107",
+    caseId: "case-002",
+    type: "finding_status_changed",
+    timestamp: "2026-02-02T15:20:00Z",
+    performedBy: "DSB Team",
+    description: "Finding-Status geändert: find-101 → Akzeptiert",
+    metadata: {
+      findingId: "find-101",
+      oldValue: "Offen",
+      newValue: "Akzeptiert",
+    },
+  },
+  {
+    id: "act-108",
+    caseId: "case-002",
+    type: "status_changed",
+    timestamp: "2026-02-04T09:30:00Z",
+    performedBy: "DSB Team",
+    description: "Status geändert: In Vorprüfung → Entscheidungsvorlage",
+    metadata: {
+      oldValue: "In Vorprüfung",
+      newValue: "Entscheidungsvorlage",
+    },
+  },
+  {
+    id: "act-109",
+    caseId: "case-002",
+    type: "comment_added",
+    timestamp: "2026-02-04T09:35:00Z",
+    performedBy: "DSB Team",
+    description: "Kommentar hinzugefügt",
+    metadata: {
+      comment: "Keine datenschutzrechtlichen Bedenken. Kann freigegeben werden.",
+    },
+  },
+
+  // Activities for case-003
+  {
+    id: "act-201",
+    caseId: "case-003",
+    type: "case_created",
+    timestamp: "2026-01-28T08:45:00Z",
+    performedBy: "Dr. Weber",
+    description: "Vorgang erstellt",
+  },
+  {
+    id: "act-202",
+    caseId: "case-003",
+    type: "document_uploaded",
+    timestamp: "2026-01-28T09:00:00Z",
+    performedBy: "Dr. Weber",
+    description: "Dokument hochgeladen: Patient_Information_Sheet.pdf",
+    metadata: {
+      documentName: "Patient_Information_Sheet.pdf",
+    },
+  },
+  {
+    id: "act-203",
+    caseId: "case-003",
+    type: "document_uploaded",
+    timestamp: "2026-01-28T09:15:00Z",
+    performedBy: "Dr. Weber",
+    description: "Dokument hochgeladen: ROPA_AI_Diagnostics_v1.xlsx",
+    metadata: {
+      documentName: "ROPA_AI_Diagnostics_v1.xlsx",
+    },
+  },
+  {
+    id: "act-204",
+    caseId: "case-003",
+    type: "deadline_set",
+    timestamp: "2026-01-28T10:00:00Z",
+    performedBy: "DSB Team",
+    description: "Frist gesetzt auf 10.02.2026",
+    metadata: {
+      newValue: "2026-02-10",
+    },
+  },
+  {
+    id: "act-205",
+    caseId: "case-003",
+    type: "document_uploaded",
+    timestamp: "2026-02-01T11:20:00Z",
+    performedBy: "Dr. Weber",
+    description: "Dokument hochgeladen: DPIA_Draft_v1.docx",
+    metadata: {
+      documentName: "DPIA_Draft_v1.docx",
+    },
+  },
+  {
+    id: "act-206",
+    caseId: "case-003",
+    type: "document_updated",
+    timestamp: "2026-02-03T14:30:00Z",
+    performedBy: "Dr. Weber",
+    description: "Dokument aktualisiert: Threshold_Analysis.docx (Version 2)",
+    metadata: {
+      documentName: "Threshold_Analysis.docx",
+    },
+  },
+  {
+    id: "act-207",
+    caseId: "case-003",
+    type: "document_uploaded",
+    timestamp: "2026-02-04T10:45:00Z",
+    performedBy: "Dr. Weber",
+    description: "Dokument hochgeladen: DPA_CloudML_Provider.pdf",
+    metadata: {
+      documentName: "DPA_CloudML_Provider.pdf",
+    },
+  },
+  {
+    id: "act-208",
+    caseId: "case-003",
+    type: "document_updated",
+    timestamp: "2026-02-05T16:00:00Z",
+    performedBy: "Dr. Weber",
+    description: "Dokument aktualisiert: ROPA_AI_Diagnostics_v3.xlsx (Version 3)",
+    metadata: {
+      documentName: "ROPA_AI_Diagnostics_v3.xlsx",
+    },
+  },
+  {
+    id: "act-209",
+    caseId: "case-003",
+    type: "playbook_run",
+    timestamp: "2026-02-05T16:30:00Z",
+    performedBy: "System",
+    description: "Playbook ausgeführt: Medizinische Forschung (high-risk) v2.3.1",
+  },
+  {
+    id: "act-210",
+    caseId: "case-003",
+    type: "status_changed",
+    timestamp: "2026-02-06T09:00:00Z",
+    performedBy: "DSB Team",
+    description: "Status geändert: In Vorprüfung → Rückfragen ausstehend",
+    metadata: {
+      oldValue: "In Vorprüfung",
+      newValue: "Rückfragen ausstehend",
+    },
+  },
+  {
+    id: "act-211",
+    caseId: "case-003",
+    type: "comment_added",
+    timestamp: "2026-02-06T09:15:00Z",
+    performedBy: "DSB Team",
+    description: "Kommentar hinzugefügt",
+    metadata: {
+      comment: "Kritische Findings zur DSFA und AVV. Rückfragen an Antragsteller versendet. Deadline verlängern?",
+    },
+  },
+];
