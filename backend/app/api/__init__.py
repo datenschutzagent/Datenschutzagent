@@ -1,9 +1,10 @@
-"""API package."""
-from fastapi import APIRouter
+"""API package. All /api/v1 routes require authentication when OIDC is enabled."""
+from fastapi import APIRouter, Depends
 
 from app.api.routes import admin, cases, departments, documents, findings, playbooks, users
+from app.core.auth import get_current_user
 
-router = APIRouter()
+router = APIRouter(dependencies=[Depends(get_current_user)])
 
 router.include_router(users.router, tags=["me"])
 router.include_router(admin.router, prefix="/admin", tags=["admin"])

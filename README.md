@@ -51,7 +51,9 @@ Tabellen werden beim Backend-Start per `Base.metadata.create_all` angelegt. Zus�
 - **Mein Profil** (Frontend: `/profile`): Anzeigename und Präferenzen (Theme: hell/dunkel/System; Sprache: DE/EN). Theme und Sprache werden app-weit aus dem Profil übernommen.
 - **Verwaltung** (Frontend: `/admin`): Read-only Anzeige der generellen Einstellungen (z. B. Ollama-URL, Weaviate, Storage) und Verbindungstests zu Ollama, Weaviate, MinIO, Postgres, Redis.
 
-Ohne Authentifizierung wird ein Default-User verwendet; optional kann `CURRENT_USER_ID` in der Umgebung gesetzt werden (siehe [.env.example](.env.example)).
+### Authentifizierung (OAuth2/OIDC, optional)
+
+Wenn OIDC aktiviert ist (`OIDC_ENABLED=true` in der `.env`), sind alle API-Routen außer `/health` und `GET /api/v1/auth/config` geschützt. Das Frontend leitet nicht eingeloggte Nutzer zum konfigurierten IdP (z. B. Keycloak) weiter und tauscht nach dem Login den Autorisierungscode per PKCE gegen ein Token aus. Konfiguration siehe [.env.example](.env.example) (Abschnitt OAuth2/OIDC). Ohne OIDC wird ein Default-User verwendet; optional kann `CURRENT_USER_ID` gesetzt werden.
 
 ## Weitere Dokumentation
 

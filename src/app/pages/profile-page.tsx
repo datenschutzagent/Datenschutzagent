@@ -1,5 +1,6 @@
 import { Link } from "react-router";
 import { useState, useEffect } from "react";
+import { AppHeaderUser } from "../components/app-header-user";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../components/ui/card";
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
@@ -80,6 +81,7 @@ export function ProfilePage() {
               <Link to="/admin" className="text-sm font-medium text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100">
                 Verwaltung
               </Link>
+              <AppHeaderUser />
             </nav>
           </div>
         </div>

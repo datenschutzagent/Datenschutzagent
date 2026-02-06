@@ -1,5 +1,6 @@
 import { Link } from "react-router";
 import { useState, useEffect } from "react";
+import { AppHeaderUser } from "../components/app-header-user";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../components/ui/card";
 import { Button } from "../components/ui/button";
 import { getAdminSettings, getConnectionsStatus, type ApiAdminSettings, type ApiConnectionsStatus } from "../lib/api";
@@ -103,6 +104,7 @@ export function AdminPage() {
               <Link to="/admin" className="text-sm font-medium text-blue-600 dark:text-blue-400">
                 Verwaltung
               </Link>
+              <AppHeaderUser />
             </nav>
           </div>
         </div>

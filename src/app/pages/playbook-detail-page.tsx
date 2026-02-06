@@ -13,6 +13,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "../components/ui/alert-dialog";
+import { AppHeaderUser } from "../components/app-header-user";
 import { NewPlaybookDialog } from "../components/new-playbook-dialog";
 import {
   getPlaybook,
@@ -176,6 +177,7 @@ export function PlaybookDetailPage() {
               <Link to="/admin" className="text-sm font-medium text-slate-600 hover:text-slate-900">
                 Verwaltung
               </Link>
+              <AppHeaderUser />
             </nav>
           </div>
         </div>

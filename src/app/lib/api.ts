@@ -6,6 +6,23 @@
 const API_BASE = (import.meta as unknown as { env?: { VITE_API_URL?: string } }).env?.VITE_API_URL ?? "http://localhost:8000";
 const API_PREFIX = "/api/v1";
 
+/** Token for authenticated requests (set by auth flow when OIDC is enabled). */
+let accessToken: string | null = null;
+
+export function setAccessToken(token: string | null): void {
+  accessToken = token;
+}
+
+export function getAccessToken(): string | null {
+  return accessToken;
+}
+
+function authHeaders(): Record<string, string> {
+  const h: Record<string, string> = {};
+  if (accessToken) h["Authorization"] = `Bearer ${accessToken}`;
+  return h;
+}
+
 function formatBytes(n: number): string {
   if (n < 1024) return `${n} B`;
   if (n < 1024 * 1024) return `${(n / 1024).toFixed(0)} KB`;
@@ -100,6 +117,9 @@ async function request<T>(
 ): Promise<T> {
   const url = `${API_BASE}${API_PREFIX}${path}`;
   const headers: Record<string, string> = {};
+  if (accessToken) {
+    headers["Authorization"] = `Bearer ${accessToken}`;
+  }
   let fetchBody: string | FormData | undefined;
   if (options?.formData) {
     fetchBody = options.formData;
@@ -114,6 +134,27 @@ async function request<T>(
   }
   if (res.status === 204) return undefined as T;
   return res.json() as Promise<T>;
+}
+
+// --- Auth config (public, no token) ---
+export interface AuthConfig {
+  oidc_enabled: boolean;
+  oidc_issuer_url: string;
+  oidc_client_id: string;
+  oidc_scopes: string[];
+  authorization_endpoint?: string;
+  token_endpoint?: string;
+  end_session_endpoint?: string;
+}
+
+export async function getAuthConfig(): Promise<AuthConfig> {
+  const url = `${API_BASE}${API_PREFIX}/auth/config`;
+  const res = await fetch(url);
+  if (!res.ok) {
+    const detail = await parseErrorResponse(res);
+    throw new Error(detail);
+  }
+  return res.json() as Promise<AuthConfig>;
 }
 
 // --- User / Me (profile and preferences) ---
@@ -491,7 +532,7 @@ export async function getDSBReportBlob(
   format: "markdown" | "json"
 ): Promise<Blob> {
   const url = `${API_BASE}${API_PREFIX}/cases/${caseId}/dsb-report?format=${format}`;
-  const res = await fetch(url);
+  const res = await fetch(url, { headers: authHeaders() });
   if (!res.ok) {
     const detail = await parseErrorResponse(res);
     throw new Error(detail);
@@ -548,7 +589,7 @@ export async function uploadDocumentsBulk(
     form.append("files", file);
   }
   const url = `${API_BASE}${API_PREFIX}/documents/bulk`;
-  const res = await fetch(url, { method: "POST", body: form });
+  const res = await fetch(url, { method: "POST", body: form, headers: authHeaders() });
   if (!res.ok) {
     const detail = await parseErrorResponse(res);
     throw new Error(detail);
@@ -684,7 +725,7 @@ export async function getVVTExportBlob(
   const params = new URLSearchParams({ format });
   if (documentId) params.set("document_id", documentId);
   const url = `${API_BASE}${API_PREFIX}/cases/${caseId}/vvt-normalization/export?${params}`;
-  const res = await fetch(url);
+  const res = await fetch(url, { headers: authHeaders() });
   if (!res.ok) {
     const detail = await parseErrorResponse(res);
     throw new Error(detail);
@@ -714,7 +755,7 @@ export async function getAnnotatedDocumentBlob(
   documentId: string
 ): Promise<Blob> {
   const url = `${API_BASE}${API_PREFIX}/cases/${caseId}/annotated-documents/${documentId}`;
-  const res = await fetch(url);
+  const res = await fetch(url, { headers: authHeaders() });
   if (!res.ok) {
     const detail = await parseErrorResponse(res);
     throw new Error(detail);

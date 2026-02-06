@@ -85,10 +85,11 @@ class FindingModel(Base):
 
 
 class UserModel(Base):
-    """User profile and preferences (current user via CURRENT_USER_ID or default)."""
+    """User profile and preferences (current user via OIDC token or CURRENT_USER_ID or default)."""
     __tablename__ = "users"
 
     id: Mapped[uuid.UUID] = mapped_column(PG_UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    oidc_sub: Mapped[str | None] = mapped_column(String(500), nullable=True, unique=True)
     display_name: Mapped[str] = mapped_column(String(200), nullable=False, default="Standardnutzer")
     email: Mapped[str | None] = mapped_column(String(320), nullable=True)
     preferences: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)

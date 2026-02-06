@@ -9,14 +9,20 @@ Das Backend ist mit FastAPI umgesetzt. Interaktive Doku:
 
 ## Endpoints
 
+### Auth (öffentlich, kein Token)
+
+| Methode | Pfad | Beschreibung |
+| :--- | :--- | :--- |
+| GET | `/api/v1/auth/config` | OIDC-Konfiguration für das Frontend (ohne Authentifizierung). Response: `oidc_enabled`, `oidc_issuer_url`, `oidc_client_id`, `oidc_scopes` (Array), bei aktivem OIDC zusätzlich `authorization_endpoint`, `token_endpoint`, `end_session_endpoint` (aus Issuer Discovery). |
+
 ### Me (aktueller User / Profil)
 
 | Methode | Pfad | Beschreibung |
 | :--- | :--- | :--- |
-| GET | `/api/v1/me` | Aktuellen User liefern (aus `CURRENT_USER_ID` oder Default-User). Response: `id`, `display_name`, `email`, `preferences` (z. B. `theme`, `language`, `notifications`), `created_at`, `updated_at`. |
-| PATCH | `/api/v1/me` | Profil aktualisieren. Body: optional `display_name`, optional `email`, optional `preferences` (Objekt mit `theme` (light \| dark \| system), `language` (de \| en), `notifications`). |
+| GET | `/api/v1/me` | Aktuellen User liefern. Bei **OIDC aktiv:** erfordert `Authorization: Bearer <JWT>`; User wird aus Token (`sub`) ermittelt bzw. bei erstem Login in Tabelle `users` angelegt (`oidc_sub`). Bei **OIDC inaktiv:** aus `CURRENT_USER_ID` oder Default-User. Response: `id`, `display_name`, `email`, `preferences`, `created_at`, `updated_at`. |
+| PATCH | `/api/v1/me` | Profil aktualisieren. Body: optional `display_name`, optional `email`, optional `preferences` (Objekt mit `theme` (light \| dark \| system), `language` (de \| en), `notifications`). Erfordert dieselbe Auth wie GET /me. |
 
-**Hinweis:** Ohne Auth wird der „aktuelle User“ über die Umgebungsvariable `CURRENT_USER_ID` (UUID) bestimmt. Ist sie nicht gesetzt, wird ein Default-User (beim Start angelegt) verwendet. Theme und Sprache aus `preferences` werden im Frontend app-weit angewendet.
+**Hinweis:** Wenn `OIDC_ENABLED=true`, sind alle Routen unter `/api/v1` (außer `GET /api/v1/auth/config`) geschützt; Requests ohne gültigen Bearer-Token erhalten 401. Bei OIDC inaktiv wird der „aktuelle User“ über `CURRENT_USER_ID` (UUID) oder einen Default-User bestimmt. Theme und Sprache aus `preferences` werden im Frontend app-weit angewendet.
 
 ### Admin (Verwaltung, read-only)
 
@@ -92,4 +98,4 @@ Das Backend ist mit FastAPI umgesetzt. Interaktive Doku:
 *   **Fachbereiche:** `GET /api/v1/departments` aus Konfiguration (`data/fachbereiche.yaml`). **Playbook-YAML:** Standard-Playbooks in `data/playbooks/`, Auto-Import bei leerer Playbook-Tabelle; Checks unterstützen optional `scope`/`type`. **Frontend Playbook-CRUD:** Anlegen (Dialog), Bearbeiten, Archivieren, Löschen, Duplizieren auf Playbook-Detail-Seite. **Frontend:** Findings mit `document_id=null` werden als „Vorgangsbezogen“ angezeigt.
 *   **OCR (gescannte PDFs):** Bei textarmen PDFs wird automatisch Ollama Vision (konfigurierbar: `OLLAMA_OCR_MODEL`, z. B. qwen2.5-vl) genutzt; PDF-Seiten werden als Bilder an das Modell gesendet. Document-Feld `extraction_method` (`text` \| `ocr`); Frontend zeigt bei `ocr` den Badge „Text per OCR extrahiert“.
 *   **DE/EN-Sprachunterstützung:** Run-Checks und VVT-Normalisierung nutzen die Case-Sprache (`language`); Check Runner und VVT-Service erhalten einen optionalen Parameter `language`, die LLM-Prompts enthalten einen Sprachhinweis. Playbook-Checks unterstützen optional `instruction_en` (bei Case-Sprache en/de_en).
-*   **User-Profil und Verwaltung:** `GET/PATCH /api/v1/me` für aktuellen User (Profil, Präferenzen Theme/Sprache). Tabelle `users`, Default-User beim Start; optional `CURRENT_USER_ID`. **Admin:** `GET /api/v1/admin/settings` (read-only Einstellungen), `GET /api/v1/admin/connections` (Verbindungstests Ollama, Weaviate, MinIO, Postgres, Redis). Frontend: Seite „Mein Profil“, Seite „Verwaltung“; Theme und Sprache kommen aus dem Profil.
+*   **User-Profil und Verwaltung:** `GET/PATCH /api/v1/me` für aktuellen User (Profil, Präferenzen Theme/Sprache). Tabelle `users`, Default-User beim Start; optional `CURRENT_USER_ID` (wenn OIDC aus). **Auth:** Bei `OIDC_ENABLED=true` JWT-Validierung (JWKS), User-Sync per `oidc_sub`; `GET /api/v1/auth/config` öffentlich für Frontend-Login. **Admin:** `GET /api/v1/admin/settings` (read-only Einstellungen), `GET /api/v1/admin/connections` (Verbindungstests). Frontend: Login/Logout (OIDC), Nutzeranzeige im Header, Seite „Mein Profil“, Seite „Verwaltung“; Theme und Sprache aus dem Profil.

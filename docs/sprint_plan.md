@@ -1,6 +1,24 @@
 # Sprint-Plan (aktuell)
 
-Stand: Sprint **DE/EN-Ausbau (Sprachunterstützung)** abgeschlossen (Feb 2026). Zuvor: Code-Review/Verbesserungen, Weaviate/RAG, OCR, Celery, Dokument-Versionierung, Cross-Document, Artefakte, Audit, Playbook-CRUD, Annotated Documents.
+Stand: Sprint **AuthN (OAuth2/OIDC + Frontend-Login)** abgeschlossen (Feb 2026). Zuvor: DE/EN-Ausbau, Code-Review/Verbesserungen, Weaviate/RAG, OCR, Celery, Dokument-Versionierung, Cross-Document, Artefakte, Audit, Playbook-CRUD, Annotated Documents.
+
+---
+
+## Sprint – AuthN (OAuth2/OIDC + Frontend-Login) (abgeschlossen, Feb 2026)
+
+**Ziel:** Nutzer melden sich per OAuth2/OIDC an; Backend validiert Tokens und stellt aktuellen User bereit; Frontend nutzt Login/Logout und zeigt Nutzerkontext.
+
+| # | Aufgabe | Status |
+| :--- | :--- | :--- |
+| 1 | **OIDC-Provider konfigurieren** – Config in `.env` und `backend/app/config.py`: `OIDC_ENABLED`, `OIDC_ISSUER_URL`, `OIDC_CLIENT_ID`, `OIDC_CLIENT_SECRET` (optional), `OIDC_AUDIENCE` (optional), `OIDC_SCOPES`. | ✅ |
+| 2 | **Backend – JWT/OIDC-Validierung** – `app/core/auth.py`: Token aus `Authorization: Bearer` lesen, OIDC Discovery (JWKS) laden, JWT mit RS256/EC verifizieren; User-Mapping aus `sub`, `email`, `preferred_username`; bei erstem Login User in Tabelle `users` anlegen (Migration `004_add_oidc_sub.sql`). | ✅ |
+| 3 | **Backend – aktueller User aus Token** – `get_current_user` Dependency; `/me` und alle API-Routen geschützt (Router-Dependency). Bei `OIDC_ENABLED=false`: Fallback auf `CURRENT_USER_ID` oder Default-User. | ✅ |
+| 4 | **Backend – öffentlicher Auth-Config** – `GET /api/v1/auth/config` (ohne Auth) liefert `oidc_enabled`, `authorization_endpoint`, `token_endpoint`, `end_session_endpoint`, `oidc_client_id`, `oidc_scopes` für Frontend. | ✅ |
+| 5 | **Frontend – Login-Flow** – AuthContext lädt Auth-Config; bei OIDC aktiv und nicht eingeloggt Redirect zu IdP (PKCE: `code_challenge`/`code_verifier`). Route `/auth/callback`: Code gegen Token tauschen (direkt mit IdP oder optional Backend-Proxy), Token in sessionStorage und API-Client; Custom-Event zum Aktualisieren des User-Zustands. | ✅ |
+| 6 | **Frontend – Logout und Nutzeranzeige** – Logout löscht Token, optional Redirect zu `end_session_endpoint`. Header auf allen Hauptseiten: `AppHeaderUser` (Dropdown mit Anzeigename und „Abmelden“). | ✅ |
+| 7 | **Dokumentation** – roadmap.md, requirements_gap.md, sprint_plan.md, api.md, README: OIDC-Konfiguration, Umgebungsvariablen, Abnahme. | ✅ |
+
+**Abnahme:** Ohne gültigen Token sind geschützte Endpoints (z. B. Cases, Documents, `/me`) 401; nach Login liefert `/me` den aus dem Token abgeleiteten User; Frontend zeigt eingeloggten Nutzer und erlaubt Logout.
 
 ---
 

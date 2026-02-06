@@ -1,6 +1,6 @@
 # Nächste Schritte – Plan nach Roadmap & Gap-Analyse
 
-Stand: Feb 2026, nach Abgleich mit Code. Phase 1–3 der Roadmap und die priorisierten Gap-Punkte (Run-Checks, Frontend-API, Finding-Status, VVT, Cross-Document, Artefakte, Versionierung, Audit, Celery, OCR, Weaviate/RAG, Code-Review, **DE/EN-Ausbau**) sind umgesetzt. **Verbleibende Lücken:** AuthN/AuthZ, optional Retention/Archivierung. **Nächster Sprint:** siehe `docs/sprint_plan.md`.
+Stand: Feb 2026, nach Abgleich mit Code. Phase 1–3 der Roadmap und die priorisierten Gap-Punkte (Run-Checks, Frontend-API, Finding-Status, VVT, Cross-Document, Artefakte, Versionierung, Audit, Celery, OCR, Weaviate/RAG, Code-Review, DE/EN-Ausbau, **AuthN OAuth2/OIDC**) sind umgesetzt. **Verbleibende Lücken:** AuthZ/RBAC (Rollen), optional Retention/Archivierung. **Nächster Sprint:** siehe `docs/sprint_plan.md`.
 
 ---
 
@@ -48,7 +48,7 @@ Stand: Feb 2026, nach Abgleich mit Code. Phase 1–3 der Roadmap und die prioris
 
 | Lücke | Priorität | Anmerkung |
 | :--- | :--- | :--- |
-| **AuthN/AuthZ** | Phase 4 | OAuth2/OIDC (z. B. Keycloak), RBAC; geschützte API-Routen und Frontend-Login. |
+| **AuthZ / RBAC** | Phase 4 | Rollen (z. B. viewer/editor/admin), Rechte pro Ressource; optional. |
 | **Retention/Archivierung** | Optional | Konfigurierbare Aufbewahrungsfristen (Roadmap Phase 4). |
 
 Konkrete Sprint-Planung und Backlog: **`docs/sprint_plan.md`**.
@@ -74,4 +74,4 @@ Konkrete Sprint-Planung und Backlog: **`docs/sprint_plan.md`**.
 
 - **Gap „Findings maschinenlesbar“ / „Finding-Status in UI“:** **erledigt.**
 
-- **Verbleibende Lücken (Roadmap Phase 4 / Gap):** AuthN/AuthZ (OAuth2/OIDC, RBAC), optional Retention/Archivierung, Logging/Monitoring. DE/EN-Ausbau, OCR und Phase 2/3 sind erledigt.
+- **Verbleibende Lücken (Roadmap Phase 4 / Gap):** AuthZ/RBAC (Rollen), optional Retention/Archivierung, Logging/Monitoring. AuthN (OIDC), DE/EN-Ausbau, OCR und Phase 2/3 sind erledigt.

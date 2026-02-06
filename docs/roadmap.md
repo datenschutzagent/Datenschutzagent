@@ -78,7 +78,7 @@ Nach Abschluss von Weaviate/RAG wurden Verbesserungen aus einem systematischen C
 
 **Ziel:** Sicherheit, Skalierung, Nachvollziehbarkeit.
 
-- **Sicherheit:** Authentifizierung (OAuth2/OIDC), RBAC.
+- **Sicherheit:** Authentifizierung (OAuth2/OIDC) ✅ – Optional aktivierbar (`OIDC_ENABLED=true`). JWT-Validierung via JWKS (Issuer Discovery); Nutzer aus Token (`sub`), bei erstem Login in Tabelle `users` angelegt (`oidc_sub`). Geschützte Routen erfordern `Authorization: Bearer <token>`; `/health` und `GET /api/v1/auth/config` öffentlich. Frontend: Login-Redirect zu IdP, PKCE, Callback, Token in sessionStorage, Logout (optional End-Session-Redirect). RBAC (Rollen) optional in Folgesprint.
 - **Betrieb:** ~~Celery für lange Jobs~~ ✅ Dokument-Extraktion asynchron (Celery + Redis). Run-Checks weiterhin synchron; Status-Endpoint für Polling. Logging/Monitoring optional.
 - **Audit:** ✅ Audit-Log (`activity_log`) für Check-Läufe und Finding-Status; Activity-Timeline an API. Payload bei `run_checks` enthält `playbook_version` und `model` (Reproduzierbarkeit). Erweiterung (z. B. unveränderlich, weitere Event-Typen) optional.
 

@@ -37,6 +37,10 @@ weaviate-client==4.9.2
 # Data (YAML)
 pyyaml==6.0.2
 
+# Auth (OIDC/JWT)
+PyJWT[crypto]==2.10.1
+cryptography==44.0.0
+
 # Dev & testing
 python-dotenv==1.0.1
 pytest==8.3.4

@@ -65,7 +65,8 @@ Abgleich der Projektbeschreibung (Anforderungen) mit dem aktuellen Implementieru
 | :--- | :--- | :--- |
 | On-Prem / datenschutzkonform (LLM lokal) | ✅ | Ollama; Konfiguration über `OLLAMA_*`. |
 | Storage (lokal + MinIO) | ✅ | `storage.py`: Backends umschaltbar. |
-| AuthN/AuthZ, Rollen | ❌ | Nicht implementiert. |
+| AuthN (OAuth2/OIDC) | ✅ | Optional (`OIDC_ENABLED`); JWT-Validierung (JWKS), User-Sync (`oidc_sub`), geschützte API-Routen; Frontend Login/Logout, Nutzeranzeige. |
+| AuthZ / RBAC (Rollen) | ❌ | Noch nicht implementiert (optionaler Folgesprint). |
 | Retention/Archivierung konfigurierbar | ❌ | Nicht implementiert. |
 | Reproduzierbarkeit (Playbook-/Modellversion) | ✅ | Bei jedem `run_checks`-Event werden `playbook_version` und `model` (Ollama) im `activity_log.payload` geloggt; Reproduktion von Check-Läufen nachvollziehbar. |
 | Tests & CI | ✅ | Backend: pytest (backend/tests/), Frontend: Vitest + Testing Library (npm run test). CI: GitHub Actions (Frontend- und Backend-Tests mit Postgres-Service). |
@@ -80,7 +81,7 @@ Abgleich der Projektbeschreibung (Anforderungen) mit dem aktuellen Implementieru
 3. ~~**Vorgangs-/Cross-Document-Checks**~~ ✅ Erledigt (Playbook `scope: case`/`cross_document`, `run_cross_document_check`, Findings mit `document_id=null`, Frontend „Vorgangsbezogen“).
 4. **Artefakte:** ~~DSB-Report~~ ✅, ~~kommentierte DOCX~~ ✅, ~~PDF-Export~~ ✅ (`?format=pdf` bei annotated-documents Download).
 5. **Dokument-Versionierung:** ~~v1/v2 pro Dokumenttyp~~ ✅ (Version pro (case_id, document_type) beim Upload; GET /documents?document_type=…; Frontend Version + Hinweis).
-6. **Sicherheit & Audit:** ~~Audit-Log~~ ✅ (activity_log, Activities-API, Timeline). AuthN/AuthZ noch offen.
+6. **Sicherheit & Audit:** ~~Audit-Log~~ ✅ (activity_log, Activities-API, Timeline). ~~AuthN~~ ✅ (OIDC, JWT, Frontend Login/Logout). AuthZ/RBAC optional offen.
 7. ~~**Asynchrone Jobs (Celery + Redis)**~~ ✅ Extraktion nach Upload asynchron (Task `extract_document_text`); Upload 201 sofort. Run-Checks-Status: `GET /cases/{id}/run-checks/status`. Siehe sprint_plan.md.
 8. ~~**OCR (gescannte PDFs)**~~ ✅ Ollama Vision (qwen2.5-vl / minicpm-v); Schwellwert in `document_processor.py`; `extraction_method` am Document; Frontend-Badge „Text per OCR extrahiert“.
 9. **Weaviate / RAG (optionale zweite Prüfvariante):** ✅ Dokumente werden nach Extraktion in Chunks in Weaviate indexiert (Ollama Embedding). Run-Checks unterstützt Strategien `full_text` und `rag`; beide parallel für Vergleich. Findings mit `source_strategy`; Frontend Badge und Dialog-Auswahl (Volltext / RAG / Beide). Konfiguration: `WEAVIATE_INDEXING_ENABLED`, `WEAVIATE_URL`, Chunk-/Top-K-Parameter.

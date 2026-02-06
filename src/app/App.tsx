@@ -1,11 +1,14 @@
 import { RouterProvider } from "react-router";
+import { AuthProvider } from "./contexts/AuthContext";
 import { PreferencesProvider } from "./contexts/PreferencesContext";
 import { router } from "./routes";
 
 export default function App() {
   return (
-    <PreferencesProvider>
-      <RouterProvider router={router} />
-    </PreferencesProvider>
+    <AuthProvider>
+      <PreferencesProvider>
+        <RouterProvider router={router} />
+      </PreferencesProvider>
+    </AuthProvider>
   );
 }

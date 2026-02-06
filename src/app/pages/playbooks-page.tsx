@@ -1,4 +1,5 @@
 import { Link, useNavigate } from "react-router";
+import { AppHeaderUser } from "../components/app-header-user";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../components/ui/card";
 import { Badge } from "../components/ui/badge";
 import { Button } from "../components/ui/button";
@@ -57,6 +58,7 @@ export function PlaybooksPage() {
               <Link to="/admin" className="text-sm font-medium text-slate-600 hover:text-slate-900">
                 Verwaltung
               </Link>
+              <AppHeaderUser />
             </nav>
           </div>
         </div>

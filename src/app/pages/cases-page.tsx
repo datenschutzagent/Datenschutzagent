@@ -3,6 +3,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../co
 import { Badge } from "../components/ui/badge";
 import { Button } from "../components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "../components/ui/tabs";
+import { AppHeaderUser } from "../components/app-header-user";
 import { DashboardStats } from "../components/dashboard-stats";
 import { NewCaseDialog } from "../components/new-case-dialog";
 import { CasesSearchFilter, CasesFilters } from "../components/cases-search-filter";
@@ -117,6 +118,7 @@ export function CasesPage() {
               <Link to="/admin" className="text-sm font-medium text-slate-600 hover:text-slate-900">
                 Verwaltung
               </Link>
+              <AppHeaderUser />
             </nav>
           </div>
         </div>

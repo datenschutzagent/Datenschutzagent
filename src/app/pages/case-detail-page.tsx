@@ -11,6 +11,7 @@ import { VVTNormalizationView } from "../components/vvt-normalization-view";
 import { DSBReportView } from "../components/dsb-report-view";
 import { AnnotatedDocumentsView } from "../components/annotated-documents-view";
 import { ActivityTimeline } from "../components/activity-timeline";
+import { AppHeaderUser } from "../components/app-header-user";
 import { CaseOverviewTab } from "../components/case-detail/CaseOverviewTab";
 import { CaseDocumentsTab } from "../components/case-detail/CaseDocumentsTab";
 import { CaseFindingsTab } from "../components/case-detail/CaseFindingsTab";
@@ -133,6 +134,7 @@ export function CaseDetailPage() {
               <Link to="/admin" className="text-sm font-medium text-slate-600 hover:text-slate-900">
                 Verwaltung
               </Link>
+              <AppHeaderUser />
             </nav>
           </div>
         </div>

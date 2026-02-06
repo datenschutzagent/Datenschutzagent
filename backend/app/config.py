@@ -52,8 +52,16 @@ class Settings(BaseSettings):
     ocr_min_chars_per_page: int = 50  # below this avg chars/page → use OCR fallback
     ocr_dpi: int = 150  # resolution for PDF page images sent to vision model
 
-    # Current user (optional UUID; if unset, default user is used for GET/PATCH /me)
+    # Current user (optional UUID; if unset, default user is used for GET/PATCH /me when OIDC is disabled)
     current_user_id: str | None = None
+
+    # OAuth2/OIDC (optional; when enabled, Bearer token required for protected routes)
+    oidc_enabled: bool = False
+    oidc_issuer_url: str = ""  # e.g. https://auth.example.com/realms/datenschutzagent
+    oidc_client_id: str = ""
+    oidc_client_secret: str = ""  # For token introspection / backend flows; can be empty for public clients
+    oidc_audience: str | None = None  # Optional; if set, JWT aud claim must match
+    oidc_scopes: str = "openid profile email"  # Space-separated
 
     # Weaviate (optional; RAG document checks)
     weaviate_url: str = "http://localhost:8080"
