@@ -5,6 +5,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from ".
 import { Progress } from "./ui/progress";
 import { Upload, X, Check, AlertCircle, Loader2 } from "lucide-react";
 import { documentTypeLabels, type DocumentType } from "../lib/mock-data";
+import { randomUUID } from "../lib/uuid";
 import { uploadDocument, uploadDocumentsBulk } from "../lib/api";
 
 interface UploadedFile {
@@ -61,7 +62,7 @@ export function DocumentUploadZone({ caseId, uploadedBy = "", onUploadComplete }
       const isValidSize = file.size <= maxSize;
 
       return {
-        id: crypto.randomUUID(),
+        id: randomUUID(),
         file,
         type: null,
         progress: 0,
