@@ -287,6 +287,68 @@ export async function runChecks(caseId: string, playbookId: string): Promise<Api
   return mapCase(c) as ApiCase;
 }
 
+// --- Case Activities (Audit Log) ---
+export interface ApiActivity {
+  id: string;
+  case_id: string;
+  event_type: string;
+  payload: Record<string, unknown>;
+  created_at: string;
+}
+
+export interface TimelineActivity {
+  id: string;
+  caseId: string;
+  type: "playbook_run" | "finding_status_changed";
+  timestamp: string;
+  performedBy: string;
+  description: string;
+  metadata?: { oldValue?: string; newValue?: string; documentName?: string; findingId?: string; comment?: string };
+}
+
+function mapApiActivityToTimeline(a: ApiActivity): TimelineActivity {
+  const caseId = typeof a.case_id === "string" ? a.case_id : (a.case_id as { toString: () => string }).toString();
+  const timestamp = typeof a.created_at === "string" ? a.created_at : new Date((a.created_at as Date).valueOf()).toISOString();
+  if (a.event_type === "run_checks") {
+    const playbookName = (a.payload?.playbook_name as string) ?? "Playbook";
+    const count = (a.payload?.findings_count as number) ?? 0;
+    return {
+      id: a.id,
+      caseId,
+      type: "playbook_run",
+      timestamp,
+      performedBy: "System",
+      description: `Playbook „${playbookName}" ausgeführt, ${count} Finding(s) erstellt.`,
+    };
+  }
+  if (a.event_type === "finding_status_updated") {
+    const oldStatus = (a.payload?.old_status as string) ?? "";
+    const newStatus = (a.payload?.new_status as string) ?? "";
+    return {
+      id: a.id,
+      caseId,
+      type: "finding_status_changed",
+      timestamp,
+      performedBy: "System",
+      description: "Finding-Status geändert",
+      metadata: { oldValue: oldStatus, newValue: newStatus },
+    };
+  }
+  return {
+    id: a.id,
+    caseId,
+    type: "playbook_run",
+    timestamp,
+    performedBy: "System",
+    description: a.event_type,
+  };
+}
+
+export async function getCaseActivities(caseId: string): Promise<TimelineActivity[]> {
+  const list = (await request<ApiActivity[]>("GET", `/cases/${caseId}/activities`)) ?? [];
+  return list.map(mapApiActivityToTimeline);
+}
+
 // --- DSB Report ---
 export interface DSBReportViewData {
   caseId: string;

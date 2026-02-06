@@ -54,7 +54,7 @@ Abgleich der Projektbeschreibung (Anforderungen) mit dem aktuellen Implementieru
 
 | Anforderung | Status | Anmerkung |
 | :--- | :--- | :--- |
-| Logging Playbook-/Modell-Version, Check-Läufe | ❌ | Kein strukturierter Audit-Log. |
+| Logging Playbook-/Modell-Version, Check-Läufe | ✅ | Tabelle `activity_log` (case_id, event_type, payload, created_at); Events `run_checks`, `finding_status_updated`; `GET /api/v1/cases/{id}/activities`; Frontend Activity-Timeline nutzt echte API. |
 | Finding-Status accepted/overruled/fixed | ✅ | Enum und DB-Felder; `PATCH /api/v1/findings/{id}`; UI in Case-Detail (Status-Buttons) implementiert. |
 
 ---
@@ -73,7 +73,7 @@ Abgleich der Projektbeschreibung (Anforderungen) mit dem aktuellen Implementieru
 
 ## 3. Priorisierte Schritte (Gap-Schließung)
 
-1. ~~**Run-Checks-API**~~ ✅ Erledigt. ~~**Frontend**~~ ✅ Erledigt (Cases, Documents, Findings, Playbooks, Run-Checks, Finding-Status, **Playbook-Detail** nutzen echte API). **Activity-Timeline** nutzt weiterhin Mock bis Audit-Log/Activities-API vorhanden.
+1. ~~**Run-Checks-API**~~ ✅ Erledigt. ~~**Frontend**~~ ✅ Erledigt (Cases, Documents, Findings, Playbooks, Run-Checks, Finding-Status, **Playbook-Detail** nutzen echte API). ~~**Activity-Timeline** nutzt weiterhin Mock~~ ✅ Erledigt (Audit-Log + `GET /cases/{id}/activities`, Activity-Timeline an API).
 2. ~~**VVT:** Fingerprinting, kanonisches Modell, Mapping, Frontend-Ansicht~~ ✅ Erledigt (`GET /cases/{id}/vvt-normalization`, `vvt_service.py`, VVTNormalizationView an API). **Export Ziel-Template** noch offen (optional).
 3. **Artefakte:** ~~DSB-Report~~ ✅, ~~kommentierte DOCX~~ ✅ (annotated-documents API + Frontend). PDF-Export optional.
-4. **Sicherheit & Audit:** AuthN/AuthZ, Audit-Log.
+4. **Sicherheit & Audit:** ~~Audit-Log~~ ✅ (activity_log, Activities-API, Timeline). AuthN/AuthZ noch offen.

@@ -21,7 +21,7 @@
 
 **Noch offen (Phase 1):**
 - ~~Frontend an echte API angebunden~~ ✅ Erledigt (Cases, Dokumente, Findings, Playbooks, Run-Checks, Finding-Status, **Playbook-Detail** nutzen `api.ts`).
-- **Activity-Timeline:** nutzt Mock-Daten bis ein Audit-Log/Activities-API existiert.
+- ~~**Activity-Timeline:** nutzt Mock-Daten bis ein Audit-Log/Activities-API existiert~~ ✅ Erledigt: Audit-Log (`activity_log`), `GET /cases/{id}/activities`; Frontend Activity-Timeline nutzt echte API.
 - Dokument-Versionierung: v1/v2 pro Dokumenttyp noch offen.
 - Asynchrone Jobs: Redis/Celery noch nicht genutzt; Extraktion synchron.
 
@@ -53,7 +53,7 @@
 - **Consistency Engine:** Multi-Dokument-Kontext für LLM; Cross-Document-Findings.
 - **Artefakte:** DSB Summary Report (Markdown/JSON) ✅ (`GET /cases/{id}/dsb-report`); kommentierte DOCX ✅ (`GET /cases/{id}/annotated-documents`, Download); PDF optional.
 - **VVT-Export:** CSV ✅ (`GET /cases/{id}/vvt-normalization/export`); Ziel-Template (DOCX) optional.
-- **Feedback:** Finding-Status (Accepted/Overruled/Fixed) in UI; Audit bei Statusänderungen.
+- **Feedback:** Finding-Status (Accepted/Overruled/Fixed) in UI; Audit bei Statusänderungen ✅ (activity_log-Einträge bei Finding-Status-Update).
 
 ---
 
@@ -63,7 +63,7 @@
 
 - **Sicherheit:** Authentifizierung (OAuth2/OIDC), RBAC.
 - **Betrieb:** Celery (o. ä.) für lange LLM-/Export-Jobs; Logging/Monitoring.
-- **Audit:** Unveränderlicher Audit-Log für Aktionen und Check-Läufe.
+- **Audit:** ✅ Audit-Log (`activity_log`) für Check-Läufe und Finding-Status; Activity-Timeline an API. Erweiterung (z. B. unveränderlich, weitere Event-Typen) optional.
 
 ---
 

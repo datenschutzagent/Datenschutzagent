@@ -13,8 +13,9 @@ from sqlalchemy.orm import selectinload
 
 from app.database import get_db
 from app.models import CaseCreate, CaseModel, CaseResponse, CaseUpdate, orm_to_case_response
-from app.models.db import DocumentModel, FindingModel, PlaybookModel
+from app.models.db import ActivityLogModel, DocumentModel, FindingModel, PlaybookModel, orm_to_activity_response
 from app.models.schemas import (
+    ActivityResponse,
     AnnotatedDocumentListItem,
     DSBReportResponse,
     RunChecksRequest,
@@ -54,6 +55,26 @@ async def get_case(
     if not case:
         raise HTTPException(status_code=404, detail="Case not found")
     return CaseResponse(**orm_to_case_response(case))
+
+
+@router.get("/{case_id}/activities", response_model=list[ActivityResponse])
+async def get_case_activities(
+    case_id: UUID,
+    db: AsyncSession = Depends(get_db),
+):
+    """Get activity log for the case (run_checks, finding_status_updated, etc.), sorted by time descending."""
+    result = await db.execute(
+        select(CaseModel).where(CaseModel.id == case_id)
+    )
+    if result.scalar_one_or_none() is None:
+        raise HTTPException(status_code=404, detail="Case not found")
+    activities_result = await db.execute(
+        select(ActivityLogModel)
+        .where(ActivityLogModel.case_id == case_id)
+        .order_by(ActivityLogModel.created_at.desc())
+    )
+    activities = activities_result.scalars().all()
+    return [ActivityResponse(**orm_to_activity_response(a)) for a in activities]
 
 
 @router.post("", response_model=CaseResponse, status_code=201)
@@ -321,6 +342,7 @@ async def run_checks(
         await db.refresh(case)
         return CaseResponse(**orm_to_case_response(case))
 
+    findings_added = 0
     for doc in case.documents:
         text = (doc.content or "") or ""
         for item in checks:
@@ -345,8 +367,19 @@ async def run_checks(
                     recommendation=check_result.recommendation or "",
                 )
                 db.add(finding)
+                findings_added += 1
 
     await db.flush()
+    activity = ActivityLogModel(
+        case_id=case_id,
+        event_type="run_checks",
+        payload={
+            "playbook_id": str(body.playbook_id),
+            "playbook_name": playbook.name,
+            "findings_count": findings_added,
+        },
+    )
+    db.add(activity)
     # Reload case with documents and findings for response
     result2 = await db.execute(
         select(CaseModel)

@@ -3,7 +3,7 @@ import uuid
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import DateTime, ForeignKey, Integer, String, Text
+from sqlalchemy import DateTime, ForeignKey, Index, Integer, String, Text
 from sqlalchemy.dialects.postgresql import ARRAY, JSONB, UUID as PG_UUID
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
@@ -80,6 +80,29 @@ class FindingModel(Base):
     recommendation: Mapped[str] = mapped_column(Text, nullable=False, default="")
 
     case: Mapped["CaseModel"] = relationship("CaseModel", back_populates="findings")
+
+
+class ActivityLogModel(Base):
+    """Audit log for case-related events (run_checks, finding_status_updated, etc.)."""
+    __tablename__ = "activity_log"
+    __table_args__ = (Index("ix_activity_log_case_id_created_at", "case_id", "created_at"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(PG_UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    case_id: Mapped[uuid.UUID] = mapped_column(PG_UUID(as_uuid=True), ForeignKey("cases.id", ondelete="CASCADE"), nullable=False)
+    event_type: Mapped[str] = mapped_column(String(80), nullable=False)
+    payload: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+
+
+def orm_to_activity_response(orm: ActivityLogModel) -> dict[str, Any]:
+    """Map ActivityLogModel to API response shape (snake_case)."""
+    return {
+        "id": orm.id,
+        "case_id": orm.case_id,
+        "event_type": orm.event_type,
+        "payload": orm.payload or {},
+        "created_at": orm.created_at,
+    }
 
 
 def orm_to_document_response(orm: DocumentModel) -> dict[str, Any]:

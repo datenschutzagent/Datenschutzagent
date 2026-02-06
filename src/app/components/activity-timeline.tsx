@@ -1,4 +1,6 @@
-import { Activity, activityTypeLabels, mockActivities } from "../lib/mock-data";
+import { useEffect, useState } from "react";
+import { getCaseActivities, type TimelineActivity } from "../lib/api";
+import { activityTypeLabels } from "../lib/mock-data";
 import { Card, CardContent } from "./ui/card";
 import { Badge } from "./ui/badge";
 import { 
@@ -18,12 +20,20 @@ interface ActivityTimelineProps {
 }
 
 export function ActivityTimeline({ caseId }: ActivityTimelineProps) {
-  // Filter activities for this case
-  const activities = mockActivities
-    .filter((act) => act.caseId === caseId)
-    .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+  const [activities, setActivities] = useState<TimelineActivity[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
-  const getActivityIcon = (type: Activity["type"]) => {
+  useEffect(() => {
+    setLoading(true);
+    setError(null);
+    getCaseActivities(caseId)
+      .then(setActivities)
+      .catch((e) => setError(e instanceof Error ? e.message : "Aktivitäten konnten nicht geladen werden."))
+      .finally(() => setLoading(false));
+  }, [caseId]);
+
+  const getActivityIcon = (type: TimelineActivity["type"]) => {
     const iconClass = "size-4";
     switch (type) {
       case "case_created":
@@ -50,7 +60,7 @@ export function ActivityTimeline({ caseId }: ActivityTimelineProps) {
     }
   };
 
-  const getActivityColor = (type: Activity["type"]) => {
+  const getActivityColor = (type: TimelineActivity["type"]) => {
     switch (type) {
       case "case_created":
         return "bg-blue-100 text-blue-700";
@@ -90,6 +100,24 @@ export function ActivityTimeline({ caseId }: ActivityTimelineProps) {
     };
   };
 
+  if (loading) {
+    return (
+      <Card>
+        <CardContent className="py-8 text-center text-slate-500">
+          Aktivitäten werden geladen…
+        </CardContent>
+      </Card>
+    );
+  }
+  if (error) {
+    return (
+      <Card>
+        <CardContent className="py-8 text-center text-destructive">
+          {error}
+        </CardContent>
+      </Card>
+    );
+  }
   if (activities.length === 0) {
     return (
       <Card>

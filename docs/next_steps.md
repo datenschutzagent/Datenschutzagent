@@ -1,6 +1,6 @@
 # Nächste Schritte – Plan nach Roadmap & Gap-Analyse
 
-Stand: Aktualisiert nach Abgleich mit Code. Die Punkte 1–3 (Run-Checks, Frontend-API, Finding-Status, DELETE Document, Playbook PATCH/DELETE), **VVT** (Backend + Frontend mit echter API) und **DSB-Report** sind umgesetzt. Nächster Sprint: siehe `docs/sprint_plan.md` bzw. Roadmap Phase 3.
+Stand: Aktualisiert nach Abgleich mit Code. Die Punkte 1–3 (Run-Checks, Frontend-API, Finding-Status, DELETE Document, Playbook PATCH/DELETE), **VVT** (Backend + Frontend mit echter API), **DSB-Report** und **Audit-Log + Activity-Timeline** sind umgesetzt. Nächster Sprint: siehe `docs/sprint_plan.md` bzw. Roadmap Phase 3 (z. B. Cross-Document-Checks).
 
 ---
 
@@ -21,6 +21,7 @@ Stand: Aktualisiert nach Abgleich mit Code. Die Punkte 1–3 (Run-Checks, Fronte
 | **VVT** | Implementiert | ✅ `vvt_service.py` (Fingerprinting via source_template, kanonisches Modell, LLM-Mapping), `GET /cases/{id}/vvt-normalization` in `cases.py`; Frontend `VVTNormalizationView` nutzt `getVVTNormalization()` aus `api.ts`. VVT CSV-Export: `GET /cases/{id}/vvt-normalization/export`. Ziel-Template (DOCX) optional. |
 | **DSB Report** | Implementiert | ✅ `dsb_report_service.py`, `GET /cases/{id}/dsb-report` (format=json \| markdown); Frontend `DSBReportView`. |
 | **Annotierte Dokumente** | Implementiert | ✅ `annotated_document_service.py`; `GET /cases/{id}/annotated-documents` (Liste), `GET /cases/{id}/annotated-documents/{document_id}` (DOCX-Download); Frontend `AnnotatedDocumentsView` mit `caseId`, echte API. |
+| **Audit-Log / Activities** | Implementiert | ✅ Tabelle `activity_log` in `models/db.py`; Run-Checks und PATCH Finding schreiben Events; `GET /cases/{id}/activities` in `cases.py`; Frontend nutzt `getCaseActivities()`. |
 
 ### Frontend
 
@@ -37,7 +38,7 @@ Stand: Aktualisiert nach Abgleich mit Code. Die Punkte 1–3 (Run-Checks, Fronte
 | **Dashboard Playbooks** | Echte API | ✅ `dashboard-stats.tsx` lädt Playbooks via `getPlaybooks()`; Fallback leere Liste. |
 | **UI VVT-Normalisierung** | Echte API | ✅ `vvt-normalization-view.tsx` lädt per `getVVTNormalization(caseId, documentId)`; Anzeige Felder, Template, Fortschritt. |
 | **UI Annotierte Dokumente** | Echte API | ✅ `annotated-documents-view.tsx` mit `caseId`; `getAnnotatedDocuments()`, `getAnnotatedDocumentBlob()`; Liste und DOCX-Download. |
-| **Activity-Timeline** | Mock | ⚠️ `activity-timeline.tsx` nutzt `mockActivities`; echte Daten erst mit Audit-Log/Activities-API. |
+| **Activity-Timeline** | Echte API | ✅ `activity-timeline.tsx` nutzt `getCaseActivities(caseId)` aus `api.ts`; Daten von `GET /cases/{id}/activities`. |
 
 ---
 

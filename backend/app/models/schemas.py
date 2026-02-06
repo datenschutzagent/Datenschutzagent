@@ -185,3 +185,15 @@ class AnnotatedDocumentListItem(BaseModel):
     document_id: UUID
     document_name: str
     finding_count: int
+
+
+# --- Activity / Audit Log ---
+class ActivityResponse(BaseModel):
+    """Single activity log entry for the timeline."""
+    id: UUID
+    case_id: UUID
+    event_type: str
+    payload: dict[str, Any] = Field(default_factory=dict)
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
