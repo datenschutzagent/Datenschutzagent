@@ -1,10 +1,30 @@
 # Sprint-Plan (aktuell)
 
-Stand: Sprint **OCR (gescannte PDFs) via Ollama Vision** abgeschlossen. Abgeschlossen: OCR (Ollama Vision, extraction_method, Frontend-Badge), Asynchrone Jobs (Celery + Redis), Dokument-Versionierung, Dokumente beim Anlegen, Reproduzierbarkeit + Artefakte, Cross-Document-Checks, Fachbereiche/Playbook-YAML/Playbook-CRUD, Audit-Log + Activity-Timeline, Playbook-Detail, Mehrfach-Upload, Annotated Documents.
+Stand: Sprint **Weaviate / RAG (optionale zweite Prüfvariante)** abgeschlossen. Abgeschlossen: Weaviate in docker-compose; Chunking + Embedding (Ollama) + Indexierung nach Extraktion; RAG-Check-Runner (`run_check_rag`, `run_cross_document_check_rag`); Run-Checks mit `strategies` (full_text / rag / beide); Finding `source_strategy`; Frontend Badge und Run-Checks-Dialog (Volltext / RAG / Beide). Zuvor: OCR, Celery, Dokument-Versionierung, Cross-Document, Artefakte, Audit, Playbook-CRUD, Annotated Documents.
 
 ---
 
-## Aktueller Sprint – Dokument-Versionierung (abgeschlossen)
+## Aktueller Sprint – Weaviate / RAG (abgeschlossen)
+
+1. **Weaviate + Chunking** – Weaviate-Container in docker-compose (Vectorizer none); Konfiguration `WEAVIATE_URL`, `WEAVIATE_INDEXING_ENABLED`, Chunk-Größe/Overlap, `WEAVIATE_TOP_K`, `OLLAMA_EMBEDDING_MODEL`. Service `weaviate_service.py`: Chunking, Embedding via Ollama, Schema DocumentChunk, Indexierung und Abruf (get_relevant_chunks, get_relevant_chunks_for_case).
+2. **Indexierung an Extraktion** – Nach Celery-Task `extract_document_text` bei aktivierter Weaviate-Indexierung Chunks indexieren. Bei DELETE Dokument bzw. DELETE Case Chunks in Weaviate entfernen.
+3. **RAG-Check-Runner** – `run_check_rag(document_id, case_id, instruction)` und `run_cross_document_check_rag(case_id, instruction)` in check_runner.py; Abruf relevanter Chunks, Kontext an LLM, gleiches CheckResult-Schema.
+4. **Run-Checks erweitern** – Body-Parameter `strategies`: `["full_text"]`, `["rag"]` oder `["full_text", "rag"]`. Beide Varianten parallel ausführbar; Findings mit `source_strategy` (full_text | rag). Bei RAG nicht verfügbar: weicher Fallback, Hinweis im Activity-Payload.
+5. **Finding-Modell & Frontend** – Migration `002_add_finding_source_strategy.sql`; FindingResponse und API mit `source_strategy`. Frontend: Badge „Volltext“/„RAG“ pro Finding; Run-Checks-Dialog mit Auswahl „Volltext“, „RAG“, „Beide (Vergleich)“.
+6. **Dokumentation** – roadmap.md, architecture.md, api.md, sprint_plan.md, requirements_gap.md um Weaviate, Chunking, RAG-Variante und Parallel-Betrieb ergänzt.
+
+| # | Aufgabe | Status |
+| :--- | :--- | :--- |
+| 1 | Weaviate + Chunking (docker-compose, Schema, Embedding, Index-Service) | ✅ |
+| 2 | Indexierung an Extraktion (Celery) + Delete-Hooks (Dokument/Case) | ✅ |
+| 3 | RAG-Check-Runner (run_check_rag, run_cross_document_check_rag) | ✅ |
+| 4 | Run-Checks strategies + source_strategy an Findings | ✅ |
+| 5 | Finding source_strategy + Frontend Badge + Run-Checks-Dialog | ✅ |
+| 6 | Doku (roadmap, architecture, api, sprint_plan, requirements_gap) | ✅ |
+
+---
+
+## Vorheriger Sprint – Dokument-Versionierung (abgeschlossen)
 
 1. **Datenmodell & API** – Version pro (case_id, document_type): Beim Upload wird die nächste Versionsnummer (v1, v2, …) automatisch vergeben. `GET /documents` unterstützt optional `document_type`; Sortierung nach Typ und Version.
 2. **Backend** – `_next_version_for_type()` in `documents.py`; Einzel- und Bulk-Upload setzen Version automatisch. Case-Response: Dokumente sortiert nach (type, version).

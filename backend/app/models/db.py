@@ -79,6 +79,7 @@ class FindingModel(Base):
     description: Mapped[str] = mapped_column(Text, nullable=False)
     evidence: Mapped[list[str]] = mapped_column(ARRAY(Text), nullable=False, default=list)
     recommendation: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    source_strategy: Mapped[str | None] = mapped_column(String(20), nullable=True)  # "full_text" | "rag"
 
     case: Mapped["CaseModel"] = relationship("CaseModel", back_populates="findings")
 
@@ -135,6 +136,7 @@ def orm_to_finding_response(orm: FindingModel) -> dict[str, Any]:
         "recommendation": orm.recommendation,
         "document_id": orm.document_id,
         "case_id": orm.case_id,
+        "source_strategy": orm.source_strategy,
     }
 
 

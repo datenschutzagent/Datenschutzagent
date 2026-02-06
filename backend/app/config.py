@@ -52,6 +52,14 @@ class Settings(BaseSettings):
     ocr_min_chars_per_page: int = 50  # below this avg chars/page → use OCR fallback
     ocr_dpi: int = 150  # resolution for PDF page images sent to vision model
 
+    # Weaviate (optional; RAG document checks)
+    weaviate_url: str = "http://localhost:8080"
+    weaviate_indexing_enabled: bool = False
+    weaviate_chunk_size_chars: int = 800
+    weaviate_chunk_overlap_chars: int = 100
+    weaviate_top_k: int = 5
+    ollama_embedding_model: str = "nomic-embed-text"
+
     @property
     def database_sync_url(self) -> str:
         """Sync DB URL for Celery worker (psycopg2)."""

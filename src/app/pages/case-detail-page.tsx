@@ -1,31 +1,20 @@
 import { useParams, Link, useNavigate } from "react-router";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../components/ui/card";
+import { Card, CardContent } from "../components/ui/card";
 import { Badge } from "../components/ui/badge";
 import { Button } from "../components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "../components/ui/tabs";
 import { Alert, AlertDescription } from "../components/ui/alert";
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "../components/ui/dialog";
-import { statusLabels, statusColors, documentTypeLabels, severityColors, findingStatusLabels, priorityLabels, priorityColors } from "../lib/mock-data";
-import { getCase, getPlaybooks, runChecks, updateFindingStatus, type ApiCase, type ApiFinding, type ApiPlaybook } from "../lib/api";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "../components/ui/dialog";
+import { statusLabels, statusColors, findingStatusLabels, severityColors } from "../lib/mock-data";
+import { getCase, getPlaybooks, runChecks, updateFindingStatus, getDSBReportBlob, downloadBlob, type ApiCase, type ApiFinding, type ApiPlaybook, type RunChecksStrategy } from "../lib/api";
 import { VVTNormalizationView } from "../components/vvt-normalization-view";
 import { DSBReportView } from "../components/dsb-report-view";
 import { AnnotatedDocumentsView } from "../components/annotated-documents-view";
-import { DocumentUploadZone } from "../components/document-upload-zone";
 import { ActivityTimeline } from "../components/activity-timeline";
-import { 
-  ArrowLeft, 
-  Upload, 
-  FileText, 
-  Download, 
-  AlertCircle, 
-  CheckCircle2,
-  Clock,
-  XCircle,
-  Shield,
-  FileCheck,
-  MessageSquare,
-  Loader2
-} from "lucide-react";
+import { CaseOverviewTab } from "../components/case-detail/CaseOverviewTab";
+import { CaseDocumentsTab } from "../components/case-detail/CaseDocumentsTab";
+import { CaseFindingsTab } from "../components/case-detail/CaseFindingsTab";
+import { ArrowLeft, Download, MessageSquare, Loader2 } from "lucide-react";
 import { useState, useEffect } from "react";
 
 export function CaseDetailPage() {
@@ -39,8 +28,11 @@ export function CaseDetailPage() {
   const [runChecksOpen, setRunChecksOpen] = useState(false);
   const [playbooks, setPlaybooks] = useState<ApiPlaybook[]>([]);
   const [selectedPlaybookId, setSelectedPlaybookId] = useState<string>("");
+  const [runChecksStrategy, setRunChecksStrategy] = useState<"full_text" | "rag" | "both">("full_text");
   const [runChecksLoading, setRunChecksLoading] = useState(false);
   const [findingStatusLoading, setFindingStatusLoading] = useState<string | null>(null);
+  const [activeTab, setActiveTab] = useState("overview");
+  const [dsbReportDownloading, setDsbReportDownloading] = useState(false);
 
   const loadCase = () => {
     if (!caseId) return;
@@ -64,7 +56,9 @@ export function CaseDetailPage() {
     if (!caseId || !selectedPlaybookId) return;
     setRunChecksLoading(true);
     try {
-      const updated = await runChecks(caseId, selectedPlaybookId);
+      const strategies: RunChecksStrategy[] =
+        runChecksStrategy === "both" ? ["full_text", "rag"] : [runChecksStrategy];
+      const updated = await runChecks(caseId, selectedPlaybookId, strategies);
       setCaseData(updated);
       setRunChecksOpen(false);
       setSelectedPlaybookId("");
@@ -172,11 +166,33 @@ export function CaseDetailPage() {
               </div>
             </div>
             <div className="flex gap-2">
-              <Button variant="outline" className="gap-2">
-                <Download className="size-4" />
+              <Button
+                variant="outline"
+                className="gap-2"
+                disabled={dsbReportDownloading}
+                onClick={async () => {
+                  if (!caseId) return;
+                  setDsbReportDownloading(true);
+                  try {
+                    const blob = await getDSBReportBlob(caseId, "markdown");
+                    const slug = caseData.title.replace(/[^\w\s-]/g, "").slice(0, 50).trim().replace(/[-\s]+/g, "-") || "Report";
+                    const date = new Date().toISOString().slice(0, 10);
+                    downloadBlob(blob, `DSB-Report-${slug}-${date}.md`);
+                  } catch (e) {
+                    setError(e instanceof Error ? e.message : "DSB-Report konnte nicht geladen werden.");
+                  } finally {
+                    setDsbReportDownloading(false);
+                  }
+                }}
+              >
+                {dsbReportDownloading ? <Loader2 className="size-4 animate-spin" /> : <Download className="size-4" />}
                 DSB-Report
               </Button>
-              <Button variant="outline" className="gap-2">
+              <Button
+                variant="outline"
+                className="gap-2"
+                onClick={() => setActiveTab("annotated")}
+              >
                 <MessageSquare className="size-4" />
                 Kommentierte Dokumente
               </Button>
@@ -196,7 +212,7 @@ export function CaseDetailPage() {
         </div>
 
         {/* Tabs */}
-        <Tabs defaultValue="overview" className="space-y-6">
+        <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
           <TabsList>
             <TabsTrigger value="overview">Überblick</TabsTrigger>
             <TabsTrigger value="documents">Dokumente ({caseData.documents.length})</TabsTrigger>
@@ -214,323 +230,36 @@ export function CaseDetailPage() {
 
           {/* Overview Tab */}
           <TabsContent value="overview" className="space-y-6">
-            <div className="grid grid-cols-3 gap-6">
-              {/* Metadata Card */}
-              <Card>
-                <CardHeader>
-                  <CardTitle className="text-base">Metadaten</CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-3 text-sm">
-                  <div>
-                    <span className="text-slate-600">Vorgang-ID:</span>
-                    <p className="font-medium">{caseData.id}</p>
-                  </div>
-                  <div>
-                    <span className="text-slate-600">Erstellt von:</span>
-                    <p className="font-medium">{caseData.createdBy}</p>
-                  </div>
-                  <div>
-                    <span className="text-slate-600">Zugewiesen an:</span>
-                    <p className="font-medium">{caseData.assignee}</p>
-                  </div>
-                  <div>
-                    <span className="text-slate-600">Sprache:</span>
-                    <p className="font-medium">{caseData.language.toUpperCase()}</p>
-                  </div>
-                  {caseData.priority && (
-                    <div>
-                      <span className="text-slate-600">Priorität:</span>
-                      <div className="mt-1">
-                        <Badge className={priorityColors[caseData.priority]}>
-                          {priorityLabels[caseData.priority]}
-                        </Badge>
-                      </div>
-                    </div>
-                  )}
-                  {caseData.deadline && (
-                    <div>
-                      <span className="text-slate-600">Frist:</span>
-                      <p className="font-medium">{new Date(caseData.deadline).toLocaleDateString("de-DE", { day: "2-digit", month: "2-digit", year: "numeric" })}</p>
-                      {(() => {
-                        const today = new Date("2026-02-06");
-                        const deadline = new Date(caseData.deadline);
-                        const daysUntil = Math.ceil((deadline.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
-                        if (daysUntil < 0) {
-                          return (
-                            <Badge className="mt-1 bg-red-600 text-white">
-                              {Math.abs(daysUntil)} Tage überfällig
-                            </Badge>
-                          );
-                        } else if (daysUntil <= 3) {
-                          return (
-                            <Badge className="mt-1 bg-orange-600 text-white">
-                              Noch {daysUntil} {daysUntil === 1 ? "Tag" : "Tage"}
-                            </Badge>
-                          );
-                        }
-                        return null;
-                      })()}
-                    </div>
-                  )}
-                  <div>
-                    <span className="text-slate-600">Playbook:</span>
-                    <p className="font-medium">{caseData.playbookVersion}</p>
-                  </div>
-                  <div>
-                    <span className="text-slate-600">Letzte Aktualisierung:</span>
-                    <p className="font-medium">{new Date(caseData.updatedAt).toLocaleDateString("de-DE")}</p>
-                  </div>
-                </CardContent>
-              </Card>
-
-              {/* Statistics Card */}
-              <Card>
-                <CardHeader>
-                  <CardTitle className="text-base">Statistik</CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-3">
-                  <div className="flex items-center justify-between">
-                    <span className="text-sm text-slate-600">Dokumente</span>
-                    <Badge variant="outline">{caseData.documents.length}</Badge>
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <span className="text-sm text-slate-600">Findings gesamt</span>
-                    <Badge variant="outline">{caseData.findings.length}</Badge>
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <span className="text-sm text-red-600">Kritisch (offen)</span>
-                    <Badge className="bg-red-100 text-red-700">{criticalFindings.length}</Badge>
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <span className="text-sm text-orange-600">Hoch (offen)</span>
-                    <Badge className="bg-orange-100 text-orange-700">{highFindings.length}</Badge>
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <span className="text-sm text-green-600">Behoben</span>
-                    <Badge className="bg-green-100 text-green-700">
-                      {caseData.findings.filter(f => f.status === "fixed").length}
-                    </Badge>
-                  </div>
-                </CardContent>
-              </Card>
-
-              {/* Quick Actions Card */}
-              <Card>
-                <CardHeader>
-                  <CardTitle className="text-base">Aktionen</CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-2">
-                  <Dialog open={runChecksOpen} onOpenChange={setRunChecksOpen}>
-                    <DialogTrigger asChild>
-                      <Button variant="outline" className="w-full justify-start gap-2">
-                        <Shield className="size-4" />
-                        Playbook-Checks ausführen
-                      </Button>
-                    </DialogTrigger>
-                    <DialogContent>
-                      <DialogHeader>
-                        <DialogTitle>Playbook-Checks ausführen</DialogTitle>
-                        <DialogDescription>
-                          Wählen Sie ein Playbook. Die Checks werden gegen alle Dokumente des Vorgangs ausgeführt.
-                        </DialogDescription>
-                      </DialogHeader>
-                      <div className="space-y-2">
-                        <label className="text-sm font-medium">Playbook</label>
-                        <select
-                          className="w-full border rounded-md px-3 py-2"
-                          value={selectedPlaybookId}
-                          onChange={(e) => setSelectedPlaybookId(e.target.value)}
-                        >
-                          <option value="">— Auswählen —</option>
-                          {playbooks.map((pb) => (
-                            <option key={pb.id} value={pb.id}>{pb.name} (v{pb.version})</option>
-                          ))}
-                        </select>
-                      </div>
-                      <div className="flex justify-end gap-2">
-                        <Button variant="outline" onClick={() => setRunChecksOpen(false)}>Abbrechen</Button>
-                        <Button onClick={handleRunChecks} disabled={!selectedPlaybookId || runChecksLoading}>
-                          {runChecksLoading ? <Loader2 className="size-4 animate-spin" /> : null}
-                          Checks starten
-                        </Button>
-                      </div>
-                    </DialogContent>
-                  </Dialog>
-                  <Button variant="outline" className="w-full justify-start gap-2">
-                    <FileCheck className="size-4" />
-                    VVT normalisieren
-                  </Button>
-                  <Button variant="outline" className="w-full justify-start gap-2">
-                    <Download className="size-4" />
-                    Alle Artefakte exportieren
-                  </Button>
-                </CardContent>
-              </Card>
-            </div>
-
-            {/* Recent Findings */}
-            <Card>
-              <CardHeader>
-                <CardTitle>Aktuelle Findings (Top 3)</CardTitle>
-                <CardDescription>Die wichtigsten offenen Prüfpunkte</CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-3">
-                {caseData.findings
-                  .filter(f => f.status === "open")
-                  .slice(0, 3)
-                  .map((finding) => (
-                    <div
-                      key={finding.id}
-                      className="p-4 border rounded-lg hover:bg-slate-50 cursor-pointer"
-                      onClick={() => setSelectedFinding(finding)}
-                    >
-                      <div className="flex items-start gap-3">
-                        <AlertCircle className="size-5 text-red-600 mt-0.5" />
-                        <div className="flex-1">
-                          <div className="flex items-center gap-2 mb-1">
-                            <h4 className="font-medium text-slate-900">{finding.checkName}</h4>
-                            <Badge className={severityColors[finding.severity]}>
-                              {finding.severity}
-                            </Badge>
-                          </div>
-                          <p className="text-sm text-slate-600">{finding.description}</p>
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-              </CardContent>
-            </Card>
+            <CaseOverviewTab
+              caseData={caseData}
+              criticalFindings={criticalFindings}
+              highFindings={highFindings}
+              runChecksOpen={runChecksOpen}
+              setRunChecksOpen={setRunChecksOpen}
+              playbooks={playbooks}
+              selectedPlaybookId={selectedPlaybookId}
+              setSelectedPlaybookId={setSelectedPlaybookId}
+              runChecksStrategy={runChecksStrategy}
+              setRunChecksStrategy={setRunChecksStrategy}
+              onRunChecks={handleRunChecks}
+              runChecksLoading={runChecksLoading}
+              onSelectFinding={setSelectedFinding}
+            />
           </TabsContent>
 
           {/* Documents Tab */}
           <TabsContent value="documents" className="space-y-6">
-            <Card>
-              <CardHeader>
-                <div className="flex items-center justify-between">
-                  <div>
-                    <CardTitle>Dokumente</CardTitle>
-                    <CardDescription>Alle hochgeladenen Dokumente mit Versionierung</CardDescription>
-                  </div>
-                  <Dialog open={isUploadDialogOpen} onOpenChange={setIsUploadDialogOpen}>
-                    <DialogTrigger asChild>
-                      <Button className="gap-2">
-                        <Upload className="size-4" />
-                        Dokument hochladen
-                      </Button>
-                    </DialogTrigger>
-                    <DialogContent className="max-w-3xl">
-                      <DialogHeader>
-                        <DialogTitle>Dokumente hochladen</DialogTitle>
-                        <DialogDescription>
-                          Laden Sie Dokumente für diesen Vorgang hoch. Wenn Sie einen Dokumenttyp wählen, der bereits existiert, wird automatisch eine neue Version (v2, v3, …) angelegt.
-                        </DialogDescription>
-                      </DialogHeader>
-                      <DocumentUploadZone
-                        caseId={caseData.id}
-                        uploadedBy={caseData.assignee || "DSB Team"}
-                        onUploadComplete={() => {
-                          setIsUploadDialogOpen(false);
-                          loadCase();
-                        }}
-                      />
-                    </DialogContent>
-                  </Dialog>
-                </div>
-              </CardHeader>
-              <CardContent>
-                <div className="space-y-3">
-                  {caseData.documents.map((doc) => (
-                    <div key={doc.id} className="p-4 border rounded-lg hover:bg-slate-50">
-                      <div className="flex items-start justify-between">
-                        <div className="flex items-start gap-3">
-                          <FileText className="size-5 text-blue-600 mt-0.5" />
-                          <div>
-                            <div className="flex items-center gap-2 mb-1">
-                              <h4 className="font-medium text-slate-900">{doc.name}</h4>
-                              <Badge variant="outline">{documentTypeLabels[doc.type as keyof typeof documentTypeLabels] ?? doc.type}</Badge>
-                              <Badge variant="outline">v{doc.version}</Badge>
-                              {doc.extractionMethod === "ocr" && (
-                                <Badge variant="secondary" className="text-xs">Text per OCR extrahiert</Badge>
-                              )}
-                            </div>
-                            <div className="flex items-center gap-3 text-sm text-slate-600">
-                              <span>{doc.format.toUpperCase()}</span>
-                              <span>•</span>
-                              <span>{doc.size}</span>
-                              <span>•</span>
-                              <span>Hochgeladen: {new Date(doc.uploadedAt).toLocaleDateString("de-DE")}</span>
-                              <span>•</span>
-                              <span>von {doc.uploadedBy}</span>
-                            </div>
-                          </div>
-                        </div>
-                        <div className="flex gap-2">
-                          <Button variant="ghost" size="sm">
-                            <Download className="size-4" />
-                          </Button>
-                          <Button variant="ghost" size="sm">
-                            <Clock className="size-4" />
-                          </Button>
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </CardContent>
-            </Card>
+            <CaseDocumentsTab
+              caseData={caseData}
+              isUploadDialogOpen={isUploadDialogOpen}
+              setIsUploadDialogOpen={setIsUploadDialogOpen}
+              onUploadComplete={loadCase}
+            />
           </TabsContent>
 
           {/* Findings Tab */}
           <TabsContent value="findings" className="space-y-6">
-            <Card>
-              <CardHeader>
-                <CardTitle>Findings</CardTitle>
-                <CardDescription>Alle Prüfergebnisse aus Playbook-Checks</CardDescription>
-              </CardHeader>
-              <CardContent>
-                <div className="space-y-3">
-                  {caseData.findings.map((finding) => (
-                    <div
-                      key={finding.id}
-                      className="p-4 border rounded-lg hover:bg-slate-50 cursor-pointer"
-                      onClick={() => setSelectedFinding(finding)}
-                    >
-                      <div className="flex items-start gap-3">
-                        {finding.status === "open" && <AlertCircle className="size-5 text-red-600 mt-0.5" />}
-                        {finding.status === "fixed" && <CheckCircle2 className="size-5 text-green-600 mt-0.5" />}
-                        {finding.status === "accepted" && <Shield className="size-5 text-blue-600 mt-0.5" />}
-                        {finding.status === "overruled" && <XCircle className="size-5 text-slate-600 mt-0.5" />}
-                        <div className="flex-1">
-                          <div className="flex items-center gap-2 mb-2">
-                            <h4 className="font-medium text-slate-900">{finding.checkName}</h4>
-                            <Badge className={severityColors[finding.severity]}>
-                              {finding.severity}
-                            </Badge>
-                            <Badge variant="outline">{findingStatusLabels[finding.status]}</Badge>
-                            <Badge variant="outline" className="text-xs">
-                              {finding.category}
-                            </Badge>
-                            {!finding.documentId && (
-                              <Badge variant="secondary" className="text-xs">Vorgangsbezogen</Badge>
-                            )}
-                          </div>
-                          <p className="text-sm text-slate-600 mb-2">{finding.description}</p>
-                          <p className="text-sm text-blue-600 font-medium mb-1">{finding.recommendation}</p>
-                          <div className="text-xs text-slate-500">
-                            <strong>Evidenzen:</strong>
-                            <ul className="mt-1 ml-4 list-disc">
-                              {finding.evidence.map((ev, i) => (
-                                <li key={i}>{ev}</li>
-                              ))}
-                            </ul>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </CardContent>
-            </Card>
+            <CaseFindingsTab caseData={caseData} onSelectFinding={setSelectedFinding} />
           </TabsContent>
 
           {/* Audit Trail Tab */}
@@ -576,6 +305,7 @@ export function CaseDetailPage() {
             <DialogDescription>
               {selectedFinding?.category}
               {!selectedFinding?.documentId && " • Vorgangsbezogen (Cross-Document)"}
+              {selectedFinding?.sourceStrategy && ` • ${selectedFinding.sourceStrategy === "rag" ? "RAG" : "Volltext"}`}
               {" • Status: "}{selectedFinding ? findingStatusLabels[selectedFinding.status] : ""}
             </DialogDescription>
           </DialogHeader>

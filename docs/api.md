@@ -23,7 +23,7 @@ Das Backend ist mit FastAPI umgesetzt. Interaktive Doku:
 | GET | `/api/v1/cases/{id}/vvt-normalization/export` | VVT-Normalisierung exportieren. Query: `format=csv` (Standard) oder `format=docx` (Ziel-Template); optional `document_id=uuid`. CSV: Spalten document_name, source_template, field_name, status, canonical_value, evidence, finding. DOCX: Dokumentname, erkanntes Template, Tabelle der Felder. |
 | GET | `/api/v1/cases/{id}/dsb-report` | DSB Summary Report. Query: `format=markdown` (Standard) oder `format=json`. Markdown: Download mit `Content-Disposition: attachment`. JSON: Struktur mit case_id, case_title, generated_at, status, summary (total_documents, total_findings, critical_findings, high_findings, dsfa_required, vvt_completeness), risks, recommendations, open_questions, next_steps. |
 | GET | `/api/v1/cases/{id}/run-checks/status` | Status des letzten Run-Checks (für Polling). Response: `{ "status": "completed" | "never_run", "last_run": { "id", "case_id", "event_type", "payload", "created_at" } \| null }`. |
-| POST | `/api/v1/cases/{id}/run-checks` | Playbook-Checks für den Case ausführen; Body: `{ "playbook_id": "uuid" }`. Findings werden persistiert. **Trigger:** ausschließlich manuell (z. B. über die Case-Detail-Seite, Button „Playbook-Checks ausführen“); kein automatischer oder zeitgesteuerter Lauf. Pro Check kann im Playbook `scope` (oder `type`) gesetzt sein: `document` (Standard, ein Check pro Dokument) oder `case`/`cross_document` (ein Check über alle Dokumente). Findings aus Case-Checks haben `document_id=null` (Frontend zeigt sie als „Vorgangsbezogen“). |
+| POST | `/api/v1/cases/{id}/run-checks` | Playbook-Checks für den Case ausführen; Body: `{ "playbook_id": "uuid", "strategies": ["full_text"] \| ["rag"] \| ["full_text", "rag"] }`. Default `strategies`: `["full_text"]`. **Strategien:** `full_text` = Volltext des Dokuments (wie bisher); `rag` = relevante Chunks aus Weaviate (Embedding der Anforderung, Abruf top-k Chunks, LLM nur auf diesem Kontext). Beide parallel = Vergleich/Validierung. Findings werden mit `source_strategy` (`full_text` \| `rag`) persistiert. Bei RAG nicht verfügbar: weicher Fallback (nur Volltext), Hinweis im Activity-Payload (`rag_fallback`). Pro Check kann im Playbook `scope` (oder `type`) gesetzt sein: `document` (Standard) oder `case`/`cross_document`. Findings aus Case-Checks haben `document_id=null` (Frontend „Vorgangsbezogen“). |
 | GET | `/api/v1/cases/{id}/annotated-documents` | Liste der Dokumente mit Findings, die als annotierte DOCX herunterladbar sind. Response: `[{ "document_id", "document_name", "finding_count" }]`. |
 | GET | `/api/v1/cases/{id}/annotated-documents/{document_id}` | Annotiertes Dokument (Dokumentinhalt + Findings) herunterladen. Query: `format=docx` (Standard) oder `format=pdf`. Response: DOCX oder PDF mit Content-Disposition. |
 
@@ -60,6 +60,7 @@ Das Backend ist mit FastAPI umgesetzt. Interaktive Doku:
 | Methode | Pfad | Beschreibung |
 | :--- | :--- | :--- |
 | PATCH | `/api/v1/findings/{id}` | Finding aktualisieren (z. B. Status: open, accepted, overruled, fixed). Body: `{ "status": "…" }`. |
+| (in Case-Response) | — | Findings enthalten optional `source_strategy`: `"full_text"` \| `"rag"` (welche Run-Checks-Strategie das Finding erzeugt hat). |
 
 ### Sonstiges
 

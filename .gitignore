@@ -36,6 +36,9 @@ Thumbs.db
 *.tmp
 .cache/
 
+# Stray pip artifact files (e.g. =4.9.0 from mistaken install)
+=*
+
 # Optional: Cursor / plan files (uncomment if desired)
 # .cursor/
 # *.plan.md

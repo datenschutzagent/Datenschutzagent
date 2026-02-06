@@ -4,6 +4,22 @@
 
 ---
 
+## Code-Qualität & Betrieb (abgeschlossen, Feb 2026)
+
+Nach Abschluss von Weaviate/RAG wurden Verbesserungen aus einem systematischen Code-Review umgesetzt:
+
+| Bereich | Status | Details |
+| :--- | :--- | :--- |
+| Run-Checks Fehlersichtbarkeit | ✅ | Exceptions bei Check-Läufen werden geloggt; im Activity-Payload erscheinen bei Fehlern `errors` (Liste mit check, scope, strategy, error) und `skipped_checks_count`. |
+| Case-Delete / Weaviate | ✅ | `delete_chunks_by_case_id` wird nicht blockierend in `asyncio.to_thread` ausgeführt. |
+| Frontend Case-Detail | ✅ | DSB-Report-Button startet Markdown-Download; „Kommentierte Dokumente“ wechselt in den Tab „Annotierte Dokumente“. Fristberechnung nutzt aktuelles Datum (kein Hardcoding). |
+| Frontend Struktur | ✅ | Case-Detail in Tab-Komponenten aufgeteilt (CaseOverviewTab, CaseDocumentsTab, CaseFindingsTab); API-Fehlerbehandlung zentral in `parseErrorResponse()`. |
+| Repo & Abhängigkeiten | ✅ | Stray-Datei entfernt; `.gitignore` für pip-Artefakte; `backend/requirements.txt` mit gepinnten Versionen. |
+| Tests | ✅ | Backend: pytest + pytest-asyncio + httpx, Tests unter `backend/tests/` (Health, Departments, Cases). Frontend: Vitest + Testing Library, Tests z. B. für `parseErrorResponse`. |
+| Doku & CI | ✅ | README erweitert (Schnellstart, Docker, Tests, Migrations-Hinweis). GitHub Actions: Frontend-Tests (npm test), Backend-Tests (Postgres-Service, pytest). Migrations-Strategie in README dokumentiert (SQL-Skripte manuell, kein Auto-Run). |
+
+---
+
 ## Phase 1: Fundament (abgeschlossen)
 
 **Ziel:** Case-Verwaltung, Dokumenten-Upload und -Speicherung, Textextraktion.
@@ -55,7 +71,8 @@
 - **Artefakte:** DSB Summary Report (Markdown/JSON) ✅ (`GET /cases/{id}/dsb-report`); kommentierte DOCX ✅ (`GET /cases/{id}/annotated-documents`, Download); kommentierte PDF ✅ (`?format=pdf`).
 - **VVT-Export:** CSV ✅ (`GET /cases/{id}/vvt-normalization/export`); Ziel-Template (DOCX) ✅ (`?format=docx`).
 - **Feedback:** Finding-Status (Accepted/Overruled/Fixed) in UI; Audit bei Statusänderungen ✅ (activity_log-Einträge bei Finding-Status-Update).
-- **Reproduzierbarkeit:** Bei jedem `run_checks`-Event werden `playbook_version` und `model` (Ollama) im `activity_log.payload` geloggt ✅.
+- **Reproduzierbarkeit:** Bei jedem `run_checks`-Event werden `playbook_version` und `model` (Ollama) im `activity_log.payload` geloggt ✅. Bei fehlgeschlagenen oder übersprungenen Checks zusätzlich `errors` (Liste mit check, scope, strategy, error) und `skipped_checks_count` ✅.
+- **Weaviate / RAG (optional):** ✅ Vektordatenbank Weaviate (Docker); Dokumente werden nach Textextraktion in Chunks zerlegt, per Ollama eingebettet und in Weaviate indexiert. Run-Checks unterstützt die Strategien `full_text` (bestehend) und `rag` (Abruf relevanter Chunks, Prüfung nur auf diesem Kontext). Beide Strategien können parallel ausgeführt werden (Vergleich/Validierung). Findings tragen `source_strategy` (`full_text` \| `rag`). Indexierung konfigurierbar (`WEAVIATE_INDEXING_ENABLED`, `WEAVIATE_URL`); bei Dokument-/Case-Löschung werden Chunks in Weaviate entfernt (nicht blockierend via `asyncio.to_thread`).
 
 ---
 

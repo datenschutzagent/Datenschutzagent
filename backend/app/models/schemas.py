@@ -37,6 +37,9 @@ class DocumentResponse(BaseModel):
 
 
 # --- Finding ---
+SourceStrategyEnum = Literal["full_text", "rag"]
+
+
 class FindingResponse(BaseModel):
     id: UUID
     check_name: str
@@ -48,6 +51,7 @@ class FindingResponse(BaseModel):
     recommendation: str
     document_id: UUID | None = None
     case_id: UUID
+    source_strategy: SourceStrategyEnum | None = None
 
     model_config = {"from_attributes": True}
 
@@ -78,6 +82,10 @@ class CaseUpdate(BaseModel):
 
 class RunChecksRequest(BaseModel):
     playbook_id: UUID = Field(..., description="Playbook whose checks to run against case documents.")
+    strategies: list[Literal["full_text", "rag"]] = Field(
+        default=["full_text"],
+        description="Run full_text and/or rag (RAG uses Weaviate chunks). Both can run in parallel for comparison.",
+    )
 
 
 class CaseResponse(BaseModel):

@@ -13,6 +13,7 @@ The project follows a modern, containerized architecture (monolithic backend, se
 | **LLM Runtime** | Ollama | Local inference (e.g. Llama 3, Mistral); URL/model via env. |
 | **AI Framework** | PydanticAI | Structured prompts and outputs in `backend/app/core/llm.py` and `services/check_runner.py`. |
 | **Task Queue** | Celery + Redis | Async document extraction (Celery worker); upload returns 201 immediately. |
+| **Vector DB (optional)** | Weaviate | Document chunks with embeddings (Ollama); used for RAG-based run-checks variant. |
 
 ## High-Level Data Flow
 
@@ -30,6 +31,8 @@ graph TD
         Backend -->|Extract text| DocProc[DocumentProcessor]
         Backend -->|Run checks| CheckRunner[Check Runner]
         CheckRunner -->|Ollama API| Ollama[Ollama LLM]
+        Backend -->|Chunk and embed| Weaviate[Weaviate]
+        CheckRunner -->|RAG: query chunks| Weaviate
     end
 ```
 
@@ -60,12 +63,16 @@ graph TD
 *   **Location**: `backend/app/core/llm.py`, `backend/app/services/check_runner.py`
 *   **Responsibilities**:
     *   `llm.py`: PydanticAI agent with Ollama model.
-    *   `check_runner.py`: Run a single check (document text + instruction) and return structured `CheckResult` (compliance, severity, evidence, recommendation). Findings can be persisted to the `findings` table.
+    *   `check_runner.py`: Run a single check (document text + instruction) and return structured `CheckResult` (compliance, severity, evidence, recommendation). Findings can be persisted to the `findings` table. Supports two strategies: **full_text** (entire document text, truncated) and **rag** (relevant chunks from Weaviate, retrieved by embedding the check instruction). Both can run in parallel for comparison; findings carry `source_strategy` (`full_text` \| `rag`).
 
-### 6. Storage
+### 6a. Weaviate (optional)
+*   **Location**: `backend/app/services/weaviate_service.py`
+*   **Responsibilities**: After document text extraction (including OCR), content is chunked (configurable size/overlap), embedded via Ollama, and stored in Weaviate. On document or case deletion, chunks are removed. RAG checks embed the requirement, retrieve top-k chunks per document or per case, and pass only that context to the LLM. Configured via `WEAVIATE_URL`, `WEAVIATE_INDEXING_ENABLED`, `WEAVIATE_CHUNK_SIZE_CHARS`, `WEAVIATE_CHUNK_OVERLAP_CHARS`, `WEAVIATE_TOP_K`, `OLLAMA_EMBEDDING_MODEL`.
+
+### 7. Storage
 *   **Location**: `backend/app/storage.py`
 *   **Backends**: `local` (filesystem under `storage_local_path`) or `minio` (S3-compatible). Configured via `STORAGE_BACKEND` and S3 env vars.
 
 ## Deployment
 
-Designed for **on-premise** use with Docker Compose. Frontend, backend, Postgres, MinIO, and Redis run in containers; Ollama is typically run on the host or another machine and reached via `OLLAMA_BASE_URL` (e.g. `http://host.docker.internal:11434`).
+Designed for **on-premise** use with Docker Compose. Frontend, backend, Postgres, MinIO, Redis, and optionally Weaviate run in containers; Ollama is typically run on the host or another machine and reached via `OLLAMA_BASE_URL` (e.g. `http://host.docker.internal:11434`).

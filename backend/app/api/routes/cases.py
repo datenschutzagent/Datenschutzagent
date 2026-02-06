@@ -1,9 +1,13 @@
 """Case management CRUD API."""
+import asyncio
 import csv
 import io
+import logging
 import re
 from datetime import datetime
 from uuid import UUID
+
+logger = logging.getLogger(__name__)
 
 from docx import Document as DocxDocument
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -29,7 +33,13 @@ from app.services.annotated_document_service import (
     build_annotated_pdf,
     list_annotatable_documents,
 )
-from app.services.check_runner import run_check, run_cross_document_check
+from app.services.check_runner import (
+    run_check,
+    run_check_rag,
+    run_cross_document_check,
+    run_cross_document_check_rag,
+)
+from app.services.weaviate_service import delete_chunks_by_case_id
 from app.services.dsb_report_service import build_dsb_report, render_report_markdown
 from app.services.vvt_service import normalize_vvt
 
@@ -154,6 +164,7 @@ async def delete_case(
     case = result.scalar_one_or_none()
     if not case:
         raise HTTPException(status_code=404, detail="Case not found")
+    await asyncio.to_thread(delete_chunks_by_case_id, case_id)
     await db.delete(case)
     await db.flush()
     return None
@@ -448,9 +459,39 @@ async def run_checks(
         else:
             document_checks.append(item)
 
+    strategies = body.strategies or ["full_text"]
     findings_added = 0
+    rag_skipped = False
+    errors: list[dict] = []  # {"check": str, "scope": "document"|"case", "document_id": str|None, "strategy": str, "error": str}
 
-    # Document-scoped checks: one run per document per check
+    def _add_finding(
+        *,
+        case_id: UUID,
+        document_id: UUID | None,
+        check_name: str,
+        severity: str,
+        description: str,
+        evidence: list,
+        recommendation: str,
+        source_strategy: str | None = "full_text",
+    ):
+        nonlocal findings_added
+        finding = FindingModel(
+            case_id=case_id,
+            document_id=document_id,
+            check_name=check_name,
+            severity=severity,
+            status="open",
+            category=check_name,
+            description=description,
+            evidence=evidence or [],
+            recommendation=recommendation or "",
+            source_strategy=source_strategy,
+        )
+        db.add(finding)
+        findings_added += 1
+
+    # Document-scoped checks: one run per document per check (per strategy)
     for doc in case.documents:
         text = (doc.content or "") or ""
         for item in document_checks:
@@ -458,26 +499,49 @@ async def run_checks(
             instruction = item.get("instruction") or item.get("requirement") or ""
             if not instruction:
                 continue
-            try:
-                check_result = await run_check(text, instruction)
-            except Exception:
-                continue
-            if not check_result.is_compliant:
-                finding = FindingModel(
-                    case_id=case_id,
-                    document_id=doc.id,
-                    check_name=name,
-                    severity=check_result.severity,
-                    status="open",
-                    category=name,
-                    description=check_result.description,
-                    evidence=check_result.evidence or [],
-                    recommendation=check_result.recommendation or "",
-                )
-                db.add(finding)
-                findings_added += 1
+            if "full_text" in strategies:
+                try:
+                    check_result = await run_check(text, instruction)
+                except Exception as e:
+                    logger.warning("Run check failed (full_text, document): check=%s doc_id=%s: %s", name, doc.id, e)
+                    errors.append({"check": name, "scope": "document", "document_id": str(doc.id), "strategy": "full_text", "error": str(e)})
+                    continue
+                if not check_result.is_compliant:
+                    _add_finding(
+                        case_id=case_id,
+                        document_id=doc.id,
+                        check_name=name,
+                        severity=check_result.severity,
+                        description=check_result.description,
+                        evidence=check_result.evidence or [],
+                        recommendation=check_result.recommendation or "",
+                        source_strategy="full_text",
+                    )
+            if "rag" in strategies:
+                try:
+                    rag_result = await run_check_rag(doc.id, case_id, instruction)
+                except Exception as e:
+                    logger.warning("Run check failed (rag, document): check=%s doc_id=%s: %s", name, doc.id, e)
+                    errors.append({"check": name, "scope": "document", "document_id": str(doc.id), "strategy": "rag", "error": str(e)})
+                    rag_skipped = True
+                    continue
+                if rag_result is None:
+                    rag_skipped = True
+                    errors.append({"check": name, "scope": "document", "document_id": str(doc.id), "strategy": "rag", "error": "Weaviate/chunks unavailable"})
+                    continue
+                if not rag_result.is_compliant:
+                    _add_finding(
+                        case_id=case_id,
+                        document_id=doc.id,
+                        check_name=name,
+                        severity=rag_result.severity,
+                        description=rag_result.description,
+                        evidence=rag_result.evidence or [],
+                        recommendation=rag_result.recommendation or "",
+                        source_strategy="rag",
+                    )
 
-    # Case-scoped (cross-document) checks: one run per check with all documents
+    # Case-scoped (cross-document) checks: one run per check with all documents (per strategy)
     if case_checks and case.documents:
         doc_list = [(doc.id, (doc.content or "") or "") for doc in case.documents]
         for item in case_checks:
@@ -485,36 +549,66 @@ async def run_checks(
             instruction = item.get("instruction") or item.get("requirement") or ""
             if not instruction:
                 continue
-            try:
-                check_result = await run_cross_document_check(doc_list, instruction)
-            except Exception:
-                continue
-            if not check_result.is_compliant:
-                finding = FindingModel(
-                    case_id=case_id,
-                    document_id=None,
-                    check_name=name,
-                    severity=check_result.severity,
-                    status="open",
-                    category=name,
-                    description=check_result.description,
-                    evidence=check_result.evidence or [],
-                    recommendation=check_result.recommendation or "",
-                )
-                db.add(finding)
-                findings_added += 1
+            if "full_text" in strategies:
+                try:
+                    check_result = await run_cross_document_check(doc_list, instruction)
+                except Exception as e:
+                    logger.warning("Run check failed (full_text, case): check=%s: %s", name, e)
+                    errors.append({"check": name, "scope": "case", "document_id": None, "strategy": "full_text", "error": str(e)})
+                    continue
+                if not check_result.is_compliant:
+                    _add_finding(
+                        case_id=case_id,
+                        document_id=None,
+                        check_name=name,
+                        severity=check_result.severity,
+                        description=check_result.description,
+                        evidence=check_result.evidence or [],
+                        recommendation=check_result.recommendation or "",
+                        source_strategy="full_text",
+                    )
+            if "rag" in strategies:
+                try:
+                    rag_result = await run_cross_document_check_rag(case_id, instruction)
+                except Exception as e:
+                    logger.warning("Run check failed (rag, case): check=%s: %s", name, e)
+                    errors.append({"check": name, "scope": "case", "document_id": None, "strategy": "rag", "error": str(e)})
+                    rag_skipped = True
+                    continue
+                if rag_result is None:
+                    rag_skipped = True
+                    errors.append({"check": name, "scope": "case", "document_id": None, "strategy": "rag", "error": "Weaviate/chunks unavailable"})
+                    continue
+                if not rag_result.is_compliant:
+                    _add_finding(
+                        case_id=case_id,
+                        document_id=None,
+                        check_name=name,
+                        severity=rag_result.severity,
+                        description=rag_result.description,
+                        evidence=rag_result.evidence or [],
+                        recommendation=rag_result.recommendation or "",
+                        source_strategy="rag",
+                    )
 
     await db.flush()
+    activity_payload = {
+        "playbook_id": str(body.playbook_id),
+        "playbook_name": playbook.name,
+        "playbook_version": playbook.version,
+        "model": settings.ollama_model,
+        "findings_count": findings_added,
+        "strategies": strategies,
+    }
+    if rag_skipped:
+        activity_payload["rag_fallback"] = "rag requested but Weaviate/chunks unavailable for some checks"
+    if errors:
+        activity_payload["errors"] = errors
+        activity_payload["skipped_checks_count"] = len(errors)
     activity = ActivityLogModel(
         case_id=case_id,
         event_type="run_checks",
-        payload={
-            "playbook_id": str(body.playbook_id),
-            "playbook_name": playbook.name,
-            "playbook_version": playbook.version,
-            "model": settings.ollama_model,
-            "findings_count": findings_added,
-        },
+        payload=activity_payload,
     )
     db.add(activity)
     # Reload case with documents and findings for response

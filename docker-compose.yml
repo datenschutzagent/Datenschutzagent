@@ -47,6 +47,25 @@ services:
       timeout: 3s
       retries: 5
 
+  weaviate:
+    image: cr.weaviate.io/semitechnologies/weaviate:1.27.4
+    ports:
+      - "8080:8080"
+      - "50051:50051"
+    environment:
+      DEFAULT_VECTORIZER_MODULE: "none"
+      AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED: "true"
+      PERSISTENCE_DATA_PATH: "/var/lib/weaviate"
+      QUERY_DEFAULTS_LIMIT: "25"
+      CLUSTER_HOSTNAME: "node1"
+    volumes:
+      - weaviate_data:/var/lib/weaviate
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:8080/v1/.well-known/ready"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
   backend:
     build:
       context: ./backend
@@ -62,6 +81,7 @@ services:
       # CORS: Zugriff vom Browser aus dem LAN (z. B. http://192.168.1.20:3001) erlauben.
       # Überschreibbar per .env: CORS_ORIGINS=http://...
       CORS_ORIGINS: "${CORS_ORIGINS:-http://localhost:3000,http://127.0.0.1:3000,http://localhost:3001,http://127.0.0.1:3001,http://localhost:5173,http://127.0.0.1:5173,http://192.168.1.20:3001,http://192.168.1.20:5173}"
+      WEAVIATE_URL: "http://weaviate:8080"
     extra_hosts:
       # Ollama auf dem Host erreichbar (z. B. OLLAMA_BASE_URL=http://host.docker.internal:11434)
       - "host.docker.internal:host-gateway"
@@ -106,4 +126,5 @@ volumes:
   postgres_data:
   minio_data:
   redis_data:
+  weaviate_data:
   backend_storage:

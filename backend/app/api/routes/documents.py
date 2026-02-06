@@ -11,6 +11,7 @@ from app.database import get_db
 from app.models import DocumentModel, DocumentResponse, orm_to_document_response
 from app.models.db import CaseModel
 from app.services.document_processor import extract_text
+from app.services.weaviate_service import delete_chunks_by_document_id
 from app.storage import save_file, delete_file
 
 router = APIRouter()
@@ -187,6 +188,7 @@ async def delete_document(
     if not doc:
         raise HTTPException(status_code=404, detail="Document not found")
     storage_path = doc.storage_path
+    delete_chunks_by_document_id(document_id)
     await db.delete(doc)
     await db.flush()
     if storage_path:

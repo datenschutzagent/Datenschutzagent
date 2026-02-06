@@ -60,6 +60,7 @@ function mapFinding(d: Record<string, unknown>): Record<string, unknown> {
     recommendation: d.recommendation ?? "",
     documentId: d.document_id ?? undefined,
     caseId: d.case_id,
+    sourceStrategy: d.source_strategy ?? undefined,
   };
 }
 
@@ -81,6 +82,17 @@ function mapPlaybook(d: Record<string, unknown>): Record<string, unknown> {
   };
 }
 
+/** Parse error message from a non-ok Response (JSON detail or body text). */
+export async function parseErrorResponse(res: Response): Promise<string> {
+  const text = await res.text();
+  try {
+    const j = JSON.parse(text) as { detail?: string };
+    return j.detail ?? text;
+  } catch {
+    return text;
+  }
+}
+
 async function request<T>(
   method: string,
   path: string,
@@ -97,14 +109,7 @@ async function request<T>(
   }
   const res = await fetch(url, { method, headers, body: fetchBody });
   if (!res.ok) {
-    const text = await res.text();
-    let detail = text;
-    try {
-      const j = JSON.parse(text);
-      detail = j.detail ?? text;
-    } catch {
-      // use text
-    }
+    const detail = await parseErrorResponse(res);
     throw new Error(detail);
   }
   if (res.status === 204) return undefined as T;
@@ -202,6 +207,9 @@ export interface ApiDocument {
   extractionMethod?: "text" | "ocr";
 }
 
+/** "full_text" | "rag" – which run-checks strategy produced this finding */
+export type SourceStrategy = "full_text" | "rag";
+
 export interface ApiFinding {
   id: string;
   checkName: string;
@@ -213,6 +221,7 @@ export interface ApiFinding {
   recommendation: string;
   documentId?: string;
   caseId?: string;
+  sourceStrategy?: SourceStrategy;
 }
 
 export interface ApiPlaybook {
@@ -283,9 +292,15 @@ export async function deleteCase(id: string): Promise<void> {
   await request("DELETE", `/cases/${id}`);
 }
 
-export async function runChecks(caseId: string, playbookId: string): Promise<ApiCase> {
+export type RunChecksStrategy = "full_text" | "rag";
+
+export async function runChecks(
+  caseId: string,
+  playbookId: string,
+  strategies: RunChecksStrategy[] = ["full_text"],
+): Promise<ApiCase> {
   const c = await request<Record<string, unknown>>("POST", `/cases/${caseId}/run-checks`, {
-    body: { playbook_id: playbookId },
+    body: { playbook_id: playbookId, strategies },
   });
   return mapCase(c) as ApiCase;
 }
@@ -408,14 +423,7 @@ export async function getDSBReportBlob(
   const url = `${API_BASE}${API_PREFIX}/cases/${caseId}/dsb-report?format=${format}`;
   const res = await fetch(url);
   if (!res.ok) {
-    const text = await res.text();
-    let detail = text;
-    try {
-      const j = JSON.parse(text);
-      detail = j.detail ?? text;
-    } catch {
-      // use text
-    }
+    const detail = await parseErrorResponse(res);
     throw new Error(detail);
   }
   return res.blob();
@@ -472,14 +480,7 @@ export async function uploadDocumentsBulk(
   const url = `${API_BASE}${API_PREFIX}/documents/bulk`;
   const res = await fetch(url, { method: "POST", body: form });
   if (!res.ok) {
-    const text = await res.text();
-    let detail = text;
-    try {
-      const j = JSON.parse(text);
-      detail = j.detail ?? text;
-    } catch {
-      // use text
-    }
+    const detail = await parseErrorResponse(res);
     throw new Error(detail);
   }
   const list = (await res.json()) as Record<string, unknown>[];
@@ -615,14 +616,7 @@ export async function getVVTExportBlob(
   const url = `${API_BASE}${API_PREFIX}/cases/${caseId}/vvt-normalization/export?${params}`;
   const res = await fetch(url);
   if (!res.ok) {
-    const text = await res.text();
-    let detail = text;
-    try {
-      const j = JSON.parse(text);
-      detail = j.detail ?? text;
-    } catch {
-      // use text
-    }
+    const detail = await parseErrorResponse(res);
     throw new Error(detail);
   }
   return res.blob();
@@ -652,14 +646,7 @@ export async function getAnnotatedDocumentBlob(
   const url = `${API_BASE}${API_PREFIX}/cases/${caseId}/annotated-documents/${documentId}`;
   const res = await fetch(url);
   if (!res.ok) {
-    const text = await res.text();
-    let detail = text;
-    try {
-      const j = JSON.parse(text);
-      detail = j.detail ?? text;
-    } catch {
-      // use text
-    }
+    const detail = await parseErrorResponse(res);
     throw new Error(detail);
   }
   return res.blob();

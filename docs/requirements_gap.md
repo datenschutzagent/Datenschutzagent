@@ -1,6 +1,6 @@
 # Requirements Gap Analysis
 
-Abgleich der Projektbeschreibung (Anforderungen) mit dem aktuellen Implementierungsstand.
+Abgleich der Projektbeschreibung (Anforderungen) mit dem aktuellen Implementierungsstand. Stand: nach Code-Review-Umsetzung (Feb 2026).
 
 ---
 
@@ -46,15 +46,15 @@ Abgleich der Projektbeschreibung (Anforderungen) mit dem aktuellen Implementieru
 
 | Anforderung | Status | Anmerkung |
 | :--- | :--- | :--- |
-| DSB Summary Report | ✅ | `dsb_report_service.py`, `GET /api/v1/cases/{id}/dsb-report` (format=json \| markdown); Frontend DSBReportView. |
-| Kommentierte Dokumente (DOCX/PDF) | ✅ | DOCX: `GET /cases/{id}/annotated-documents/{document_id}` (Standard). PDF: `?format=pdf`. Frontend: AnnotatedDocumentsView. |
+| DSB Summary Report | ✅ | `dsb_report_service.py`, `GET /api/v1/cases/{id}/dsb-report` (format=json \| markdown); Frontend DSBReportView. Header-Button „DSB-Report“ startet Markdown-Download direkt. |
+| Kommentierte Dokumente (DOCX/PDF) | ✅ | DOCX: `GET /cases/{id}/annotated-documents/{document_id}` (Standard). PDF: `?format=pdf`. Frontend: AnnotatedDocumentsView. Header-Button „Kommentierte Dokumente“ wechselt in den Tab „Annotierte Dokumente“. |
 | Findings maschinenlesbar (JSON) | ✅ | Finding-Modell, Case-Response inkl. Findings, Erzeugung via Run-Checks; PATCH `/api/v1/findings/{id}` für Status. |
 
 ### F) Auditierbarkeit
 
 | Anforderung | Status | Anmerkung |
 | :--- | :--- | :--- |
-| Logging Playbook-/Modell-Version, Check-Läufe | ✅ | Tabelle `activity_log` (case_id, event_type, payload, created_at); Events `run_checks`, `finding_status_updated`; `GET /api/v1/cases/{id}/activities`; Frontend Activity-Timeline nutzt echte API. |
+| Logging Playbook-/Modell-Version, Check-Läufe | ✅ | Tabelle `activity_log` (case_id, event_type, payload, created_at); Events `run_checks`, `finding_status_updated`; `GET /api/v1/cases/{id}/activities`; Frontend Activity-Timeline nutzt echte API. Bei fehlgeschlagenen/übersprungenen Checks: Payload enthält `errors` und `skipped_checks_count`; Backend loggt Exceptions. |
 | Finding-Status accepted/overruled/fixed | ✅ | Enum und DB-Felder; `PATCH /api/v1/findings/{id}`; UI in Case-Detail (Status-Buttons) implementiert. |
 
 ---
@@ -81,3 +81,4 @@ Abgleich der Projektbeschreibung (Anforderungen) mit dem aktuellen Implementieru
 6. **Sicherheit & Audit:** ~~Audit-Log~~ ✅ (activity_log, Activities-API, Timeline). AuthN/AuthZ noch offen.
 7. ~~**Asynchrone Jobs (Celery + Redis)**~~ ✅ Extraktion nach Upload asynchron (Task `extract_document_text`); Upload 201 sofort. Run-Checks-Status: `GET /cases/{id}/run-checks/status`. Siehe sprint_plan.md.
 8. ~~**OCR (gescannte PDFs)**~~ ✅ Ollama Vision (qwen2.5-vl / minicpm-v); Schwellwert in `document_processor.py`; `extraction_method` am Document; Frontend-Badge „Text per OCR extrahiert“.
+9. **Weaviate / RAG (optionale zweite Prüfvariante):** ✅ Dokumente werden nach Extraktion in Chunks in Weaviate indexiert (Ollama Embedding). Run-Checks unterstützt Strategien `full_text` und `rag`; beide parallel für Vergleich. Findings mit `source_strategy`; Frontend Badge und Dialog-Auswahl (Volltext / RAG / Beide). Konfiguration: `WEAVIATE_INDEXING_ENABLED`, `WEAVIATE_URL`, Chunk-/Top-K-Parameter.
