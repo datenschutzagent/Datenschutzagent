@@ -542,7 +542,7 @@ export function CaseDetailPage() {
 
           {/* VVT Normalization Tab */}
           <TabsContent value="vvt">
-            <VVTNormalizationView />
+            <VVTNormalizationView caseId={caseData.id} />
           </TabsContent>
 
           {/* DSB Report Tab */}

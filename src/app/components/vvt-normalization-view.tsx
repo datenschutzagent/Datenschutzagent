@@ -1,3 +1,4 @@
+import { useCallback, useEffect, useState } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "./ui/card";
 import { Badge } from "./ui/badge";
 import { Button } from "./ui/button";
@@ -10,93 +11,76 @@ import {
   AlertCircle, 
   ArrowRight,
   Download,
-  RefreshCw
+  RefreshCw,
+  Loader2
 } from "lucide-react";
+import { getVVTNormalization, type ApiVVTField } from "../lib/api";
 
-interface VVTField {
-  fieldName: string;
-  required: boolean;
-  status: "filled" | "missing" | "inconsistent";
-  sourceTemplate: string;
-  canonicalValue?: string;
-  evidence?: string;
-  finding?: string;
+interface VVTNormalizationViewProps {
+  caseId: string;
+  documentId?: string;
 }
 
-const mockVVTData: VVTField[] = [
-  {
-    fieldName: "Zwecke der Verarbeitung",
-    required: true,
-    status: "filled",
-    sourceTemplate: "Variante B (Psychologie)",
-    canonicalValue: "Longitudinale Erhebung von Burnout-Symptomen zur Entwicklung präventiver Interventionen",
-    evidence: "VVT_Burnout_Studie_v2.xlsx, Zeile 12, Spalte C",
-  },
-  {
-    fieldName: "Rechtsgrundlage",
-    required: true,
-    status: "inconsistent",
-    sourceTemplate: "Variante B (Psychologie)",
-    canonicalValue: "Art. 6 Abs. 1 lit. e DSGVO (öffentliche Aufgabe)",
-    evidence: "VVT_Burnout_Studie_v2.xlsx, Zeile 15, Spalte C",
-    finding: "Widerspruch zum Informationsblatt (dort: Einwilligung)",
-  },
-  {
-    fieldName: "Kategorien betroffener Personen",
-    required: true,
-    status: "filled",
-    sourceTemplate: "Variante B (Psychologie)",
-    canonicalValue: "Arbeitnehmer im Gesundheitswesen, Alter 25-60 Jahre",
-    evidence: "VVT_Burnout_Studie_v2.xlsx, Zeile 18, Spalte C",
-  },
-  {
-    fieldName: "Kategorien personenbezogener Daten",
-    required: true,
-    status: "filled",
-    sourceTemplate: "Variante B (Psychologie)",
-    canonicalValue: "Gesundheitsdaten (Art. 9 DSGVO): Burnout-Scores, psychische Belastungsindikatoren",
-    evidence: "VVT_Burnout_Studie_v2.xlsx, Zeile 19, Spalte C",
-  },
-  {
-    fieldName: "Empfänger / Empfängerkategorien",
-    required: true,
-    status: "filled",
-    sourceTemplate: "Variante B (Psychologie)",
-    canonicalValue: "Forschungsteam Universität, Cloud-Provider (USA) für Datenanalyse",
-    evidence: "VVT_Burnout_Studie_v2.xlsx, Zeile 22, Spalte C",
-  },
-  {
-    fieldName: "Drittlandtransfer",
-    required: true,
-    status: "inconsistent",
-    sourceTemplate: "Variante B (Psychologie)",
-    canonicalValue: "USA (CloudProvider Inc.)",
-    evidence: "VVT_Burnout_Studie_v2.xlsx, Zeile 24, Spalte C",
-    finding: "Kein AVV oder SCCs dokumentiert",
-  },
-  {
-    fieldName: "Speicherdauer",
-    required: true,
-    status: "missing",
-    sourceTemplate: "Variante B (Psychologie)",
-    finding: "Feld leer oder unvollständig",
-  },
-  {
-    fieldName: "Technische und organisatorische Maßnahmen (TOMs)",
-    required: true,
-    status: "filled",
-    sourceTemplate: "Variante B (Psychologie)",
-    canonicalValue: "Pseudonymisierung, Verschlüsselung, Zugriffskontrollen",
-    evidence: "VVT_Burnout_Studie_v2.xlsx, Zeile 28, Spalte C",
-  },
-];
+export function VVTNormalizationView({ caseId, documentId }: VVTNormalizationViewProps) {
+  const [data, setData] = useState<{ fields: ApiVVTField[]; documentName: string; sourceTemplate: string } | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
-export function VVTNormalizationView() {
-  const totalFields = mockVVTData.length;
-  const filledFields = mockVVTData.filter(f => f.status === "filled").length;
-  const missingFields = mockVVTData.filter(f => f.status === "missing").length;
-  const inconsistentFields = mockVVTData.filter(f => f.status === "inconsistent").length;
-  const completionRate = Math.round((filledFields / totalFields) * 100);
+  const load = useCallback(() => {
+    setLoading(true);
+    setError(null);
+    getVVTNormalization(caseId, documentId)
+      .then((res) => {
+        setData({
+          fields: res.fields,
+          documentName: res.documentName,
+          sourceTemplate: res.sourceTemplate,
+        });
+      })
+      .catch((err) => setError(err instanceof Error ? err.message : "Fehler beim Laden"))
+      .finally(() => setLoading(false));
+  }, [caseId, documentId]);
+
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  const fields = data?.fields ?? [];
+  const totalFields = fields.length;
+  const filledFields = fields.filter(f => f.status === "filled").length;
+  const missingFields = fields.filter(f => f.status === "missing").length;
+  const inconsistentFields = fields.filter(f => f.status === "inconsistent").length;
+  const completionRate = totalFields > 0 ? Math.round((filledFields / totalFields) * 100) : 0;
+
+  if (loading && !data) {
+    return (
+      <div className="flex items-center justify-center py-12 gap-2 text-slate-600">
+        <Loader2 className="size-5 animate-spin" />
+        <span>VVT wird analysiert…</span>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <Alert variant="destructive">
+        <AlertDescription>{error}</AlertDescription>
+        <Button variant="outline" size="sm" className="mt-2" onClick={load}>
+          Erneut versuchen
+        </Button>
+      </Alert>
+    );
+  }
+
+  if (totalFields === 0) {
+    return (
+      <Alert>
+        <AlertDescription>
+          Kein VVT-Dokument in diesem Vorgang. Bitte zuerst ein Dokument vom Typ „VVT / ROPA“ hochladen.
+        </AlertDescription>
+      </Alert>
+    );
+  }
 
   return (
     <div className="space-y-6">
@@ -116,11 +100,11 @@ export function VVTNormalizationView() {
               </div>
             </div>
             <div className="flex gap-2">
-              <Button variant="outline" className="gap-2">
-                <RefreshCw className="size-4" />
+              <Button variant="outline" className="gap-2" onClick={load} disabled={loading}>
+                {loading ? <Loader2 className="size-4 animate-spin" /> : <RefreshCw className="size-4" />}
                 Neu analysieren
               </Button>
-              <Button className="gap-2">
+              <Button className="gap-2" disabled>
                 <Download className="size-4" />
                 Gold Standard exportieren
               </Button>
@@ -172,8 +156,10 @@ export function VVTNormalizationView() {
           <div className="flex items-center gap-4">
             <div className="flex-1 p-4 border rounded-lg bg-slate-50">
               <p className="text-sm text-slate-600 mb-1">Erkanntes Template</p>
-              <p className="font-medium text-slate-900">Variante B (Psychologie)</p>
-              <p className="text-xs text-slate-500 mt-1">Confidence: 94%</p>
+              <p className="font-medium text-slate-900">{data?.sourceTemplate || "—"}</p>
+              {data?.documentName && (
+                <p className="text-xs text-slate-500 mt-1">Dokument: {data.documentName}</p>
+              )}
             </div>
             <ArrowRight className="size-6 text-slate-400" />
             <div className="flex-1 p-4 border rounded-lg bg-blue-50 border-blue-200">
@@ -202,13 +188,13 @@ export function VVTNormalizationView() {
             </TabsList>
 
             <TabsContent value="all" className="space-y-3">
-              {mockVVTData.map((field, index) => (
+              {fields.map((field, index) => (
                 <VVTFieldCard key={index} field={field} />
               ))}
             </TabsContent>
 
             <TabsContent value="filled" className="space-y-3">
-              {mockVVTData
+              {fields
                 .filter(f => f.status === "filled")
                 .map((field, index) => (
                   <VVTFieldCard key={index} field={field} />
@@ -216,7 +202,7 @@ export function VVTNormalizationView() {
             </TabsContent>
 
             <TabsContent value="issues" className="space-y-3">
-              {mockVVTData
+              {fields
                 .filter(f => f.status === "missing" || f.status === "inconsistent")
                 .map((field, index) => (
                   <VVTFieldCard key={index} field={field} />
@@ -229,7 +215,7 @@ export function VVTNormalizationView() {
   );
 }
 
-function VVTFieldCard({ field }: { field: VVTField }) {
+function VVTFieldCard({ field }: { field: ApiVVTField }) {
   return (
     <div className="p-4 border rounded-lg hover:bg-slate-50">
       <div className="flex items-start gap-3">

@@ -123,3 +123,26 @@ class PlaybookResponse(BaseModel):
     created_at: datetime
 
     model_config = {"from_attributes": True}
+
+
+# --- VVT Normalization (canonical model) ---
+VVTFieldStatusEnum = Literal["filled", "missing", "inconsistent"]
+
+
+class VVTFieldResponse(BaseModel):
+    """Single field in the canonical VVT model."""
+    field_name: str
+    required: bool = True
+    status: VVTFieldStatusEnum
+    source_template: str = ""
+    canonical_value: str | None = None
+    evidence: str | None = None
+    finding: str | None = None
+
+
+class VVTNormalizationResponse(BaseModel):
+    """Response for VVT normalization: template detection + extracted fields."""
+    document_id: UUID | None = None
+    document_name: str = ""
+    source_template: str = ""
+    fields: list[VVTFieldResponse] = []

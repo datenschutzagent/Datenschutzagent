@@ -8,9 +8,10 @@ from sqlalchemy.orm import selectinload
 
 from app.database import get_db
 from app.models import CaseCreate, CaseModel, CaseResponse, CaseUpdate, orm_to_case_response
-from app.models.db import FindingModel, PlaybookModel
-from app.models.schemas import RunChecksRequest
+from app.models.db import DocumentModel, FindingModel, PlaybookModel
+from app.models.schemas import RunChecksRequest, VVTFieldResponse, VVTNormalizationResponse
 from app.services.check_runner import run_check
+from app.services.vvt_service import normalize_vvt
 
 router = APIRouter()
 
@@ -96,6 +97,67 @@ async def delete_case(
     await db.delete(case)
     await db.flush()
     return None
+
+
+@router.get("/{case_id}/vvt-normalization", response_model=VVTNormalizationResponse)
+async def get_vvt_normalization(
+    case_id: UUID,
+    document_id: UUID | None = None,
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Get VVT normalization for the case. Uses the first VVT document if document_id is not given.
+    Returns canonical VVT fields and template detection (LLM-based).
+    """
+    result = await db.execute(
+        select(CaseModel)
+        .where(CaseModel.id == case_id)
+        .options(selectinload(CaseModel.documents))
+    )
+    case = result.scalar_one_or_none()
+    if not case:
+        raise HTTPException(status_code=404, detail="Case not found")
+
+    vvt_docs = [d for d in case.documents if d.type == "vvt"]
+    if not vvt_docs:
+        return VVTNormalizationResponse(
+            document_id=None,
+            document_name="",
+            source_template="",
+            fields=[],
+        )
+
+    if document_id is not None:
+        doc = next((d for d in vvt_docs if d.id == document_id), None)
+        if not doc:
+            raise HTTPException(
+                status_code=404,
+                detail="Document not found or is not a VVT document of this case",
+            )
+    else:
+        doc = vvt_docs[0]
+
+    raw_text = doc.content or ""
+    extraction = await normalize_vvt(raw_text)
+
+    fields = [
+        VVTFieldResponse(
+            field_name=f.field_name,
+            required=True,
+            status=f.status,
+            source_template=extraction.source_template,
+            canonical_value=f.canonical_value,
+            evidence=f.evidence,
+            finding=f.finding,
+        )
+        for f in extraction.fields
+    ]
+    return VVTNormalizationResponse(
+        document_id=doc.id,
+        document_name=doc.name,
+        source_template=extraction.source_template or "Unbekannt",
+        fields=fields,
+    )
 
 
 @router.post("/{case_id}/run-checks", response_model=CaseResponse)

@@ -130,6 +130,25 @@ export type DocumentType =
 
 export type FindingStatus = "open" | "accepted" | "overruled" | "fixed";
 
+export type VVTFieldStatus = "filled" | "missing" | "inconsistent";
+
+export interface ApiVVTField {
+  fieldName: string;
+  required: boolean;
+  status: VVTFieldStatus;
+  sourceTemplate: string;
+  canonicalValue?: string;
+  evidence?: string;
+  finding?: string;
+}
+
+export interface ApiVVTNormalization {
+  documentId: string | null;
+  documentName: string;
+  sourceTemplate: string;
+  fields: ApiVVTField[];
+}
+
 export interface CaseCreateInput {
   title: string;
   department: string;
@@ -282,4 +301,37 @@ export async function getPlaybooks(): Promise<ApiPlaybook[]> {
 export async function getPlaybook(id: string): Promise<ApiPlaybook> {
   const p = await request<Record<string, unknown>>("GET", `/playbooks/${id}`);
   return mapPlaybook(p) as ApiPlaybook;
+}
+
+// --- VVT Normalization ---
+function mapVVTField(d: Record<string, unknown>): ApiVVTField {
+  return {
+    fieldName: (d.field_name as string) ?? "",
+    required: (d.required as boolean) ?? true,
+    status: (d.status as ApiVVTField["status"]) ?? "missing",
+    sourceTemplate: (d.source_template as string) ?? "",
+    canonicalValue: d.canonical_value as string | undefined,
+    evidence: d.evidence as string | undefined,
+    finding: d.finding as string | undefined,
+  };
+}
+
+export async function getVVTNormalization(
+  caseId: string,
+  documentId?: string
+): Promise<ApiVVTNormalization> {
+  const q = documentId ? `?document_id=${documentId}` : "";
+  const r = await request<Record<string, unknown>>(
+    "GET",
+    `/cases/${caseId}/vvt-normalization${q}`
+  );
+  const fields = Array.isArray(r.fields)
+    ? (r.fields as Record<string, unknown>[]).map(mapVVTField)
+    : [];
+  return {
+    documentId: (r.document_id as string) ?? null,
+    documentName: (r.document_name as string) ?? "",
+    sourceTemplate: (r.source_template as string) ?? "",
+    fields,
+  };
 }

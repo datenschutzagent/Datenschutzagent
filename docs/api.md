@@ -18,6 +18,7 @@ Das Backend ist mit FastAPI umgesetzt. Interaktive Doku:
 | GET | `/api/v1/cases/{id}` | Case inkl. Dokumente und Findings. |
 | PATCH | `/api/v1/cases/{id}` | Case aktualisieren (Titel, Status, Assignee, …). |
 | DELETE | `/api/v1/cases/{id}` | Case löschen (204). |
+| GET | `/api/v1/cases/{id}/vvt-normalization` | VVT-Normalisierung für den Case (erstes VVT-Dokument). Optional: `?document_id=uuid` für ein bestimmtes VVT-Dokument. Liefert kanonische VVT-Felder und Template-Erkennung (LLM). |
 | POST | `/api/v1/cases/{id}/run-checks` | Playbook-Checks für den Case ausführen; Body: `{ "playbook_id": "uuid" }`. Findings werden persistiert. |
 
 ### Documents
@@ -54,4 +55,4 @@ Das Backend ist mit FastAPI umgesetzt. Interaktive Doku:
 
 ### Umgesetzt (Stand Roadmap)
 
-*   Run-Checks, DELETE Document, PATCH/DELETE Playbook, PATCH Finding (Status) sind implementiert.
+*   Run-Checks, DELETE Document, PATCH/DELETE Playbook, PATCH Finding (Status), GET VVT-Normalisierung sind implementiert.

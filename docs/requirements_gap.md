@@ -38,9 +38,9 @@ Abgleich der Projektbeschreibung (Anforderungen) mit dem aktuellen Implementieru
 
 | Anforderung | Status | Anmerkung |
 | :--- | :--- | :--- |
-| Template-Fingerprinting | ❌ | Nicht implementiert. |
-| Kanonisches VVT-Datenmodell | ❌ | Kein dediziertes Schema; nur `Document.content` als Rohtext. |
-| Export Ziel-Template | ❌ | Nicht implementiert. |
+| Template-Fingerprinting | ✅ | Im VVT-Service (LLM); `source_template` in `GET /cases/{id}/vvt-normalization`. |
+| Kanonisches VVT-Datenmodell | ✅ | Pydantic-Schema (`VVTFieldResponse`, `VVTNormalizationResponse`); LLM-Mapping in `vvt_service.py`. |
+| Export Ziel-Template | ❌ | Noch nicht implementiert (optional Folgesprint). |
 
 ### E) Artefakte / Output
 
@@ -74,6 +74,6 @@ Abgleich der Projektbeschreibung (Anforderungen) mit dem aktuellen Implementieru
 ## 3. Priorisierte Schritte (Gap-Schließung)
 
 1. ~~**Run-Checks-API**~~ ✅ Erledigt. ~~**Frontend**~~ ✅ Erledigt (Cases, Documents, Findings, Playbooks, Run-Checks, Finding-Status nutzen echte API).
-2. **VVT:** Fingerprinting, kanonisches Modell, Mapping, Export (nächster Fokus).
+2. ~~**VVT:** Fingerprinting, kanonisches Modell, Mapping, Frontend-Ansicht~~ ✅ Erledigt (`GET /cases/{id}/vvt-normalization`, `vvt_service.py`, VVTNormalizationView an API). **Export Ziel-Template** noch offen (optional).
 3. **Artefakte:** DSB-Report, kommentierte DOCX/PDF.
 4. **Sicherheit & Audit:** AuthN/AuthZ, Audit-Log.

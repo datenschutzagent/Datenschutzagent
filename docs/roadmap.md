@@ -34,14 +34,14 @@
 | :--- | :--- | :--- |
 | Run-Checks API | ✅ | `POST /api/v1/cases/{id}/run-checks` (Body: `playbook_id`); Findings werden persistiert. |
 | Ollama-Status | ✅ | `/health` prüft bei `ollama_enabled` die Erreichbarkeit (GET Ollama `/api/tags`); bei Fehler `status: degraded`. |
-| VVT-Fingerprinting | ❌ | Erkennung VVT-Template-Variante. |
-| Kanonisches VVT-Modell | ❌ | Schema + LLM-Mapping von Rohtext. |
-| Frontend Checks/VVT | ⚠️ | UI zum Starten von Checks (Run-Checks-Button + Playbook-Auswahl) implementiert; Finding-Status in UI änderbar. VVT-Anzeige noch Platzhalter. |
+| VVT-Fingerprinting | ✅ | Template-Erkennung im VVT-Service (LLM); `source_template` in Response. |
+| Kanonisches VVT-Modell | ✅ | Schema in `schemas.py`; `vvt_service.py` mit LLM-Mapping Rohtext → kanonische Felder. |
+| Frontend Checks/VVT | ✅ | Run-Checks-Button, Finding-Status; VVT-Tab nutzt `GET /cases/{id}/vvt-normalization`, echte API. |
 
 **Nächste Schritte Phase 2:**
 1. ~~API-Endpoint Run-Checks~~ ✅ Erledigt (`POST /api/v1/cases/{id}/run-checks`; Findings werden persistiert).
 2. ~~Optional: Ollama-Erreichbarkeit im Health-Check~~ ✅ Erledigt.
-3. VVT: Fingerprinting, kanonisches Modell, Mapping, Frontend-Ansicht (aktuell nur Platzhalter-UI).
+3. ~~VVT: Fingerprinting, kanonisches Modell, Mapping, Frontend-Ansicht~~ ✅ Erledigt (`GET /cases/{id}/vvt-normalization`, VVTNormalizationView mit API). Export Ziel-Template optional in Folgesprint.
 
 ---
 
