@@ -38,7 +38,11 @@ async def list_cases(
 ):
     """List cases with optional pagination."""
     result = await db.execute(
-        select(CaseModel).order_by(CaseModel.updated_at.desc()).offset(skip).limit(limit)
+        select(CaseModel)
+        .options(selectinload(CaseModel.documents), selectinload(CaseModel.findings))
+        .order_by(CaseModel.updated_at.desc())
+        .offset(skip)
+        .limit(limit)
     )
     cases = result.scalars().all()
     return [CaseResponse(**orm_to_case_response(c)) for c in cases]
@@ -50,7 +54,11 @@ async def get_case(
     db: AsyncSession = Depends(get_db),
 ):
     """Get a single case by ID."""
-    result = await db.execute(select(CaseModel).where(CaseModel.id == case_id))
+    result = await db.execute(
+        select(CaseModel)
+        .where(CaseModel.id == case_id)
+        .options(selectinload(CaseModel.documents), selectinload(CaseModel.findings))
+    )
     case = result.scalar_one_or_none()
     if not case:
         raise HTTPException(status_code=404, detail="Case not found")
@@ -95,7 +103,13 @@ async def create_case(
     )
     db.add(case)
     await db.flush()
-    await db.refresh(case)
+    # Re-fetch with relationships loaded to avoid lazy load in async context (MissingGreenlet)
+    result = await db.execute(
+        select(CaseModel)
+        .where(CaseModel.id == case.id)
+        .options(selectinload(CaseModel.documents), selectinload(CaseModel.findings))
+    )
+    case = result.scalar_one()
     return CaseResponse(**orm_to_case_response(case))
 
 
@@ -114,7 +128,13 @@ async def update_case(
     for key, value in update_data.items():
         setattr(case, key, value)
     await db.flush()
-    await db.refresh(case)
+    # Re-fetch with relationships loaded to avoid lazy load in async context (MissingGreenlet)
+    result = await db.execute(
+        select(CaseModel)
+        .where(CaseModel.id == case_id)
+        .options(selectinload(CaseModel.documents), selectinload(CaseModel.findings))
+    )
+    case = result.scalar_one()
     return CaseResponse(**orm_to_case_response(case))
 
 
