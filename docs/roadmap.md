@@ -22,7 +22,7 @@
 **Noch offen (Phase 1):**
 - ~~Frontend an echte API angebunden~~ ✅ Erledigt (Cases, Dokumente, Findings, Playbooks, Run-Checks, Finding-Status, **Playbook-Detail** nutzen `api.ts`).
 - ~~**Activity-Timeline:** nutzt Mock-Daten bis ein Audit-Log/Activities-API existiert~~ ✅ Erledigt: Audit-Log (`activity_log`), `GET /cases/{id}/activities`; Frontend Activity-Timeline nutzt echte API.
-- Dokument-Versionierung: v1/v2 pro Dokumenttyp noch offen.
+- ~~Dokument-Versionierung: v1/v2 pro Dokumenttyp noch offen~~ ✅ Erledigt: Version pro (case_id, document_type) beim Upload automatisch (v1, v2, …); `GET /documents?document_type=…`; Sortierung nach Typ, Version; Frontend zeigt Version und Hinweis bei Upload.
 - Asynchrone Jobs: Redis/Celery noch nicht genutzt; Extraktion synchron.
 
 ---

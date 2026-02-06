@@ -137,7 +137,8 @@ def orm_to_finding_response(orm: FindingModel) -> dict[str, Any]:
 
 
 def orm_to_case_response(orm: CaseModel) -> dict[str, Any]:
-    """Map CaseModel to API response with documents and findings."""
+    """Map CaseModel to API response with documents and findings. Documents sorted by type, then version (v1, v2, ...)."""
+    docs_sorted = sorted(orm.documents, key=lambda d: (d.type, d.version))
     return {
         "id": orm.id,
         "title": orm.title,
@@ -150,7 +151,7 @@ def orm_to_case_response(orm: CaseModel) -> dict[str, Any]:
         "created_by": orm.created_by,
         "assignee": orm.assignee,
         "playbook_version": orm.playbook_version,
-        "documents": [orm_to_document_response(d) for d in orm.documents],
+        "documents": [orm_to_document_response(d) for d in docs_sorted],
         "findings": [orm_to_finding_response(f) for f in orm.findings],
     }
 

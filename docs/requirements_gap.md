@@ -12,7 +12,7 @@ Abgleich der Projektbeschreibung (Anforderungen) mit dem aktuellen Implementieru
 | :--- | :--- | :--- |
 | Vorgang anlegen mit Metadaten | ✅ | Backend + Frontend; API Create/Update. Optional: Dokumente bereits im Dialog „Neuer Vorgang“ hochladbar (Frontend-Flow: nach Create sofort `uploadDocumentsBulk`). |
 | Mehrere Dokumente je Vorgang | ✅ | Einzelupload + Mehrfach-Upload: `POST /api/v1/documents/bulk` (mehrere Dateien, gleicher Typ); Frontend nutzt Bulk bei gleichem Dokumenttyp. Optional: Dokumente im Dialog „Neuer Vorgang“ (Schritt 3) auswählbar. |
-| Versionierung (Stände je Dokument) | ❌ | Keine Logik für v1/v2 pro Dokumenttyp. |
+| Versionierung (Stände je Dokument) | ✅ | Version pro (case_id, document_type) beim Upload automatisch (v1, v2, …); `GET /documents?document_type=…`; Frontend zeigt Version (z. B. VVT v2) und Hinweis „Neue Version“ im Upload-Dialog. |
 | Statusmodell | ✅ | `CaseStatusEnum`; Status im Case-Modell. |
 | Vorgang löschen | ✅ | `DELETE /api/v1/cases/{id}`. |
 
@@ -77,4 +77,5 @@ Abgleich der Projektbeschreibung (Anforderungen) mit dem aktuellen Implementieru
 2. ~~**VVT:** Fingerprinting, kanonisches Modell, Mapping, Frontend-Ansicht~~ ✅ Erledigt. ~~**Export Ziel-Template (DOCX)**~~ ✅ (`GET /cases/{id}/vvt-normalization/export?format=docx`).
 3. ~~**Vorgangs-/Cross-Document-Checks**~~ ✅ Erledigt (Playbook `scope: case`/`cross_document`, `run_cross_document_check`, Findings mit `document_id=null`, Frontend „Vorgangsbezogen“).
 4. **Artefakte:** ~~DSB-Report~~ ✅, ~~kommentierte DOCX~~ ✅, ~~PDF-Export~~ ✅ (`?format=pdf` bei annotated-documents Download).
-5. **Sicherheit & Audit:** ~~Audit-Log~~ ✅ (activity_log, Activities-API, Timeline). AuthN/AuthZ noch offen.
+5. **Dokument-Versionierung:** ~~v1/v2 pro Dokumenttyp~~ ✅ (Version pro (case_id, document_type) beim Upload; GET /documents?document_type=…; Frontend Version + Hinweis).
+6. **Sicherheit & Audit:** ~~Audit-Log~~ ✅ (activity_log, Activities-API, Timeline). AuthN/AuthZ noch offen.

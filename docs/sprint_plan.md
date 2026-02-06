@@ -1,10 +1,26 @@
 # Sprint-Plan (aktuell)
 
-Stand: Nach Umsetzung Sprint „Dokumente beim Anlegen (optional)“. Vorherige Sprints (Reproduzierbarkeit + Artefakte; Cross-Document-Checks; Fachbereiche, Playbook-YAML, Playbook-CRUD; Audit-Log + Activity-Timeline; Playbook-Detail; Mehrfach-Upload; Annotated Documents) abgeschlossen.
+Stand: Nach Umsetzung Sprint „Dokument-Versionierung“. Vorherige Sprints (Dokumente beim Anlegen; Reproduzierbarkeit + Artefakte; Cross-Document-Checks; Fachbereiche, Playbook-YAML, Playbook-CRUD; Audit-Log + Activity-Timeline; Playbook-Detail; Mehrfach-Upload; Annotated Documents) abgeschlossen.
 
 ---
 
-## Aktueller Sprint – Dokumente beim Anlegen (optional) (abgeschlossen)
+## Aktueller Sprint – Dokument-Versionierung (abgeschlossen)
+
+1. **Datenmodell & API** – Version pro (case_id, document_type): Beim Upload wird die nächste Versionsnummer (v1, v2, …) automatisch vergeben. `GET /documents` unterstützt optional `document_type`; Sortierung nach Typ und Version.
+2. **Backend** – `_next_version_for_type()` in `documents.py`; Einzel- und Bulk-Upload setzen Version automatisch. Case-Response: Dokumente sortiert nach (type, version).
+3. **Frontend** – Case-Detail zeigt pro Dokument Typ-Label und Version (z. B. „VVT v2“). Upload-Dialog: Hinweis, dass Wahl eines bestehenden Dokumenttyps eine neue Version anlegt.
+4. **Dokumentation** – sprint_plan.md, roadmap.md, requirements_gap.md, api.md aktualisiert.
+
+| # | Aufgabe | Status |
+| :--- | :--- | :--- |
+| 1 | Datenmodell & API Versionierung (case_id, document_type) | ✅ |
+| 2 | Backend-Endpoints (Upload Version, GET document_type, Sortierung) | ✅ |
+| 3 | Frontend: Versionen anzeigen & Hinweis „Neue Version“ | ✅ |
+| 4 | Doku (sprint_plan, roadmap, requirements_gap, api) | ✅ |
+
+---
+
+## Vorheriger Sprint – Dokumente beim Anlegen (optional) (abgeschlossen)
 
 1. **Neuer Vorgang Dialog** – Optionaler dritter Schritt „Dokumente (optional)“ im Dialog; Nutzer können Dateien auswählen und einen Dokumenttyp für alle setzen. Nach `createCase()` wird bei vorhandenen Dateien `uploadDocumentsBulk(newCase.id, files, documentType, assignee)` aufgerufen; danach Navigation zur Case-Detailseite (bestehender `onSuccess`-Flow).
 2. **Dokumentation** – sprint_plan.md, roadmap.md, requirements_gap.md um den neuen Flow ergänzt.
@@ -88,4 +104,4 @@ Stand: Nach Umsetzung Sprint „Dokumente beim Anlegen (optional)“. Vorherige 
 
 ## Folgesprint (optional)
 
-- Optional: Dokument-Versionierung (v1/v2 pro Dokumenttyp), OCR (gescannte PDFs), DE/EN-Ausbau, AuthN/AuthZ, Celery/Redis für asynchrone Jobs.
+- Optional: OCR (gescannte PDFs), DE/EN-Ausbau, AuthN/AuthZ, Celery/Redis für asynchrone Jobs.

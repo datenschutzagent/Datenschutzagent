@@ -2,7 +2,7 @@
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
@@ -17,6 +17,21 @@ ALLOWED_EXTENSIONS = {"docx", "pdf", "xlsx", "doc"}
 EXT_TO_FORMAT = {"docx": "docx", "pdf": "pdf", "xlsx": "xlsx", "doc": "doc"}
 
 
+async def _next_version_for_type(
+    db: AsyncSession,
+    case_id: UUID,
+    document_type: str,
+) -> int:
+    """Return the next version number for (case_id, document_type). Version is 1-based per document type."""
+    q = select(func.coalesce(func.max(DocumentModel.version), 0)).where(
+        DocumentModel.case_id == case_id,
+        DocumentModel.type == document_type,
+    )
+    result = await db.execute(q)
+    max_version = result.scalar() or 0
+    return max_version + 1
+
+
 async def _process_one_upload(
     *,
     case_id: UUID,
@@ -25,7 +40,8 @@ async def _process_one_upload(
     uploaded_by: str,
     db: AsyncSession,
 ) -> DocumentModel:
-    """Validate, store and extract one uploaded file; return created DocumentModel. Caller must ensure case exists."""
+    """Validate, store and extract one uploaded file; return created DocumentModel. Caller must ensure case exists.
+    Version is auto-assigned per (case_id, document_type): first document of a type gets v1, next v2, etc."""
     filename = file.filename or "document"
     ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
     if ext not in ALLOWED_EXTENSIONS:
@@ -37,11 +53,12 @@ async def _process_one_upload(
     content = await file.read()
     size_bytes = len(content)
     text_content = extract_text(filename, content)
+    version = await _next_version_for_type(db, case_id, document_type)
     doc = DocumentModel(
         case_id=case_id,
         name=filename,
         type=document_type,
-        version=1,
+        version=version,
         format=file_format,
         size_bytes=size_bytes,
         uploaded_by=uploaded_by or "unknown",
@@ -60,13 +77,16 @@ async def _process_one_upload(
 @router.get("", response_model=list[DocumentResponse])
 async def list_documents(
     case_id: UUID | None = None,
+    document_type: str | None = None,
     db: AsyncSession = Depends(get_db),
 ):
-    """List documents, optionally filtered by case_id."""
+    """List documents, optionally filtered by case_id and/or document_type. Ordered by type, then version (asc)."""
     q = select(DocumentModel)
     if case_id is not None:
         q = q.where(DocumentModel.case_id == case_id)
-    q = q.order_by(DocumentModel.uploaded_at.desc())
+    if document_type is not None:
+        q = q.where(DocumentModel.type == document_type)
+    q = q.order_by(DocumentModel.type.asc(), DocumentModel.version.asc())
     result = await db.execute(q)
     docs = result.scalars().all()
     return [DocumentResponse(**orm_to_document_response(d)) for d in docs]

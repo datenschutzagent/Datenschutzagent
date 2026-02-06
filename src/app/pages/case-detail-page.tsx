@@ -422,7 +422,7 @@ export function CaseDetailPage() {
                       <DialogHeader>
                         <DialogTitle>Dokumente hochladen</DialogTitle>
                         <DialogDescription>
-                          Laden Sie Dokumente für diesen Vorgang hoch
+                          Laden Sie Dokumente für diesen Vorgang hoch. Wenn Sie einen Dokumenttyp wählen, der bereits existiert, wird automatisch eine neue Version (v2, v3, …) angelegt.
                         </DialogDescription>
                       </DialogHeader>
                       <DocumentUploadZone
@@ -447,7 +447,7 @@ export function CaseDetailPage() {
                           <div>
                             <div className="flex items-center gap-2 mb-1">
                               <h4 className="font-medium text-slate-900">{doc.name}</h4>
-                              <Badge variant="outline">{documentTypeLabels[doc.type]}</Badge>
+                              <Badge variant="outline">{documentTypeLabels[doc.type as keyof typeof documentTypeLabels] ?? doc.type}</Badge>
                               <Badge variant="outline">v{doc.version}</Badge>
                             </div>
                             <div className="flex items-center gap-3 text-sm text-slate-600">

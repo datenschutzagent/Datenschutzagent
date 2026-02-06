@@ -30,10 +30,10 @@ Das Backend ist mit FastAPI umgesetzt. Interaktive Doku:
 
 | Methode | Pfad | Beschreibung |
 | :--- | :--- | :--- |
-| GET | `/api/v1/documents/` | Dokumente auflisten (optional `case_id`). |
+| GET | `/api/v1/documents/` | Dokumente auflisten. Query: optional `case_id`, optional `document_type`. Sortierung: nach Typ, dann Version (aufsteigend). Response enthält `version` (v1, v2, … pro Dokumenttyp). |
 | GET | `/api/v1/documents/{id}` | Einzelnes Dokument (Metadaten). |
-| POST | `/api/v1/documents/` | Einzelnes Dokument hochladen (Form: `case_id`, `file`, `document_type`, `uploaded_by`). Textextraktion beim Upload; Ergebnis in `Document.content`. |
-| POST | `/api/v1/documents/bulk` | Mehrere Dokumente in einem Request hochladen (Form: `case_id`, `files` (mehrere Dateien), `document_type`, `uploaded_by`). Gleicher Typ für alle; Response: Liste der angelegten Dokumente (201). |
+| POST | `/api/v1/documents/` | Einzelnes Dokument hochladen (Form: `case_id`, `file`, `document_type`, `uploaded_by`). Version wird pro (case_id, document_type) automatisch vergeben (erster Upload v1, nächster v2, …). Textextraktion beim Upload; Ergebnis in `Document.content`. |
+| POST | `/api/v1/documents/bulk` | Mehrere Dokumente in einem Request hochladen (Form: `case_id`, `files` (mehrere Dateien), `document_type`, `uploaded_by`). Gleicher Typ für alle; Version pro (case_id, document_type) automatisch fortlaufend; Response: Liste der angelegten Dokumente (201). |
 | DELETE | `/api/v1/documents/{id}` | Dokument löschen (DB + Storage, 204). |
 
 ### Departments (Fachbereiche / zentrale Einrichtungen)
@@ -69,4 +69,5 @@ Das Backend ist mit FastAPI umgesetzt. Interaktive Doku:
 ### Umgesetzt (Stand Roadmap)
 
 *   Run-Checks (inkl. **Cross-Document-Checks**), DELETE Document, PATCH/DELETE Playbook, PATCH Finding (Status), GET VVT-Normalisierung, GET VVT-Export (CSV + **DOCX** via `?format=docx`), GET DSB-Report (Markdown/JSON), GET annotierte Dokumente (Liste + Download DOCX/**PDF** via `?format=pdf`), **Audit-Log** (Payload bei `run_checks`: playbook_version, model) und GET /cases/{id}/activities sind implementiert.
+*   **Dokument-Versionierung:** Version pro (case_id, document_type) beim Upload automatisch; GET /documents mit optionalem `document_type`; Sortierung nach Typ, Version; Case-Response dokumente sortiert; Frontend zeigt v1, v2, … und Hinweis bei Upload.
 *   **Fachbereiche:** `GET /api/v1/departments` aus Konfiguration (`data/fachbereiche.yaml`). **Playbook-YAML:** Standard-Playbooks in `data/playbooks/`, Auto-Import bei leerer Playbook-Tabelle; Checks unterstützen optional `scope`/`type`. **Frontend Playbook-CRUD:** Anlegen (Dialog), Bearbeiten, Archivieren, Löschen, Duplizieren auf Playbook-Detail-Seite. **Frontend:** Findings mit `document_id=null` werden als „Vorgangsbezogen“ angezeigt.

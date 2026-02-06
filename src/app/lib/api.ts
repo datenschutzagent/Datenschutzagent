@@ -428,8 +428,11 @@ export function downloadBlob(blob: Blob, filename: string): void {
 }
 
 // --- Documents ---
-export async function getDocuments(caseId?: string): Promise<ApiDocument[]> {
-  const q = caseId ? `?case_id=${caseId}` : "";
+export async function getDocuments(caseId?: string, documentType?: string): Promise<ApiDocument[]> {
+  const params = new URLSearchParams();
+  if (caseId) params.set("case_id", caseId);
+  if (documentType) params.set("document_type", documentType);
+  const q = params.toString() ? `?${params.toString()}` : "";
   const list = (await request<Record<string, unknown>[]>("GET", `/documents${q}`)) ?? [];
   return list.map((d) => mapDocument(d) as ApiDocument);
 }
