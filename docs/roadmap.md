@@ -50,7 +50,7 @@
 
 **Ziel:** Konsistenzprüfungen über Dokumente hinweg, DSB-Reports, kommentierte Rückgabedokumente.
 
-- **Consistency Engine:** Multi-Dokument-Kontext für LLM; Cross-Document-Findings.
+- **Consistency Engine:** ✅ Multi-Dokument-Kontext für LLM; Playbook-Checks mit `scope: case`/`cross_document`; `run_cross_document_check()` in `check_runner.py`; Findings mit `document_id=null`; Frontend kennzeichnet „Vorgangsbezogen“.
 - **Artefakte:** DSB Summary Report (Markdown/JSON) ✅ (`GET /cases/{id}/dsb-report`); kommentierte DOCX ✅ (`GET /cases/{id}/annotated-documents`, Download); PDF optional.
 - **VVT-Export:** CSV ✅ (`GET /cases/{id}/vvt-normalization/export`); Ziel-Template (DOCX) optional.
 - **Feedback:** Finding-Status (Accepted/Overruled/Fixed) in UI; Audit bei Statusänderungen ✅ (activity_log-Einträge bei Finding-Status-Update).

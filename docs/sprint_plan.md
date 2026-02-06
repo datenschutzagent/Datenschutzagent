@@ -1,10 +1,28 @@
 # Sprint-Plan (aktuell)
 
-Stand: Nach Umsetzung Fachbereiche, Playbook-YAML und Playbook-CRUD-Frontend. Vorherige Sprints (Audit-Log + Activity-Timeline, Playbook-Detail, Mehrfach-Upload, Annotated Documents) abgeschlossen.
+Stand: Nach Umsetzung Cross-Document-Checks. Vorherige Sprints (Fachbereiche, Playbook-YAML, Playbook-CRUD; Audit-Log + Activity-Timeline; Playbook-Detail; Mehrfach-Upload; Annotated Documents) abgeschlossen.
 
 ---
 
-## Letzter Sprint – Fachbereiche, Playbook-YAML, Playbook-CRUD (abgeschlossen)
+## Letzter Sprint – Cross-Document-Checks (abgeschlossen)
+
+1. **Playbook-Format** – Checks unterstützen optional `scope` (oder `type`): `document` (Standard) vs. `case`/`cross_document`. YAML-Import in `playbook_import.py` setzt Default `document`, falls nicht angegeben.
+2. **Check Runner** – `run_cross_document_check(documents: list[(UUID, str)], check_instruction)` in `check_runner.py`; Multi-Dokument-Prompt mit Truncation pro Dokument.
+3. **Run-Checks** – In `cases.py`: Aufteilung in Document-Checks (pro Dokument) und Case-Checks (ein Lauf über alle Dokumente); Case-Findings mit `document_id=None`.
+4. **Frontend** – Findings mit `document_id=null` werden als „Vorgangsbezogen“ (Badge) bzw. im Dialog als „Vorgangsbezogen (Cross-Document)“ angezeigt.
+5. **Doku** – api.md, roadmap.md, requirements_gap.md, sprint_plan.md aktualisiert.
+
+| # | Aufgabe | Status |
+| :--- | :--- | :--- |
+| 1 | Playbook scope/type + Import | ✅ |
+| 2 | run_cross_document_check | ✅ |
+| 3 | Run-Checks: document vs. case | ✅ |
+| 4 | Frontend Vorgangsbezogen | ✅ |
+| 5 | Doku | ✅ |
+
+---
+
+## Vorheriger Sprint – Fachbereiche, Playbook-YAML, Playbook-CRUD (abgeschlossen)
 
 1. **Fachbereiche** – `backend/app/data/fachbereiche.yaml` (FB 01–16 + zentrale Einrichtungen); `GET /api/v1/departments`; Frontend Neuer-Vorgang-Dialog bezieht Fachbereichs-Liste aus API (Fallback: Playbooks).
 2. **Playbook-YAML** – Standard-Playbooks pro Fachbereich und zentrale Einrichtung in `backend/app/data/playbooks/*.yaml`; Format: name, version, department, case_type, checks.
@@ -40,5 +58,4 @@ Stand: Nach Umsetzung Fachbereiche, Playbook-YAML und Playbook-CRUD-Frontend. Vo
 
 ## Folgesprint (optional)
 
-- Cross-Document-Checks (Multi-Dokument-Kontext im Check Runner).
-- Optional: VVT Ziel-Template (DOCX), PDF annotierte Dokumente.
+- Optional: VVT Ziel-Template (DOCX), PDF annotierte Dokumente, Reproduzierbarkeit (Playbook-/Modellversion im activity_log.payload).

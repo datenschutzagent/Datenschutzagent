@@ -23,7 +23,7 @@ from app.models.schemas import (
     VVTNormalizationResponse,
 )
 from app.services.annotated_document_service import build_annotated_docx, list_annotatable_documents
-from app.services.check_runner import run_check
+from app.services.check_runner import run_check, run_cross_document_check
 from app.services.dsb_report_service import build_dsb_report, render_report_markdown
 from app.services.vvt_service import normalize_vvt
 
@@ -357,15 +357,29 @@ async def run_checks(
     if not playbook:
         raise HTTPException(status_code=404, detail="Playbook not found")
 
-    checks = playbook.content.get("checks") if isinstance(playbook.content, dict) else []
-    if not checks:
+    raw_checks = playbook.content.get("checks") if isinstance(playbook.content, dict) else []
+    if not raw_checks:
         await db.refresh(case)
         return CaseResponse(**orm_to_case_response(case))
 
+    # Split by scope: document (default) vs case/cross_document
+    document_checks: list[dict] = []
+    case_checks: list[dict] = []
+    for item in raw_checks:
+        if not isinstance(item, dict):
+            continue
+        scope = (item.get("scope") or item.get("type") or "document").lower()
+        if scope in ("case", "cross_document"):
+            case_checks.append(item)
+        else:
+            document_checks.append(item)
+
     findings_added = 0
+
+    # Document-scoped checks: one run per document per check
     for doc in case.documents:
         text = (doc.content or "") or ""
-        for item in checks:
+        for item in document_checks:
             name = item.get("name") or item.get("check_name") or "Check"
             instruction = item.get("instruction") or item.get("requirement") or ""
             if not instruction:
@@ -378,6 +392,33 @@ async def run_checks(
                 finding = FindingModel(
                     case_id=case_id,
                     document_id=doc.id,
+                    check_name=name,
+                    severity=check_result.severity,
+                    status="open",
+                    category=name,
+                    description=check_result.description,
+                    evidence=check_result.evidence or [],
+                    recommendation=check_result.recommendation or "",
+                )
+                db.add(finding)
+                findings_added += 1
+
+    # Case-scoped (cross-document) checks: one run per check with all documents
+    if case_checks and case.documents:
+        doc_list = [(doc.id, (doc.content or "") or "") for doc in case.documents]
+        for item in case_checks:
+            name = item.get("name") or item.get("check_name") or "Check"
+            instruction = item.get("instruction") or item.get("requirement") or ""
+            if not instruction:
+                continue
+            try:
+                check_result = await run_cross_document_check(doc_list, instruction)
+            except Exception:
+                continue
+            if not check_result.is_compliant:
+                finding = FindingModel(
+                    case_id=case_id,
+                    document_id=None,
                     check_name=name,
                     severity=check_result.severity,
                     status="open",

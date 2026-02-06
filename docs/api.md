@@ -22,7 +22,7 @@ Das Backend ist mit FastAPI umgesetzt. Interaktive Doku:
 | GET | `/api/v1/cases/{id}/vvt-normalization` | VVT-Normalisierung für den Case (erstes VVT-Dokument). Optional: `?document_id=uuid` für ein bestimmtes VVT-Dokument. Liefert kanonische VVT-Felder und Template-Erkennung (LLM). |
 | GET | `/api/v1/cases/{id}/vvt-normalization/export` | VVT-Normalisierung als CSV exportieren. Query: `format=csv` (Standard), optional `document_id=uuid`. Response: `text/csv` mit `Content-Disposition: attachment`; Spalten: document_name, source_template, field_name, status, canonical_value, evidence, finding. |
 | GET | `/api/v1/cases/{id}/dsb-report` | DSB Summary Report. Query: `format=markdown` (Standard) oder `format=json`. Markdown: Download mit `Content-Disposition: attachment`. JSON: Struktur mit case_id, case_title, generated_at, status, summary (total_documents, total_findings, critical_findings, high_findings, dsfa_required, vvt_completeness), risks, recommendations, open_questions, next_steps. |
-| POST | `/api/v1/cases/{id}/run-checks` | Playbook-Checks für den Case ausführen; Body: `{ "playbook_id": "uuid" }`. Findings werden persistiert. |
+| POST | `/api/v1/cases/{id}/run-checks` | Playbook-Checks für den Case ausführen; Body: `{ "playbook_id": "uuid" }`. Findings werden persistiert. Pro Check kann im Playbook `scope` (oder `type`) gesetzt sein: `document` (Standard, ein Check pro Dokument) oder `case`/`cross_document` (ein Check über alle Dokumente). Findings aus Case-Checks haben `document_id=null` (Frontend zeigt sie als „Vorgangsbezogen“). |
 | GET | `/api/v1/cases/{id}/annotated-documents` | Liste der Dokumente mit Findings, die als annotierte DOCX herunterladbar sind. Response: `[{ "document_id", "document_name", "finding_count" }]`. |
 | GET | `/api/v1/cases/{id}/annotated-documents/{document_id}` | Annotierte DOCX (Dokumentinhalt + Findings-Abschnitt) herunterladen. Response: `application/vnd.openxmlformats-officedocument.wordprocessingml.document` mit Content-Disposition. |
 
@@ -52,7 +52,7 @@ Das Backend ist mit FastAPI umgesetzt. Interaktive Doku:
 | PATCH | `/api/v1/playbooks/{id}` | Playbook aktualisieren (partial). |
 | DELETE | `/api/v1/playbooks/{id}` | Playbook löschen (204). |
 
-**Playbook-YAML und Auto-Import:** Standard-Playbooks liegen als YAML-Dateien in `backend/app/data/playbooks/` (Format: `name`, `version`, `department`, optional `case_type`, `checks: [{ name, instruction, … }]`). Beim ersten Start der Anwendung wird, wenn die Playbook-Tabelle leer ist, automatisch aus diesem Verzeichnis importiert. Optional: `PLAYBOOKS_SEED_DIR` für anderes Verzeichnis.
+**Playbook-YAML und Auto-Import:** Standard-Playbooks liegen als YAML-Dateien in `backend/app/data/playbooks/` (Format: `name`, `version`, `department`, optional `case_type`, `checks: [{ name, instruction, optional scope/type: document | case }]`). Beim ersten Start der Anwendung wird, wenn die Playbook-Tabelle leer ist, automatisch aus diesem Verzeichnis importiert. Optional: `PLAYBOOKS_SEED_DIR` für anderes Verzeichnis.
 
 ### Findings
 
@@ -68,5 +68,5 @@ Das Backend ist mit FastAPI umgesetzt. Interaktive Doku:
 
 ### Umgesetzt (Stand Roadmap)
 
-*   Run-Checks, DELETE Document, PATCH/DELETE Playbook, PATCH Finding (Status), GET VVT-Normalisierung, GET VVT-Export (CSV), GET DSB-Report (Markdown/JSON), GET annotierte Dokumente (Liste + Download DOCX), **Audit-Log und GET /cases/{id}/activities** sind implementiert.
-*   **Fachbereiche:** `GET /api/v1/departments` aus Konfiguration (`data/fachbereiche.yaml`). **Playbook-YAML:** Standard-Playbooks in `data/playbooks/`, Auto-Import bei leerer Playbook-Tabelle. **Frontend Playbook-CRUD:** Anlegen (Dialog), Bearbeiten, Archivieren, Löschen, Duplizieren auf Playbook-Detail-Seite.
+*   Run-Checks (inkl. **Cross-Document-Checks**: Playbook-Checks mit `scope: case`/`cross_document` laufen über alle Case-Dokumente; Findings mit `document_id=null`), DELETE Document, PATCH/DELETE Playbook, PATCH Finding (Status), GET VVT-Normalisierung, GET VVT-Export (CSV), GET DSB-Report (Markdown/JSON), GET annotierte Dokumente (Liste + Download DOCX), **Audit-Log und GET /cases/{id}/activities** sind implementiert.
+*   **Fachbereiche:** `GET /api/v1/departments` aus Konfiguration (`data/fachbereiche.yaml`). **Playbook-YAML:** Standard-Playbooks in `data/playbooks/`, Auto-Import bei leerer Playbook-Tabelle; Checks unterstützen optional `scope`/`type`. **Frontend Playbook-CRUD:** Anlegen (Dialog), Bearbeiten, Archivieren, Löschen, Duplizieren auf Playbook-Detail-Seite. **Frontend:** Findings mit `document_id=null` werden als „Vorgangsbezogen“ angezeigt.

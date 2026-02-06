@@ -31,7 +31,7 @@ Abgleich der Projektbeschreibung (Anforderungen) mit dem aktuellen Implementieru
 | :--- | :--- | :--- |
 | Playbooks im System, versioniert | ✅ | `Playbook`-Modell (JSONB), CRUD unter `/api/v1/playbooks/`. |
 | Dokument-Checks | ✅ | `check_runner.run_check()` mit PydanticAI/Ollama; strukturiertes Ergebnis. |
-| Vorgangs-/Cross-Document-Checks | ❌ | Kein Multi-Dokument-Kontext; keine Cross-Doc-Findings. |
+| Vorgangs-/Cross-Document-Checks | ✅ | Playbook-Checks mit `scope: case`/`cross_document`; `run_cross_document_check()`; Findings mit `document_id=null`; Frontend „Vorgangsbezogen“. |
 | Check-Lauf pro Case + persistente Findings | ✅ | `POST /api/v1/cases/{id}/run-checks`; Check Runner wird aufgerufen, Findings in DB gespeichert. |
 
 ### D) VVT-Normalisierung
@@ -75,5 +75,6 @@ Abgleich der Projektbeschreibung (Anforderungen) mit dem aktuellen Implementieru
 
 1. ~~**Run-Checks-API**~~ ✅ Erledigt. ~~**Frontend**~~ ✅ Erledigt (Cases, Documents, Findings, Playbooks, Run-Checks, Finding-Status, **Playbook-Detail** nutzen echte API). ~~**Activity-Timeline** nutzt weiterhin Mock~~ ✅ Erledigt (Audit-Log + `GET /cases/{id}/activities`, Activity-Timeline an API).
 2. ~~**VVT:** Fingerprinting, kanonisches Modell, Mapping, Frontend-Ansicht~~ ✅ Erledigt (`GET /cases/{id}/vvt-normalization`, `vvt_service.py`, VVTNormalizationView an API). **Export Ziel-Template** noch offen (optional).
-3. **Artefakte:** ~~DSB-Report~~ ✅, ~~kommentierte DOCX~~ ✅ (annotated-documents API + Frontend). PDF-Export optional.
-4. **Sicherheit & Audit:** ~~Audit-Log~~ ✅ (activity_log, Activities-API, Timeline). AuthN/AuthZ noch offen.
+3. ~~**Vorgangs-/Cross-Document-Checks**~~ ✅ Erledigt (Playbook `scope: case`/`cross_document`, `run_cross_document_check`, Findings mit `document_id=null`, Frontend „Vorgangsbezogen“).
+4. **Artefakte:** ~~DSB-Report~~ ✅, ~~kommentierte DOCX~~ ✅ (annotated-documents API + Frontend). PDF-Export optional.
+5. **Sicherheit & Audit:** ~~Audit-Log~~ ✅ (activity_log, Activities-API, Timeline). AuthN/AuthZ noch offen.

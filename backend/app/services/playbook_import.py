@@ -28,10 +28,21 @@ def _load_playbook_yaml(path: Path) -> dict[str, Any] | None:
         return None
 
 
+def _normalize_check_scope(item: dict[str, Any]) -> dict[str, Any]:
+    """Ensure each check has a scope: document (default) or case/cross_document."""
+    scope = item.get("scope") or item.get("type") or "document"
+    if scope in ("case", "cross_document"):
+        scope = "case"  # normalize for run_checks
+    else:
+        scope = "document"
+    return {**item, "scope": scope}
+
+
 def _yaml_to_model_data(data: dict[str, Any]) -> dict[str, Any] | None:
     """
     Convert YAML playbook dict to fields for PlaybookModel.
     Expects: name, version, department, optional case_type, checks (list of {name, instruction, ...}).
+    Each check may have scope or type: "document" (default) or "case"/"cross_document".
     """
     name = data.get("name")
     version = data.get("version")
@@ -40,7 +51,8 @@ def _yaml_to_model_data(data: dict[str, Any]) -> dict[str, Any] | None:
     checks = data.get("checks")
     if not isinstance(checks, list):
         checks = []
-    content = {"checks": checks}
+    normalized = [_normalize_check_scope(c) if isinstance(c, dict) else c for c in checks]
+    content = {"checks": normalized}
     return {
         "name": str(name),
         "version": str(version),

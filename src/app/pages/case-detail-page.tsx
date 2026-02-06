@@ -507,6 +507,9 @@ export function CaseDetailPage() {
                             <Badge variant="outline" className="text-xs">
                               {finding.category}
                             </Badge>
+                            {!finding.documentId && (
+                              <Badge variant="secondary" className="text-xs">Vorgangsbezogen</Badge>
+                            )}
                           </div>
                           <p className="text-sm text-slate-600 mb-2">{finding.description}</p>
                           <p className="text-sm text-blue-600 font-medium mb-1">{finding.recommendation}</p>
@@ -568,7 +571,9 @@ export function CaseDetailPage() {
               </Badge>
             </DialogTitle>
             <DialogDescription>
-              {selectedFinding?.category} • Status: {selectedFinding ? findingStatusLabels[selectedFinding.status] : ""}
+              {selectedFinding?.category}
+              {!selectedFinding?.documentId && " • Vorgangsbezogen (Cross-Document)"}
+              {" • Status: "}{selectedFinding ? findingStatusLabels[selectedFinding.status] : ""}
             </DialogDescription>
           </DialogHeader>
           {selectedFinding && (
