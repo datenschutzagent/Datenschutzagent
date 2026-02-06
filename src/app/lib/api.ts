@@ -1,9 +1,9 @@
 /**
  * API client for Datenschutzagent backend.
- * Uses VITE_API_URL or defaults to http://localhost:8000.
+ * Uses VITE_API_URL or defaults to http://localhost:8002.
  */
 
-const API_BASE = (import.meta as unknown as { env?: { VITE_API_URL?: string } }).env?.VITE_API_URL ?? "http://localhost:8000";
+const API_BASE = (import.meta as unknown as { env?: { VITE_API_URL?: string } }).env?.VITE_API_URL ?? "http://localhost:8002";
 const API_PREFIX = "/api/v1";
 
 /** Token for authenticated requests (set by auth flow when OIDC is enabled). */

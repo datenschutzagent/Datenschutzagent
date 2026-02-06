@@ -21,7 +21,7 @@ Ausführliche Architektur: [docs/architecture.md](docs/architecture.md). API-Bes
    - Im Backend-Verzeichnis: `pip install -r requirements.txt`, dann `uvicorn app.main:app --reload` (oder über Docker, siehe unten).
 
 3. **Frontend:**  
-   `npm install` und `npm run dev` – Dev-Server z. B. unter `http://localhost:5173`.
+   `npm install` und `npm run dev` – Dev-Server unter `http://localhost:3002`.
 
 4. **Ollama:** Für Playbook-Checks und OCR muss Ollama laufen und unter `OLLAMA_BASE_URL` erreichbar sein.
 
@@ -33,7 +33,7 @@ Aus dem Projektroot:
 docker compose up -d
 ```
 
-Backend: Port 8002, Frontend: Port 3001. Ollama wird nicht mitgestartet – auf dem Host oder im LAN betreiben und in `.env` z. B. `OLLAMA_BASE_URL=http://host.docker.internal:11434` setzen.
+Backend: Port 8002, Frontend: Port 3002. Ollama wird nicht mitgestartet – auf dem Host oder im LAN betreiben und in `.env` z. B. `OLLAMA_BASE_URL=http://host.docker.internal:11434` setzen.
 
 Details und Optionen: [docs/architecture.md](docs/architecture.md) (Abschnitt Deployment).
 

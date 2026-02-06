@@ -2,8 +2,8 @@
 
 Das Backend ist mit FastAPI umgesetzt. Interaktive Doku:
 
-*   **Swagger UI:** `http://localhost:8000/docs`
-*   **ReDoc:** `http://localhost:8000/redoc`
+*   **Swagger UI:** `http://localhost:8002/docs` (Docker) bzw. `http://localhost:8000/docs` (lokal)
+*   **ReDoc:** `http://localhost:8002/redoc` (Docker) bzw. `http://localhost:8000/redoc` (lokal)
 
 ---
 

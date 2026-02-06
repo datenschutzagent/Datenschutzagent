@@ -4,7 +4,7 @@ FROM node:20-alpine AS builder
 WORKDIR /app
 
 # Build-Argument für API-Basis-URL (vom Browser aus erreichbar)
-ARG VITE_API_URL=http://localhost:8000
+ARG VITE_API_URL=http://localhost:8002
 ENV VITE_API_URL=$VITE_API_URL
 
 COPY package.json ./

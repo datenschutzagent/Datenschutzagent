@@ -3,7 +3,7 @@ import { useNavigate, useSearchParams } from "react-router";
 import { getAuthConfig, setAccessToken } from "../lib/api";
 import { getStoredCodeVerifier, clearStoredCodeVerifier, setStoredToken } from "../lib/auth";
 
-const API_BASE = (import.meta as unknown as { env?: { VITE_API_URL?: string } }).env?.VITE_API_URL ?? "http://localhost:8000";
+const API_BASE = (import.meta as unknown as { env?: { VITE_API_URL?: string } }).env?.VITE_API_URL ?? "http://localhost:8002";
 
 /**
  * Exchange authorization code for tokens via the backend (proxy) or directly.

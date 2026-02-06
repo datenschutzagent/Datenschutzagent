@@ -28,7 +28,7 @@ class Settings(BaseSettings):
     s3_bucket: str = "documents"
 
     # CORS (in .env als kommagetrennte Liste, z. B. CORS_ORIGINS=http://localhost:3000,http://localhost:5173)
-    cors_origins: str | list[str] = ["http://localhost:5173", "http://127.0.0.1:5173"]
+    cors_origins: str | list[str] = ["http://localhost:3002", "http://127.0.0.1:3002", "http://localhost:5173", "http://127.0.0.1:5173"]
 
     @field_validator("cors_origins", mode="before")
     @classmethod

@@ -45,8 +45,8 @@ Details: [Roadmap](roadmap.md), [Gap-Analyse](requirements_gap.md).
 docker compose up -d
 ```
 
-*   Frontend: `http://localhost:3001` (Docker) bzw. `http://localhost:5173` (npm run dev)
-*   Backend: `http://localhost:8002` (Docker) bzw. `http://localhost:8000` (uvicorn)
-*   API-Doku: `http://localhost:8000/docs` (bzw. Port 8002 bei Docker)
+*   Frontend: `http://localhost:3002` (Docker bzw. npm run dev)
+*   Backend: `http://localhost:8002` (Docker) bzw. `http://localhost:8000` (uvicorn lokal)
+*   API-Doku: `http://localhost:8002/docs` (Docker) bzw. `http://localhost:8000/docs` (lokal)
 
 Ollama über `.env` konfigurieren (`OLLAMA_BASE_URL`, `OLLAMA_MODEL`). Aus dem Backend-Container z. B. `http://host.docker.internal:11434` verwenden.
