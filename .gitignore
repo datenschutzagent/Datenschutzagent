@@ -1,0 +1,41 @@
+# Environment and secrets
+.env
+.env.local
+.env.*.local
+
+# Python / Backend
+backend/__pycache__/
+backend/**/__pycache__/
+backend/.venv/
+backend/venv/
+backend/*.pyc
+backend/.pytest_cache/
+backend/.coverage
+backend/htmlcov/
+backend/storage/
+
+# Node / Frontend
+node_modules/
+dist/
+.npm
+.pnpm-store/
+
+# IDE and editors
+.idea/
+.vscode/
+*.iml
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs and temp
+*.log
+*.tmp
+.cache/
+
+# Optional: Cursor / plan files (uncomment if desired)
+# .cursor/
+# *.plan.md
