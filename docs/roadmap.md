@@ -44,22 +44,19 @@ Nach Abschluss von Weaviate/RAG wurden Verbesserungen aus einem systematischen C
 
 ---
 
-## Phase 2: Playbooks & VVT (in Arbeit)
+## Phase 2: Playbooks & VVT (abgeschlossen)
 
 **Ziel:** Playbook-Checks pro Vorgang ausführen, VVT normalisieren.
 
 | Bereich | Status | Details |
 | :--- | :--- | :--- |
-| Run-Checks API | ✅ | `POST /api/v1/cases/{id}/run-checks` (Body: `playbook_id`); Findings werden persistiert. |
+| Run-Checks API | ✅ | `POST /api/v1/cases/{id}/run-checks` (Body: `playbook_id`, optional `strategies`); Findings werden persistiert. |
 | Ollama-Status | ✅ | `/health` prüft bei `ollama_enabled` die Erreichbarkeit (GET Ollama `/api/tags`); bei Fehler `status: degraded`. |
 | VVT-Fingerprinting | ✅ | Template-Erkennung im VVT-Service (LLM); `source_template` in Response. |
 | Kanonisches VVT-Modell | ✅ | Schema in `schemas.py`; `vvt_service.py` mit LLM-Mapping Rohtext → kanonische Felder. |
-| Frontend Checks/VVT | ✅ | Run-Checks-Button, Finding-Status; VVT-Tab nutzt `GET /cases/{id}/vvt-normalization`, echte API. |
+| Frontend Checks/VVT | ✅ | Run-Checks-Button (Volltext/RAG/Beide), Finding-Status; VVT-Tab nutzt `GET /cases/{id}/vvt-normalization`, echte API. |
 
-**Nächste Schritte Phase 2:**
-1. ~~API-Endpoint Run-Checks~~ ✅ Erledigt (`POST /api/v1/cases/{id}/run-checks`; Findings werden persistiert).
-2. ~~Optional: Ollama-Erreichbarkeit im Health-Check~~ ✅ Erledigt.
-3. ~~VVT: Fingerprinting, kanonisches Modell, Mapping, Frontend-Ansicht~~ ✅ Erledigt. VVT CSV-Export ✅; Ziel-Template (DOCX) ✅ (`?format=docx`).
+**Phase 2 – alle Schritte erledigt:** Run-Checks-API, Ollama Health, VVT (Fingerprinting, Modell, Mapping, Frontend), CSV-Export, Ziel-Template (DOCX).
 
 ---
 
@@ -73,6 +70,7 @@ Nach Abschluss von Weaviate/RAG wurden Verbesserungen aus einem systematischen C
 - **Feedback:** Finding-Status (Accepted/Overruled/Fixed) in UI; Audit bei Statusänderungen ✅ (activity_log-Einträge bei Finding-Status-Update).
 - **Reproduzierbarkeit:** Bei jedem `run_checks`-Event werden `playbook_version` und `model` (Ollama) im `activity_log.payload` geloggt ✅. Bei fehlgeschlagenen oder übersprungenen Checks zusätzlich `errors` (Liste mit check, scope, strategy, error) und `skipped_checks_count` ✅.
 - **Weaviate / RAG (optional):** ✅ Vektordatenbank Weaviate (Docker); Dokumente werden nach Textextraktion in Chunks zerlegt, per Ollama eingebettet und in Weaviate indexiert. Run-Checks unterstützt die Strategien `full_text` (bestehend) und `rag` (Abruf relevanter Chunks, Prüfung nur auf diesem Kontext). Beide Strategien können parallel ausgeführt werden (Vergleich/Validierung). Findings tragen `source_strategy` (`full_text` \| `rag`). Indexierung konfigurierbar (`WEAVIATE_INDEXING_ENABLED`, `WEAVIATE_URL`); bei Dokument-/Case-Löschung werden Chunks in Weaviate entfernt (nicht blockierend via `asyncio.to_thread`).
+- **DE/EN-Ausbau:** ✅ Case-Sprache (`language`: de, en, de_en) wird an Run-Checks (Check Runner) und VVT-Normalisierung durchgereicht. LLM-Prompts enthalten einen Sprachhinweis („Evaluate and respond in German/English“); VVT-Feldwerte und Findings können sprachangepasst sein. Playbook-Checks unterstützen optional `instruction_en`; bei Case-Sprache en/de_en wird diese verwendet.
 
 ---
 

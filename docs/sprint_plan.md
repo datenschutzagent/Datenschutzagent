@@ -1,6 +1,22 @@
 # Sprint-Plan (aktuell)
 
-Stand: Sprint **Code-Review / Verbesserungen** abgeschlossen (Feb 2026). Zuvor: Weaviate/RAG, OCR, Celery, Dokument-Versionierung, Cross-Document, Artefakte, Audit, Playbook-CRUD, Annotated Documents.
+Stand: Sprint **DE/EN-Ausbau (Sprachunterstützung)** abgeschlossen (Feb 2026). Zuvor: Code-Review/Verbesserungen, Weaviate/RAG, OCR, Celery, Dokument-Versionierung, Cross-Document, Artefakte, Audit, Playbook-CRUD, Annotated Documents.
+
+---
+
+## Sprint – DE/EN-Ausbau (Sprachunterstützung) (abgeschlossen, Feb 2026)
+
+**Ziel:** Die Case-Sprache (`language`: de, en, de_en) in Playbook-Checks und VVT-Prompts berücksichtigen, damit Prüfungen und Normalisierung sprachangepasst ausgeführt werden können.
+
+| # | Aufgabe | Status |
+| :--- | :--- | :--- |
+| 1 | **Backend – Case-Sprache durchreichen** – Beim Run-Checks und bei VVT-Normalisierung die Case-`language` aus dem Case-Objekt an Check Runner bzw. VVT-Service übergeben (optionaler Parameter `language`). | ✅ |
+| 2 | **Check Runner – Sprachhinweis im Prompt** – In `run_check`, `run_cross_document_check`, `run_check_rag`, `run_cross_document_check_rag`: Falls `language` übergeben wird, im System-Prompt ergänzen (z. B. „Document/case language: DE. Evaluate and respond in German.“). | ✅ |
+| 3 | **VVT-Service – Sprachhinweis** – In `vvt_service.py`: Optionalen Parameter `language` annehmen und in den LLM-Prompts ausweisen, damit Feldwerte und Empfehlungen sprachkonsistent sind. | ✅ |
+| 4 | **Playbook-YAML (optional)** – Checks um optionales Feld `instruction_en` ergänzt; bei `language in ("en", "de_en")` wird `instruction_en` genutzt, sonst `instruction` (DE). | ✅ |
+| 5 | **Dokumentation** – roadmap.md, requirements_gap.md, api.md: DE/EN-Ausbau als umgesetzt dokumentiert; Playbook-Format um `instruction_en` erweitert. | ✅ |
+
+**Abnahme:** Run-Checks und VVT-Normalisierung für einen Case mit `language=en` nutzen den Sprachkontext im Prompt; Findings/Beschreibungen und VVT-Ausgabe können sprachangepasst sein.
 
 ---
 
@@ -179,8 +195,7 @@ Stand: Sprint **Code-Review / Verbesserungen** abgeschlossen (Feb 2026). Zuvor: 
 
 ---
 
-## Folgesprints (optional, danach)
+## Folgesprints (optional, nach DE/EN-Sprint)
 
-- **DE/EN-Ausbau:** Case-Sprache (`language`) in Playbook-Checks und VVT-Prompts berücksichtigen; ggf. getrennte Check-Texte pro Sprache.
 - **AuthN/AuthZ:** OAuth2/OIDC (z. B. Keycloak), RBAC (Rollen), geschützte API-Routen und Frontend-Login.
 - **Retention/Archivierung:** Konfigurierbare Aufbewahrungsfristen (Roadmap Phase 4).

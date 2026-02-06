@@ -199,6 +199,35 @@ class AnnotatedDocumentListItem(BaseModel):
     finding_count: int
 
 
+# --- User / Me ---
+UserThemeEnum = Literal["light", "dark", "system"]
+UserUILanguageEnum = Literal["de", "en"]
+
+
+class UserPreferences(BaseModel):
+    """User UI preferences (theme, language, placeholder for notifications)."""
+    theme: UserThemeEnum | None = None
+    language: UserUILanguageEnum | None = None
+    notifications: dict[str, Any] | None = None  # placeholder for later
+
+
+class UserResponse(BaseModel):
+    id: UUID
+    display_name: str
+    email: str | None = None
+    preferences: dict[str, Any] = Field(default_factory=dict)
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class UserUpdate(BaseModel):
+    display_name: str | None = None
+    email: str | None = None
+    preferences: UserPreferences | dict[str, Any] | None = None
+
+
 # --- Activity / Audit Log ---
 class ActivityResponse(BaseModel):
     """Single activity log entry for the timeline."""

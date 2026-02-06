@@ -9,6 +9,22 @@ Das Backend ist mit FastAPI umgesetzt. Interaktive Doku:
 
 ## Endpoints
 
+### Me (aktueller User / Profil)
+
+| Methode | Pfad | Beschreibung |
+| :--- | :--- | :--- |
+| GET | `/api/v1/me` | Aktuellen User liefern (aus `CURRENT_USER_ID` oder Default-User). Response: `id`, `display_name`, `email`, `preferences` (z. B. `theme`, `language`, `notifications`), `created_at`, `updated_at`. |
+| PATCH | `/api/v1/me` | Profil aktualisieren. Body: optional `display_name`, optional `email`, optional `preferences` (Objekt mit `theme` (light \| dark \| system), `language` (de \| en), `notifications`). |
+
+**Hinweis:** Ohne Auth wird der „aktuelle User“ über die Umgebungsvariable `CURRENT_USER_ID` (UUID) bestimmt. Ist sie nicht gesetzt, wird ein Default-User (beim Start angelegt) verwendet. Theme und Sprache aus `preferences` werden im Frontend app-weit angewendet.
+
+### Admin (Verwaltung, read-only)
+
+| Methode | Pfad | Beschreibung |
+| :--- | :--- | :--- |
+| GET | `/api/v1/admin/settings` | Generelle Einstellungen (read-only) aus der Konfiguration: `app_name`, `ollama_base_url`, `ollama_enabled`, `ollama_model`, `weaviate_url`, `weaviate_indexing_enabled`, `storage_backend`, `storage_local_path`, `s3_configured`, `s3_bucket`, `celery_enabled`, `celery_broker_configured`. Keine Passwörter/Secrets. |
+| GET | `/api/v1/admin/connections` | Verbindungstests zu Ollama, Weaviate, MinIO, Postgres, Redis. Response: pro Dienst `{ "status": "ok" | "disabled" | "not_configured" | "unreachable", "message"?: "..." }`. |
+
 ### Cases
 
 | Methode | Pfad | Beschreibung |
@@ -53,7 +69,7 @@ Das Backend ist mit FastAPI umgesetzt. Interaktive Doku:
 | PATCH | `/api/v1/playbooks/{id}` | Playbook aktualisieren (partial). |
 | DELETE | `/api/v1/playbooks/{id}` | Playbook löschen (204). |
 
-**Playbook-YAML und Auto-Import:** Standard-Playbooks liegen als YAML-Dateien in `backend/app/data/playbooks/` (Format: `name`, `version`, `department`, optional `case_type`, `checks: [{ name, instruction, optional scope/type: document | case }]`). Beim ersten Start der Anwendung wird, wenn die Playbook-Tabelle leer ist, automatisch aus diesem Verzeichnis importiert. Optional: `PLAYBOOKS_SEED_DIR` für anderes Verzeichnis.
+**Playbook-YAML und Auto-Import:** Standard-Playbooks liegen als YAML-Dateien in `backend/app/data/playbooks/` (Format: `name`, `version`, `department`, optional `case_type`, `checks: [{ name, instruction, optional instruction_en, optional scope/type: document | case }]`). Beim ersten Start der Anwendung wird, wenn die Playbook-Tabelle leer ist, automatisch aus diesem Verzeichnis importiert. Optional: `PLAYBOOKS_SEED_DIR` für anderes Verzeichnis. **Sprache:** Die Case-Sprache (`language`) wird bei Run-Checks und VVT-Normalisierung genutzt: LLM-Prompts erhalten einen Sprachhinweis (DE/EN); bei `language` en oder de_en kann pro Check `instruction_en` verwendet werden.
 
 ### Findings
 
@@ -75,3 +91,5 @@ Das Backend ist mit FastAPI umgesetzt. Interaktive Doku:
 *   **Asynchrone Jobs (Celery + Redis):** Celery-Worker in docker-compose; Task `extract_document_text` für Textextraktion nach Upload. Upload gibt sofort 201; Extraktion läuft im Hintergrund. Bei fehlendem Broker läuft Extraktion weiterhin synchron. **GET /cases/{id}/run-checks/status** für Status des letzten Run-Checks (Polling). Frontend optional unverändert (kein Polling für Extraktion).
 *   **Fachbereiche:** `GET /api/v1/departments` aus Konfiguration (`data/fachbereiche.yaml`). **Playbook-YAML:** Standard-Playbooks in `data/playbooks/`, Auto-Import bei leerer Playbook-Tabelle; Checks unterstützen optional `scope`/`type`. **Frontend Playbook-CRUD:** Anlegen (Dialog), Bearbeiten, Archivieren, Löschen, Duplizieren auf Playbook-Detail-Seite. **Frontend:** Findings mit `document_id=null` werden als „Vorgangsbezogen“ angezeigt.
 *   **OCR (gescannte PDFs):** Bei textarmen PDFs wird automatisch Ollama Vision (konfigurierbar: `OLLAMA_OCR_MODEL`, z. B. qwen2.5-vl) genutzt; PDF-Seiten werden als Bilder an das Modell gesendet. Document-Feld `extraction_method` (`text` \| `ocr`); Frontend zeigt bei `ocr` den Badge „Text per OCR extrahiert“.
+*   **DE/EN-Sprachunterstützung:** Run-Checks und VVT-Normalisierung nutzen die Case-Sprache (`language`); Check Runner und VVT-Service erhalten einen optionalen Parameter `language`, die LLM-Prompts enthalten einen Sprachhinweis. Playbook-Checks unterstützen optional `instruction_en` (bei Case-Sprache en/de_en).
+*   **User-Profil und Verwaltung:** `GET/PATCH /api/v1/me` für aktuellen User (Profil, Präferenzen Theme/Sprache). Tabelle `users`, Default-User beim Start; optional `CURRENT_USER_ID`. **Admin:** `GET /api/v1/admin/settings` (read-only Einstellungen), `GET /api/v1/admin/connections` (Verbindungstests Ollama, Weaviate, MinIO, Postgres, Redis). Frontend: Seite „Mein Profil“, Seite „Verwaltung“; Theme und Sprache kommen aus dem Profil.

@@ -23,7 +23,7 @@ Abgleich der Projektbeschreibung (Anforderungen) mit dem aktuellen Implementieru
 | Formate DOCX, PDF, XLSX | ✅ | `document_processor.py` (PyMuPDF, python-docx, openpyxl). |
 | Text- und Strukturextraktion | ✅ | Bei Upload; Speicherung in `Document.content`. |
 | OCR (gescannte PDFs) | ✅ | Ollama Vision (z. B. qwen2.5-vl, minicpm-v); bei textarmen PDFs automatischer Fallback in `document_processor.py`; `extraction_method` (text/ocr) am Document, Frontend-Badge „Text per OCR extrahiert“. |
-| DE/EN | ⚠️ | Case hat `language`; Playbook/Checks sprachabhängig noch nicht ausgebaut. |
+| DE/EN | ✅ | Case hat `language` (de, en, de_en). Run-Checks und VVT-Normalisierung erhalten die Case-Sprache; LLM-Prompts enthalten Sprachhinweis. Playbook-Checks unterstützen optional `instruction_en` für englische Anforderungen. |
 
 ### C) Playbook-basierte Vorprüfung
 

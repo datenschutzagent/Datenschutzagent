@@ -52,6 +52,9 @@ class Settings(BaseSettings):
     ocr_min_chars_per_page: int = 50  # below this avg chars/page → use OCR fallback
     ocr_dpi: int = 150  # resolution for PDF page images sent to vision model
 
+    # Current user (optional UUID; if unset, default user is used for GET/PATCH /me)
+    current_user_id: str | None = None
+
     # Weaviate (optional; RAG document checks)
     weaviate_url: str = "http://localhost:8080"
     weaviate_indexing_enabled: bool = False

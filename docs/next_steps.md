@@ -1,6 +1,6 @@
 # Nächste Schritte – Plan nach Roadmap & Gap-Analyse
 
-Stand: Nach Abgleich mit Code (Dokument-Versionierung, Celery/Redis, Cross-Document, Artefakte abgeschlossen). Die Punkte 1–7 aus der Gap-Analyse (Run-Checks, Frontend-API, Finding-Status, VVT, Cross-Document, Artefakte, Versionierung, Audit, asynchrone Jobs) sind umgesetzt. **Verbleibende Lücken:** AuthN/AuthZ, OCR, DE/EN-Ausbau, optional Retention/Monitoring. Nächster Sprint: siehe `docs/sprint_plan.md`.
+Stand: Feb 2026, nach Abgleich mit Code. Phase 1–3 der Roadmap und die priorisierten Gap-Punkte (Run-Checks, Frontend-API, Finding-Status, VVT, Cross-Document, Artefakte, Versionierung, Audit, Celery, OCR, Weaviate/RAG, Code-Review, **DE/EN-Ausbau**) sind umgesetzt. **Verbleibende Lücken:** AuthN/AuthZ, optional Retention/Archivierung. **Nächster Sprint:** siehe `docs/sprint_plan.md`.
 
 ---
 
@@ -44,50 +44,14 @@ Stand: Nach Abgleich mit Code (Dokument-Versionierung, Celery/Redis, Cross-Docum
 
 ---
 
-## 2. Priorisierte nächste Schritte (aus Roadmap + Gap)
+## 2. Verbleibende Lücken & nächster Sprint
 
-### Schritt 1: Run-Checks-API (höchste Priorität)
+| Lücke | Priorität | Anmerkung |
+| :--- | :--- | :--- |
+| **AuthN/AuthZ** | Phase 4 | OAuth2/OIDC (z. B. Keycloak), RBAC; geschützte API-Routen und Frontend-Login. |
+| **Retention/Archivierung** | Optional | Konfigurierbare Aufbewahrungsfristen (Roadmap Phase 4). |
 
-- **Ziel:** Ein Endpoint führt für einen Case die Playbook-Checks aus und speichert Findings in der DB.
-- **Backend:**
-  - Neuer Endpoint: `POST /api/v1/cases/{case_id}/run-checks`
-  - Optional: Query/Body-Parameter `playbook_id` (sonst: Case-Playbook oder Default-Playbook).
-  - Ablauf: Case laden → zugehörige Dokumente mit `content` laden → Playbook laden (inkl. `content.checks` oder ähnlich) → für jedes relevante Dokument und jeden Check `check_runner.run_check(document_content, check_instruction)` aufrufen → bei Nicht-Compliance `FindingModel` anlegen und speichern (case_id, document_id, check_name, severity, description, evidence, recommendation, status=open).
-  - Playbook-Format: Im Code festlegen bzw. dokumentieren (z. B. `content.checks: [{ "name": "...", "instruction": "..." }]`).
-- **Dokumentation:** `docs/api.md` und `docs/roadmap.md` aktualisieren.
-
-### Schritt 2: Frontend an echte API anbinden
-
-- **Ziel:** Cases, Dokumente und Findings kommen aus der API, keine Mocks mehr für diese Daten.
-- **Umsetzung:**
-  - API-Client (z. B. `src/app/lib/api.ts`): Basis-URL aus Env, Funktionen für `GET/POST/PATCH/DELETE /cases`, `GET/POST /documents`, ggf. `GET /playbooks`.
-  - **Cases:** Cases-Page: `GET /api/v1/cases`; Case-Detail: `GET /api/v1/cases/{id}` (enthält bereits documents + findings).
-  - **Neuer Vorgang:** NewCaseDialog: `POST /api/v1/cases`; nach Erfolg Liste neu laden oder zur neuen Case-Detailseite navigieren.
-  - **Dokumente:** Upload-Zone: `POST /api/v1/documents` (FormData: case_id, file, document_type, uploaded_by); Case-Detail: Dokumentliste aus Case-Response oder `GET /documents?case_id=...`.
-  - **Findings:** Aus Case-Response (GET case) anzeigen; für Statusänderung siehe Schritt 3.
-- **Playbooks:** Falls Playbooks-Seite noch Mock nutzt, auf `GET /api/v1/playbooks` umstellen.
-
-### Schritt 3: Finding-Status (API + UI)
-
-- **Ziel:** Status von Findings (open/accepted/overruled/fixed) änderbar und persistiert.
-- **Backend:** `PATCH /api/v1/findings/{id}` mit Body `{ "status": "accepted" | "overruled" | "fixed" }` (oder Findings unter Cases-Route: `PATCH /api/v1/cases/{id}/findings/{finding_id}`).
-- **Frontend:** In der Case-Detail-Seite (Findings-Liste/Detail) Dropdown oder Buttons zum Ändern des Status; nach Änderung API aufrufen und Case/Findings neu laden.
-
-### Schritt 4: Optional – Ollama im Health-Check
-
-- Health-Endpoint um kurzen Check gegen `OLLAMA_BASE_URL` erweitern (z. B. `/api/tags` oder `/`), nur wenn gewünscht.
-
-### Schritt 5: Phase 2 – VVT (nach Run-Checks + Frontend-Anbindung)
-
-- VVT-Fingerprinting (Erkennung Template-Variante).
-- Kanonisches VVT-Datenmodell (Schema) + LLM-Mapping von Rohtext zu diesem Modell.
-- Export Ziel-Template.
-- Frontend: Anzeige normalisierter VVT (bereits Platzhalter vorhanden).
-
-### Schritt 6: Weitere Backend-Lücken (kurzfristig sinnvoll)
-
-- **Dokument löschen:** `DELETE /api/v1/documents/{id}` (Löschen in DB + Storage).
-- **Playbook:** PATCH/DELETE für Playbooks ergänzen, falls benötigt.
+Konkrete Sprint-Planung und Backlog: **`docs/sprint_plan.md`**.
 
 ---
 
@@ -110,16 +74,4 @@ Stand: Nach Abgleich mit Code (Dokument-Versionierung, Celery/Redis, Cross-Docum
 
 - **Gap „Findings maschinenlesbar“ / „Finding-Status in UI“:** **erledigt.**
 
-- **Verbleibende Lücken (Roadmap Phase 4 / Gap):** AuthN/AuthZ (OAuth2/OIDC, RBAC), OCR (gescannte PDFs), DE/EN-Ausbau (sprachabhängige Playbook-Checks), optional Retention/Archivierung, Logging/Monitoring.
-
----
-
-## 4. Empfohlene Reihenfolge
-
-1. **Run-Checks-API** implementieren (Backend) + Playbook-Format für Checks festlegen.  
-2. **Frontend auf echte API umstellen** (Cases, Documents, ggf. Playbooks); Run-Checks-Button in Case-Detail einbauen.  
-3. **Finding-Status:** PATCH Findings + UI.  
-4. Optional: Ollama Health, DELETE Document, Playbook PATCH/DELETE.  
-5. Danach: **VVT** (Fingerprinting, Modell, Mapping, Export) und Phase 3 (Cross-Document, DSB-Report, kommentierte Dokumente).
-
-Diese Reihenfolge schließt die wichtigsten Lücken aus der Gap-Analyse und bringt die Roadmap Phase 2 (Playbooks & VVT) einen konkreten Schritt voran.
+- **Verbleibende Lücken (Roadmap Phase 4 / Gap):** AuthN/AuthZ (OAuth2/OIDC, RBAC), optional Retention/Archivierung, Logging/Monitoring. DE/EN-Ausbau, OCR und Phase 2/3 sind erledigt.

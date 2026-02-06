@@ -116,6 +116,76 @@ async function request<T>(
   return res.json() as Promise<T>;
 }
 
+// --- User / Me (profile and preferences) ---
+export type UserTheme = "light" | "dark" | "system";
+export type UserUILanguage = "de" | "en";
+
+export interface UserPreferences {
+  theme?: UserTheme;
+  language?: UserUILanguage;
+  notifications?: Record<string, unknown>;
+}
+
+export interface ApiUser {
+  id: string;
+  display_name: string;
+  email: string | null;
+  preferences: UserPreferences | Record<string, unknown>;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface UserUpdateInput {
+  display_name?: string;
+  email?: string | null;
+  preferences?: UserPreferences | Record<string, unknown>;
+}
+
+export async function getCurrentUser(): Promise<ApiUser> {
+  return request<ApiUser>("GET", "/me");
+}
+
+export async function updateCurrentUser(body: UserUpdateInput): Promise<ApiUser> {
+  return request<ApiUser>("PATCH", "/me", { body });
+}
+
+// --- Admin (read-only settings and connection status) ---
+export interface ApiAdminSettings {
+  app_name: string;
+  ollama_base_url: string;
+  ollama_enabled: boolean;
+  ollama_model: string;
+  weaviate_url: string;
+  weaviate_indexing_enabled: boolean;
+  storage_backend: string;
+  storage_local_path: string | null;
+  s3_configured: boolean;
+  s3_bucket: string | null;
+  celery_enabled: boolean;
+  celery_broker_configured: boolean;
+}
+
+export interface ApiConnectionStatus {
+  status: "ok" | "disabled" | "not_configured" | "unreachable";
+  message?: string;
+}
+
+export interface ApiConnectionsStatus {
+  ollama: ApiConnectionStatus;
+  weaviate: ApiConnectionStatus;
+  minio: ApiConnectionStatus;
+  postgres: ApiConnectionStatus;
+  redis: ApiConnectionStatus;
+}
+
+export async function getAdminSettings(): Promise<ApiAdminSettings> {
+  return request<ApiAdminSettings>("GET", "/admin/settings");
+}
+
+export async function getConnectionsStatus(): Promise<ApiConnectionsStatus> {
+  return request<ApiConnectionsStatus>("GET", "/admin/connections");
+}
+
 // --- Types (aligned with backend and mock-data) ---
 export type CaseStatus =
   | "intake"

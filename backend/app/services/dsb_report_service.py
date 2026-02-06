@@ -44,8 +44,9 @@ async def build_dsb_report(case_id: UUID, db: AsyncSession) -> DSBReportResponse
     vvt_docs = [d for d in case.documents if d.type == "vvt"]
     if vvt_docs:
         raw_text = vvt_docs[0].content or ""
+        case_lang = getattr(case, "language", None)
         try:
-            extraction = await normalize_vvt(raw_text)
+            extraction = await normalize_vvt(raw_text, language=case_lang)
             total_fields = len(extraction.fields)
             filled = sum(1 for f in extraction.fields if f.status == "filled")
             vvt_completeness = round((filled / total_fields) * 100) if total_fields else 0

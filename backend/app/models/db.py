@@ -84,6 +84,18 @@ class FindingModel(Base):
     case: Mapped["CaseModel"] = relationship("CaseModel", back_populates="findings")
 
 
+class UserModel(Base):
+    """User profile and preferences (current user via CURRENT_USER_ID or default)."""
+    __tablename__ = "users"
+
+    id: Mapped[uuid.UUID] = mapped_column(PG_UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    display_name: Mapped[str] = mapped_column(String(200), nullable=False, default="Standardnutzer")
+    email: Mapped[str | None] = mapped_column(String(320), nullable=True)
+    preferences: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
 class ActivityLogModel(Base):
     """Audit log for case-related events (run_checks, finding_status_updated, etc.)."""
     __tablename__ = "activity_log"
@@ -94,6 +106,18 @@ class ActivityLogModel(Base):
     event_type: Mapped[str] = mapped_column(String(80), nullable=False)
     payload: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+
+
+def orm_to_user_response(orm: UserModel) -> dict[str, Any]:
+    """Map UserModel to API response shape."""
+    return {
+        "id": orm.id,
+        "display_name": orm.display_name,
+        "email": orm.email,
+        "preferences": orm.preferences or {},
+        "created_at": orm.created_at,
+        "updated_at": orm.updated_at,
+    }
 
 
 def orm_to_activity_response(orm: ActivityLogModel) -> dict[str, Any]:

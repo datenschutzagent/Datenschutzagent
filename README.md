@@ -46,6 +46,13 @@ Details und Optionen: [docs/architecture.md](docs/architecture.md) (Abschnitt De
 
 Tabellen werden beim Backend-Start per `Base.metadata.create_all` angelegt. Zusätzliche Schema-Änderungen liegen als SQL-Skripte unter [backend/migrations/](backend/migrations/). Diese werden **nicht** automatisch ausgeführt – bei Bedarf manuell gegen die Datenbank ausführen (oder Migrations-Tool wie Alembic anbinden).
 
+## Benutzerprofil und Verwaltung
+
+- **Mein Profil** (Frontend: `/profile`): Anzeigename und Präferenzen (Theme: hell/dunkel/System; Sprache: DE/EN). Theme und Sprache werden app-weit aus dem Profil übernommen.
+- **Verwaltung** (Frontend: `/admin`): Read-only Anzeige der generellen Einstellungen (z. B. Ollama-URL, Weaviate, Storage) und Verbindungstests zu Ollama, Weaviate, MinIO, Postgres, Redis.
+
+Ohne Authentifizierung wird ein Default-User verwendet; optional kann `CURRENT_USER_ID` in der Umgebung gesetzt werden (siehe [.env.example](.env.example)).
+
 ## Weitere Dokumentation
 
 - [docs/architecture.md](docs/architecture.md) – Systemarchitektur

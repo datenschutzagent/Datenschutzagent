@@ -22,11 +22,25 @@ class CheckResult(BaseModel):
     recommendation: str = Field(description="Recommendation to fix the issue.")
 
 
-async def run_check(document_text: str, check_instruction: str) -> CheckResult:
+def _language_hint(language: str | None) -> str:
+    """Return a short hint for the LLM (e.g. 'Document/case language: DE. Evaluate in that language.')."""
+    if not language or language == "de":
+        return "Document/case language: DE. Evaluate and respond in German."
+    if language == "en":
+        return "Document/case language: EN. Evaluate and respond in English."
+    return "Document/case language: DE/EN (mixed or both). Evaluate and respond in the language of the document content."
+
+
+async def run_check(
+    document_text: str,
+    check_instruction: str,
+    language: str | None = None,
+) -> CheckResult:
     """Run a single check against a document using the LLM."""
-    agent = create_agent(
-        system_prompt="You are a strict data protection auditor. Analyze the provided document text against the specific requirement."
-    )
+    system = "You are a strict data protection auditor. Analyze the provided document text against the specific requirement."
+    if language:
+        system += " " + _language_hint(language)
+    agent = create_agent(system_prompt=system)
     truncated_text = document_text[:20000] if document_text else ""
     prompt = f"""
     Requirement: {check_instruction}
@@ -45,19 +59,21 @@ async def run_check(document_text: str, check_instruction: str) -> CheckResult:
 async def run_cross_document_check(
     documents: List[tuple[UUID, str]],
     check_instruction: str,
+    language: str | None = None,
 ) -> CheckResult:
     """
     Run a single check across multiple documents (case-level / cross-document).
     documents: list of (document_id, extracted_text). Findings from this check
     are persisted with document_id=None.
     """
-    agent = create_agent(
-        system_prompt=(
-            "You are a strict data protection auditor. Analyze the following set of documents "
-            "as a whole (e.g. consistency between them, completeness across documents). "
-            "Answer based on the combined context and the given requirement."
-        )
+    system = (
+        "You are a strict data protection auditor. Analyze the following set of documents "
+        "as a whole (e.g. consistency between them, completeness across documents). "
+        "Answer based on the combined context and the given requirement."
     )
+    if language:
+        system += " " + _language_hint(language)
+    agent = create_agent(system_prompt=system)
     parts: List[str] = []
     for i, (doc_id, text) in enumerate(documents, 1):
         truncated = (text or "")[:CONTEXT_CHARS_PER_DOC]
@@ -75,7 +91,12 @@ async def run_cross_document_check(
     return result.data
 
 
-async def run_check_rag(document_id: UUID, case_id: UUID, check_instruction: str) -> CheckResult | None:
+async def run_check_rag(
+    document_id: UUID,
+    case_id: UUID,
+    check_instruction: str,
+    language: str | None = None,
+) -> CheckResult | None:
     """
     Run a single check using RAG: embed check_instruction, retrieve relevant chunks for the document
     from Weaviate, then run the LLM on the assembled context. Returns None if Weaviate/chunks unavailable.
@@ -88,12 +109,13 @@ async def run_check_rag(document_id: UUID, case_id: UUID, check_instruction: str
     combined = "\n\n---\n\n".join(chunks)
     if len(combined) > RAG_CONTEXT_CHARS:
         combined = combined[:RAG_CONTEXT_CHARS] + "\n\n[... truncated ...]"
-    agent = create_agent(
-        system_prompt=(
-            "You are a strict data protection auditor. You are given relevant excerpts from a document "
-            "(retrieved by semantic search). Analyze these excerpts against the specific requirement."
-        )
+    system = (
+        "You are a strict data protection auditor. You are given relevant excerpts from a document "
+        "(retrieved by semantic search). Analyze these excerpts against the specific requirement."
     )
+    if language:
+        system += " " + _language_hint(language)
+    agent = create_agent(system_prompt=system)
     prompt = f"""
     Requirement: {check_instruction}
 
@@ -108,7 +130,11 @@ async def run_check_rag(document_id: UUID, case_id: UUID, check_instruction: str
     return result.data
 
 
-async def run_cross_document_check_rag(case_id: UUID, check_instruction: str) -> CheckResult | None:
+async def run_cross_document_check_rag(
+    case_id: UUID,
+    check_instruction: str,
+    language: str | None = None,
+) -> CheckResult | None:
     """
     Run a cross-document check using RAG: retrieve relevant chunks for the case from Weaviate,
     then run the LLM on the assembled context. Returns None if Weaviate/chunks unavailable.
@@ -123,12 +149,13 @@ async def run_cross_document_check_rag(case_id: UUID, check_instruction: str) ->
     combined = "\n\n---\n\n".join(chunks)
     if len(combined) > CONTEXT_CHARS_PER_DOC * 3:
         combined = combined[: CONTEXT_CHARS_PER_DOC * 3] + "\n\n[... truncated ...]"
-    agent = create_agent(
-        system_prompt=(
-            "You are a strict data protection auditor. You are given relevant excerpts from "
-            "multiple documents (retrieved by semantic search). Analyze them as a whole against the requirement."
-        )
+    system = (
+        "You are a strict data protection auditor. You are given relevant excerpts from "
+        "multiple documents (retrieved by semantic search). Analyze them as a whole against the requirement."
     )
+    if language:
+        system += " " + _language_hint(language)
+    agent = create_agent(system_prompt=system)
     prompt = f"""
     Requirement: {check_instruction}
 

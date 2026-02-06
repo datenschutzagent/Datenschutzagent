@@ -234,7 +234,8 @@ async def get_vvt_normalization_export(
         doc = vvt_docs[0]
 
     raw_text = doc.content or ""
-    extraction = await normalize_vvt(raw_text)
+    case_lang = getattr(case, "language", None)
+    extraction = await normalize_vvt(raw_text, language=case_lang)
     date_str = datetime.utcnow().strftime("%Y-%m-%d")
 
     if (format or "csv").lower() == "docx":
@@ -308,7 +309,8 @@ async def get_vvt_normalization(
         doc = vvt_docs[0]
 
     raw_text = doc.content or ""
-    extraction = await normalize_vvt(raw_text)
+    case_lang = getattr(case, "language", None)
+    extraction = await normalize_vvt(raw_text, language=case_lang)
 
     fields = [
         VVTFieldResponse(
@@ -460,9 +462,18 @@ async def run_checks(
             document_checks.append(item)
 
     strategies = body.strategies or ["full_text"]
+    case_language = getattr(case, "language", None) or "de"
     findings_added = 0
     rag_skipped = False
     errors: list[dict] = []  # {"check": str, "scope": "document"|"case", "document_id": str|None, "strategy": str, "error": str}
+
+    def _instruction_for_check(item: dict) -> str:
+        """Resolve check instruction: use instruction_en when case language is en or de_en."""
+        if case_language in ("en", "de_en"):
+            instr = item.get("instruction_en") or item.get("instruction") or item.get("requirement")
+        else:
+            instr = item.get("instruction") or item.get("requirement") or item.get("instruction_en")
+        return instr or ""
 
     def _add_finding(
         *,
@@ -496,12 +507,12 @@ async def run_checks(
         text = (doc.content or "") or ""
         for item in document_checks:
             name = item.get("name") or item.get("check_name") or "Check"
-            instruction = item.get("instruction") or item.get("requirement") or ""
+            instruction = _instruction_for_check(item)
             if not instruction:
                 continue
             if "full_text" in strategies:
                 try:
-                    check_result = await run_check(text, instruction)
+                    check_result = await run_check(text, instruction, language=case_language)
                 except Exception as e:
                     logger.warning("Run check failed (full_text, document): check=%s doc_id=%s: %s", name, doc.id, e)
                     errors.append({"check": name, "scope": "document", "document_id": str(doc.id), "strategy": "full_text", "error": str(e)})
@@ -519,7 +530,7 @@ async def run_checks(
                     )
             if "rag" in strategies:
                 try:
-                    rag_result = await run_check_rag(doc.id, case_id, instruction)
+                    rag_result = await run_check_rag(doc.id, case_id, instruction, language=case_language)
                 except Exception as e:
                     logger.warning("Run check failed (rag, document): check=%s doc_id=%s: %s", name, doc.id, e)
                     errors.append({"check": name, "scope": "document", "document_id": str(doc.id), "strategy": "rag", "error": str(e)})
@@ -546,12 +557,12 @@ async def run_checks(
         doc_list = [(doc.id, (doc.content or "") or "") for doc in case.documents]
         for item in case_checks:
             name = item.get("name") or item.get("check_name") or "Check"
-            instruction = item.get("instruction") or item.get("requirement") or ""
+            instruction = _instruction_for_check(item)
             if not instruction:
                 continue
             if "full_text" in strategies:
                 try:
-                    check_result = await run_cross_document_check(doc_list, instruction)
+                    check_result = await run_cross_document_check(doc_list, instruction, language=case_language)
                 except Exception as e:
                     logger.warning("Run check failed (full_text, case): check=%s: %s", name, e)
                     errors.append({"check": name, "scope": "case", "document_id": None, "strategy": "full_text", "error": str(e)})
@@ -569,7 +580,7 @@ async def run_checks(
                     )
             if "rag" in strategies:
                 try:
-                    rag_result = await run_cross_document_check_rag(case_id, instruction)
+                    rag_result = await run_cross_document_check_rag(case_id, instruction, language=case_language)
                 except Exception as e:
                     logger.warning("Run check failed (rag, case): check=%s: %s", name, e)
                     errors.append({"check": name, "scope": "case", "document_id": None, "strategy": "rag", "error": str(e)})

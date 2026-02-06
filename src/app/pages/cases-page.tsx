@@ -111,13 +111,12 @@ export function CasesPage() {
               <Link to="/playbooks" className="text-sm font-medium text-slate-600 hover:text-slate-900">
                 Playbooks
               </Link>
-              <div className="h-6 w-px bg-slate-300" />
-              <div className="flex items-center gap-2">
-                <div className="size-8 rounded-full bg-blue-600 flex items-center justify-center text-white text-sm font-medium">
-                  DS
-                </div>
-                <span className="text-sm text-slate-700">DSB Team</span>
-              </div>
+              <Link to="/profile" className="text-sm font-medium text-slate-600 hover:text-slate-900">
+                Mein Profil
+              </Link>
+              <Link to="/admin" className="text-sm font-medium text-slate-600 hover:text-slate-900">
+                Verwaltung
+              </Link>
             </nav>
           </div>
         </div>

@@ -1,15 +1,21 @@
 """FastAPI application entry point."""
 import urllib.request
+import uuid
 from pathlib import Path
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from sqlalchemy import select
 
 from app.config import settings
 from app.api import router as api_router
 from app.database import init_db, async_session_factory
+from app.models.db import UserModel
 from app.services.playbook_import import import_playbooks_from_yaml
+
+# Fixed default user ID when CURRENT_USER_ID is not set (must match users.py)
+DEFAULT_USER_ID = uuid.UUID("00000000-0000-4000-8000-000000000001")
 
 
 @asynccontextmanager
@@ -21,6 +27,20 @@ async def lifespan(app: FastAPI):
         try:
             n = await import_playbooks_from_yaml(session, seed_dir)
             if n > 0:
+                await session.commit()
+        except Exception:
+            await session.rollback()
+        # Ensure default user exists for GET/PATCH /me when CURRENT_USER_ID is unset
+        try:
+            res = await session.execute(select(UserModel).where(UserModel.id == DEFAULT_USER_ID))
+            if res.scalar_one_or_none() is None:
+                default_user = UserModel(
+                    id=DEFAULT_USER_ID,
+                    display_name="Standardnutzer",
+                    email=None,
+                    preferences={"theme": "system", "language": "de"},
+                )
+                session.add(default_user)
                 await session.commit()
         except Exception:
             await session.rollback()
