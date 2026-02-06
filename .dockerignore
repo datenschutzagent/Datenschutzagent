@@ -1,0 +1,12 @@
+# Frontend build context: Backend und Unnötiges ausnehmen
+backend
+.git
+.env
+.env.*
+!.env.example
+node_modules
+dist
+*.md
+.cursor
+guidelines
+*.plan.md
