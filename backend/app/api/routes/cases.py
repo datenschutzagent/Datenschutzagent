@@ -5,12 +5,14 @@ import re
 from datetime import datetime
 from uuid import UUID
 
+from docx import Document as DocxDocument
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import JSONResponse, Response
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from app.config import settings
 from app.database import get_db
 from app.models import CaseCreate, CaseModel, CaseResponse, CaseUpdate, orm_to_case_response
 from app.models.db import ActivityLogModel, DocumentModel, FindingModel, PlaybookModel, orm_to_activity_response
@@ -22,7 +24,11 @@ from app.models.schemas import (
     VVTFieldResponse,
     VVTNormalizationResponse,
 )
-from app.services.annotated_document_service import build_annotated_docx, list_annotatable_documents
+from app.services.annotated_document_service import (
+    build_annotated_docx,
+    build_annotated_pdf,
+    list_annotatable_documents,
+)
 from app.services.check_runner import run_check, run_cross_document_check
 from app.services.dsb_report_service import build_dsb_report, render_report_markdown
 from app.services.vvt_service import normalize_vvt
@@ -153,6 +159,34 @@ async def delete_case(
     return None
 
 
+def _build_vvt_export_docx(doc_name: str, source_template: str, fields: list) -> bytes:
+    """Build DOCX with VVT normalization (Ziel-Template): document name, template, table of fields."""
+    doc = DocxDocument()
+    doc.add_heading("VVT-Normalisierung (Ziel-Template)", 0)
+    doc.add_paragraph()
+    doc.add_paragraph(f"Dokument: {doc_name}")
+    doc.add_paragraph(f"Erkanntes Template: {source_template or '—'}")
+    doc.add_paragraph()
+    table = doc.add_table(rows=1 + len(fields), cols=5)
+    table.style = "Table Grid"
+    hdr = table.rows[0].cells
+    hdr[0].text = "Feldname"
+    hdr[1].text = "Status"
+    hdr[2].text = "Kanonischer Wert"
+    hdr[3].text = "Nachweis"
+    hdr[4].text = "Hinweis"
+    for i, f in enumerate(fields):
+        row = table.rows[i + 1].cells
+        row[0].text = (f.field_name or "").replace("\r\n", " ").replace("\n", " ")
+        row[1].text = (f.status or "").replace("\r\n", " ").replace("\n", " ")
+        row[2].text = (f.canonical_value or "").replace("\r\n", " ").replace("\n", " ")
+        row[3].text = (f.evidence or "").replace("\r\n", " ").replace("\n", " ")
+        row[4].text = (f.finding or "").replace("\r\n", " ").replace("\n", " ")
+    buf = io.BytesIO()
+    doc.save(buf)
+    return buf.getvalue()
+
+
 @router.get("/{case_id}/vvt-normalization/export", response_class=Response)
 async def get_vvt_normalization_export(
     case_id: UUID,
@@ -161,8 +195,9 @@ async def get_vvt_normalization_export(
     db: AsyncSession = Depends(get_db),
 ):
     """
-    Export VVT normalization as CSV. Uses first VVT document if document_id not given.
-    Response: Content-Disposition attachment; filename="VVT-Export-{case_id}-{date}.csv".
+    Export VVT normalization. Query: format=csv (default) or format=docx.
+    Uses first VVT document if document_id not given.
+    CSV: text/csv. DOCX: VVT Ziel-Template (document name, template, fields table).
     """
     result = await db.execute(
         select(CaseModel)
@@ -189,6 +224,16 @@ async def get_vvt_normalization_export(
 
     raw_text = doc.content or ""
     extraction = await normalize_vvt(raw_text)
+    date_str = datetime.utcnow().strftime("%Y-%m-%d")
+
+    if (format or "csv").lower() == "docx":
+        content = _build_vvt_export_docx(doc.name, extraction.source_template or "", extraction.fields)
+        filename = f"VVT-Ziel-{case_id}-{date_str}.docx"
+        return Response(
+            content=content,
+            media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        )
 
     buf = io.StringIO()
     writer = csv.writer(buf)
@@ -204,7 +249,6 @@ async def get_vvt_normalization_export(
             (f.finding or "").replace("\r\n", " ").replace("\n", " "),
         ])
     csv_content = buf.getvalue()
-    date_str = datetime.utcnow().strftime("%Y-%m-%d")
     filename = f"VVT-Export-{case_id}-{date_str}.csv"
     body = "\ufeff" + csv_content  # UTF-8 BOM for Excel
     return Response(
@@ -322,16 +366,22 @@ async def list_annotated_documents(
 async def get_annotated_document(
     case_id: UUID,
     document_id: UUID,
+    format: str = Query("docx", alias="format"),
     db: AsyncSession = Depends(get_db),
 ):
-    """Download annotated DOCX for a document (content + findings section)."""
+    """Download annotated document (content + findings). Query: format=docx (default) or format=pdf."""
     try:
-        content, filename = await build_annotated_docx(case_id, document_id, db)
+        if (format or "docx").lower() == "pdf":
+            content, filename = await build_annotated_pdf(case_id, document_id, db)
+            media_type = "application/pdf"
+        else:
+            content, filename = await build_annotated_docx(case_id, document_id, db)
+            media_type = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
     return Response(
         content=content,
-        media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        media_type=media_type,
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
 
@@ -437,6 +487,8 @@ async def run_checks(
         payload={
             "playbook_id": str(body.playbook_id),
             "playbook_name": playbook.name,
+            "playbook_version": playbook.version,
+            "model": settings.ollama_model,
             "findings_count": findings_added,
         },
     )

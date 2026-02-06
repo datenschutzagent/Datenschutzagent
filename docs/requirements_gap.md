@@ -40,14 +40,14 @@ Abgleich der Projektbeschreibung (Anforderungen) mit dem aktuellen Implementieru
 | :--- | :--- | :--- |
 | Template-Fingerprinting | ✅ | Im VVT-Service (LLM); `source_template` in `GET /cases/{id}/vvt-normalization`. |
 | Kanonisches VVT-Datenmodell | ✅ | Pydantic-Schema (`VVTFieldResponse`, `VVTNormalizationResponse`); LLM-Mapping in `vvt_service.py`. |
-| Export (CSV / Ziel-Template) | ✅ / optional | CSV-Export implementiert: `GET /cases/{id}/vvt-normalization/export`; Ziel-Template (z. B. DOCX) optional Folgesprint. |
+| Export (CSV / Ziel-Template) | ✅ | CSV-Export: `GET /cases/{id}/vvt-normalization/export`; Ziel-Template DOCX: `?format=docx`. |
 
 ### E) Artefakte / Output
 
 | Anforderung | Status | Anmerkung |
 | :--- | :--- | :--- |
 | DSB Summary Report | ✅ | `dsb_report_service.py`, `GET /api/v1/cases/{id}/dsb-report` (format=json \| markdown); Frontend DSBReportView. |
-| Kommentierte Dokumente (DOCX/PDF) | ✅ | DOCX mit Findings-Abschnitt: `annotated_document_service.py`, `GET /cases/{id}/annotated-documents` (Liste) und `.../annotated-documents/{document_id}` (Download). Frontend: AnnotatedDocumentsView. PDF optional. |
+| Kommentierte Dokumente (DOCX/PDF) | ✅ | DOCX: `GET /cases/{id}/annotated-documents/{document_id}` (Standard). PDF: `?format=pdf`. Frontend: AnnotatedDocumentsView. |
 | Findings maschinenlesbar (JSON) | ✅ | Finding-Modell, Case-Response inkl. Findings, Erzeugung via Run-Checks; PATCH `/api/v1/findings/{id}` für Status. |
 
 ### F) Auditierbarkeit
@@ -67,14 +67,14 @@ Abgleich der Projektbeschreibung (Anforderungen) mit dem aktuellen Implementieru
 | Storage (lokal + MinIO) | ✅ | `storage.py`: Backends umschaltbar. |
 | AuthN/AuthZ, Rollen | ❌ | Nicht implementiert. |
 | Retention/Archivierung konfigurierbar | ❌ | Nicht implementiert. |
-| Reproduzierbarkeit (Playbook-/Modellversion) | ⚠️ | Playbook versioniert; Verknüpfung Check-Lauf ↔ Version noch nicht geloggt. |
+| Reproduzierbarkeit (Playbook-/Modellversion) | ✅ | Bei jedem `run_checks`-Event werden `playbook_version` und `model` (Ollama) im `activity_log.payload` geloggt; Reproduktion von Check-Läufen nachvollziehbar. |
 
 ---
 
 ## 3. Priorisierte Schritte (Gap-Schließung)
 
 1. ~~**Run-Checks-API**~~ ✅ Erledigt. ~~**Frontend**~~ ✅ Erledigt (Cases, Documents, Findings, Playbooks, Run-Checks, Finding-Status, **Playbook-Detail** nutzen echte API). ~~**Activity-Timeline** nutzt weiterhin Mock~~ ✅ Erledigt (Audit-Log + `GET /cases/{id}/activities`, Activity-Timeline an API).
-2. ~~**VVT:** Fingerprinting, kanonisches Modell, Mapping, Frontend-Ansicht~~ ✅ Erledigt (`GET /cases/{id}/vvt-normalization`, `vvt_service.py`, VVTNormalizationView an API). **Export Ziel-Template** noch offen (optional).
+2. ~~**VVT:** Fingerprinting, kanonisches Modell, Mapping, Frontend-Ansicht~~ ✅ Erledigt. ~~**Export Ziel-Template (DOCX)**~~ ✅ (`GET /cases/{id}/vvt-normalization/export?format=docx`).
 3. ~~**Vorgangs-/Cross-Document-Checks**~~ ✅ Erledigt (Playbook `scope: case`/`cross_document`, `run_cross_document_check`, Findings mit `document_id=null`, Frontend „Vorgangsbezogen“).
-4. **Artefakte:** ~~DSB-Report~~ ✅, ~~kommentierte DOCX~~ ✅ (annotated-documents API + Frontend). PDF-Export optional.
+4. **Artefakte:** ~~DSB-Report~~ ✅, ~~kommentierte DOCX~~ ✅, ~~PDF-Export~~ ✅ (`?format=pdf` bei annotated-documents Download).
 5. **Sicherheit & Audit:** ~~Audit-Log~~ ✅ (activity_log, Activities-API, Timeline). AuthN/AuthZ noch offen.

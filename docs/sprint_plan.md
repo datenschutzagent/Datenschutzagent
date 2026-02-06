@@ -1,10 +1,28 @@
 # Sprint-Plan (aktuell)
 
-Stand: Nach Umsetzung Cross-Document-Checks. Vorherige Sprints (Fachbereiche, Playbook-YAML, Playbook-CRUD; Audit-Log + Activity-Timeline; Playbook-Detail; Mehrfach-Upload; Annotated Documents) abgeschlossen.
+Stand: Nach Umsetzung Sprint Reproduzierbarkeit + optionale Artefakte. Vorherige Sprints (Cross-Document-Checks; Fachbereiche, Playbook-YAML, Playbook-CRUD; Audit-Log + Activity-Timeline; Playbook-Detail; Mehrfach-Upload; Annotated Documents) abgeschlossen.
 
 ---
 
-## Letzter Sprint – Cross-Document-Checks (abgeschlossen)
+## Letzter Sprint – Reproduzierbarkeit + optionale Artefakte (abgeschlossen)
+
+1. **Reproduzierbarkeit** – Bei `run_checks` im `activity_log.payload`: `playbook_version` (aus Playbook) und `model` (aus `settings.ollama_model`) ergänzt; Doku (api.md, requirements_gap.md) angepasst.
+2. **finding_status_updated** – Payload unverändert (Playbook-Kontext am Finding nicht gespeichert; bewusst weggelassen).
+3. **VVT Ziel-Template (DOCX)** – `GET /cases/{id}/vvt-normalization/export?format=docx`; DOCX mit Dokumentname, erkanntem Template und Tabelle der normalisierten VVT-Felder.
+4. **PDF annotierte Dokumente** – `build_annotated_pdf()` in `annotated_document_service.py`; Download via `GET /cases/{id}/annotated-documents/{document_id}?format=pdf`.
+5. **Dokumentation** – roadmap.md, requirements_gap.md, sprint_plan.md, api.md aktualisiert.
+
+| # | Aufgabe | Status |
+| :--- | :--- | :--- |
+| 1 | Reproduzierbarkeit (playbook_version + model im Payload) | ✅ |
+| 2 | finding_status_updated (Kontext optional) | ✅ |
+| 3 | VVT Export format=docx | ✅ |
+| 4 | PDF annotierte Dokumente | ✅ |
+| 5 | Doku | ✅ |
+
+---
+
+## Vorheriger Sprint – Cross-Document-Checks (abgeschlossen)
 
 1. **Playbook-Format** – Checks unterstützen optional `scope` (oder `type`): `document` (Standard) vs. `case`/`cross_document`. YAML-Import in `playbook_import.py` setzt Default `document`, falls nicht angegeben.
 2. **Check Runner** – `run_cross_document_check(documents: list[(UUID, str)], check_instruction)` in `check_runner.py`; Multi-Dokument-Prompt mit Truncation pro Dokument.
@@ -58,4 +76,4 @@ Stand: Nach Umsetzung Cross-Document-Checks. Vorherige Sprints (Fachbereiche, Pl
 
 ## Folgesprint (optional)
 
-- Optional: VVT Ziel-Template (DOCX), PDF annotierte Dokumente, Reproduzierbarkeit (Playbook-/Modellversion im activity_log.payload).
+- Optional: Dokument-Versionierung (v1/v2 pro Dokumenttyp), OCR (gescannte PDFs), DE/EN-Ausbau, AuthN/AuthZ, Celery/Redis für asynchrone Jobs.

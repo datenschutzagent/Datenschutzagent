@@ -42,7 +42,7 @@
 **Nächste Schritte Phase 2:**
 1. ~~API-Endpoint Run-Checks~~ ✅ Erledigt (`POST /api/v1/cases/{id}/run-checks`; Findings werden persistiert).
 2. ~~Optional: Ollama-Erreichbarkeit im Health-Check~~ ✅ Erledigt.
-3. ~~VVT: Fingerprinting, kanonisches Modell, Mapping, Frontend-Ansicht~~ ✅ Erledigt (`GET /cases/{id}/vvt-normalization`, VVTNormalizationView mit API). VVT CSV-Export ✅; Ziel-Template (DOCX) optional in Folgesprint.
+3. ~~VVT: Fingerprinting, kanonisches Modell, Mapping, Frontend-Ansicht~~ ✅ Erledigt. VVT CSV-Export ✅; Ziel-Template (DOCX) ✅ (`?format=docx`).
 
 ---
 
@@ -51,9 +51,10 @@
 **Ziel:** Konsistenzprüfungen über Dokumente hinweg, DSB-Reports, kommentierte Rückgabedokumente.
 
 - **Consistency Engine:** ✅ Multi-Dokument-Kontext für LLM; Playbook-Checks mit `scope: case`/`cross_document`; `run_cross_document_check()` in `check_runner.py`; Findings mit `document_id=null`; Frontend kennzeichnet „Vorgangsbezogen“.
-- **Artefakte:** DSB Summary Report (Markdown/JSON) ✅ (`GET /cases/{id}/dsb-report`); kommentierte DOCX ✅ (`GET /cases/{id}/annotated-documents`, Download); PDF optional.
-- **VVT-Export:** CSV ✅ (`GET /cases/{id}/vvt-normalization/export`); Ziel-Template (DOCX) optional.
+- **Artefakte:** DSB Summary Report (Markdown/JSON) ✅ (`GET /cases/{id}/dsb-report`); kommentierte DOCX ✅ (`GET /cases/{id}/annotated-documents`, Download); kommentierte PDF ✅ (`?format=pdf`).
+- **VVT-Export:** CSV ✅ (`GET /cases/{id}/vvt-normalization/export`); Ziel-Template (DOCX) ✅ (`?format=docx`).
 - **Feedback:** Finding-Status (Accepted/Overruled/Fixed) in UI; Audit bei Statusänderungen ✅ (activity_log-Einträge bei Finding-Status-Update).
+- **Reproduzierbarkeit:** Bei jedem `run_checks`-Event werden `playbook_version` und `model` (Ollama) im `activity_log.payload` geloggt ✅.
 
 ---
 
@@ -63,7 +64,7 @@
 
 - **Sicherheit:** Authentifizierung (OAuth2/OIDC), RBAC.
 - **Betrieb:** Celery (o. ä.) für lange LLM-/Export-Jobs; Logging/Monitoring.
-- **Audit:** ✅ Audit-Log (`activity_log`) für Check-Läufe und Finding-Status; Activity-Timeline an API. Erweiterung (z. B. unveränderlich, weitere Event-Typen) optional.
+- **Audit:** ✅ Audit-Log (`activity_log`) für Check-Läufe und Finding-Status; Activity-Timeline an API. Payload bei `run_checks` enthält `playbook_version` und `model` (Reproduzierbarkeit). Erweiterung (z. B. unveränderlich, weitere Event-Typen) optional.
 
 ---
 
