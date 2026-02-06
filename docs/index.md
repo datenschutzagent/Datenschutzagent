@@ -12,7 +12,7 @@ Willkommen in der Dokumentation des **Datenschutzagenten**: ein KI-gestützter A
 *   **Check Runner:** Einzelchecks gegen Dokumententext per LLM (Ollama/PydanticAI); strukturierte Findings.
 *   **Storage:** Lokal oder MinIO (S3-kompatibel).
 
-**Geplant:** Run-Checks pro Case mit persistierten Findings, VVT-Normalisierung, DSB-Reports, kommentierte Rückgabedokumente, Auth und Audit.
+**Umgesetzt:** Run-Checks pro Case mit persistierten Findings, VVT-Normalisierung, DSB-Reports, kommentierte Rückgabedokumente (DOCX/PDF), Audit-Log und Activity-Timeline, optionale RAG-Variante (Weaviate), OCR für gescannte PDFs, asynchrone Dokument-Extraktion (Celery). **Offen:** AuthN/AuthZ, Retention/Archivierung.
 
 ---
 
@@ -21,7 +21,8 @@ Willkommen in der Dokumentation des **Datenschutzagenten**: ein KI-gestützter A
 | Bereiche | Status |
 | :--- | :--- |
 | Cases, Dokumenten-Upload, Textextraktion, Playbook-CRUD, LLM/Check Runner, Storage (lokal + MinIO) | ✅ umgesetzt |
-| API „Run Checks“ pro Case, Frontend-Anbindung ohne Mock, VVT, Reports, Auth/Audit | ❌ offen |
+| Run-Checks (Volltext + RAG), VVT, DSB-Report, annotierte Dokumente, Audit, Activity-Timeline, Tests (pytest, Vitest), CI | ✅ umgesetzt |
+| AuthN/AuthZ, Retention/Archivierung | ❌ offen |
 
 Details: [Roadmap](roadmap.md), [Gap-Analyse](requirements_gap.md).
 
@@ -44,8 +45,8 @@ Details: [Roadmap](roadmap.md), [Gap-Analyse](requirements_gap.md).
 docker compose up -d
 ```
 
-*   Frontend: `http://localhost:3000`
-*   Backend: `http://localhost:8000`
-*   API-Doku: `http://localhost:8000/docs`
+*   Frontend: `http://localhost:3001` (Docker) bzw. `http://localhost:5173` (npm run dev)
+*   Backend: `http://localhost:8002` (Docker) bzw. `http://localhost:8000` (uvicorn)
+*   API-Doku: `http://localhost:8000/docs` (bzw. Port 8002 bei Docker)
 
 Ollama über `.env` konfigurieren (`OLLAMA_BASE_URL`, `OLLAMA_MODEL`). Aus dem Backend-Container z. B. `http://host.docker.internal:11434` verwenden.

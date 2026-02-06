@@ -68,6 +68,8 @@ Abgleich der Projektbeschreibung (Anforderungen) mit dem aktuellen Implementieru
 | AuthN/AuthZ, Rollen | ❌ | Nicht implementiert. |
 | Retention/Archivierung konfigurierbar | ❌ | Nicht implementiert. |
 | Reproduzierbarkeit (Playbook-/Modellversion) | ✅ | Bei jedem `run_checks`-Event werden `playbook_version` und `model` (Ollama) im `activity_log.payload` geloggt; Reproduktion von Check-Läufen nachvollziehbar. |
+| Tests & CI | ✅ | Backend: pytest (backend/tests/), Frontend: Vitest + Testing Library (npm run test). CI: GitHub Actions (Frontend- und Backend-Tests mit Postgres-Service). |
+| Dokumentation & Betrieb | ✅ | README mit Schnellstart, Docker, Tests, Migrations-Hinweis; Migrations-Strategie (manuelle SQL-Skripte unter backend/migrations/) dokumentiert. |
 
 ---
 
@@ -82,3 +84,4 @@ Abgleich der Projektbeschreibung (Anforderungen) mit dem aktuellen Implementieru
 7. ~~**Asynchrone Jobs (Celery + Redis)**~~ ✅ Extraktion nach Upload asynchron (Task `extract_document_text`); Upload 201 sofort. Run-Checks-Status: `GET /cases/{id}/run-checks/status`. Siehe sprint_plan.md.
 8. ~~**OCR (gescannte PDFs)**~~ ✅ Ollama Vision (qwen2.5-vl / minicpm-v); Schwellwert in `document_processor.py`; `extraction_method` am Document; Frontend-Badge „Text per OCR extrahiert“.
 9. **Weaviate / RAG (optionale zweite Prüfvariante):** ✅ Dokumente werden nach Extraktion in Chunks in Weaviate indexiert (Ollama Embedding). Run-Checks unterstützt Strategien `full_text` und `rag`; beide parallel für Vergleich. Findings mit `source_strategy`; Frontend Badge und Dialog-Auswahl (Volltext / RAG / Beide). Konfiguration: `WEAVIATE_INDEXING_ENABLED`, `WEAVIATE_URL`, Chunk-/Top-K-Parameter.
+10. **Code-Review-Umsetzung (Feb 2026):** ✅ Run-Checks: Fehler loggen und im Activity-Payload (`errors`, `skipped_checks_count`) zurückmelden. Case-Delete: Weaviate-Chunk-Löschung nicht blockierend (`asyncio.to_thread`). Frontend: DSB-Report- und „Kommentierte Dokumente“-Buttons funktional; Frist mit aktuellem Datum. Case-Detail in Tab-Komponenten aufgeteilt; API `parseErrorResponse()`. Repo: Stray-Datei entfernt, requirements gepinnt. Tests (pytest, Vitest) und CI (GitHub Actions); README und Migrations-Strategie ergänzt.

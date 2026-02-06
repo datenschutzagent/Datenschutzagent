@@ -1,10 +1,32 @@
 # Sprint-Plan (aktuell)
 
-Stand: Sprint **Weaviate / RAG (optionale zweite Prüfvariante)** abgeschlossen. Abgeschlossen: Weaviate in docker-compose; Chunking + Embedding (Ollama) + Indexierung nach Extraktion; RAG-Check-Runner (`run_check_rag`, `run_cross_document_check_rag`); Run-Checks mit `strategies` (full_text / rag / beide); Finding `source_strategy`; Frontend Badge und Run-Checks-Dialog (Volltext / RAG / Beide). Zuvor: OCR, Celery, Dokument-Versionierung, Cross-Document, Artefakte, Audit, Playbook-CRUD, Annotated Documents.
+Stand: Sprint **Code-Review / Verbesserungen** abgeschlossen (Feb 2026). Zuvor: Weaviate/RAG, OCR, Celery, Dokument-Versionierung, Cross-Document, Artefakte, Audit, Playbook-CRUD, Annotated Documents.
 
 ---
 
-## Aktueller Sprint – Weaviate / RAG (abgeschlossen)
+## Sprint – Code-Review / Verbesserungen (abgeschlossen, Feb 2026)
+
+1. **Run-Checks Fehlersichtbarkeit** – Exceptions bei Check-Läufen werden geloggt; im Activity-Payload erscheinen bei Fehlern `errors` (Liste mit check, scope, document_id, strategy, error) und `skipped_checks_count`.
+2. **Case-Delete / Weaviate** – `delete_chunks_by_case_id` wird in `asyncio.to_thread` ausgeführt (nicht blockierend).
+3. **Frontend Case-Detail** – DSB-Report-Button startet Markdown-Download; Button „Kommentierte Dokumente“ wechselt in Tab „Annotierte Dokumente“. Fristberechnung mit aktuellem Datum (kein Hardcoding).
+4. **Frontend Struktur** – Case-Detail in Tab-Komponenten aufgeteilt (CaseOverviewTab, CaseDocumentsTab, CaseFindingsTab); API-Fehlerbehandlung zentral in `parseErrorResponse()`.
+5. **Repo** – Stray-Datei entfernt; `.gitignore` für pip-Artefakte; `backend/requirements.txt` mit gepinnten Versionen.
+6. **Tests** – Backend: pytest, pytest-asyncio, httpx; Tests unter `backend/tests/` (Health, Departments, Cases). Frontend: Vitest, Testing Library; Tests z. B. für `parseErrorResponse`.
+7. **Doku & CI** – README erweitert (Schnellstart, Docker, Tests, Migrations-Hinweis). GitHub Actions: Frontend- und Backend-Tests (Backend mit Postgres-Service). Migrations-Strategie in README dokumentiert.
+
+| # | Aufgabe | Status |
+| :--- | :--- | :--- |
+| 1 | Run-Checks: Fehler loggen + Activity-Payload errors/skipped_checks_count | ✅ |
+| 2 | delete_chunks_by_case_id nicht blockierend (asyncio.to_thread) | ✅ |
+| 3 | Frontend: DSB-Report- und Kommentierte-Dokumente-Buttons; Frist-Datum | ✅ |
+| 4 | Case-Detail Tab-Komponenten; parseErrorResponse in api.ts | ✅ |
+| 5 | Repo: Stray-Datei, .gitignore, requirements pinnen | ✅ |
+| 6 | pytest Backend, Vitest Frontend | ✅ |
+| 7 | README, Migrations-Doku, CI (GitHub Actions) | ✅ |
+
+---
+
+## Vorheriger Sprint – Weaviate / RAG (abgeschlossen)
 
 1. **Weaviate + Chunking** – Weaviate-Container in docker-compose (Vectorizer none); Konfiguration `WEAVIATE_URL`, `WEAVIATE_INDEXING_ENABLED`, Chunk-Größe/Overlap, `WEAVIATE_TOP_K`, `OLLAMA_EMBEDDING_MODEL`. Service `weaviate_service.py`: Chunking, Embedding via Ollama, Schema DocumentChunk, Indexierung und Abruf (get_relevant_chunks, get_relevant_chunks_for_case).
 2. **Indexierung an Extraktion** – Nach Celery-Task `extract_document_text` bei aktivierter Weaviate-Indexierung Chunks indexieren. Bei DELETE Dokument bzw. DELETE Case Chunks in Weaviate entfernen.
