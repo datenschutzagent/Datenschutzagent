@@ -1,0 +1,21 @@
+name: "Datenschutz-Vorprüfung Gesellschaftswissenschaften"
+version: "1.0"
+department: "FB 03 – Gesellschaftswissenschaften"
+case_type: "Forschungsvorhaben"
+
+checks:
+  - name: "Rechtmäßigkeit und Einwilligung"
+    instruction: "Prüfe, ob für die Verarbeitung personenbezogener Daten (z.B. Interviews, Surveys) eine Rechtsgrundlage genannt wird und ob Einwilligungen erforderlich und vorgesehen sind."
+    type: document
+    category: "Rechtmäßigkeit"
+    mandatory: true
+  - name: "Anonymisierung und Pseudonymisierung"
+    instruction: "Prüfe, ob Anonymisierungs- oder Pseudonymisierungsmaßnahmen beschrieben sind, wo sie fachlich möglich und zumutbar sind."
+    type: document
+    category: "Schutzmaßnahmen"
+    mandatory: false
+  - name: "Aufbewahrungsfristen und Löschung"
+    instruction: "Prüfe, ob Aufbewahrungsfristen und Löschregeln für die erhobenen Daten festgelegt sind."
+    type: document
+    category: "Speicherbegrenzung"
+    mandatory: true

@@ -33,6 +33,9 @@ class Settings(BaseSettings):
             return v
         return [x.strip() for x in str(v).split(",") if x.strip()]
 
+    # Playbook seed (YAML directory; used when playbooks table is empty)
+    playbooks_seed_dir: str | None = None  # None = use default app/data/playbooks
+
     # Ollama (extern gehostet, z. B. im lokalen Netzwerk)
     ollama_base_url: str = "http://localhost:11434"
     ollama_model: str = "llama3.2"

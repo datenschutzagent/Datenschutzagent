@@ -1,0 +1,26 @@
+name: "Datenschutz-Vorprüfung Medizin"
+version: "1.0"
+department: "FB 16 – Medizin"
+case_type: "Forschungsvorhaben"
+
+checks:
+  - name: "Rechtmäßigkeit bei Gesundheitsdaten"
+    instruction: "Prüfe, ob eine ausdrückliche Rechtsgrundlage für die Verarbeitung von Gesundheitsdaten (Art. 9 DSGVO) angegeben ist (z.B. Einwilligung, Forschungszweck)."
+    type: document
+    category: "Besondere Kategorien"
+    mandatory: true
+  - name: "Zweckbindung und Erforderlichkeit"
+    instruction: "Prüfe, ob der Verarbeitungszweck eindeutig und die Verarbeitung für den Forschungszweck erforderlich ist."
+    type: document
+    category: "Zweck"
+    mandatory: true
+  - name: "Technische und organisatorische Maßnahmen"
+    instruction: "Prüfe, ob angemessene technische und organisatorische Maßnahmen zum Schutz von Gesundheitsdaten beschrieben sind."
+    type: document
+    category: "Sicherheit"
+    mandatory: false
+  - name: "Aufbewahrung und Löschung"
+    instruction: "Prüfe, ob Aufbewahrungs- und Löschfristen unter Beachtung rechtlicher Vorgaben festgelegt sind."
+    type: document
+    category: "Speicherbegrenzung"
+    mandatory: false

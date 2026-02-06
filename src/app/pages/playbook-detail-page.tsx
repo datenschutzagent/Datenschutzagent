@@ -3,7 +3,24 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../co
 import { Badge } from "../components/ui/badge";
 import { Button } from "../components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "../components/ui/tabs";
-import { getPlaybook, type ApiPlaybook } from "../lib/api";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "../components/ui/alert-dialog";
+import { NewPlaybookDialog } from "../components/new-playbook-dialog";
+import {
+  getPlaybook,
+  createPlaybook,
+  updatePlaybook,
+  deletePlaybook,
+  type ApiPlaybook,
+} from "../lib/api";
 import {
   ArrowLeft,
   BookOpen,
@@ -14,6 +31,7 @@ import {
   Copy,
   Archive,
   Loader2,
+  Trash2,
 } from "lucide-react";
 import { useState, useEffect } from "react";
 
@@ -37,12 +55,12 @@ export function PlaybookDetailPage() {
   const [playbook, setPlaybook] = useState<ApiPlaybook | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [editDialogOpen, setEditDialogOpen] = useState(false);
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [actionLoading, setActionLoading] = useState(false);
 
-  useEffect(() => {
-    if (!playbookId) {
-      setLoading(false);
-      return;
-    }
+  const loadPlaybook = () => {
+    if (!playbookId) return;
     setLoading(true);
     setError(null);
     getPlaybook(playbookId)
@@ -52,7 +70,55 @@ export function PlaybookDetailPage() {
         setPlaybook(null);
       })
       .finally(() => setLoading(false));
+  };
+
+  useEffect(() => {
+    if (!playbookId) {
+      setLoading(false);
+      return;
+    }
+    loadPlaybook();
   }, [playbookId]);
+
+  const handleArchive = async () => {
+    if (!playbook?.id) return;
+    setActionLoading(true);
+    try {
+      const updated = await updatePlaybook(playbook.id, { is_active: false });
+      setPlaybook(updated);
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const handleDelete = async () => {
+    if (!playbook?.id) return;
+    setActionLoading(true);
+    try {
+      await deletePlaybook(playbook.id);
+      setDeleteDialogOpen(false);
+      navigate("/playbooks");
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const handleCopy = async () => {
+    if (!playbook) return;
+    setActionLoading(true);
+    try {
+      const created = await createPlaybook({
+        name: `Kopie von ${playbook.name}`,
+        version: "1.0",
+        content: { checks: playbook.checks ?? [] },
+        case_type: playbook.caseType ?? null,
+        department: playbook.department ?? null,
+      });
+      navigate(`/playbooks/${created.id}`);
+    } finally {
+      setActionLoading(false);
+    }
+  };
 
   if (loading) {
     return (
@@ -154,20 +220,44 @@ export function PlaybookDetailPage() {
               </div>
             </div>
             <div className="flex gap-2">
-              <Button variant="outline" className="gap-2">
+              <Button
+                variant="outline"
+                className="gap-2"
+                onClick={() => setEditDialogOpen(true)}
+                disabled={actionLoading}
+              >
                 <Edit className="size-4" />
                 Bearbeiten
               </Button>
-              <Button variant="outline" className="gap-2">
+              <Button
+                variant="outline"
+                className="gap-2"
+                onClick={handleCopy}
+                disabled={actionLoading}
+              >
                 <Copy className="size-4" />
                 Duplizieren
               </Button>
-              {playbook.status === "active" && (
-                <Button variant="outline" className="gap-2">
+              {playbook.isActive && (
+                <Button
+                  variant="outline"
+                  className="gap-2"
+                  onClick={handleArchive}
+                  disabled={actionLoading}
+                >
                   <Archive className="size-4" />
                   Archivieren
                 </Button>
               )}
+              <Button
+                variant="outline"
+                className="gap-2 text-red-600 hover:text-red-700 hover:bg-red-50"
+                onClick={() => setDeleteDialogOpen(true)}
+                disabled={actionLoading}
+              >
+                <Trash2 className="size-4" />
+                Löschen
+              </Button>
             </div>
           </div>
         </div>
@@ -449,6 +539,36 @@ export function PlaybookDetailPage() {
           </TabsContent>
         </Tabs>
       </main>
+      <NewPlaybookDialog
+        open={editDialogOpen}
+        onOpenChange={setEditDialogOpen}
+        initialPlaybook={playbook}
+        onSuccess={(updated) => {
+          setPlaybook(updated);
+          setEditDialogOpen(false);
+        }}
+      />
+      <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Playbook löschen?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Dieses Playbook wird unwiderruflich gelöscht. Vorgänge, die bereits mit diesem Playbook
+              gearbeitet haben, sind davon nicht betroffen.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Abbrechen</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleDelete}
+              className="bg-red-600 hover:bg-red-700"
+              disabled={actionLoading}
+            >
+              {actionLoading ? "Wird gelöscht…" : "Löschen"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

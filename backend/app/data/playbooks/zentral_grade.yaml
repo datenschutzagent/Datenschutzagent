@@ -1,0 +1,21 @@
+name: "Datenschutz-Vorprüfung GRADE"
+version: "1.0"
+department: "GRADE – Goethe Research Academy for Early Career Researchers"
+case_type: "Allgemein"
+
+checks:
+  - name: "Rechtmäßigkeit der Verarbeitung"
+    instruction: "Prüfe, ob eine Rechtsgrundlage für die Verarbeitung personenbezogener Daten angegeben ist."
+    type: document
+    category: "Rechtmäßigkeit"
+    mandatory: true
+  - name: "Zweckbindung"
+    instruction: "Prüfe, ob der Verarbeitungszweck eindeutig und bestimmt beschrieben ist."
+    type: document
+    category: "Zweck"
+    mandatory: true
+  - name: "Dokumentation und Löschfristen"
+    instruction: "Prüfe, ob die Verarbeitung dokumentiert ist und Lösch- bzw. Aufbewahrungsfristen festgelegt sind."
+    type: document
+    category: "Rechenschaftspflicht"
+    mandatory: false

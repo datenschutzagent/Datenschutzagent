@@ -1,0 +1,21 @@
+name: "Datenschutz-Vorprüfung Wirtschaftswissenschaften"
+version: "1.0"
+department: "FB 02 – Wirtschaftswissenschaften"
+case_type: "Forschungsvorhaben"
+
+checks:
+  - name: "Rechtmäßigkeit der Verarbeitung"
+    instruction: "Prüfe, ob eine gültige Rechtsgrundlage für die Verarbeitung personenbezogener Daten (z.B. für Befragungen, Erhebungen) angegeben und zum Zweck passend ist."
+    type: document
+    category: "Rechtmäßigkeit"
+    mandatory: true
+  - name: "Datenminimierung und Erforderlichkeit"
+    instruction: "Prüfe, ob nur solche personenbezogenen Daten erhoben oder verarbeitet werden, die für den Forschungszweck erforderlich sind."
+    type: document
+    category: "Datenminimierung"
+    mandatory: true
+  - name: "Information der Betroffenen"
+    instruction: "Prüfe, ob die Betroffenen über die Verarbeitung, Verantwortliche und ihre Rechte informiert werden (z.B. Informationsblatt, Einwilligungstext)."
+    type: document
+    category: "Transparenz"
+    mandatory: false

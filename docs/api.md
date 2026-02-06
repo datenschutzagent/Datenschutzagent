@@ -36,6 +36,12 @@ Das Backend ist mit FastAPI umgesetzt. Interaktive Doku:
 | POST | `/api/v1/documents/bulk` | Mehrere Dokumente in einem Request hochladen (Form: `case_id`, `files` (mehrere Dateien), `document_type`, `uploaded_by`). Gleicher Typ für alle; Response: Liste der angelegten Dokumente (201). |
 | DELETE | `/api/v1/documents/{id}` | Dokument löschen (DB + Storage, 204). |
 
+### Departments (Fachbereiche / zentrale Einrichtungen)
+
+| Methode | Pfad | Beschreibung |
+| :--- | :--- | :--- |
+| GET | `/api/v1/departments` | Liste aller Fachbereiche (FB 01–16) und zentralen Einrichtungen. Kein DB-Zugriff; Daten aus `backend/app/data/fachbereiche.yaml`. Response: `[{ "code", "label", "type", "value" }]`. |
+
 ### Playbooks
 
 | Methode | Pfad | Beschreibung |
@@ -45,6 +51,8 @@ Das Backend ist mit FastAPI umgesetzt. Interaktive Doku:
 | GET | `/api/v1/playbooks/{id}` | Ein Playbook. |
 | PATCH | `/api/v1/playbooks/{id}` | Playbook aktualisieren (partial). |
 | DELETE | `/api/v1/playbooks/{id}` | Playbook löschen (204). |
+
+**Playbook-YAML und Auto-Import:** Standard-Playbooks liegen als YAML-Dateien in `backend/app/data/playbooks/` (Format: `name`, `version`, `department`, optional `case_type`, `checks: [{ name, instruction, … }]`). Beim ersten Start der Anwendung wird, wenn die Playbook-Tabelle leer ist, automatisch aus diesem Verzeichnis importiert. Optional: `PLAYBOOKS_SEED_DIR` für anderes Verzeichnis.
 
 ### Findings
 
@@ -61,3 +69,4 @@ Das Backend ist mit FastAPI umgesetzt. Interaktive Doku:
 ### Umgesetzt (Stand Roadmap)
 
 *   Run-Checks, DELETE Document, PATCH/DELETE Playbook, PATCH Finding (Status), GET VVT-Normalisierung, GET VVT-Export (CSV), GET DSB-Report (Markdown/JSON), GET annotierte Dokumente (Liste + Download DOCX), **Audit-Log und GET /cases/{id}/activities** sind implementiert.
+*   **Fachbereiche:** `GET /api/v1/departments` aus Konfiguration (`data/fachbereiche.yaml`). **Playbook-YAML:** Standard-Playbooks in `data/playbooks/`, Auto-Import bei leerer Playbook-Tabelle. **Frontend Playbook-CRUD:** Anlegen (Dialog), Bearbeiten, Archivieren, Löschen, Duplizieren auf Playbook-Detail-Seite.

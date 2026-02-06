@@ -492,6 +492,24 @@ export async function updateFindingStatus(findingId: string, status: FindingStat
   return mapFinding(f) as ApiFinding;
 }
 
+// --- Departments (Fachbereiche and central institutions) ---
+export interface ApiDepartment {
+  code: string;
+  label: string;
+  type: string;
+  value: string;
+}
+
+export async function getDepartments(): Promise<ApiDepartment[]> {
+  const list = (await request<Record<string, unknown>[]>("GET", "/departments")) ?? [];
+  return list.map((d) => ({
+    code: (d.code as string) ?? "",
+    label: (d.label as string) ?? "",
+    type: (d.type as string) ?? "",
+    value: (d.value as string) ?? (d.label as string) ?? (d.code as string) ?? "",
+  }));
+}
+
 // --- Playbooks ---
 export async function getPlaybooks(): Promise<ApiPlaybook[]> {
   const list = (await request<Record<string, unknown>[]>("GET", "/playbooks")) ?? [];
@@ -501,6 +519,51 @@ export async function getPlaybooks(): Promise<ApiPlaybook[]> {
 export async function getPlaybook(id: string): Promise<ApiPlaybook> {
   const p = await request<Record<string, unknown>>("GET", `/playbooks/${id}`);
   return mapPlaybook(p) as ApiPlaybook;
+}
+
+export interface PlaybookCreatePayload {
+  name: string;
+  version: string;
+  content: { checks: unknown[] };
+  case_type?: string | null;
+  department?: string | null;
+}
+
+export interface PlaybookUpdatePayload {
+  name?: string;
+  version?: string;
+  content?: { checks: unknown[] };
+  case_type?: string | null;
+  department?: string | null;
+  is_active?: boolean;
+}
+
+export async function createPlaybook(payload: PlaybookCreatePayload): Promise<ApiPlaybook> {
+  const body = {
+    name: payload.name,
+    version: payload.version,
+    content: payload.content,
+    case_type: payload.case_type ?? null,
+    department: payload.department ?? null,
+  };
+  const p = await request<Record<string, unknown>>("POST", "/playbooks", { body });
+  return mapPlaybook(p) as ApiPlaybook;
+}
+
+export async function updatePlaybook(id: string, payload: PlaybookUpdatePayload): Promise<ApiPlaybook> {
+  const body: Record<string, unknown> = {};
+  if (payload.name !== undefined) body.name = payload.name;
+  if (payload.version !== undefined) body.version = payload.version;
+  if (payload.content !== undefined) body.content = payload.content;
+  if (payload.case_type !== undefined) body.case_type = payload.case_type;
+  if (payload.department !== undefined) body.department = payload.department;
+  if (payload.is_active !== undefined) body.is_active = payload.is_active;
+  const p = await request<Record<string, unknown>>("PATCH", `/playbooks/${id}`, { body });
+  return mapPlaybook(p) as ApiPlaybook;
+}
+
+export async function deletePlaybook(id: string): Promise<void> {
+  await request("DELETE", `/playbooks/${id}`);
 }
 
 // --- VVT Normalization ---

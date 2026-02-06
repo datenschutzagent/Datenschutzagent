@@ -1,0 +1,21 @@
+name: "Datenschutz-Vorprüfung Rechtswissenschaft"
+version: "1.0"
+department: "FB 01 – Rechtswissenschaft"
+case_type: "Forschungsvorhaben"
+
+checks:
+  - name: "Rechtmäßigkeit der Verarbeitung"
+    instruction: "Prüfe, ob im Dokument eine rechtliche Grundlage für die Verarbeitung personenbezogener Daten genannt wird (z.B. Einwilligung, Vertrag, berechtigtes Interesse) und ob diese zum Verarbeitungszweck passt."
+    type: document
+    category: "Rechtmäßigkeit"
+    mandatory: true
+  - name: "Zweckbindung und -klarheit"
+    instruction: "Prüfe, ob der Verarbeitungszweck eindeutig und bestimmt beschrieben ist und ob eine spätere Zweckänderung ausgeschlossen oder mit Rechtsgrundlage versehen ist."
+    type: document
+    category: "Zweck"
+    mandatory: true
+  - name: "Dokumentation der Verarbeitung"
+    instruction: "Prüfe, ob die Verarbeitungstätigkeiten nachvollziehbar dokumentiert sind (z.B. im Verzeichnis der Verarbeitungstätigkeiten oder in einer Verfahrensdokumentation)."
+    type: document
+    category: "Rechenschaftspflicht"
+    mandatory: false

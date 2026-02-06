@@ -30,5 +30,8 @@ pydantic-ai>=0.0.24
 openai>=1.0.0
 ollama>=0.1.6
 
+# Data (YAML)
+pyyaml>=6.0.0
+
 # Dev
 python-dotenv>=1.0.0

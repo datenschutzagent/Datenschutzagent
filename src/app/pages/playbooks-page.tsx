@@ -4,6 +4,7 @@ import { Badge } from "../components/ui/badge";
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../components/ui/select";
+import { NewPlaybookDialog } from "../components/new-playbook-dialog";
 import { getPlaybooks, type ApiPlaybook } from "../lib/api";
 import { Plus, Search, Filter, BookOpen, CheckSquare, Archive } from "lucide-react";
 import { useState, useEffect } from "react";
@@ -14,9 +15,15 @@ export function PlaybooksPage() {
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("active");
+  const [newPlaybookOpen, setNewPlaybookOpen] = useState(false);
+
+  const loadPlaybooks = () => {
+    setLoading(true);
+    getPlaybooks().then(setPlaybooks).catch(() => setPlaybooks([])).finally(() => setLoading(false));
+  };
 
   useEffect(() => {
-    getPlaybooks().then(setPlaybooks).catch(() => setPlaybooks([])).finally(() => setLoading(false));
+    loadPlaybooks();
   }, []);
 
   const filteredPlaybooks = playbooks.filter((pb) => {
@@ -66,7 +73,7 @@ export function PlaybooksPage() {
               Versionierte Prüfvorlagen für verschiedene Fachbereiche und Case-Typen
             </p>
           </div>
-          <Button className="gap-2">
+          <Button className="gap-2" onClick={() => setNewPlaybookOpen(true)}>
             <Plus className="size-4" />
             Neues Playbook
           </Button>
@@ -166,6 +173,14 @@ export function PlaybooksPage() {
           </Card>
         )}
       </main>
+      <NewPlaybookDialog
+        open={newPlaybookOpen}
+        onOpenChange={setNewPlaybookOpen}
+        onSuccess={(pb) => {
+          loadPlaybooks();
+          navigate(`/playbooks/${pb.id}`);
+        }}
+      />
     </div>
   );
 }

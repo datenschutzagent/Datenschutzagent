@@ -1,0 +1,21 @@
+name: "Datenschutz-Vorprüfung Physik"
+version: "1.0"
+department: "FB 13 – Physik"
+case_type: "Forschungsvorhaben"
+
+checks:
+  - name: "Rechtmäßigkeit der Verarbeitung"
+    instruction: "Prüfe, ob eine Rechtsgrundlage für die Verarbeitung personenbezogener Daten (z.B. bei Kooperationen, Gerätelogdaten) angegeben ist."
+    type: document
+    category: "Rechtmäßigkeit"
+    mandatory: true
+  - name: "Zweckbindung und Erforderlichkeit"
+    instruction: "Prüfe, ob der Verarbeitungszweck klar ist und nur erforderliche personenbezogene Daten verarbeitet werden."
+    type: document
+    category: "Zweck"
+    mandatory: true
+  - name: "Dokumentation und Aufbewahrung"
+    instruction: "Prüfe, ob die Verarbeitung dokumentiert ist und Aufbewahrungs- bzw. Löschfristen definiert sind."
+    type: document
+    category: "Rechenschaftspflicht"
+    mandatory: false

@@ -1,0 +1,21 @@
+name: "Datenschutz-Vorprüfung Erziehungswissenschaften"
+version: "1.0"
+department: "FB 04 – Erziehungswissenschaften"
+case_type: "Forschungsvorhaben"
+
+checks:
+  - name: "Rechtmäßigkeit der Datenverarbeitung"
+    instruction: "Prüfe, ob eine Rechtsgrundlage für die Verarbeitung personenbezogener Daten (z.B. bei Studien mit Schüler:innen oder Lehrkräften) angegeben ist."
+    type: document
+    category: "Rechtmäßigkeit"
+    mandatory: true
+  - name: "Schutz besonderer Kategorien"
+    instruction: "Prüfe, ob besondere Kategorien personenbezogener Daten (z.B. aus dem Bildungsbereich) nur bei Vorliegen einer ausdrücklichen Erlaubnis verarbeitet werden."
+    type: document
+    category: "Besondere Kategorien"
+    mandatory: true
+  - name: "Information und Einwilligung Minderjähriger"
+    instruction: "Prüfe, ob bei Beteiligung Minderjähriger die Information und ggf. Einwilligung der Sorgeberechtigten sowie altersgerechte Aufklärung vorgesehen sind."
+    type: document
+    category: "Transparenz"
+    mandatory: false

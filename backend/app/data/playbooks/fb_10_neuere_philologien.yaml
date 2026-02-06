@@ -1,0 +1,21 @@
+name: "Datenschutz-Vorprüfung Neuere Philologien"
+version: "1.0"
+department: "FB 10 – Neuere Philologien"
+case_type: "Forschungsvorhaben"
+
+checks:
+  - name: "Rechtmäßigkeit der Verarbeitung"
+    instruction: "Prüfe, ob eine Rechtsgrundlage für die Verarbeitung personenbezogener Daten (z.B. bei Erhebungen, Textkorpora mit Personenbezug) angegeben ist."
+    type: document
+    category: "Rechtmäßigkeit"
+    mandatory: true
+  - name: "Datenminimierung"
+    instruction: "Prüfe, ob nur die für den Forschungszweck erforderlichen personenbezogenen Daten verarbeitet werden."
+    type: document
+    category: "Datenminimierung"
+    mandatory: true
+  - name: "Dokumentation und Aufbewahrung"
+    instruction: "Prüfe, ob die Verarbeitung dokumentiert ist und Aufbewahrungs- bzw. Löschfristen definiert sind."
+    type: document
+    category: "Rechenschaftspflicht"
+    mandatory: false

@@ -1,0 +1,21 @@
+name: "Datenschutz-Vorprüfung Philosophie und Geschichtswissenschaften"
+version: "1.0"
+department: "FB 08 – Philosophie und Geschichtswissenschaften"
+case_type: "Forschungsvorhaben"
+
+checks:
+  - name: "Rechtmäßigkeit der Verarbeitung"
+    instruction: "Prüfe, ob eine Rechtsgrundlage für die Verarbeitung personenbezogener Daten (z.B. bei Archivrecherche, Zeitzeugen) angegeben ist."
+    type: document
+    category: "Rechtmäßigkeit"
+    mandatory: true
+  - name: "Datenminimierung und Erforderlichkeit"
+    instruction: "Prüfe, ob nur die für das Forschungsvorhaben erforderlichen personenbezogenen Daten verarbeitet werden."
+    type: document
+    category: "Datenminimierung"
+    mandatory: true
+  - name: "Aufbewahrung und Löschung"
+    instruction: "Prüfe, ob Aufbewahrungs- und Löschfristen für die verarbeiteten Daten definiert sind."
+    type: document
+    category: "Speicherbegrenzung"
+    mandatory: false

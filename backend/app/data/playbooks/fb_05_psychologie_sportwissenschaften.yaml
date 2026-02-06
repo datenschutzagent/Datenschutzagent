@@ -1,0 +1,21 @@
+name: "Datenschutz-Vorprüfung Psychologie und Sportwissenschaften"
+version: "1.0"
+department: "FB 05 – Psychologie und Sportwissenschaften"
+case_type: "Forschungsvorhaben"
+
+checks:
+  - name: "Rechtmäßigkeit bei sensiblen Daten"
+    instruction: "Prüfe, ob für die Verarbeitung von Gesundheitsdaten oder anderen besonderen Kategorien (Art. 9 DSGVO) eine ausdrückliche Rechtsgrundlage oder Einwilligung genannt wird."
+    type: document
+    category: "Besondere Kategorien"
+    mandatory: true
+  - name: "Datenminimierung und Zweck"
+    instruction: "Prüfe, ob nur die für das Forschungsziel erforderlichen personenbezogenen Daten erhoben werden und der Zweck klar beschrieben ist."
+    type: document
+    category: "Datenminimierung"
+    mandatory: true
+  - name: "Dokumentation und Löschfristen"
+    instruction: "Prüfe, ob die Verarbeitung dokumentiert ist und Lösch- bzw. Aufbewahrungsfristen festgelegt sind."
+    type: document
+    category: "Rechenschaftspflicht"
+    mandatory: false

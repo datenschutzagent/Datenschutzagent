@@ -50,15 +50,19 @@ graph TD
 ### 3. Playbook Engine
 *   **Location**: `backend/app/api/routes/playbooks.py`, `backend/app/models/db.py` (`PlaybookModel`)
 *   **Entities**: `Playbook` (name, version, JSONB `content`, case_type, department).
-*   **Responsibilities**: CRUD for versioned playbooks; content is flexible JSON (e.g. list of checks).
+*   **Responsibilities**: CRUD for versioned playbooks; content is flexible JSON (e.g. list of checks). Standard-Playbooks liegen als YAML in `backend/app/data/playbooks/` und werden beim **ersten Start** automatisch importiert, wenn die Playbook-Tabelle leer ist (siehe `app/services/playbook_import.py`, Aufruf im `lifespan` in `main.py`). Optional: Umgebungsvariable `PLAYBOOKS_SEED_DIR` für alternatives Verzeichnis.
 
-### 4. Check Runner / LLM Orchestrator
+### 4a. Departments (Fachbereiche und zentrale Einrichtungen)
+*   **Location**: `backend/app/data/fachbereiche.yaml`, `backend/app/api/routes/departments.py`
+*   **Responsibilities**: Liste der Fachbereiche (FB 01–16) und zentralen Einrichtungen der Goethe-Universität; keine DB, Konfiguration aus YAML. `GET /api/v1/departments` liefert die Liste (code, label, type, value) für Dropdowns (z. B. Neuer Vorgang, Playbook-Zuordnung).
+
+### 5. Check Runner / LLM Orchestrator
 *   **Location**: `backend/app/core/llm.py`, `backend/app/services/check_runner.py`
 *   **Responsibilities**:
     *   `llm.py`: PydanticAI agent with Ollama model.
     *   `check_runner.py`: Run a single check (document text + instruction) and return structured `CheckResult` (compliance, severity, evidence, recommendation). Findings can be persisted to the `findings` table.
 
-### 5. Storage
+### 6. Storage
 *   **Location**: `backend/app/storage.py`
 *   **Backends**: `local` (filesystem under `storage_local_path`) or `minio` (S3-compatible). Configured via `STORAGE_BACKEND` and S3 env vars.
 

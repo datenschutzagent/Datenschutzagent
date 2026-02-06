@@ -1,5 +1,6 @@
 """FastAPI application entry point."""
 import urllib.request
+from pathlib import Path
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
@@ -7,13 +8,22 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import settings
 from app.api import router as api_router
-from app.database import init_db
+from app.database import init_db, async_session_factory
+from app.services.playbook_import import import_playbooks_from_yaml
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Startup/shutdown lifecycle."""
     await init_db()
+    seed_dir = Path(settings.playbooks_seed_dir) if settings.playbooks_seed_dir else None
+    async with async_session_factory() as session:
+        try:
+            n = await import_playbooks_from_yaml(session, seed_dir)
+            if n > 0:
+                await session.commit()
+        except Exception:
+            await session.rollback()
     yield
     # Teardown if needed (e.g. close DB pool)
 

@@ -1,0 +1,21 @@
+name: "Datenschutz-Vorprüfung Katholische Theologie"
+version: "1.0"
+department: "FB 07 – Katholische Theologie"
+case_type: "Forschungsvorhaben"
+
+checks:
+  - name: "Rechtmäßigkeit der Verarbeitung"
+    instruction: "Prüfe, ob eine Rechtsgrundlage für die Verarbeitung personenbezogener Daten (z.B. bei Befragungen, Archivnutzung) angegeben ist."
+    type: document
+    category: "Rechtmäßigkeit"
+    mandatory: true
+  - name: "Transparenz und Betroffenenrechte"
+    instruction: "Prüfe, ob die Information der Betroffenen und die Ausübung ihrer Rechte (Auskunft, Berichtigung, Löschung) berücksichtigt sind."
+    type: document
+    category: "Transparenz"
+    mandatory: true
+  - name: "Dokumentation"
+    instruction: "Prüfe, ob die Verarbeitungstätigkeiten dokumentiert und nachvollziehbar sind."
+    type: document
+    category: "Rechenschaftspflicht"
+    mandatory: false

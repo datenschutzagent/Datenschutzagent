@@ -1,0 +1,21 @@
+name: "Datenschutz-Vorprüfung Biowissenschaften"
+version: "1.0"
+department: "FB 15 – Biowissenschaften"
+case_type: "Forschungsvorhaben"
+
+checks:
+  - name: "Rechtmäßigkeit der Verarbeitung"
+    instruction: "Prüfe, ob eine Rechtsgrundlage für die Verarbeitung personenbezogener Daten (z.B. bei Proben, Feldstudien) angegeben ist."
+    type: document
+    category: "Rechtmäßigkeit"
+    mandatory: true
+  - name: "Besondere Kategorien und Genetik"
+    instruction: "Prüfe, ob bei genetischen oder Gesundheitsdaten eine ausdrückliche Rechtsgrundlage oder Einwilligung genannt wird."
+    type: document
+    category: "Besondere Kategorien"
+    mandatory: true
+  - name: "Datenminimierung und Aufbewahrung"
+    instruction: "Prüfe, ob das Prinzip der Datenminimierung beachtet wird und Aufbewahrungs- bzw. Löschfristen festgelegt sind."
+    type: document
+    category: "Speicherbegrenzung"
+    mandatory: false

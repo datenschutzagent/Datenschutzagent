@@ -7,7 +7,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from ".
 import { Textarea } from "./ui/textarea";
 import { Badge } from "./ui/badge";
 import { FileText, CheckCircle2 } from "lucide-react";
-import { getPlaybooks, createCase, type ApiCase, type ApiPlaybook } from "../lib/api";
+import { getDepartments, getPlaybooks, createCase, type ApiCase, type ApiDepartment, type ApiPlaybook } from "../lib/api";
 
 interface NewCaseDialogProps {
   open: boolean;
@@ -17,6 +17,7 @@ interface NewCaseDialogProps {
 
 export function NewCaseDialog({ open, onOpenChange, onSuccess }: NewCaseDialogProps) {
   const [step, setStep] = useState<1 | 2>(1);
+  const [departmentsFromApi, setDepartmentsFromApi] = useState<ApiDepartment[]>([]);
   const [playbooks, setPlaybooks] = useState<ApiPlaybook[]>([]);
   const [loading, setLoading] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
@@ -30,10 +31,17 @@ export function NewCaseDialog({ open, onOpenChange, onSuccess }: NewCaseDialogPr
   });
 
   useEffect(() => {
-    if (open) getPlaybooks().then(setPlaybooks).catch(() => setPlaybooks([]));
+    if (!open) return;
+    getDepartments()
+      .then(setDepartmentsFromApi)
+      .catch(() => setDepartmentsFromApi([]));
+    getPlaybooks().then(setPlaybooks).catch(() => setPlaybooks([]));
   }, [open]);
 
-  const departments = Array.from(new Set(playbooks.map(pb => pb.department).filter(Boolean))) as string[];
+  const departments: string[] =
+    departmentsFromApi.length > 0
+      ? departmentsFromApi.map((d) => d.value)
+      : Array.from(new Set(playbooks.map((pb) => pb.department).filter(Boolean))) as string[];
   const selectedPlaybooks = playbooks.filter(
     pb => pb.department === formData.department && pb.isActive
   );
@@ -123,9 +131,9 @@ export function NewCaseDialog({ open, onOpenChange, onSuccess }: NewCaseDialogPr
                   <SelectValue placeholder="Fachbereich auswählen" />
                 </SelectTrigger>
                 <SelectContent>
-                  {departments.map((dept) => (
-                    <SelectItem key={dept} value={dept}>
-                      {dept}
+                  {departments.map((value) => (
+                    <SelectItem key={value} value={value}>
+                      {value}
                     </SelectItem>
                   ))}
                 </SelectContent>

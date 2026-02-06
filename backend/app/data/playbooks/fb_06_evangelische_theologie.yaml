@@ -1,0 +1,21 @@
+name: "Datenschutz-Vorprüfung Evangelische Theologie"
+version: "1.0"
+department: "FB 06 – Evangelische Theologie"
+case_type: "Forschungsvorhaben"
+
+checks:
+  - name: "Rechtmäßigkeit der Verarbeitung"
+    instruction: "Prüfe, ob eine Rechtsgrundlage für die Verarbeitung personenbezogener Daten (z.B. bei Interviews, Archivmaterial) angegeben ist."
+    type: document
+    category: "Rechtmäßigkeit"
+    mandatory: true
+  - name: "Zweckbindung"
+    instruction: "Prüfe, ob der Verarbeitungszweck eindeutig und nachvollziehbar beschrieben ist."
+    type: document
+    category: "Zweck"
+    mandatory: true
+  - name: "Aufbewahrung und Löschung"
+    instruction: "Prüfe, ob Fristen für Aufbewahrung und Löschung der Daten festgelegt sind."
+    type: document
+    category: "Speicherbegrenzung"
+    mandatory: false

@@ -1,0 +1,21 @@
+name: "Datenschutz-Vorprüfung Biochemie, Chemie und Pharmazie"
+version: "1.0"
+department: "FB 14 – Biochemie, Chemie und Pharmazie"
+case_type: "Forschungsvorhaben"
+
+checks:
+  - name: "Rechtmäßigkeit bei personenbezogenen Daten"
+    instruction: "Prüfe, ob eine Rechtsgrundlage für die Verarbeitung personenbezogener Daten (z.B. bei Proben, Studienbeteiligten) angegeben ist."
+    type: document
+    category: "Rechtmäßigkeit"
+    mandatory: true
+  - name: "Besondere Kategorien und Gesundheitsdaten"
+    instruction: "Prüfe, ob bei Verarbeitung von Gesundheitsdaten oder anderen besonderen Kategorien (Art. 9 DSGVO) eine ausdrückliche Erlaubnis oder Einwilligung vorgesehen ist."
+    type: document
+    category: "Besondere Kategorien"
+    mandatory: true
+  - name: "Datenminimierung und Löschfristen"
+    instruction: "Prüfe, ob nur erforderliche Daten verarbeitet werden und Lösch- bzw. Aufbewahrungsfristen festgelegt sind."
+    type: document
+    category: "Speicherbegrenzung"
+    mandatory: false
