@@ -5,7 +5,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from ".
 import { Progress } from "./ui/progress";
 import { Upload, X, Check, AlertCircle, Loader2 } from "lucide-react";
 import { documentTypeLabels, type DocumentType } from "../lib/mock-data";
-import { uploadDocument } from "../lib/api";
+import { uploadDocument, uploadDocumentsBulk } from "../lib/api";
 
 interface UploadedFile {
   id: string;
@@ -116,18 +116,38 @@ export function DocumentUploadZone({ caseId, uploadedBy = "", onUploadComplete }
   const handleComplete = async () => {
     if (caseId && uploadedFiles.some((f) => f.status === "success" && f.type)) {
       setCompleting(true);
-      const toUpload = uploadedFiles.filter((f) => f.status === "success" && f.type !== null);
+      const toUpload = uploadedFiles.filter((f) => f.status === "success" && f.type !== null) as (UploadedFile & { type: DocumentType })[];
       try {
-        for (const uf of toUpload) {
-          if (uf.type) await uploadDocument(caseId, uf.file, uf.type, uploadedBy);
+        const sameType = toUpload.length > 0 && toUpload.every((f) => f.type === toUpload[0].type);
+        if (toUpload.length > 1 && sameType) {
+          const created = await uploadDocumentsBulk(
+            caseId,
+            toUpload.map((u) => u.file),
+            toUpload[0].type,
+            uploadedBy
+          );
+          if (created.length < toUpload.length) {
+            setUploadedFiles((prev) =>
+              prev.map((f) =>
+                f.status === "success" && f.type
+                  ? { ...f, status: "error", errorMessage: `Nur ${created.length} von ${toUpload.length} hochgeladen.` }
+                  : f
+              )
+            );
+          } else {
+            onUploadComplete?.(uploadedFiles);
+          }
+        } else {
+          for (const uf of toUpload) {
+            if (uf.type) await uploadDocument(caseId, uf.file, uf.type, uploadedBy);
+          }
+          onUploadComplete?.(uploadedFiles);
         }
-        onUploadComplete?.(uploadedFiles);
       } catch (err) {
+        const msg = err instanceof Error ? err.message : "Upload fehlgeschlagen";
         setUploadedFiles((prev) =>
           prev.map((f) =>
-            f.status === "success" && f.type
-              ? { ...f, status: "error", errorMessage: err instanceof Error ? err.message : "Upload fehlgeschlagen" }
-              : f
+            f.status === "success" && f.type ? { ...f, status: "error", errorMessage: msg } : f
           )
         );
       } finally {

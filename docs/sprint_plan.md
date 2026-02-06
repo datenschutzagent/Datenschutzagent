@@ -1,14 +1,14 @@
 # Sprint-Plan (aktuell)
 
-Stand: Nach Roadmap-/Gap-Abgleich. Dokumentation ist mit Code abgeglichen; dieser Sprint fokussiert auf **kommentierte Dokumente (Artefakte)**.
+Stand: Nach Umsetzung Option A (Playbook-Detail, Docs, Mehrfach-Upload). Vorheriger Sprint (Annotated Documents) abgeschlossen.
 
 ---
 
-## Sprint-Ziele
+## Sprint-Ziele (dieser Sprint – abgeschlossen)
 
-1. **Dokumentation** – roadmap, requirements_gap, next_steps auf Code-Stand gebracht (DSB-Report ✅, VVT CSV-Export ✅).
-2. **Backend: Annotierte Dokumente** – Service und API, die aus Case + Findings annotierte DOCX erzeugen (Kommentare/Footnotes zu Findings).
-3. **Frontend: AnnotatedDocumentsView** – von Mock auf echte API umstellen (Liste generierter Artefakte, Download).
+1. **Playbook-Detail auf API** – `playbook-detail-page.tsx` nutzt `getPlaybook(playbookId)`; bei 404 „Playbook nicht gefunden“.
+2. **Dokumentation** – roadmap.md, requirements_gap.md, next_steps.md: Playbook-Detail als API; Activity-Timeline als Mock bis Audit-Log.
+3. **Mehrfach-Upload** – Backend: `POST /api/v1/documents/bulk`; Frontend: Upload-Zone nutzt Bulk bei mehreren Dateien gleichen Typs.
 
 ---
 
@@ -16,16 +16,14 @@ Stand: Nach Roadmap-/Gap-Abgleich. Dokumentation ist mit Code abgeglichen; diese
 
 | # | Aufgabe | Status |
 | :--- | :--- | :--- |
-| 1 | Docs: requirements_gap.md, roadmap.md, next_steps.md abgleichen | ✅ |
-| 2 | docs/sprint_plan.md anlegen | ✅ |
-| 3 | Backend: Service „annotated document“ (Findings → DOCX mit Kommentaren) | ✅ |
-| 4 | Backend: `GET /cases/{id}/annotated-documents` (Liste), `GET /cases/{id}/annotated-documents/{document_id}` (Download DOCX) | ✅ |
-| 5 | Frontend: AnnotatedDocumentsView an API anbinden, Mock entfernen | ✅ |
+| 1 | Playbook-Detail-Seite auf getPlaybook(id) umstellen, Mock entfernen | ✅ |
+| 2 | Docs: roadmap, requirements_gap, next_steps (Playbook-Detail, Activity-Timeline) | ✅ |
+| 3 | Backend: POST /documents/bulk (mehrere Dateien, gleicher Typ) | ✅ |
+| 4 | Frontend: Upload-Zone Mehrfachauswahl, Bulk-Request bei gleichem Typ | ✅ |
 
 ---
 
 ## Folgesprint (optional)
 
-- Mehrfach-Upload (mehrere Dateien pro Request).
-- Audit-Log (Check-Läufe, Finding-Status protokollieren).
+- Audit-Log (Check-Läufe, Finding-Status protokollieren); Activity-Timeline an echte API.
 - Cross-Document-Checks (Multi-Dokument-Kontext im Check Runner).

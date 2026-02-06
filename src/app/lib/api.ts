@@ -387,6 +387,37 @@ export async function uploadDocument(
   return mapDocument(d) as ApiDocument;
 }
 
+/** Upload multiple documents in one request. Same documentType and uploadedBy for all. Returns list of created documents. */
+export async function uploadDocumentsBulk(
+  caseId: string,
+  files: File[],
+  documentType: string,
+  uploadedBy: string
+): Promise<ApiDocument[]> {
+  const form = new FormData();
+  form.append("case_id", caseId);
+  form.append("document_type", documentType);
+  form.append("uploaded_by", uploadedBy);
+  for (const file of files) {
+    form.append("files", file);
+  }
+  const url = `${API_BASE}${API_PREFIX}/documents/bulk`;
+  const res = await fetch(url, { method: "POST", body: form });
+  if (!res.ok) {
+    const text = await res.text();
+    let detail = text;
+    try {
+      const j = JSON.parse(text);
+      detail = j.detail ?? text;
+    } catch {
+      // use text
+    }
+    throw new Error(detail);
+  }
+  const list = (await res.json()) as Record<string, unknown>[];
+  return list.map((d) => mapDocument(d) as ApiDocument);
+}
+
 export async function deleteDocument(id: string): Promise<void> {
   await request("DELETE", `/documents/${id}`);
 }

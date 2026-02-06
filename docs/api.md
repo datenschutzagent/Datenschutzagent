@@ -31,8 +31,8 @@ Das Backend ist mit FastAPI umgesetzt. Interaktive Doku:
 | :--- | :--- | :--- |
 | GET | `/api/v1/documents/` | Dokumente auflisten (optional `case_id`). |
 | GET | `/api/v1/documents/{id}` | Einzelnes Dokument (Metadaten). |
-| POST | `/api/v1/documents/` | Dokument hochladen (Form: `case_id`, `file`, `document_type`, `uploaded_by`). Textextraktion läuft beim Upload; Ergebnis in `Document.content`. |
-
+| POST | `/api/v1/documents/` | Einzelnes Dokument hochladen (Form: `case_id`, `file`, `document_type`, `uploaded_by`). Textextraktion beim Upload; Ergebnis in `Document.content`. |
+| POST | `/api/v1/documents/bulk` | Mehrere Dokumente in einem Request hochladen (Form: `case_id`, `files` (mehrere Dateien), `document_type`, `uploaded_by`). Gleicher Typ für alle; Response: Liste der angelegten Dokumente (201). |
 | DELETE | `/api/v1/documents/{id}` | Dokument löschen (DB + Storage, 204). |
 
 ### Playbooks

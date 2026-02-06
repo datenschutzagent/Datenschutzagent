@@ -11,7 +11,7 @@ Abgleich der Projektbeschreibung (Anforderungen) mit dem aktuellen Implementieru
 | Anforderung | Status | Anmerkung |
 | :--- | :--- | :--- |
 | Vorgang anlegen mit Metadaten | ✅ | Backend + Frontend; API Create/Update. |
-| Mehrere Dokumente je Vorgang | ⚠️ | Pro Request ein Upload; Mehrfach-Upload in einem Request nicht implementiert. |
+| Mehrere Dokumente je Vorgang | ✅ | Einzelupload + Mehrfach-Upload: `POST /api/v1/documents/bulk` (mehrere Dateien, gleicher Typ); Frontend nutzt Bulk bei gleichem Dokumenttyp. |
 | Versionierung (Stände je Dokument) | ❌ | Keine Logik für v1/v2 pro Dokumenttyp. |
 | Statusmodell | ✅ | `CaseStatusEnum`; Status im Case-Modell. |
 | Vorgang löschen | ✅ | `DELETE /api/v1/cases/{id}`. |
@@ -73,7 +73,7 @@ Abgleich der Projektbeschreibung (Anforderungen) mit dem aktuellen Implementieru
 
 ## 3. Priorisierte Schritte (Gap-Schließung)
 
-1. ~~**Run-Checks-API**~~ ✅ Erledigt. ~~**Frontend**~~ ✅ Erledigt (Cases, Documents, Findings, Playbooks, Run-Checks, Finding-Status nutzen echte API).
+1. ~~**Run-Checks-API**~~ ✅ Erledigt. ~~**Frontend**~~ ✅ Erledigt (Cases, Documents, Findings, Playbooks, Run-Checks, Finding-Status, **Playbook-Detail** nutzen echte API). **Activity-Timeline** nutzt weiterhin Mock bis Audit-Log/Activities-API vorhanden.
 2. ~~**VVT:** Fingerprinting, kanonisches Modell, Mapping, Frontend-Ansicht~~ ✅ Erledigt (`GET /cases/{id}/vvt-normalization`, `vvt_service.py`, VVTNormalizationView an API). **Export Ziel-Template** noch offen (optional).
 3. **Artefakte:** ~~DSB-Report~~ ✅, ~~kommentierte DOCX~~ ✅ (annotated-documents API + Frontend). PDF-Export optional.
 4. **Sicherheit & Audit:** AuthN/AuthZ, Audit-Log.

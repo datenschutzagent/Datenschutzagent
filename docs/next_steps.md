@@ -31,11 +31,13 @@ Stand: Aktualisiert nach Abgleich mit Code. Die Punkte 1–3 (Run-Checks, Fronte
 | **Neuer Vorgang** | Echte API | ✅ `new-case-dialog.tsx`: `createCase()`, `getPlaybooks()` |
 | **Dokument-Upload** | Echte API | ✅ `document-upload-zone.tsx`: `uploadDocument()` |
 | **Playbooks-Seite** | Echte API | ✅ `playbooks-page.tsx`: `getPlaybooks()` |
+| **Playbook-Detail** | Echte API | ✅ `playbook-detail-page.tsx`: `getPlaybook(playbookId)`; bei 404 „Playbook nicht gefunden“. |
 | **UI „Checks starten“** | Implementiert | ✅ Case-Detail: Run-Checks-Dialog mit Playbook-Auswahl, `runChecks()` |
 | **UI Finding-Status** | Implementiert | ✅ Case-Detail: Status-Buttons, `updateFindingStatus()` |
 | **Dashboard Playbooks** | Echte API | ✅ `dashboard-stats.tsx` lädt Playbooks via `getPlaybooks()`; Fallback leere Liste. |
 | **UI VVT-Normalisierung** | Echte API | ✅ `vvt-normalization-view.tsx` lädt per `getVVTNormalization(caseId, documentId)`; Anzeige Felder, Template, Fortschritt. |
 | **UI Annotierte Dokumente** | Echte API | ✅ `annotated-documents-view.tsx` mit `caseId`; `getAnnotatedDocuments()`, `getAnnotatedDocumentBlob()`; Liste und DOCX-Download. |
+| **Activity-Timeline** | Mock | ⚠️ `activity-timeline.tsx` nutzt `mockActivities`; echte Daten erst mit Audit-Log/Activities-API. |
 
 ---
 

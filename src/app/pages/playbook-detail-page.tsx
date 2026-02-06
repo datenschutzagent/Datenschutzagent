@@ -3,30 +3,76 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../co
 import { Badge } from "../components/ui/badge";
 import { Button } from "../components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "../components/ui/tabs";
-import { mockPlaybooks } from "../lib/mock-data";
-import { 
-  ArrowLeft, 
-  BookOpen, 
-  CheckSquare, 
+import { getPlaybook, type ApiPlaybook } from "../lib/api";
+import {
+  ArrowLeft,
+  BookOpen,
+  CheckSquare,
   FileText,
   AlertCircle,
   Edit,
   Copy,
-  Archive
+  Archive,
+  Loader2,
 } from "lucide-react";
+import { useState, useEffect } from "react";
+
+/** Normalize API check item for display (backend may use name/instruction or check_name/requirement). */
+function normalizeChecks(checks: unknown[]): { id: string; name: string; description: string; type: "document" | "cross_document"; category: string; mandatory: boolean; targetDocuments: string[] }[] {
+  return checks.map((c, i) => {
+    const o = (c && typeof c === "object" && c as Record<string, unknown>) || {};
+    const name = (o.name as string) ?? (o.check_name as string) ?? `Check ${i + 1}`;
+    const description = (o.description as string) ?? (o.instruction as string) ?? (o.requirement as string) ?? "";
+    const type = ((o.type as string) === "cross_document" ? "cross_document" : "document") as "document" | "cross_document";
+    const category = (o.category as string) ?? "";
+    const mandatory = (o.mandatory as boolean) ?? false;
+    const targetDocuments = Array.isArray(o.target_documents) ? (o.target_documents as string[]) : Array.isArray(o.targetDocuments) ? (o.targetDocuments as string[]) : [];
+    return { id: (o.id as string) ?? `check-${i}`, name, description, type, category, mandatory, targetDocuments };
+  });
+}
 
 export function PlaybookDetailPage() {
   const { playbookId } = useParams();
   const navigate = useNavigate();
-  const playbook = mockPlaybooks.find((pb) => pb.id === playbookId);
+  const [playbook, setPlaybook] = useState<ApiPlaybook | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
-  if (!playbook) {
+  useEffect(() => {
+    if (!playbookId) {
+      setLoading(false);
+      return;
+    }
+    setLoading(true);
+    setError(null);
+    getPlaybook(playbookId)
+      .then(setPlaybook)
+      .catch((e) => {
+        setError(e instanceof Error ? e.message : String(e));
+        setPlaybook(null);
+      })
+      .finally(() => setLoading(false));
+  }, [playbookId]);
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-slate-50 flex items-center justify-center">
+        <div className="flex flex-col items-center gap-4">
+          <Loader2 className="size-10 animate-spin text-blue-600" />
+          <p className="text-slate-600">Playbook wird geladen…</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (error || !playbook) {
     return (
       <div className="min-h-screen bg-slate-50 flex items-center justify-center">
         <Card className="max-w-md">
           <CardContent className="pt-6 text-center">
             <AlertCircle className="size-12 text-slate-300 mx-auto mb-4" />
             <p className="text-slate-600">Playbook nicht gefunden</p>
+            {error && <p className="text-sm text-red-600 mt-2">{error}</p>}
             <Button className="mt-4" onClick={() => navigate("/playbooks")}>
               Zurück zur Übersicht
             </Button>
@@ -36,9 +82,10 @@ export function PlaybookDetailPage() {
     );
   }
 
-  const documentChecks = playbook.checks.filter(c => c.type === "document");
-  const crossDocChecks = playbook.checks.filter(c => c.type === "cross_document");
-  const mandatoryChecks = playbook.checks.filter(c => c.mandatory);
+  const checks = normalizeChecks(playbook.checks ?? []);
+  const documentChecks = checks.filter((c) => c.type === "document");
+  const crossDocChecks = checks.filter((c) => c.type === "cross_document");
+  const mandatoryChecks = checks.filter((c) => c.mandatory);
 
   return (
     <div className="min-h-screen bg-slate-50">
@@ -98,11 +145,11 @@ export function PlaybookDetailPage() {
                   )}
                 </div>
                 <div className="flex items-center gap-4 text-sm text-slate-600">
-                  <span>{playbook.department}</span>
+                  <span>{playbook.department ?? "—"}</span>
                   <span>•</span>
-                  <span>{playbook.caseType}</span>
+                  <span>{playbook.caseType ?? "—"}</span>
                   <span>•</span>
-                  <span>Version {playbook.version}</span>
+                  <span>Version {playbook.version ?? "—"}</span>
                 </div>
               </div>
             </div>
@@ -129,7 +176,7 @@ export function PlaybookDetailPage() {
         <Tabs defaultValue="overview" className="space-y-6">
           <TabsList>
             <TabsTrigger value="overview">Überblick</TabsTrigger>
-            <TabsTrigger value="checks">Checks ({playbook.checks.length})</TabsTrigger>
+            <TabsTrigger value="checks">Checks ({checks.length})</TabsTrigger>
             <TabsTrigger value="history">Versions-Historie</TabsTrigger>
           </TabsList>
 
@@ -160,11 +207,11 @@ export function PlaybookDetailPage() {
                   </div>
                   <div>
                     <span className="text-slate-600">Erstellt:</span>
-                    <p className="font-medium">{new Date(playbook.createdAt).toLocaleDateString("de-DE")}</p>
+                    <p className="font-medium">{playbook.createdAt ? new Date(playbook.createdAt as string).toLocaleDateString("de-DE") : "—"}</p>
                   </div>
                   <div>
                     <span className="text-slate-600">Letzte Aktualisierung:</span>
-                    <p className="font-medium">{new Date(playbook.updatedAt).toLocaleDateString("de-DE")}</p>
+                    <p className="font-medium">{playbook.updatedAt ? new Date(playbook.updatedAt as string).toLocaleDateString("de-DE") : "—"}</p>
                   </div>
                 </CardContent>
               </Card>
@@ -177,7 +224,7 @@ export function PlaybookDetailPage() {
                 <CardContent className="space-y-3">
                   <div className="flex items-center justify-between">
                     <span className="text-sm text-slate-600">Checks gesamt</span>
-                    <Badge variant="outline">{playbook.checks.length}</Badge>
+                    <Badge variant="outline">{checks.length}</Badge>
                   </div>
                   <div className="flex items-center justify-between">
                     <span className="text-sm text-slate-600">Pflichtchecks</span>
@@ -223,16 +270,16 @@ export function PlaybookDetailPage() {
               </CardHeader>
               <CardContent>
                 <div className="grid grid-cols-2 gap-4">
-                  {Array.from(new Set(playbook.checks.map(c => c.category))).map((category) => {
-                    const checksInCategory = playbook.checks.filter(c => c.category === category);
+                  {Array.from(new Set(checks.map((c) => c.category).filter(Boolean))).map((category) => {
+                    const checksInCategory = checks.filter((c) => c.category === category);
                     return (
                       <div key={category} className="p-4 border rounded-lg">
                         <h4 className="font-medium text-slate-900 mb-2">{category}</h4>
                         <p className="text-sm text-slate-600">
                           {checksInCategory.length} Check{checksInCategory.length !== 1 ? "s" : ""}
-                          {checksInCategory.filter(c => c.mandatory).length > 0 && (
+                          {checksInCategory.filter((c) => c.mandatory).length > 0 && (
                             <span className="text-blue-600 ml-2">
-                              ({checksInCategory.filter(c => c.mandatory).length} Pflicht)
+                              ({checksInCategory.filter((c) => c.mandatory).length} Pflicht)
                             </span>
                           )}
                         </p>
@@ -352,7 +399,7 @@ export function PlaybookDetailPage() {
                         Aktualisierung: AVV-Checks erweitert
                       </p>
                       <p className="text-xs text-slate-600 mb-2">
-                        {new Date(playbook.updatedAt).toLocaleString("de-DE")}
+                        {playbook.updatedAt ? new Date(playbook.updatedAt as string).toLocaleString("de-DE") : "—"}
                       </p>
                       <ul className="text-xs text-slate-500 space-y-1 ml-4 list-disc">
                         <li>Neue Checks für Drittlandtransfer hinzugefügt</li>
@@ -392,7 +439,7 @@ export function PlaybookDetailPage() {
                         Initiale Version für {playbook.department}
                       </p>
                       <p className="text-xs text-slate-600">
-                        {new Date(playbook.createdAt).toLocaleString("de-DE")}
+                        {playbook.createdAt ? new Date(playbook.createdAt as string).toLocaleString("de-DE") : "—"}
                       </p>
                     </div>
                   </div>

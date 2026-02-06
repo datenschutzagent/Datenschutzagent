@@ -14,13 +14,14 @@
 | Datenmodelle | ✅ | `Case`, `Document` (inkl. `content`), `Finding`, `Playbook`. |
 | Case-API | ✅ | CRUD inkl. `DELETE /api/v1/cases/{id}`. |
 | Storage | ✅ | Lokal und MinIO in `backend/app/storage.py`. |
-| Dokumenten-Upload | ✅ | Einzelupload; Extraktion bei Upload (PDF/DOCX/XLSX). |
+| Dokumenten-Upload | ✅ | Einzelupload + Mehrfach-Upload (`POST /documents/bulk`); Extraktion bei Upload (PDF/DOCX/XLSX). |
 | Textextraktion | ✅ | `document_processor.py`; Ergebnis in `Document.content`. |
 | Playbook-API | ✅ | CRUD Playbooks (`/api/v1/playbooks/`). |
 | LLM / Check Runner | ✅ | PydanticAI + Ollama (`core/llm.py`), `check_runner.run_check()`. |
 
 **Noch offen (Phase 1):**
-- ~~Frontend an echte API angebunden~~ ✅ Erledigt (Cases, Dokumente, Findings, Playbooks, Run-Checks, Finding-Status nutzen `api.ts`).
+- ~~Frontend an echte API angebunden~~ ✅ Erledigt (Cases, Dokumente, Findings, Playbooks, Run-Checks, Finding-Status, **Playbook-Detail** nutzen `api.ts`).
+- **Activity-Timeline:** nutzt Mock-Daten bis ein Audit-Log/Activities-API existiert.
 - Dokument-Versionierung: v1/v2 pro Dokumenttyp noch offen.
 - Asynchrone Jobs: Redis/Celery noch nicht genutzt; Extraktion synchron.
 
