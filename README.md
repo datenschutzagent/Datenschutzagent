@@ -65,7 +65,7 @@ Wenn OIDC aktiviert ist (`OIDC_ENABLED=true` in der `.env`), sind alle API-Route
 
 ### Rollen (RBAC)
 
-Jeder Nutzer hat eine Rolle: **viewer** (nur Lesen), **editor** (Lesen + Erstellen/Bearbeiten/Löschen von Cases, Dokumenten, Playbooks, Run-Checks, Finding-Status), **admin** (wie editor + Zugriff auf Verwaltung: Einstellungen, Verbindungstests). Neue Nutzer (erstmaliger OIDC-Login) erhalten die Default-Rolle aus `RBAC_DEFAULT_ROLE` (z. B. `viewer`). Bestehende User werden per Migration `005_add_user_role.sql` auf `editor` gesetzt. Die Rolle wird in GET `/api/v1/me` zurückgegeben; das Frontend blendet Schreib- und Admin-Aktionen für Nutzer mit Rolle viewer aus.
+Jeder Nutzer hat eine Rolle: **viewer** (nur Lesen), **editor** (Lesen + Erstellen/Bearbeiten/Löschen von Cases, Dokumenten, Playbooks, Run-Checks, Finding-Status), **admin** (wie editor + Zugriff auf Verwaltung: Einstellungen, Verbindungstests). Neue Nutzer (erstmaliger OIDC-Login) erhalten die Default-Rolle aus `RBAC_DEFAULT_ROLE` (z. B. `viewer`). Bestehende User werden per Migration `005_add_user_role.sql` auf `editor` gesetzt. Die Rolle wird in GET `/api/v1/me` zurückgegeben; das Frontend blendet Schreib- und Admin-Aktionen für Nutzer mit Rolle viewer aus. **Rollen verwalten (CLI):** Im Backend-Container steht ein CLI zum Auflisten und Setzen von User-Rollen sowie zum Anzeigen/Prüfen der Systemkonfiguration – siehe [docs/cli.md](docs/cli.md).
 
 ## Weitere Dokumentation
 
