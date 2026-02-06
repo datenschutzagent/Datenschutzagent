@@ -10,30 +10,42 @@ import {
   Users,
   BookOpen
 } from "lucide-react";
-import { mockCases, mockPlaybooks } from "../lib/mock-data";
+import { useState, useEffect } from "react";
+import { mockCases } from "../lib/mock-data";
+import { getPlaybooks, type ApiCase, type ApiPlaybook } from "../lib/api";
 
-export function DashboardStats() {
-  // Calculate statistics from mock data
-  const totalCases = mockCases.length;
-  const activeCases = mockCases.filter(c => 
+interface DashboardStatsProps {
+  cases?: ApiCase[];
+}
+
+export function DashboardStats({ cases: casesProp }: DashboardStatsProps = {}) {
+  const cases = casesProp ?? (mockCases as unknown as ApiCase[]);
+  const [playbooks, setPlaybooks] = useState<ApiPlaybook[]>([]);
+
+  useEffect(() => {
+    getPlaybooks().then(setPlaybooks).catch(() => setPlaybooks([]));
+  }, []);
+
+  const totalCases = cases.length;
+  const activeCases = cases.filter(c =>
     c.status === "in_review" || c.status === "questions_pending" || c.status === "revision"
   ).length;
-  const completedCases = mockCases.filter(c => c.status === "completed").length;
-  const readyForDecision = mockCases.filter(c => c.status === "ready_for_decision").length;
+  const completedCases = cases.filter(c => c.status === "completed").length;
+  const readyForDecision = cases.filter(c => c.status === "ready_for_decision").length;
 
-  const totalFindings = mockCases.reduce((sum, c) => sum + c.findings.length, 0);
-  const criticalFindings = mockCases.reduce((sum, c) => 
+  const totalFindings = cases.reduce((sum, c) => sum + c.findings.length, 0);
+  const criticalFindings = cases.reduce((sum, c) =>
     sum + c.findings.filter(f => f.severity === "critical" && f.status === "open").length, 0
   );
-  const fixedFindings = mockCases.reduce((sum, c) => 
+  const fixedFindings = cases.reduce((sum, c) =>
     sum + c.findings.filter(f => f.status === "fixed").length, 0
   );
 
-  const totalDocuments = mockCases.reduce((sum, c) => sum + c.documents.length, 0);
-  const activePlaybooks = mockPlaybooks.filter(pb => pb.status === "active").length;
+  const totalDocuments = cases.reduce((sum, c) => sum + c.documents.length, 0);
+  const activePlaybooks = playbooks.filter(pb => pb.isActive).length;
+  const playbookDepartments = new Set(playbooks.map(pb => pb.department).filter(Boolean)).size;
 
-  // Recent activity
-  const recentCases = [...mockCases]
+  const recentCases = [...cases]
     .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime())
     .slice(0, 5);
 
@@ -100,10 +112,10 @@ export function DashboardStats() {
           <CardContent>
             <div className="text-2xl font-semibold">{activePlaybooks}</div>
             <p className="text-xs text-slate-600 mt-1">
-              {mockPlaybooks.length} gesamt
+              {playbooks.length} gesamt
             </p>
             <div className="flex items-center gap-1 mt-2">
-              <span className="text-xs text-slate-600">Für {new Set(mockPlaybooks.map(pb => pb.department)).size} Fachbereiche</span>
+              <span className="text-xs text-slate-600">Für {playbookDepartments} Fachbereiche</span>
             </div>
           </CardContent>
         </Card>
@@ -119,10 +131,10 @@ export function DashboardStats() {
           <CardContent>
             <div className="space-y-3">
               {[
-                { status: "in_review", label: "In Vorprüfung", count: mockCases.filter(c => c.status === "in_review").length, color: "bg-blue-100 text-blue-700" },
-                { status: "questions_pending", label: "Rückfragen ausstehend", count: mockCases.filter(c => c.status === "questions_pending").length, color: "bg-amber-100 text-amber-700" },
-                { status: "revision", label: "Revision", count: mockCases.filter(c => c.status === "revision").length, color: "bg-purple-100 text-purple-700" },
-                { status: "ready_for_decision", label: "Entscheidungsvorlage", count: mockCases.filter(c => c.status === "ready_for_decision").length, color: "bg-green-100 text-green-700" },
+                { status: "in_review", label: "In Vorprüfung", count: cases.filter(c => c.status === "in_review").length, color: "bg-blue-100 text-blue-700" },
+                { status: "questions_pending", label: "Rückfragen ausstehend", count: cases.filter(c => c.status === "questions_pending").length, color: "bg-amber-100 text-amber-700" },
+                { status: "revision", label: "Revision", count: cases.filter(c => c.status === "revision").length, color: "bg-purple-100 text-purple-700" },
+                { status: "ready_for_decision", label: "Entscheidungsvorlage", count: cases.filter(c => c.status === "ready_for_decision").length, color: "bg-green-100 text-green-700" },
                 { status: "completed", label: "Abgeschlossen", count: completedCases, color: "bg-gray-100 text-gray-600" },
               ].map((item) => (
                 <div key={item.status} className="flex items-center justify-between">
@@ -155,25 +167,25 @@ export function DashboardStats() {
                 { 
                   severity: "critical", 
                   label: "Kritisch", 
-                  count: mockCases.reduce((sum, c) => sum + c.findings.filter(f => f.severity === "critical" && f.status === "open").length, 0),
+                  count: cases.reduce((sum, c) => sum + c.findings.filter(f => f.severity === "critical" && f.status === "open").length, 0),
                   color: "bg-red-100 text-red-700" 
                 },
                 { 
                   severity: "high", 
                   label: "Hoch", 
-                  count: mockCases.reduce((sum, c) => sum + c.findings.filter(f => f.severity === "high" && f.status === "open").length, 0),
+                  count: cases.reduce((sum, c) => sum + c.findings.filter(f => f.severity === "high" && f.status === "open").length, 0),
                   color: "bg-orange-100 text-orange-700" 
                 },
                 { 
                   severity: "medium", 
                   label: "Mittel", 
-                  count: mockCases.reduce((sum, c) => sum + c.findings.filter(f => f.severity === "medium" && f.status === "open").length, 0),
+                  count: cases.reduce((sum, c) => sum + c.findings.filter(f => f.severity === "medium" && f.status === "open").length, 0),
                   color: "bg-yellow-100 text-yellow-700" 
                 },
                 { 
                   severity: "low", 
                   label: "Niedrig", 
-                  count: mockCases.reduce((sum, c) => sum + c.findings.filter(f => f.severity === "low" && f.status === "open").length, 0),
+                  count: cases.reduce((sum, c) => sum + c.findings.filter(f => f.severity === "low" && f.status === "open").length, 0),
                   color: "bg-blue-100 text-blue-700" 
                 },
               ].map((item) => (
@@ -239,8 +251,8 @@ export function DashboardStats() {
         </CardHeader>
         <CardContent>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            {Array.from(new Set(mockCases.map(c => c.department))).map((dept) => {
-              const deptCases = mockCases.filter(c => c.department === dept);
+            {Array.from(new Set(cases.map(c => c.department))).map((dept) => {
+              const deptCases = cases.filter(c => c.department === dept);
               const deptActiveCases = deptCases.filter(c => 
                 c.status === "in_review" || c.status === "questions_pending" || c.status === "revision"
               ).length;

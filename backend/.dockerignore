@@ -1,0 +1,10 @@
+# Verhindert, dass .env ins Image kommt – DB-URL kommt aus docker-compose
+.env
+.env.*
+!.env.example
+__pycache__
+*.pyc
+.pytest_cache
+.venv
+venv
+storage/

@@ -5,6 +5,7 @@ from app.models.schemas import (
     CaseUpdate,
     DocumentResponse,
     FindingResponse,
+    FindingUpdate,
 )
 from app.models.db import (
     Base,

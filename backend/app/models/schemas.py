@@ -1,6 +1,6 @@
 """Pydantic schemas for API request/response. Aligned with frontend types."""
 from datetime import datetime
-from typing import Literal
+from typing import Any, Literal
 from uuid import UUID
 
 from pydantic import BaseModel, Field
@@ -48,6 +48,10 @@ class FindingResponse(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class FindingUpdate(BaseModel):
+    status: FindingStatusEnum
+
+
 # --- Case ---
 class CaseCreate(BaseModel):
     title: str = Field(..., min_length=1)
@@ -68,6 +72,10 @@ class CaseUpdate(BaseModel):
     playbook_version: str | None = None
 
 
+class RunChecksRequest(BaseModel):
+    playbook_id: UUID = Field(..., description="Playbook whose checks to run against case documents.")
+
+
 class CaseResponse(BaseModel):
     id: UUID
     title: str
@@ -82,5 +90,36 @@ class CaseResponse(BaseModel):
     playbook_version: str
     documents: list[DocumentResponse] = []
     findings: list[FindingResponse] = []
+
+    model_config = {"from_attributes": True}
+
+
+# --- Playbook ---
+class PlaybookCreate(BaseModel):
+    name: str = Field(..., min_length=1)
+    version: str = Field(..., min_length=1)
+    content: dict[str, Any]
+    case_type: str | None = None
+    department: str | None = None
+
+
+class PlaybookUpdate(BaseModel):
+    name: str | None = None
+    version: str | None = None
+    content: dict[str, Any] | None = None
+    case_type: str | None = None
+    department: str | None = None
+    is_active: bool | None = None
+
+
+class PlaybookResponse(BaseModel):
+    id: UUID
+    name: str
+    version: str
+    content: dict[str, Any]
+    case_type: str | None
+    department: str | None
+    is_active: bool
+    created_at: datetime
 
     model_config = {"from_attributes": True}

@@ -4,9 +4,13 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from app.database import get_db
 from app.models import CaseCreate, CaseModel, CaseResponse, CaseUpdate, orm_to_case_response
+from app.models.db import FindingModel, PlaybookModel
+from app.models.schemas import RunChecksRequest
+from app.services.check_runner import run_check
 
 router = APIRouter()
 
@@ -92,3 +96,65 @@ async def delete_case(
     await db.delete(case)
     await db.flush()
     return None
+
+
+@router.post("/{case_id}/run-checks", response_model=CaseResponse)
+async def run_checks(
+    case_id: UUID,
+    body: RunChecksRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    """Run playbook checks against all case documents and persist findings."""
+    result = await db.execute(
+        select(CaseModel)
+        .where(CaseModel.id == case_id)
+        .options(selectinload(CaseModel.documents))
+    )
+    case = result.scalar_one_or_none()
+    if not case:
+        raise HTTPException(status_code=404, detail="Case not found")
+
+    pb_result = await db.execute(select(PlaybookModel).where(PlaybookModel.id == body.playbook_id))
+    playbook = pb_result.scalar_one_or_none()
+    if not playbook:
+        raise HTTPException(status_code=404, detail="Playbook not found")
+
+    checks = playbook.content.get("checks") if isinstance(playbook.content, dict) else []
+    if not checks:
+        await db.refresh(case)
+        return CaseResponse(**orm_to_case_response(case))
+
+    for doc in case.documents:
+        text = (doc.content or "") or ""
+        for item in checks:
+            name = item.get("name") or item.get("check_name") or "Check"
+            instruction = item.get("instruction") or item.get("requirement") or ""
+            if not instruction:
+                continue
+            try:
+                check_result = await run_check(text, instruction)
+            except Exception:
+                continue
+            if not check_result.is_compliant:
+                finding = FindingModel(
+                    case_id=case_id,
+                    document_id=doc.id,
+                    check_name=name,
+                    severity=check_result.severity,
+                    status="open",
+                    category=name,
+                    description=check_result.description,
+                    evidence=check_result.evidence or [],
+                    recommendation=check_result.recommendation or "",
+                )
+                db.add(finding)
+
+    await db.flush()
+    # Reload case with documents and findings for response
+    result2 = await db.execute(
+        select(CaseModel)
+        .where(CaseModel.id == case_id)
+        .options(selectinload(CaseModel.documents), selectinload(CaseModel.findings))
+    )
+    case = result2.scalar_one()
+    return CaseResponse(**orm_to_case_response(case))

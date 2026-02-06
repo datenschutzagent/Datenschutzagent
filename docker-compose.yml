@@ -57,6 +57,7 @@ services:
     env_file:
       - .env
     environment:
+      # Hostname "postgres" = Service-Name im Docker-Netz (nicht localhost)
       DATABASE_URL: postgresql+asyncpg://postgres:postgres@postgres:5432/datenschutzagent
       CORS_ORIGINS: "http://localhost:3000,http://127.0.0.1:3000,http://localhost:5173,http://127.0.0.1:5173"
     extra_hosts:
@@ -67,6 +68,7 @@ services:
         condition: service_healthy
     volumes:
       - backend_storage:/app/storage
+    restart: on-failure
 
   frontend:
     build:

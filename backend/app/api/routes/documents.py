@@ -8,7 +8,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.database import get_db
 from app.models import DocumentModel, DocumentResponse, orm_to_document_response
 from app.models.db import CaseModel
-from app.storage import save_file
+from app.services.document_processor import extract_text
+from app.storage import save_file, delete_file
 
 router = APIRouter()
 
@@ -71,6 +72,9 @@ async def upload_document(
     content = await file.read()
     size_bytes = len(content)
 
+    # Extract text
+    text_content = extract_text(filename, content)
+
     doc = DocumentModel(
         case_id=case_id,
         name=filename,
@@ -80,6 +84,7 @@ async def upload_document(
         size_bytes=size_bytes,
         uploaded_by=uploaded_by or "unknown",
         storage_path="",  # set after we have doc.id
+        content=text_content,
     )
     db.add(doc)
     await db.flush()
@@ -90,3 +95,24 @@ async def upload_document(
     await db.refresh(doc)
 
     return DocumentResponse(**orm_to_document_response(doc))
+
+
+@router.delete("/{document_id}", status_code=204)
+async def delete_document(
+    document_id: UUID,
+    db: AsyncSession = Depends(get_db),
+):
+    """Delete a document (DB record and storage file)."""
+    result = await db.execute(select(DocumentModel).where(DocumentModel.id == document_id))
+    doc = result.scalar_one_or_none()
+    if not doc:
+        raise HTTPException(status_code=404, detail="Document not found")
+    storage_path = doc.storage_path
+    await db.delete(doc)
+    await db.flush()
+    if storage_path:
+        try:
+            delete_file(storage_path)
+        except FileNotFoundError:
+            pass
+    return None

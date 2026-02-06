@@ -5,7 +5,8 @@ import { Button } from "../components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "../components/ui/tabs";
 import { Alert, AlertDescription } from "../components/ui/alert";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "../components/ui/dialog";
-import { mockCases, statusLabels, statusColors, documentTypeLabels, severityColors, findingStatusLabels, Finding, priorityLabels, priorityColors } from "../lib/mock-data";
+import { statusLabels, statusColors, documentTypeLabels, severityColors, findingStatusLabels, priorityLabels, priorityColors } from "../lib/mock-data";
+import { getCase, getPlaybooks, runChecks, updateFindingStatus, type ApiCase, type ApiFinding, type ApiPlaybook } from "../lib/api";
 import { VVTNormalizationView } from "../components/vvt-normalization-view";
 import { DSBReportView } from "../components/dsb-report-view";
 import { AnnotatedDocumentsView } from "../components/annotated-documents-view";
@@ -22,24 +23,86 @@ import {
   XCircle,
   Shield,
   FileCheck,
-  MessageSquare
+  MessageSquare,
+  Loader2
 } from "lucide-react";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 
 export function CaseDetailPage() {
   const { caseId } = useParams();
   const navigate = useNavigate();
-  const caseData = mockCases.find((c) => c.id === caseId);
-  const [selectedFinding, setSelectedFinding] = useState<Finding | null>(null);
+  const [caseData, setCaseData] = useState<ApiCase | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [selectedFinding, setSelectedFinding] = useState<ApiFinding | null>(null);
   const [isUploadDialogOpen, setIsUploadDialogOpen] = useState(false);
+  const [runChecksOpen, setRunChecksOpen] = useState(false);
+  const [playbooks, setPlaybooks] = useState<ApiPlaybook[]>([]);
+  const [selectedPlaybookId, setSelectedPlaybookId] = useState<string>("");
+  const [runChecksLoading, setRunChecksLoading] = useState(false);
+  const [findingStatusLoading, setFindingStatusLoading] = useState<string | null>(null);
 
-  if (!caseData) {
+  const loadCase = () => {
+    if (!caseId) return;
+    setLoading(true);
+    setError(null);
+    getCase(caseId)
+      .then(setCaseData)
+      .catch((e) => setError(e instanceof Error ? e.message : "Fehler"))
+      .finally(() => setLoading(false));
+  };
+
+  useEffect(() => {
+    loadCase();
+  }, [caseId]);
+
+  useEffect(() => {
+    if (runChecksOpen) getPlaybooks().then(setPlaybooks).catch(() => setPlaybooks([]));
+  }, [runChecksOpen]);
+
+  const handleRunChecks = async () => {
+    if (!caseId || !selectedPlaybookId) return;
+    setRunChecksLoading(true);
+    try {
+      const updated = await runChecks(caseId, selectedPlaybookId);
+      setCaseData(updated);
+      setRunChecksOpen(false);
+      setSelectedPlaybookId("");
+    } finally {
+      setRunChecksLoading(false);
+    }
+  };
+
+  const handleFindingStatus = async (findingId: string, status: "accepted" | "overruled" | "fixed") => {
+    setFindingStatusLoading(findingId);
+    try {
+      await updateFindingStatus(findingId, status);
+      loadCase();
+      setSelectedFinding(null);
+    } finally {
+      setFindingStatusLoading(null);
+    }
+  };
+
+  if (loading && !caseData) {
+    return (
+      <div className="min-h-screen bg-slate-50 flex items-center justify-center">
+        <Card className="max-w-md">
+          <CardContent className="pt-6 text-center">
+            <Loader2 className="size-12 text-slate-400 mx-auto mb-4 animate-spin" />
+            <p className="text-slate-600">Vorgang wird geladen…</p>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+  if (error || !caseData) {
     return (
       <div className="min-h-screen bg-slate-50 flex items-center justify-center">
         <Card className="max-w-md">
           <CardContent className="pt-6 text-center">
             <AlertCircle className="size-12 text-slate-300 mx-auto mb-4" />
-            <p className="text-slate-600">Vorgang nicht gefunden</p>
+            <p className="text-slate-600">{error || "Vorgang nicht gefunden"}</p>
             <Button className="mt-4" onClick={() => navigate("/")}>
               Zurück zur Übersicht
             </Button>
@@ -257,10 +320,42 @@ export function CaseDetailPage() {
                   <CardTitle className="text-base">Aktionen</CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-2">
-                  <Button variant="outline" className="w-full justify-start gap-2">
-                    <Shield className="size-4" />
-                    Playbook neu ausführen
-                  </Button>
+                  <Dialog open={runChecksOpen} onOpenChange={setRunChecksOpen}>
+                    <DialogTrigger asChild>
+                      <Button variant="outline" className="w-full justify-start gap-2">
+                        <Shield className="size-4" />
+                        Playbook-Checks ausführen
+                      </Button>
+                    </DialogTrigger>
+                    <DialogContent>
+                      <DialogHeader>
+                        <DialogTitle>Playbook-Checks ausführen</DialogTitle>
+                        <DialogDescription>
+                          Wählen Sie ein Playbook. Die Checks werden gegen alle Dokumente des Vorgangs ausgeführt.
+                        </DialogDescription>
+                      </DialogHeader>
+                      <div className="space-y-2">
+                        <label className="text-sm font-medium">Playbook</label>
+                        <select
+                          className="w-full border rounded-md px-3 py-2"
+                          value={selectedPlaybookId}
+                          onChange={(e) => setSelectedPlaybookId(e.target.value)}
+                        >
+                          <option value="">— Auswählen —</option>
+                          {playbooks.map((pb) => (
+                            <option key={pb.id} value={pb.id}>{pb.name} (v{pb.version})</option>
+                          ))}
+                        </select>
+                      </div>
+                      <div className="flex justify-end gap-2">
+                        <Button variant="outline" onClick={() => setRunChecksOpen(false)}>Abbrechen</Button>
+                        <Button onClick={handleRunChecks} disabled={!selectedPlaybookId || runChecksLoading}>
+                          {runChecksLoading ? <Loader2 className="size-4 animate-spin" /> : null}
+                          Checks starten
+                        </Button>
+                      </div>
+                    </DialogContent>
+                  </Dialog>
                   <Button variant="outline" className="w-full justify-start gap-2">
                     <FileCheck className="size-4" />
                     VVT normalisieren
@@ -330,10 +425,12 @@ export function CaseDetailPage() {
                           Laden Sie Dokumente für diesen Vorgang hoch
                         </DialogDescription>
                       </DialogHeader>
-                      <DocumentUploadZone 
+                      <DocumentUploadZone
+                        caseId={caseData.id}
+                        uploadedBy={caseData.assignee || "DSB Team"}
                         onUploadComplete={() => {
                           setIsUploadDialogOpen(false);
-                          // In a real app, refresh documents
+                          loadCase();
                         }}
                       />
                     </DialogContent>
@@ -496,9 +593,29 @@ export function CaseDetailPage() {
                 </ul>
               </div>
               <div className="flex gap-2 pt-4">
-                <Button variant="outline" className="flex-1">Als akzeptiert markieren</Button>
-                <Button variant="outline" className="flex-1">Als überfahren markieren</Button>
-                <Button className="flex-1">Als behoben markieren</Button>
+                <Button
+                  variant="outline"
+                  className="flex-1"
+                  disabled={findingStatusLoading === selectedFinding?.id}
+                  onClick={() => selectedFinding && handleFindingStatus(selectedFinding.id, "accepted")}
+                >
+                  Als akzeptiert markieren
+                </Button>
+                <Button
+                  variant="outline"
+                  className="flex-1"
+                  disabled={findingStatusLoading === selectedFinding?.id}
+                  onClick={() => selectedFinding && handleFindingStatus(selectedFinding.id, "overruled")}
+                >
+                  Als überfahren markieren
+                </Button>
+                <Button
+                  className="flex-1"
+                  disabled={findingStatusLoading === selectedFinding?.id}
+                  onClick={() => selectedFinding && handleFindingStatus(selectedFinding.id, "fixed")}
+                >
+                  {findingStatusLoading === selectedFinding?.id ? <Loader2 className="size-4 animate-spin" /> : "Als behoben markieren"}
+                </Button>
               </div>
             </div>
           )}

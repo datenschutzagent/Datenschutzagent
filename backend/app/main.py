@@ -1,4 +1,5 @@
 """FastAPI application entry point."""
+import urllib.request
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
@@ -37,5 +38,15 @@ app.include_router(api_router, prefix=settings.api_v1_prefix)
 
 @app.get("/health")
 def health():
-    """Health check for load balancers and Docker."""
-    return {"status": "ok"}
+    """Health check for load balancers and Docker. If Ollama is enabled, checks reachability."""
+    if not settings.ollama_enabled:
+        return {"status": "ok"}
+    base = settings.ollama_base_url.rstrip("/")
+    try:
+        req = urllib.request.Request(f"{base}/api/tags", method="GET")
+        with urllib.request.urlopen(req, timeout=2) as resp:
+            if resp.status == 200:
+                return {"status": "ok"}
+    except Exception:
+        return {"status": "degraded", "ollama": "unreachable"}
+    return {"status": "degraded", "ollama": "unreachable"}

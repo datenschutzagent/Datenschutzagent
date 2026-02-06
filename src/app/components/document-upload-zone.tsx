@@ -3,8 +3,9 @@ import { Card } from "./ui/card";
 import { Button } from "./ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./ui/select";
 import { Progress } from "./ui/progress";
-import { Upload, X, Check, AlertCircle } from "lucide-react";
+import { Upload, X, Check, AlertCircle, Loader2 } from "lucide-react";
 import { documentTypeLabels, type DocumentType } from "../lib/mock-data";
+import { uploadDocument } from "../lib/api";
 
 interface UploadedFile {
   id: string;
@@ -16,12 +17,15 @@ interface UploadedFile {
 }
 
 interface DocumentUploadZoneProps {
+  caseId?: string;
+  uploadedBy?: string;
   onUploadComplete?: (files: UploadedFile[]) => void;
 }
 
-export function DocumentUploadZone({ onUploadComplete }: DocumentUploadZoneProps) {
+export function DocumentUploadZone({ caseId, uploadedBy = "", onUploadComplete }: DocumentUploadZoneProps) {
   const [isDragging, setIsDragging] = useState(false);
   const [uploadedFiles, setUploadedFiles] = useState<UploadedFile[]>([]);
+  const [completing, setCompleting] = useState(false);
 
   const handleDragOver = (e: React.DragEvent) => {
     e.preventDefault();
@@ -72,35 +76,26 @@ export function DocumentUploadZone({ onUploadComplete }: DocumentUploadZoneProps
 
     setUploadedFiles((prev) => [...prev, ...newFiles]);
 
-    // Simulate upload process
-    newFiles.forEach((uploadedFile) => {
-      if (uploadedFile.status === "uploading") {
-        simulateUpload(uploadedFile.id);
-      }
-    });
+    if (caseId) {
+      setUploadedFiles((prev) =>
+        prev.map((f) => (newFiles.some((n) => n.id === f.id) && f.status === "uploading" ? { ...f, status: "success", progress: 100 } : f))
+      );
+    } else {
+      newFiles.forEach((uf) => {
+        if (uf.status === "uploading") simulateUpload(uf.id);
+      });
+    }
   };
 
   const simulateUpload = (fileId: string) => {
     let progress = 0;
     const interval = setInterval(() => {
       progress += 10;
-      
-      setUploadedFiles((prev) =>
-        prev.map((f) =>
-          f.id === fileId
-            ? { ...f, progress }
-            : f
-        )
-      );
-
+      setUploadedFiles((prev) => prev.map((f) => (f.id === fileId ? { ...f, progress } : f)));
       if (progress >= 100) {
         clearInterval(interval);
         setUploadedFiles((prev) =>
-          prev.map((f) =>
-            f.id === fileId
-              ? { ...f, status: "success", progress: 100 }
-              : f
-          )
+          prev.map((f) => (f.id === fileId ? { ...f, status: "success", progress: 100 } : f))
         );
       }
     }, 200);
@@ -118,14 +113,35 @@ export function DocumentUploadZone({ onUploadComplete }: DocumentUploadZoneProps
     );
   };
 
-  const handleComplete = () => {
-    if (onUploadComplete) {
-      onUploadComplete(uploadedFiles);
+  const handleComplete = async () => {
+    if (caseId && uploadedFiles.some((f) => f.status === "success" && f.type)) {
+      setCompleting(true);
+      const toUpload = uploadedFiles.filter((f) => f.status === "success" && f.type !== null);
+      try {
+        for (const uf of toUpload) {
+          if (uf.type) await uploadDocument(caseId, uf.file, uf.type, uploadedBy);
+        }
+        onUploadComplete?.(uploadedFiles);
+      } catch (err) {
+        setUploadedFiles((prev) =>
+          prev.map((f) =>
+            f.status === "success" && f.type
+              ? { ...f, status: "error", errorMessage: err instanceof Error ? err.message : "Upload fehlgeschlagen" }
+              : f
+          )
+        );
+      } finally {
+        setCompleting(false);
+      }
+    } else {
+      onUploadComplete?.(uploadedFiles);
     }
   };
 
-  const canComplete = uploadedFiles.length > 0 && 
-    uploadedFiles.every(f => f.status === "success" && f.type !== null);
+  const canComplete =
+    uploadedFiles.length > 0 &&
+    uploadedFiles.every((f) => f.status === "success" && f.type !== null) &&
+    !completing;
 
   return (
     <div className="space-y-4">
@@ -251,7 +267,8 @@ export function DocumentUploadZone({ onUploadComplete }: DocumentUploadZoneProps
               Alle entfernen
             </Button>
             <Button onClick={handleComplete} disabled={!canComplete}>
-              Upload abschließen
+              {completing ? <Loader2 className="size-4 animate-spin mr-2" /> : null}
+              {caseId ? "Hochladen & abschließen" : "Upload abschließen"}
             </Button>
           </div>
         </div>

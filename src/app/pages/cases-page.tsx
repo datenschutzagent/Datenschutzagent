@@ -6,12 +6,16 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "../components/ui/tabs"
 import { DashboardStats } from "../components/dashboard-stats";
 import { NewCaseDialog } from "../components/new-case-dialog";
 import { CasesSearchFilter, CasesFilters } from "../components/cases-search-filter";
-import { mockCases, statusLabels, statusColors, priorityColors, priorityLabels } from "../lib/mock-data";
+import { statusLabels, statusColors, priorityColors, priorityLabels } from "../lib/mock-data";
+import { getCases, type ApiCase } from "../lib/api";
 import { Plus, FileText, AlertCircle, CheckCircle2, Clock, LayoutDashboard, Calendar, AlertTriangle } from "lucide-react";
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 
 export function CasesPage() {
   const navigate = useNavigate();
+  const [cases, setCases] = useState<ApiCase[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [isNewCaseDialogOpen, setIsNewCaseDialogOpen] = useState(false);
   const [filters, setFilters] = useState<CasesFilters>({
     searchQuery: "",
@@ -22,65 +26,51 @@ export function CasesPage() {
     tags: [],
   });
 
-  // Extract unique departments and tags for filters
+  const loadCases = async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const list = await getCases();
+      setCases(list);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Fehler beim Laden");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    loadCases();
+  }, []);
+
   const availableDepartments = useMemo(
-    () => [...new Set(mockCases.map(c => c.department))].sort(),
-    []
+    () => [...new Set(cases.map(c => c.department))].sort(),
+    [cases]
   );
 
   const availableTags = useMemo(
-    () => [...new Set(mockCases.flatMap(c => c.tags || []))].sort(),
+    () => [] as string[],
     []
   );
 
   const filteredCases = useMemo(() => {
-    return mockCases.filter((c) => {
-      // Search query
+    return cases.filter((c) => {
       if (filters.searchQuery) {
         const query = filters.searchQuery.toLowerCase();
-        const matchesSearch = 
+        const matchesSearch =
           c.title.toLowerCase().includes(query) ||
           c.department.toLowerCase().includes(query) ||
           c.createdBy.toLowerCase().includes(query) ||
           c.id.toLowerCase().includes(query);
         if (!matchesSearch) return false;
       }
-
-      // Status filter
-      if (filters.status !== "all" && c.status !== filters.status) {
-        return false;
-      }
-
-      // Priority filter
-      if (filters.priority !== "all" && c.priority !== filters.priority) {
-        return false;
-      }
-
-      // Department filter
-      if (filters.department !== "all" && c.department !== filters.department) {
-        return false;
-      }
-
-      // Deadline filter
-      if (filters.hasDeadline !== null) {
-        const hasDeadline = !!c.deadline;
-        if (filters.hasDeadline !== hasDeadline) {
-          return false;
-        }
-      }
-
-      // Tags filter
-      if (filters.tags.length > 0) {
-        const caseTags = c.tags || [];
-        const hasAllTags = filters.tags.every(tag => caseTags.includes(tag));
-        if (!hasAllTags) return false;
-      }
-
+      if (filters.status !== "all" && c.status !== filters.status) return false;
+      if (filters.department !== "all" && c.department !== filters.department) return false;
       return true;
     });
-  }, [filters]);
+  }, [cases, filters]);
 
-  const getStatsForCase = (caseItem: typeof mockCases[0]) => {
+  const getStatsForCase = (caseItem: ApiCase) => {
     const critical = caseItem.findings.filter(f => f.severity === "critical" && f.status === "open").length;
     const high = caseItem.findings.filter(f => f.severity === "high" && f.status === "open").length;
     const fixed = caseItem.findings.filter(f => f.status === "fixed").length;
@@ -195,9 +185,9 @@ export function CasesPage() {
                             <Badge className={statusColors[caseItem.status]}>
                               {statusLabels[caseItem.status]}
                             </Badge>
-                            {caseItem.priority && (
-                              <Badge className={priorityColors[caseItem.priority]}>
-                                {priorityLabels[caseItem.priority]}
+                            {(caseItem as { priority?: string }).priority && (
+                              <Badge className={priorityColors[(caseItem as { priority: string }).priority]}>
+                                {priorityLabels[(caseItem as { priority: string }).priority]}
                               </Badge>
                             )}
                           </div>
@@ -208,15 +198,15 @@ export function CasesPage() {
                             <span>•</span>
                             <span>Erstellt: {new Date(caseItem.createdAt).toLocaleDateString("de-DE")}</span>
                           </CardDescription>
-                          {caseItem.tags && caseItem.tags.length > 0 && (
+                          {(caseItem as { tags?: string[] }).tags?.length ? (
                             <div className="flex flex-wrap gap-2 mt-2">
-                              {caseItem.tags.map((tag) => (
+                              {(caseItem as { tags: string[] }).tags.map((tag) => (
                                 <Badge key={tag} variant="outline" className="text-xs">
                                   {tag}
                                 </Badge>
                               ))}
                             </div>
-                          )}
+                          ) : null}
                         </div>
                       </div>
                     </CardHeader>
@@ -248,14 +238,14 @@ export function CasesPage() {
                         </div>
                         <div className="flex items-center gap-3 text-sm text-slate-600">
                           <Clock className="size-4" />
-                          <span>Playbook: {caseItem.playbookVersion}</span>
+                          <span>Playbook: {caseItem.playbookVersion || "—"}</span>
                         </div>
                       </div>
-                      {caseItem.deadline && (
+                      {(caseItem as { deadline?: string }).deadline && (
                         <div className="mt-4">
                           <div className="flex items-center gap-2">
                             <Calendar className="size-4 text-slate-400" />
-                            <span className="text-slate-600">Fällig: {formatDeadline(caseItem.deadline)}</span>
+                            <span className="text-slate-600">Fällig: {formatDeadline((caseItem as { deadline: string }).deadline)}</span>
                           </div>
                           {deadlineStatus === "overdue" && (
                             <div className="mt-2">
@@ -281,7 +271,23 @@ export function CasesPage() {
               })}
             </div>
 
-            {filteredCases.length === 0 && (
+            {loading && (
+              <Card>
+                <CardContent className="py-12 text-center">
+                  <p className="text-slate-600">Vorgänge werden geladen…</p>
+                </CardContent>
+              </Card>
+            )}
+            {error && (
+              <Card>
+                <CardContent className="py-12 text-center">
+                  <AlertCircle className="size-12 text-red-500 mx-auto mb-4" />
+                  <p className="text-slate-600">{error}</p>
+                  <Button className="mt-4" variant="outline" onClick={loadCases}>Erneut versuchen</Button>
+                </CardContent>
+              </Card>
+            )}
+            {!loading && !error && filteredCases.length === 0 && (
               <Card>
                 <CardContent className="py-12 text-center">
                   <FileText className="size-12 text-slate-300 mx-auto mb-4" />
@@ -294,15 +300,21 @@ export function CasesPage() {
             )}
           </TabsContent>
 
-          {/* Dashboard View */}
           <TabsContent value="dashboard">
-            <DashboardStats />
+            <DashboardStats cases={cases} />
           </TabsContent>
         </Tabs>
       </main>
 
-      {/* New Case Dialog */}
-      <NewCaseDialog open={isNewCaseDialogOpen} onOpenChange={setIsNewCaseDialogOpen} />
+      <NewCaseDialog
+        open={isNewCaseDialogOpen}
+        onOpenChange={setIsNewCaseDialogOpen}
+        onSuccess={(newCase) => {
+          setIsNewCaseDialogOpen(false);
+          loadCases();
+          navigate(`/cases/${newCase.id}`);
+        }}
+      />
     </div>
   );
 }

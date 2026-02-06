@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "./ui/dialog";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
@@ -6,43 +6,66 @@ import { Label } from "./ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./ui/select";
 import { Textarea } from "./ui/textarea";
 import { Badge } from "./ui/badge";
-import { mockPlaybooks } from "../lib/mock-data";
 import { FileText, CheckCircle2 } from "lucide-react";
+import { getPlaybooks, createCase, type ApiCase, type ApiPlaybook } from "../lib/api";
 
 interface NewCaseDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  onSuccess?: (newCase: ApiCase) => void;
 }
 
-export function NewCaseDialog({ open, onOpenChange }: NewCaseDialogProps) {
+export function NewCaseDialog({ open, onOpenChange, onSuccess }: NewCaseDialogProps) {
   const [step, setStep] = useState<1 | 2>(1);
+  const [playbooks, setPlaybooks] = useState<ApiPlaybook[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [submitError, setSubmitError] = useState<string | null>(null);
   const [formData, setFormData] = useState({
     title: "",
     department: "",
     caseType: "",
-    language: "de",
+    language: "de" as "de" | "en" | "de_en",
     description: "",
     assignee: "DSB Team",
   });
 
-  const departments = Array.from(new Set(mockPlaybooks.map(pb => pb.department)));
-  const selectedPlaybooks = mockPlaybooks.filter(
-    pb => pb.department === formData.department && pb.status === "active"
+  useEffect(() => {
+    if (open) getPlaybooks().then(setPlaybooks).catch(() => setPlaybooks([]));
+  }, [open]);
+
+  const departments = Array.from(new Set(playbooks.map(pb => pb.department).filter(Boolean))) as string[];
+  const selectedPlaybooks = playbooks.filter(
+    pb => pb.department === formData.department && pb.isActive
   );
 
-  const handleSubmit = () => {
-    // In a real app, this would create the case
-    console.log("Creating case:", formData);
-    onOpenChange(false);
-    setStep(1);
-    setFormData({
-      title: "",
-      department: "",
-      caseType: "",
-      language: "de",
-      description: "",
-      assignee: "DSB Team",
-    });
+  const handleSubmit = async () => {
+    setSubmitError(null);
+    setLoading(true);
+    try {
+      const newCase = await createCase({
+        title: formData.title,
+        department: formData.department,
+        case_type: formData.caseType,
+        language: formData.language,
+        created_by: "",
+        assignee: formData.assignee,
+      });
+      onOpenChange(false);
+      setStep(1);
+      setFormData({
+        title: "",
+        department: "",
+        caseType: "",
+        language: "de",
+        description: "",
+        assignee: "DSB Team",
+      });
+      onSuccess?.(newCase);
+    } catch (e) {
+      setSubmitError(e instanceof Error ? e.message : "Fehler beim Anlegen");
+    } finally {
+      setLoading(false);
+    }
   };
 
   const canProceedToStep2 = formData.title && formData.department;
@@ -178,11 +201,11 @@ export function NewCaseDialog({ open, onOpenChange }: NewCaseDialogProps) {
                   <div
                     key={playbook.id}
                     className={`p-4 border rounded-lg cursor-pointer transition-all ${
-                      formData.caseType === playbook.caseType
+                      formData.caseType === (playbook.caseType ?? "")
                         ? "border-blue-600 bg-blue-50"
                         : "border-slate-200 hover:border-blue-300"
                     }`}
-                    onClick={() => setFormData({ ...formData, caseType: playbook.caseType })}
+                    onClick={() => setFormData({ ...formData, caseType: playbook.caseType ?? playbook.name })}
                   >
                     <div className="flex items-start justify-between">
                       <div className="flex-1">
@@ -190,14 +213,12 @@ export function NewCaseDialog({ open, onOpenChange }: NewCaseDialogProps) {
                           <h4 className="font-medium text-slate-900">{playbook.name}</h4>
                           <Badge variant="outline">{playbook.version}</Badge>
                         </div>
-                        <p className="text-sm text-slate-600 mb-2">{playbook.caseType}</p>
+                        <p className="text-sm text-slate-600 mb-2">{playbook.caseType ?? playbook.name}</p>
                         <div className="flex items-center gap-4 text-xs text-slate-500">
-                          <span>{playbook.checks.length} Checks</span>
-                          <span>•</span>
-                          <span>{playbook.checks.filter(c => c.mandatory).length} Pflichtchecks</span>
+                          <span>{playbook.checks?.length ?? 0} Checks</span>
                         </div>
                       </div>
-                      {formData.caseType === playbook.caseType && (
+                      {formData.caseType === (playbook.caseType ?? playbook.name) && (
                         <CheckCircle2 className="size-5 text-blue-600 flex-shrink-0" />
                       )}
                     </div>
@@ -208,6 +229,9 @@ export function NewCaseDialog({ open, onOpenChange }: NewCaseDialogProps) {
           </div>
         )}
 
+        {submitError && (
+          <p className="text-sm text-red-600">{submitError}</p>
+        )}
         <DialogFooter>
           {step === 2 && (
             <Button variant="outline" onClick={() => setStep(1)}>
@@ -220,8 +244,8 @@ export function NewCaseDialog({ open, onOpenChange }: NewCaseDialogProps) {
             </Button>
           )}
           {step === 2 && (
-            <Button onClick={handleSubmit} disabled={!canSubmit}>
-              Vorgang anlegen
+            <Button onClick={handleSubmit} disabled={!canSubmit || loading}>
+              {loading ? "Wird angelegt…" : "Vorgang anlegen"}
             </Button>
           )}
         </DialogFooter>

@@ -4,19 +4,26 @@ import { Badge } from "../components/ui/badge";
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../components/ui/select";
-import { mockPlaybooks } from "../lib/mock-data";
+import { getPlaybooks, type ApiPlaybook } from "../lib/api";
 import { Plus, Search, Filter, BookOpen, CheckSquare, Archive } from "lucide-react";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 
 export function PlaybooksPage() {
   const navigate = useNavigate();
+  const [playbooks, setPlaybooks] = useState<ApiPlaybook[]>([]);
+  const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("active");
 
-  const filteredPlaybooks = mockPlaybooks.filter((pb) => {
-    const matchesSearch = pb.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                         pb.department.toLowerCase().includes(searchTerm.toLowerCase());
-    const matchesStatus = statusFilter === "all" || pb.status === statusFilter;
+  useEffect(() => {
+    getPlaybooks().then(setPlaybooks).catch(() => setPlaybooks([])).finally(() => setLoading(false));
+  }, []);
+
+  const filteredPlaybooks = playbooks.filter((pb) => {
+    const matchesSearch =
+      pb.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      (pb.department ?? "").toLowerCase().includes(searchTerm.toLowerCase());
+    const matchesStatus = statusFilter === "all" || (pb.isActive ? "active" : "archived") === statusFilter;
     return matchesSearch && matchesStatus;
   });
 
@@ -85,7 +92,6 @@ export function PlaybooksPage() {
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">Alle Status</SelectItem>
-                  <SelectItem value="draft">Entwurf</SelectItem>
                   <SelectItem value="active">Aktiv</SelectItem>
                   <SelectItem value="archived">Archiviert</SelectItem>
                 </SelectContent>
@@ -105,13 +111,9 @@ export function PlaybooksPage() {
               <CardHeader>
                 <div className="flex items-start justify-between mb-2">
                   <BookOpen className="size-8 text-blue-600" />
-                  {playbook.status === "active" && (
+                  {playbook.isActive ? (
                     <Badge className="bg-green-100 text-green-700">Aktiv</Badge>
-                  )}
-                  {playbook.status === "draft" && (
-                    <Badge className="bg-amber-100 text-amber-700">Entwurf</Badge>
-                  )}
-                  {playbook.status === "archived" && (
+                  ) : (
                     <Badge className="bg-slate-100 text-slate-700">
                       <Archive className="size-3 mr-1" />
                       Archiviert
@@ -120,7 +122,7 @@ export function PlaybooksPage() {
                 </div>
                 <CardTitle className="text-lg">{playbook.name}</CardTitle>
                 <CardDescription className="mt-2">
-                  {playbook.department} • {playbook.caseType}
+                  {playbook.department ?? "—"} • {playbook.caseType ?? "—"}
                 </CardDescription>
               </CardHeader>
               <CardContent>
@@ -133,17 +135,11 @@ export function PlaybooksPage() {
                     <span className="text-slate-600">Checks</span>
                     <div className="flex items-center gap-1">
                       <CheckSquare className="size-4 text-blue-600" />
-                      <span className="font-medium">{playbook.checks.length}</span>
+                      <span className="font-medium">{playbook.checks?.length ?? 0}</span>
                     </div>
                   </div>
-                  <div className="flex items-center justify-between text-sm">
-                    <span className="text-slate-600">Pflichtchecks</span>
-                    <span className="font-medium">
-                      {playbook.checks.filter(c => c.mandatory).length}
-                    </span>
-                  </div>
                   <div className="text-xs text-slate-500 pt-2 border-t">
-                    Aktualisiert: {new Date(playbook.updatedAt).toLocaleDateString("de-DE")}
+                    Erstellt: {new Date(playbook.createdAt).toLocaleDateString("de-DE")}
                   </div>
                 </div>
               </CardContent>
@@ -151,7 +147,14 @@ export function PlaybooksPage() {
           ))}
         </div>
 
-        {filteredPlaybooks.length === 0 && (
+        {loading && (
+          <Card>
+            <CardContent className="py-12 text-center">
+              <p className="text-slate-600">Playbooks werden geladen…</p>
+            </CardContent>
+          </Card>
+        )}
+        {!loading && filteredPlaybooks.length === 0 && (
           <Card>
             <CardContent className="py-12 text-center">
               <BookOpen className="size-12 text-slate-300 mx-auto mb-4" />

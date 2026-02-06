@@ -4,7 +4,7 @@ from datetime import datetime
 from typing import Any
 
 from sqlalchemy import DateTime, ForeignKey, Integer, String, Text
-from sqlalchemy.dialects.postgresql import ARRAY, UUID as PG_UUID
+from sqlalchemy.dialects.postgresql import ARRAY, JSONB, UUID as PG_UUID
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 
@@ -34,6 +34,19 @@ class CaseModel(Base):
     findings: Mapped[list["FindingModel"]] = relationship("FindingModel", back_populates="case", cascade="all, delete-orphan")
 
 
+class PlaybookModel(Base):
+    __tablename__ = "playbooks"
+
+    id: Mapped[uuid.UUID] = mapped_column(PG_UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    name: Mapped[str] = mapped_column(String(200), nullable=False)
+    version: Mapped[str] = mapped_column(String(50), nullable=False)
+    content: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
+    case_type: Mapped[str] = mapped_column(String(100), nullable=True)
+    department: Mapped[str] = mapped_column(String(200), nullable=True)
+    is_active: Mapped[bool] = mapped_column(default=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+
+
 class DocumentModel(Base):
     __tablename__ = "documents"
 
@@ -46,6 +59,7 @@ class DocumentModel(Base):
     size_bytes: Mapped[int] = mapped_column(Integer, nullable=False)
     uploaded_by: Mapped[str] = mapped_column(String(200), nullable=False, default="")
     storage_path: Mapped[str] = mapped_column(String(1000), nullable=False)  # path in MinIO or local FS
+    content: Mapped[str] = mapped_column(Text, nullable=True)  # Extracted text content
     uploaded_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
 
     case: Mapped["CaseModel"] = relationship("CaseModel", back_populates="documents")
@@ -115,4 +129,18 @@ def orm_to_case_response(orm: CaseModel) -> dict[str, Any]:
         "playbook_version": orm.playbook_version,
         "documents": [orm_to_document_response(d) for d in orm.documents],
         "findings": [orm_to_finding_response(f) for f in orm.findings],
+    }
+
+
+def orm_to_playbook_response(orm: PlaybookModel) -> dict[str, Any]:
+    """Map PlaybookModel to API response."""
+    return {
+        "id": orm.id,
+        "name": orm.name,
+        "version": orm.version,
+        "content": orm.content,
+        "case_type": orm.case_type,
+        "department": orm.department,
+        "is_active": orm.is_active,
+        "created_at": orm.created_at,
     }
