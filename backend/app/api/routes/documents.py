@@ -120,7 +120,7 @@ async def get_document(
 
 @router.post("", response_model=DocumentResponse, status_code=201)
 async def upload_document(
-    _user=Depends(require_roles("editor", "admin")),
+    _user=require_roles("editor", "admin"),
     case_id: UUID = Form(...),
     file: UploadFile = File(...),
     document_type: str = Form("other"),
@@ -149,7 +149,7 @@ async def upload_documents_bulk(
     document_type: str = Form("other"),
     uploaded_by: str = Form(""),
     db: AsyncSession = Depends(get_db),
-    _user=Depends(require_roles("editor", "admin")),
+    _user=require_roles("editor", "admin"),
 ):
     """Upload multiple documents for a case in one request. Text extraction runs asynchronously (Celery). Same document_type and uploaded_by apply to all."""
     if not files:
@@ -185,7 +185,7 @@ async def upload_documents_bulk(
 async def delete_document(
     document_id: UUID,
     db: AsyncSession = Depends(get_db),
-    _user=Depends(require_roles("editor", "admin")),
+    _user=require_roles("editor", "admin"),
 ):
     """Delete a document (DB record and storage file)."""
     result = await db.execute(select(DocumentModel).where(DocumentModel.id == document_id))

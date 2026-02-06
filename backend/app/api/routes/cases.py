@@ -106,7 +106,7 @@ async def get_case_activities(
 async def create_case(
     body: CaseCreate,
     db: AsyncSession = Depends(get_db),
-    _user=Depends(require_roles("editor", "admin")),
+    _user=require_roles("editor", "admin"),
 ):
     """Create a new case."""
     case = CaseModel(
@@ -136,7 +136,7 @@ async def update_case(
     case_id: UUID,
     body: CaseUpdate,
     db: AsyncSession = Depends(get_db),
-    _user=Depends(require_roles("editor", "admin")),
+    _user=require_roles("editor", "admin"),
 ):
     """Update a case (partial update)."""
     result = await db.execute(select(CaseModel).where(CaseModel.id == case_id))
@@ -161,7 +161,7 @@ async def update_case(
 async def delete_case(
     case_id: UUID,
     db: AsyncSession = Depends(get_db),
-    _user=Depends(require_roles("editor", "admin")),
+    _user=require_roles("editor", "admin"),
 ):
     """Delete a case and its documents/findings (cascade)."""
     result = await db.execute(select(CaseModel).where(CaseModel.id == case_id))
@@ -432,7 +432,7 @@ async def run_checks(
     case_id: UUID,
     body: RunChecksRequest,
     db: AsyncSession = Depends(get_db),
-    _user=Depends(require_roles("editor", "admin")),
+    _user=require_roles("editor", "admin"),
 ):
     """Run playbook checks against all case documents and persist findings."""
     result = await db.execute(

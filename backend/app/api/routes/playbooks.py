@@ -25,7 +25,7 @@ async def list_playbooks(
 async def create_playbook(
     playbook: PlaybookCreate,
     db: AsyncSession = Depends(get_db),
-    _user=Depends(require_roles("editor", "admin")),
+    _user=require_roles("editor", "admin"),
 ):
     """Create a new playbook."""
     db_playbook = PlaybookModel(
@@ -58,7 +58,7 @@ async def update_playbook(
     playbook_id: UUID,
     body: PlaybookUpdate,
     db: AsyncSession = Depends(get_db),
-    _user=Depends(require_roles("editor", "admin")),
+    _user=require_roles("editor", "admin"),
 ):
     """Update a playbook (partial)."""
     result = await db.execute(select(PlaybookModel).where(PlaybookModel.id == playbook_id))
@@ -77,7 +77,7 @@ async def update_playbook(
 async def delete_playbook(
     playbook_id: UUID,
     db: AsyncSession = Depends(get_db),
-    _user=Depends(require_roles("editor", "admin")),
+    _user=require_roles("editor", "admin"),
 ):
     """Delete a playbook."""
     result = await db.execute(select(PlaybookModel).where(PlaybookModel.id == playbook_id))

@@ -218,7 +218,7 @@ def require_roles(*allowed_roles: str):
     return Depends(_dependency)
 
 
-def get_current_user_optional(
+async def get_current_user_optional(
     credentials: HTTPAuthorizationCredentials | None = Depends(security),
     db: AsyncSession = Depends(get_db),
 ):

@@ -18,7 +18,7 @@ async def update_finding(
     finding_id: UUID,
     body: FindingUpdate,
     db: AsyncSession = Depends(get_db),
-    _user=Depends(require_roles("editor", "admin")),
+    _user=require_roles("editor", "admin"),
 ):
     """Update a finding (e.g. status: open, accepted, overruled, fixed)."""
     result = await db.execute(select(FindingModel).where(FindingModel.id == finding_id))
