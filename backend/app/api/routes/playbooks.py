@@ -4,11 +4,13 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.auth import require_roles
 from app.database import get_db
 from app.models.db import PlaybookModel, orm_to_playbook_response
 from app.models.schemas import PlaybookCreate, PlaybookResponse, PlaybookUpdate
 
 router = APIRouter()
+
 
 @router.get("", response_model=list[PlaybookResponse])
 async def list_playbooks(
@@ -23,6 +25,7 @@ async def list_playbooks(
 async def create_playbook(
     playbook: PlaybookCreate,
     db: AsyncSession = Depends(get_db),
+    _user=Depends(require_roles("editor", "admin")),
 ):
     """Create a new playbook."""
     db_playbook = PlaybookModel(
@@ -55,6 +58,7 @@ async def update_playbook(
     playbook_id: UUID,
     body: PlaybookUpdate,
     db: AsyncSession = Depends(get_db),
+    _user=Depends(require_roles("editor", "admin")),
 ):
     """Update a playbook (partial)."""
     result = await db.execute(select(PlaybookModel).where(PlaybookModel.id == playbook_id))
@@ -73,6 +77,7 @@ async def update_playbook(
 async def delete_playbook(
     playbook_id: UUID,
     db: AsyncSession = Depends(get_db),
+    _user=Depends(require_roles("editor", "admin")),
 ):
     """Delete a playbook."""
     result = await db.execute(select(PlaybookModel).where(PlaybookModel.id == playbook_id))

@@ -19,17 +19,19 @@ Das Backend ist mit FastAPI umgesetzt. Interaktive Doku:
 
 | Methode | Pfad | Beschreibung |
 | :--- | :--- | :--- |
-| GET | `/api/v1/me` | Aktuellen User liefern. Bei **OIDC aktiv:** erfordert `Authorization: Bearer <JWT>`; User wird aus Token (`sub`) ermittelt bzw. bei erstem Login in Tabelle `users` angelegt (`oidc_sub`). Bei **OIDC inaktiv:** aus `CURRENT_USER_ID` oder Default-User. Response: `id`, `display_name`, `email`, `preferences`, `created_at`, `updated_at`. |
+| GET | `/api/v1/me` | Aktuellen User liefern. Bei **OIDC aktiv:** erfordert `Authorization: Bearer <JWT>`; User wird aus Token (`sub`) ermittelt bzw. bei erstem Login in Tabelle `users` angelegt (`oidc_sub`). Bei **OIDC inaktiv:** aus `CURRENT_USER_ID` oder Default-User. Response: `id`, `display_name`, `email`, `role` (`viewer` \| `editor` \| `admin`), `preferences`, `created_at`, `updated_at`. |
 | PATCH | `/api/v1/me` | Profil aktualisieren. Body: optional `display_name`, optional `email`, optional `preferences` (Objekt mit `theme` (light \| dark \| system), `language` (de \| en), `notifications`). Erfordert dieselbe Auth wie GET /me. |
 
 **Hinweis:** Wenn `OIDC_ENABLED=true`, sind alle Routen unter `/api/v1` (außer `GET /api/v1/auth/config`) geschützt; Requests ohne gültigen Bearer-Token erhalten 401. Bei OIDC inaktiv wird der „aktuelle User“ über `CURRENT_USER_ID` (UUID) oder einen Default-User bestimmt. Theme und Sprache aus `preferences` werden im Frontend app-weit angewendet.
 
-### Admin (Verwaltung, read-only)
+**RBAC:** Schreib-Operationen (Cases/Documents/Findings/Playbooks POST, PATCH, DELETE; Run-Checks POST) erfordern Rolle `editor` oder `admin`; andernfalls 403 (Insufficient permissions). Admin-Endpoints (`/api/v1/admin/*`) erfordern Rolle `admin`.
+
+### Admin (Verwaltung, read-only; Rolle `admin` erforderlich)
 
 | Methode | Pfad | Beschreibung |
 | :--- | :--- | :--- |
-| GET | `/api/v1/admin/settings` | Generelle Einstellungen (read-only) aus der Konfiguration: `app_name`, `ollama_base_url`, `ollama_enabled`, `ollama_model`, `weaviate_url`, `weaviate_indexing_enabled`, `storage_backend`, `storage_local_path`, `s3_configured`, `s3_bucket`, `celery_enabled`, `celery_broker_configured`. Keine Passwörter/Secrets. |
-| GET | `/api/v1/admin/connections` | Verbindungstests zu Ollama, Weaviate, MinIO, Postgres, Redis. Response: pro Dienst `{ "status": "ok" | "disabled" | "not_configured" | "unreachable", "message"?: "..." }`. |
+| GET | `/api/v1/admin/settings` | Generelle Einstellungen (read-only) aus der Konfiguration: `app_name`, `ollama_base_url`, `ollama_enabled`, `ollama_model`, `weaviate_url`, `weaviate_indexing_enabled`, `storage_backend`, `storage_local_path`, `s3_configured`, `s3_bucket`, `celery_enabled`, `celery_broker_configured`. Keine Passwörter/Secrets. **Rolle `admin` erforderlich;** sonst 403. |
+| GET | `/api/v1/admin/connections` | Verbindungstests zu Ollama, Weaviate, MinIO, Postgres, Redis. Response: pro Dienst `{ "status": "ok" | "disabled" | "not_configured" | "unreachable", "message"?: "..." }`. **Rolle `admin` erforderlich;** sonst 403. |
 
 ### Cases
 

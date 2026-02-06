@@ -6,12 +6,14 @@ import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../components/ui/select";
 import { NewPlaybookDialog } from "../components/new-playbook-dialog";
-import { getPlaybooks, type ApiPlaybook } from "../lib/api";
+import { getPlaybooks, canEdit, isAdmin, type ApiPlaybook } from "../lib/api";
+import { useAuthOptional } from "../contexts/AuthContext";
 import { Plus, Search, Filter, BookOpen, CheckSquare, Archive } from "lucide-react";
 import { useState, useEffect } from "react";
 
 export function PlaybooksPage() {
   const navigate = useNavigate();
+  const auth = useAuthOptional();
   const [playbooks, setPlaybooks] = useState<ApiPlaybook[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState("");
@@ -55,9 +57,11 @@ export function PlaybooksPage() {
               <Link to="/profile" className="text-sm font-medium text-slate-600 hover:text-slate-900">
                 Mein Profil
               </Link>
-              <Link to="/admin" className="text-sm font-medium text-slate-600 hover:text-slate-900">
-                Verwaltung
-              </Link>
+              {isAdmin(auth?.user ?? null) && (
+                <Link to="/admin" className="text-sm font-medium text-slate-600 hover:text-slate-900">
+                  Verwaltung
+                </Link>
+              )}
               <AppHeaderUser />
             </nav>
           </div>
@@ -74,10 +78,12 @@ export function PlaybooksPage() {
               Versionierte Prüfvorlagen für verschiedene Fachbereiche und Case-Typen
             </p>
           </div>
-          <Button className="gap-2" onClick={() => setNewPlaybookOpen(true)}>
-            <Plus className="size-4" />
-            Neues Playbook
-          </Button>
+          {canEdit(auth?.user ?? null) && (
+            <Button className="gap-2" onClick={() => setNewPlaybookOpen(true)}>
+              <Plus className="size-4" />
+              Neues Playbook
+            </Button>
+          )}
         </div>
 
         {/* Filters */}

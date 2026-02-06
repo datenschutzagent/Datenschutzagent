@@ -66,7 +66,7 @@ Abgleich der Projektbeschreibung (Anforderungen) mit dem aktuellen Implementieru
 | On-Prem / datenschutzkonform (LLM lokal) | ✅ | Ollama; Konfiguration über `OLLAMA_*`. |
 | Storage (lokal + MinIO) | ✅ | `storage.py`: Backends umschaltbar. |
 | AuthN (OAuth2/OIDC) | ✅ | Optional (`OIDC_ENABLED`); JWT-Validierung (JWKS), User-Sync (`oidc_sub`), geschützte API-Routen; Frontend Login/Logout, Nutzeranzeige. |
-| AuthZ / RBAC (Rollen) | ❌ | Noch nicht implementiert (optionaler Folgesprint). |
+| AuthZ / RBAC (Rollen) | ✅ | Rollen `viewer`, `editor`, `admin`; Spalte `users.role`, Migration `005_add_user_role.sql`; `require_roles()`-Dependency; Schreib-Routen nur für editor/admin, Admin-Routen nur für admin; GET /me liefert `role`; Frontend nutzt Rolle für Sichtbarkeit von Buttons und Admin-Link. |
 | Retention/Archivierung konfigurierbar | ❌ | Nicht implementiert. |
 | Reproduzierbarkeit (Playbook-/Modellversion) | ✅ | Bei jedem `run_checks`-Event werden `playbook_version` und `model` (Ollama) im `activity_log.payload` geloggt; Reproduktion von Check-Läufen nachvollziehbar. |
 | Tests & CI | ✅ | Backend: pytest (backend/tests/), Frontend: Vitest + Testing Library (npm run test). CI: GitHub Actions (Frontend- und Backend-Tests mit Postgres-Service). |

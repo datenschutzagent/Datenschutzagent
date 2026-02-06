@@ -1,6 +1,23 @@
 # Sprint-Plan (aktuell)
 
-Stand: Sprint **AuthN (OAuth2/OIDC + Frontend-Login)** abgeschlossen (Feb 2026). Zuvor: DE/EN-Ausbau, Code-Review/Verbesserungen, Weaviate/RAG, OCR, Celery, Dokument-Versionierung, Cross-Document, Artefakte, Audit, Playbook-CRUD, Annotated Documents.
+Stand: Sprint **RBAC (Rollen)** abgeschlossen (Feb 2026). Zuvor: AuthN (OIDC), DE/EN-Ausbau, Code-Review/Verbesserungen, Weaviate/RAG, OCR, Celery, Dokument-Versionierung, Cross-Document, Artefakte, Audit, Playbook-CRUD, Annotated Documents.
+
+---
+
+## Sprint – RBAC (Rollen) (abgeschlossen, Feb 2026)
+
+**Ziel:** Rollenbasierte Zugriffskontrolle: Nutzer mit Rolle `viewer` können nur lesen; `editor` darf Cases, Dokumente, Playbooks, Run-Checks und Finding-Status bearbeiten; `admin` zusätzlich Admin-Endpoints (Settings, Connections). Frontend blendet Schreib- und Admin-Aktionen je nach Rolle aus.
+
+| # | Aufgabe | Status |
+| :--- | :--- | :--- |
+| 1 | **Rollenmodell** – Migration `005_add_user_role.sql`: Spalte `users.role` (VARCHAR(20), Default `viewer`); bestehende User auf `editor` gesetzt. Config `RBAC_DEFAULT_ROLE` (z. B. `viewer`) für neue OIDC-User. | ✅ |
+| 2 | **Backend – UserModel/Schema** – `UserModel.role`, UserResponse/orm_to_user_response mit `role`; bei erstem OIDC-Login `role=settings.rbac_default_role`. | ✅ |
+| 3 | **Backend – require_roles** – Dependency `require_roles("editor", "admin")` bzw. `require_roles("admin")` in `core/auth.py`; Schreib-Routen (Cases POST/PATCH/DELETE, Documents POST/POST bulk/DELETE, Findings PATCH, Playbooks POST/PATCH/DELETE, Run-Checks POST) nur für editor/admin; Admin-Routen (`/admin/*`) nur für admin. | ✅ |
+| 4 | **API** – GET /me liefert `role` (`viewer` \| `editor` \| `admin`). Bei fehlender Berechtigung 403. | ✅ |
+| 5 | **Frontend** – Rolle aus `/me` im AuthContext; `canEdit()`/`isAdmin()` in api.ts. Für `viewer`: „Neuer Vorgang“, „Neues Playbook“, Bearbeiten/Löschen (Case, Playbook), Dokument hochladen, „Checks starten“, Finding-Status-Buttons und Admin-Link ausgeblendet; Hinweis „Sie haben nur Leserechte“. Admin-Seite: Nicht-Admin sieht Hinweis „Keine Berechtigung“. | ✅ |
+| 6 | **Dokumentation** – sprint_plan.md, roadmap.md, requirements_gap.md, api.md, README um RBAC ergänzt. | ✅ |
+
+**Abnahme:** Nutzer mit Rolle `viewer` können alle Lese-Endpoints nutzen; Schreib- und Admin-Aufrufe liefern 403; Frontend zeigt keine Schreib-Buttons. Nutzer mit Rolle `editor` wie bisher (Lesen + Schreiben), ohne Admin. Nutzer mit Rolle `admin` haben volle Rechte inkl. GET /admin/settings und GET /admin/connections.
 
 ---
 

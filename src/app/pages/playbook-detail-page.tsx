@@ -20,8 +20,11 @@ import {
   createPlaybook,
   updatePlaybook,
   deletePlaybook,
+  canEdit as userCanEdit,
+  isAdmin,
   type ApiPlaybook,
 } from "../lib/api";
+import { useAuthOptional } from "../contexts/AuthContext";
 import {
   ArrowLeft,
   BookOpen,
@@ -53,6 +56,8 @@ function normalizeChecks(checks: unknown[]): { id: string; name: string; descrip
 export function PlaybookDetailPage() {
   const { playbookId } = useParams();
   const navigate = useNavigate();
+  const auth = useAuthOptional();
+  const canEdit = userCanEdit(auth?.user ?? null);
   const [playbook, setPlaybook] = useState<ApiPlaybook | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -174,9 +179,11 @@ export function PlaybookDetailPage() {
               <Link to="/profile" className="text-sm font-medium text-slate-600 hover:text-slate-900">
                 Mein Profil
               </Link>
-              <Link to="/admin" className="text-sm font-medium text-slate-600 hover:text-slate-900">
-                Verwaltung
-              </Link>
+              {isAdmin(auth?.user ?? null) && (
+                <Link to="/admin" className="text-sm font-medium text-slate-600 hover:text-slate-900">
+                  Verwaltung
+                </Link>
+              )}
               <AppHeaderUser />
             </nav>
           </div>
@@ -220,6 +227,7 @@ export function PlaybookDetailPage() {
                 </div>
               </div>
             </div>
+            {canEdit && (
             <div className="flex gap-2">
               <Button
                 variant="outline"
@@ -260,6 +268,7 @@ export function PlaybookDetailPage() {
                 Löschen
               </Button>
             </div>
+            )}
           </div>
         </div>
 

@@ -9,6 +9,7 @@ import { RadioGroup, RadioGroupItem } from "../components/ui/radio-group";
 import { usePreferences } from "../contexts/PreferencesContext";
 import {
   updateCurrentUser,
+  isAdmin,
   type UserTheme,
   type UserUILanguage,
   type UserUpdateInput,
@@ -78,9 +79,11 @@ export function ProfilePage() {
               <Link to="/profile" className="text-sm font-medium text-blue-600 dark:text-blue-400">
                 Mein Profil
               </Link>
-              <Link to="/admin" className="text-sm font-medium text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100">
-                Verwaltung
-              </Link>
+              {user && isAdmin(user) && (
+                <Link to="/admin" className="text-sm font-medium text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100">
+                  Verwaltung
+                </Link>
+              )}
               <AppHeaderUser />
             </nav>
           </div>

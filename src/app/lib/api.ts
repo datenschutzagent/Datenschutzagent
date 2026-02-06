@@ -167,13 +167,26 @@ export interface UserPreferences {
   notifications?: Record<string, unknown>;
 }
 
+export type UserRole = "viewer" | "editor" | "admin";
+
 export interface ApiUser {
   id: string;
   display_name: string;
   email: string | null;
+  role?: UserRole;
   preferences: UserPreferences | Record<string, unknown>;
   created_at: string;
   updated_at: string;
+}
+
+/** True if user can create/edit/delete cases, documents, playbooks, run checks, update finding status. */
+export function canEdit(user: ApiUser | null): boolean {
+  return user?.role === "editor" || user?.role === "admin";
+}
+
+/** True if user can access admin endpoints (settings, connections). */
+export function isAdmin(user: ApiUser | null): boolean {
+  return user?.role === "admin";
 }
 
 export interface UserUpdateInput {

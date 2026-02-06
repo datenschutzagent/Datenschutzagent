@@ -8,12 +8,14 @@ import { DashboardStats } from "../components/dashboard-stats";
 import { NewCaseDialog } from "../components/new-case-dialog";
 import { CasesSearchFilter, CasesFilters } from "../components/cases-search-filter";
 import { statusLabels, statusColors, priorityColors, priorityLabels } from "../lib/mock-data";
-import { getCases, type ApiCase } from "../lib/api";
+import { getCases, canEdit, isAdmin, type ApiCase } from "../lib/api";
+import { useAuthOptional } from "../contexts/AuthContext";
 import { Plus, FileText, AlertCircle, CheckCircle2, Clock, LayoutDashboard, Calendar, AlertTriangle } from "lucide-react";
 import { useState, useMemo, useEffect } from "react";
 
 export function CasesPage() {
   const navigate = useNavigate();
+  const auth = useAuthOptional();
   const [cases, setCases] = useState<ApiCase[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -115,9 +117,11 @@ export function CasesPage() {
               <Link to="/profile" className="text-sm font-medium text-slate-600 hover:text-slate-900">
                 Mein Profil
               </Link>
-              <Link to="/admin" className="text-sm font-medium text-slate-600 hover:text-slate-900">
-                Verwaltung
-              </Link>
+              {isAdmin(auth?.user ?? null) && (
+                <Link to="/admin" className="text-sm font-medium text-slate-600 hover:text-slate-900">
+                  Verwaltung
+                </Link>
+              )}
               <AppHeaderUser />
             </nav>
           </div>
@@ -134,10 +138,12 @@ export function CasesPage() {
               {filteredCases.length} {filteredCases.length === 1 ? "Vorgang" : "Vorgänge"}
             </p>
           </div>
-          <Button className="gap-2" onClick={() => setIsNewCaseDialogOpen(true)}>
-            <Plus className="size-4" />
-            Neuer Vorgang
-          </Button>
+          {canEdit(auth?.user ?? null) && (
+            <Button className="gap-2" onClick={() => setIsNewCaseDialogOpen(true)}>
+              <Plus className="size-4" />
+              Neuer Vorgang
+            </Button>
+          )}
         </div>
 
         {/* Tabs for Dashboard vs List View */}

@@ -55,6 +55,10 @@ Tabellen werden beim Backend-Start per `Base.metadata.create_all` angelegt. Zus�
 
 Wenn OIDC aktiviert ist (`OIDC_ENABLED=true` in der `.env`), sind alle API-Routen außer `/health` und `GET /api/v1/auth/config` geschützt. Das Frontend leitet nicht eingeloggte Nutzer zum konfigurierten IdP (z. B. Keycloak) weiter und tauscht nach dem Login den Autorisierungscode per PKCE gegen ein Token aus. Konfiguration siehe [.env.example](.env.example) (Abschnitt OAuth2/OIDC). Ohne OIDC wird ein Default-User verwendet; optional kann `CURRENT_USER_ID` gesetzt werden.
 
+### Rollen (RBAC)
+
+Jeder Nutzer hat eine Rolle: **viewer** (nur Lesen), **editor** (Lesen + Erstellen/Bearbeiten/Löschen von Cases, Dokumenten, Playbooks, Run-Checks, Finding-Status), **admin** (wie editor + Zugriff auf Verwaltung: Einstellungen, Verbindungstests). Neue Nutzer (erstmaliger OIDC-Login) erhalten die Default-Rolle aus `RBAC_DEFAULT_ROLE` (z. B. `viewer`). Bestehende User werden per Migration `005_add_user_role.sql` auf `editor` gesetzt. Die Rolle wird in GET `/api/v1/me` zurückgegeben; das Frontend blendet Schreib- und Admin-Aktionen für Nutzer mit Rolle viewer aus.
+
 ## Weitere Dokumentation
 
 - [docs/architecture.md](docs/architecture.md) – Systemarchitektur

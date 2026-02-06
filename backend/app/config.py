@@ -63,6 +63,9 @@ class Settings(BaseSettings):
     oidc_audience: str | None = None  # Optional; if set, JWT aud claim must match
     oidc_scopes: str = "openid profile email"  # Space-separated
 
+    # RBAC: default role for new users (viewer, editor, admin). Existing users updated by migration.
+    rbac_default_role: str = "viewer"
+
     # Weaviate (optional; RAG document checks)
     weaviate_url: str = "http://localhost:8080"
     weaviate_indexing_enabled: bool = False

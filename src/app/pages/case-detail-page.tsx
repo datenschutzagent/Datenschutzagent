@@ -6,7 +6,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "../components/ui/tabs"
 import { Alert, AlertDescription } from "../components/ui/alert";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "../components/ui/dialog";
 import { statusLabels, statusColors, findingStatusLabels, severityColors } from "../lib/mock-data";
-import { getCase, getPlaybooks, runChecks, updateFindingStatus, getDSBReportBlob, downloadBlob, type ApiCase, type ApiFinding, type ApiPlaybook, type RunChecksStrategy } from "../lib/api";
+import { getCase, getPlaybooks, runChecks, updateFindingStatus, getDSBReportBlob, downloadBlob, canEdit, isAdmin, type ApiCase, type ApiFinding, type ApiPlaybook, type RunChecksStrategy } from "../lib/api";
+import { useAuthOptional } from "../contexts/AuthContext";
 import { VVTNormalizationView } from "../components/vvt-normalization-view";
 import { DSBReportView } from "../components/dsb-report-view";
 import { AnnotatedDocumentsView } from "../components/annotated-documents-view";
@@ -21,6 +22,8 @@ import { useState, useEffect } from "react";
 export function CaseDetailPage() {
   const { caseId } = useParams();
   const navigate = useNavigate();
+  const auth = useAuthOptional();
+  const userCanEdit = canEdit(auth?.user ?? null);
   const [caseData, setCaseData] = useState<ApiCase | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -131,9 +134,11 @@ export function CaseDetailPage() {
               <Link to="/profile" className="text-sm font-medium text-slate-600 hover:text-slate-900">
                 Mein Profil
               </Link>
-              <Link to="/admin" className="text-sm font-medium text-slate-600 hover:text-slate-900">
-                Verwaltung
-              </Link>
+              {isAdmin(auth?.user ?? null) && (
+                <Link to="/admin" className="text-sm font-medium text-slate-600 hover:text-slate-900">
+                  Verwaltung
+                </Link>
+              )}
               <AppHeaderUser />
             </nav>
           </div>
@@ -147,6 +152,15 @@ export function CaseDetailPage() {
           <ArrowLeft className="size-4" />
           Zurück zur Übersicht
         </Button>
+
+        {/* Viewer hint */}
+        {auth?.user && auth.user.role === "viewer" && (
+          <Alert className="mb-4 border-amber-200 bg-amber-50">
+            <AlertDescription className="text-amber-800">
+              Sie haben nur Leserechte. Bearbeiten, Löschen und das Ausführen von Checks sind nicht möglich.
+            </AlertDescription>
+          </Alert>
+        )}
 
         {/* Case Header */}
         <div className="mb-6">
@@ -245,6 +259,7 @@ export function CaseDetailPage() {
               onRunChecks={handleRunChecks}
               runChecksLoading={runChecksLoading}
               onSelectFinding={setSelectedFinding}
+              canEdit={userCanEdit}
             />
           </TabsContent>
 
@@ -255,6 +270,7 @@ export function CaseDetailPage() {
               isUploadDialogOpen={isUploadDialogOpen}
               setIsUploadDialogOpen={setIsUploadDialogOpen}
               onUploadComplete={loadCase}
+              canEdit={userCanEdit}
             />
           </TabsContent>
 
@@ -331,31 +347,33 @@ export function CaseDetailPage() {
                   ))}
                 </ul>
               </div>
-              <div className="flex gap-2 pt-4">
-                <Button
-                  variant="outline"
-                  className="flex-1"
-                  disabled={findingStatusLoading === selectedFinding?.id}
-                  onClick={() => selectedFinding && handleFindingStatus(selectedFinding.id, "accepted")}
-                >
-                  Als akzeptiert markieren
-                </Button>
-                <Button
-                  variant="outline"
-                  className="flex-1"
-                  disabled={findingStatusLoading === selectedFinding?.id}
-                  onClick={() => selectedFinding && handleFindingStatus(selectedFinding.id, "overruled")}
-                >
-                  Als überfahren markieren
-                </Button>
-                <Button
-                  className="flex-1"
-                  disabled={findingStatusLoading === selectedFinding?.id}
-                  onClick={() => selectedFinding && handleFindingStatus(selectedFinding.id, "fixed")}
-                >
-                  {findingStatusLoading === selectedFinding?.id ? <Loader2 className="size-4 animate-spin" /> : "Als behoben markieren"}
-                </Button>
-              </div>
+              {userCanEdit && (
+                <div className="flex gap-2 pt-4">
+                  <Button
+                    variant="outline"
+                    className="flex-1"
+                    disabled={findingStatusLoading === selectedFinding?.id}
+                    onClick={() => selectedFinding && handleFindingStatus(selectedFinding.id, "accepted")}
+                  >
+                    Als akzeptiert markieren
+                  </Button>
+                  <Button
+                    variant="outline"
+                    className="flex-1"
+                    disabled={findingStatusLoading === selectedFinding?.id}
+                    onClick={() => selectedFinding && handleFindingStatus(selectedFinding.id, "overruled")}
+                  >
+                    Als überfahren markieren
+                  </Button>
+                  <Button
+                    className="flex-1"
+                    disabled={findingStatusLoading === selectedFinding?.id}
+                    onClick={() => selectedFinding && handleFindingStatus(selectedFinding.id, "fixed")}
+                  >
+                    {findingStatusLoading === selectedFinding?.id ? <Loader2 className="size-4 animate-spin" /> : "Als behoben markieren"}
+                  </Button>
+                </div>
+              )}
             </div>
           )}
         </DialogContent>

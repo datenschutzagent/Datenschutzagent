@@ -163,11 +163,12 @@ async def get_current_user_oidc(
         await db.refresh(user)
         return user
 
-    # First login: create user
+    # First login: create user with default RBAC role
     new_user = UserModel(
         oidc_sub=sub,
         display_name=display_name,
         email=email[:320] if email and len(email) > 320 else (email or None),
+        role=settings.rbac_default_role if settings.rbac_default_role in ("viewer", "editor", "admin") else "viewer",
         preferences={"theme": "system", "language": "de"},
     )
     db.add(new_user)
@@ -203,6 +204,18 @@ async def get_current_user(
     if settings.oidc_enabled:
         return await get_current_user_oidc(credentials=credentials, db=db)
     return await get_current_user_fallback(db=db)
+
+
+def require_roles(*allowed_roles: str):
+    """Dependency factory: require current user to have one of the given roles (e.g. editor, admin). Raises 403 otherwise."""
+    async def _dependency(current_user: UserModel = Depends(get_current_user)) -> UserModel:
+        if current_user.role not in allowed_roles:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Insufficient permissions",
+            )
+        return current_user
+    return Depends(_dependency)
 
 
 def get_current_user_optional(

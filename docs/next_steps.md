@@ -1,6 +1,6 @@
 # Nächste Schritte – Plan nach Roadmap & Gap-Analyse
 
-Stand: Feb 2026, nach Abgleich mit Code. Phase 1–3 der Roadmap und die priorisierten Gap-Punkte (Run-Checks, Frontend-API, Finding-Status, VVT, Cross-Document, Artefakte, Versionierung, Audit, Celery, OCR, Weaviate/RAG, Code-Review, DE/EN-Ausbau, **AuthN OAuth2/OIDC**) sind umgesetzt. **Verbleibende Lücken:** AuthZ/RBAC (Rollen), optional Retention/Archivierung. **Nächster Sprint:** siehe `docs/sprint_plan.md`.
+Stand: Feb 2026, nach Abgleich mit Code. Phase 1–3 der Roadmap und die priorisierten Gap-Punkte (Run-Checks, Frontend-API, Finding-Status, VVT, Cross-Document, Artefakte, Versionierung, Audit, Celery, OCR, Weaviate/RAG, Code-Review, DE/EN-Ausbau, **AuthN OAuth2/OIDC**, **AuthZ/RBAC**) sind umgesetzt. **Verbleibende Lücken:** optional Retention/Archivierung. **Nächster Sprint:** siehe `docs/sprint_plan.md`.
 
 ---
 
@@ -22,6 +22,7 @@ Stand: Feb 2026, nach Abgleich mit Code. Phase 1–3 der Roadmap und die prioris
 | **DSB Report** | Implementiert | ✅ `dsb_report_service.py`, `GET /cases/{id}/dsb-report` (format=json \| markdown); Frontend `DSBReportView`. |
 | **Annotierte Dokumente** | Implementiert | ✅ `annotated_document_service.py`; `GET /cases/{id}/annotated-documents` (Liste), `GET /cases/{id}/annotated-documents/{document_id}` (DOCX-Download); Frontend `AnnotatedDocumentsView` mit `caseId`, echte API. |
 | **Audit-Log / Activities** | Implementiert | ✅ Tabelle `activity_log` in `models/db.py`; Run-Checks und PATCH Finding schreiben Events; `GET /cases/{id}/activities` in `cases.py`; Frontend nutzt `getCaseActivities()`. |
+| **RBAC** | Implementiert | ✅ Migration `005_add_user_role.sql`; `UserModel.role`; `require_roles()` in `core/auth.py`; Schreib-Routen nur für editor/admin, Admin-Routen nur für admin; GET /me liefert `role`; Frontend blendet Schreib- und Admin-Aktionen für viewer aus. |
 
 ### Frontend
 
@@ -48,7 +49,6 @@ Stand: Feb 2026, nach Abgleich mit Code. Phase 1–3 der Roadmap und die prioris
 
 | Lücke | Priorität | Anmerkung |
 | :--- | :--- | :--- |
-| **AuthZ / RBAC** | Phase 4 | Rollen (z. B. viewer/editor/admin), Rechte pro Ressource; optional. |
 | **Retention/Archivierung** | Optional | Konfigurierbare Aufbewahrungsfristen (Roadmap Phase 4). |
 
 Konkrete Sprint-Planung und Backlog: **`docs/sprint_plan.md`**.
@@ -74,4 +74,4 @@ Konkrete Sprint-Planung und Backlog: **`docs/sprint_plan.md`**.
 
 - **Gap „Findings maschinenlesbar“ / „Finding-Status in UI“:** **erledigt.**
 
-- **Verbleibende Lücken (Roadmap Phase 4 / Gap):** AuthZ/RBAC (Rollen), optional Retention/Archivierung, Logging/Monitoring. AuthN (OIDC), DE/EN-Ausbau, OCR und Phase 2/3 sind erledigt.
+- **Verbleibende Lücken (Roadmap Phase 4 / Gap):** optional Retention/Archivierung, Logging/Monitoring. AuthN (OIDC), AuthZ/RBAC, DE/EN-Ausbau, OCR und Phase 2/3 sind erledigt.

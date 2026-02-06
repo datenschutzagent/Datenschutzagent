@@ -5,6 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.auth import require_roles
 from app.database import get_db
 from app.models.db import ActivityLogModel, FindingModel, orm_to_finding_response
 from app.models.schemas import FindingResponse, FindingUpdate
@@ -17,6 +18,7 @@ async def update_finding(
     finding_id: UUID,
     body: FindingUpdate,
     db: AsyncSession = Depends(get_db),
+    _user=Depends(require_roles("editor", "admin")),
 ):
     """Update a finding (e.g. status: open, accepted, overruled, fixed)."""
     result = await db.execute(select(FindingModel).where(FindingModel.id == finding_id))

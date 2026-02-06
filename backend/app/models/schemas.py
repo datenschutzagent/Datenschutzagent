@@ -211,10 +211,14 @@ class UserPreferences(BaseModel):
     notifications: dict[str, Any] | None = None  # placeholder for later
 
 
+UserRoleEnum = Literal["viewer", "editor", "admin"]
+
+
 class UserResponse(BaseModel):
     id: UUID
     display_name: str
     email: str | None = None
+    role: UserRoleEnum = "viewer"
     preferences: dict[str, Any] = Field(default_factory=dict)
     created_at: datetime
     updated_at: datetime

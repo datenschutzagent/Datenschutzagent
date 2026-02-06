@@ -20,6 +20,8 @@ export interface CaseOverviewTabProps {
   onRunChecks: () => void;
   runChecksLoading: boolean;
   onSelectFinding: (finding: ApiFinding) => void;
+  /** When false (e.g. viewer role), hide/disable write actions like Run Checks. */
+  canEdit?: boolean;
 }
 
 export function CaseOverviewTab({
@@ -36,6 +38,7 @@ export function CaseOverviewTab({
   onRunChecks,
   runChecksLoading,
   onSelectFinding,
+  canEdit = true,
 }: CaseOverviewTabProps) {
   return (
     <div className="space-y-6">
@@ -142,6 +145,7 @@ export function CaseOverviewTab({
             <CardTitle className="text-base">Aktionen</CardTitle>
           </CardHeader>
           <CardContent className="space-y-2">
+            {canEdit && (
             <Dialog open={runChecksOpen} onOpenChange={setRunChecksOpen}>
               <DialogTrigger asChild>
                 <Button variant="outline" className="w-full justify-start gap-2">
@@ -193,6 +197,7 @@ export function CaseOverviewTab({
                 </div>
               </DialogContent>
             </Dialog>
+            )}
             <Button variant="outline" className="w-full justify-start gap-2">
               <FileCheck className="size-4" />
               VVT normalisieren

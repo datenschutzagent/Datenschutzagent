@@ -12,6 +12,8 @@ export interface CaseDocumentsTabProps {
   isUploadDialogOpen: boolean;
   setIsUploadDialogOpen: (open: boolean) => void;
   onUploadComplete: () => void;
+  /** When false (e.g. viewer role), hide upload button. */
+  canEdit?: boolean;
 }
 
 export function CaseDocumentsTab({
@@ -19,6 +21,7 @@ export function CaseDocumentsTab({
   isUploadDialogOpen,
   setIsUploadDialogOpen,
   onUploadComplete,
+  canEdit = true,
 }: CaseDocumentsTabProps) {
   return (
     <Card>
@@ -28,6 +31,7 @@ export function CaseDocumentsTab({
             <CardTitle>Dokumente</CardTitle>
             <CardDescription>Alle hochgeladenen Dokumente mit Versionierung</CardDescription>
           </div>
+          {canEdit && (
           <Dialog open={isUploadDialogOpen} onOpenChange={setIsUploadDialogOpen}>
             <DialogTrigger asChild>
               <Button className="gap-2">
@@ -52,6 +56,7 @@ export function CaseDocumentsTab({
               />
             </DialogContent>
           </Dialog>
+          )}
         </div>
       </CardHeader>
       <CardContent>

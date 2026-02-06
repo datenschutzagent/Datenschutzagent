@@ -92,6 +92,7 @@ class UserModel(Base):
     oidc_sub: Mapped[str | None] = mapped_column(String(500), nullable=True, unique=True)
     display_name: Mapped[str] = mapped_column(String(200), nullable=False, default="Standardnutzer")
     email: Mapped[str | None] = mapped_column(String(320), nullable=True)
+    role: Mapped[str] = mapped_column(String(20), nullable=False, default="viewer")  # viewer | editor | admin
     preferences: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow)
@@ -115,6 +116,7 @@ def orm_to_user_response(orm: UserModel) -> dict[str, Any]:
         "id": orm.id,
         "display_name": orm.display_name,
         "email": orm.email,
+        "role": orm.role,
         "preferences": orm.preferences or {},
         "created_at": orm.created_at,
         "updated_at": orm.updated_at,

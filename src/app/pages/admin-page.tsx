@@ -1,10 +1,12 @@
-import { Link } from "react-router";
+import { Link, useNavigate } from "react-router";
 import { useState, useEffect } from "react";
 import { AppHeaderUser } from "../components/app-header-user";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../components/ui/card";
 import { Button } from "../components/ui/button";
-import { getAdminSettings, getConnectionsStatus, type ApiAdminSettings, type ApiConnectionsStatus } from "../lib/api";
-import { CheckCircle2, XCircle, HelpCircle, Loader2 } from "lucide-react";
+import { Alert, AlertDescription } from "../components/ui/alert";
+import { getAdminSettings, getConnectionsStatus, isAdmin, type ApiAdminSettings, type ApiConnectionsStatus } from "../lib/api";
+import { useAuthOptional } from "../contexts/AuthContext";
+import { CheckCircle2, XCircle, HelpCircle, Loader2, AlertCircle } from "lucide-react";
 
 const connectionLabels: Record<keyof ApiConnectionsStatus, string> = {
   ollama: "Ollama",
@@ -42,11 +44,37 @@ function ConnectionStatus({ status, message }: { status: string; message?: strin
 }
 
 export function AdminPage() {
+  const navigate = useNavigate();
+  const auth = useAuthOptional();
   const [settings, setSettings] = useState<ApiAdminSettings | null>(null);
   const [connections, setConnections] = useState<ApiConnectionsStatus | null>(null);
   const [loadingSettings, setLoadingSettings] = useState(true);
   const [loadingConnections, setLoadingConnections] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  if (auth?.user && !isAdmin(auth.user)) {
+    return (
+      <div className="min-h-screen bg-slate-50">
+        <header className="bg-white border-b border-slate-200">
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex justify-between items-center">
+            <h1 className="text-2xl font-semibold text-slate-900">Datenschutz-Agent</h1>
+            <AppHeaderUser />
+          </div>
+        </header>
+        <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+          <Alert className="border-amber-200 bg-amber-50">
+            <AlertCircle className="size-4 text-amber-600" />
+            <AlertDescription className="text-amber-800">
+              Sie haben keine Berechtigung für die Verwaltung. Nur Nutzer mit der Rolle „Admin“ können diese Seite aufrufen.
+            </AlertDescription>
+          </Alert>
+          <Button className="mt-4" variant="outline" onClick={() => navigate("/")}>
+            Zurück zur Startseite
+          </Button>
+        </main>
+      </div>
+    );
+  }
 
   useEffect(() => {
     let cancelled = false;

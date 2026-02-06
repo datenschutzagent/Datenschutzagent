@@ -1,14 +1,15 @@
-"""Admin API: read-only settings and connection status."""
-from fastapi import APIRouter
+"""Admin API: read-only settings and connection status (admin role required)."""
+from fastapi import APIRouter, Depends
 
 from app.config import settings
+from app.core.auth import require_roles
 from app.services.connection_checks import check_all_connections
 
 router = APIRouter()
 
 
 @router.get("/settings")
-def get_admin_settings():
+def get_admin_settings(_user=Depends(require_roles("admin"))):
     """Return read-only view of app settings (no secrets)."""
     return {
         "app_name": settings.app_name,
@@ -27,6 +28,6 @@ def get_admin_settings():
 
 
 @router.get("/connections")
-async def get_connections_status():
+async def get_connections_status(_user=Depends(require_roles("admin"))):
     """Test connectivity to Ollama, Weaviate, MinIO, Postgres, Redis."""
     return await check_all_connections()
