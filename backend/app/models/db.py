@@ -60,6 +60,7 @@ class DocumentModel(Base):
     uploaded_by: Mapped[str] = mapped_column(String(200), nullable=False, default="")
     storage_path: Mapped[str] = mapped_column(String(1000), nullable=False)  # path in MinIO or local FS
     content: Mapped[str] = mapped_column(Text, nullable=True)  # Extracted text content
+    extraction_method: Mapped[str | None] = mapped_column(String(20), nullable=True)  # "text" | "ocr"
     uploaded_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
 
     case: Mapped["CaseModel"] = relationship("CaseModel", back_populates="documents")
@@ -117,6 +118,7 @@ def orm_to_document_response(orm: DocumentModel) -> dict[str, Any]:
         "size_bytes": orm.size_bytes,
         "format": orm.format,
         "case_id": orm.case_id,
+        "extraction_method": orm.extraction_method,
     }
 
 

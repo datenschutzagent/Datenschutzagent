@@ -18,6 +18,9 @@ CaseLanguageEnum = Literal["de", "en", "de_en"]
 
 
 # --- Document ---
+ExtractionMethodEnum = Literal["text", "ocr"]
+
+
 class DocumentResponse(BaseModel):
     id: UUID
     name: str
@@ -28,6 +31,7 @@ class DocumentResponse(BaseModel):
     size_bytes: int
     format: DocumentFormatEnum
     case_id: UUID
+    extraction_method: ExtractionMethodEnum | None = None
 
     model_config = {"from_attributes": True}
 

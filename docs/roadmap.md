@@ -15,7 +15,7 @@
 | Case-API | ✅ | CRUD inkl. `DELETE /api/v1/cases/{id}`. Optional: Dokumente bereits im Dialog „Neuer Vorgang“ hochladbar (Frontend-Flow: Create Case → Upload Bulk). |
 | Storage | ✅ | Lokal und MinIO in `backend/app/storage.py`. |
 | Dokumenten-Upload | ✅ | Einzelupload + Mehrfach-Upload (`POST /documents/bulk`); Extraktion bei Upload (PDF/DOCX/XLSX). Optional: Dokumente im Dialog „Neuer Vorgang“ (Schritt 3) auswählbar, Upload nach Case-Erstellung. |
-| Textextraktion | ✅ | `document_processor.py`; Ergebnis in `Document.content`. |
+| Textextraktion | ✅ | `document_processor.py`; Ergebnis in `Document.content`. **OCR** für gescannte PDFs: Ollama Vision (z. B. Qwen2.5-VL); bei textarmen PDFs automatischer Fallback; `extraction_method` (text/ocr) in Document und Frontend-Badge. |
 | Playbook-API | ✅ | CRUD Playbooks (`/api/v1/playbooks/`). |
 | LLM / Check Runner | ✅ | PydanticAI + Ollama (`core/llm.py`), `check_runner.run_check()`. |
 
@@ -24,6 +24,7 @@
 - ~~**Activity-Timeline:** nutzt Mock-Daten bis ein Audit-Log/Activities-API existiert~~ ✅ Erledigt: Audit-Log (`activity_log`), `GET /cases/{id}/activities`; Frontend Activity-Timeline nutzt echte API.
 - ~~Dokument-Versionierung: v1/v2 pro Dokumenttyp noch offen~~ ✅ Erledigt: Version pro (case_id, document_type) beim Upload automatisch (v1, v2, …); `GET /documents?document_type=…`; Sortierung nach Typ, Version; Frontend zeigt Version und Hinweis bei Upload.
 - ~~Asynchrone Jobs: Redis/Celery noch nicht genutzt; Extraktion synchron~~ ✅ Celery + Redis; Worker in docker-compose; Task `extract_document_text`; Upload gibt sofort 201, Extraktion asynchron. Bei fehlendem Broker synchrone Extraktion. `GET /cases/{id}/run-checks/status` für Polling.
+- ~~OCR (gescannte PDFs)~~ ✅ Ollama Vision (qwen2.5-vl / minicpm-v); Schwellwert `ocr_min_chars_per_page`; `extraction_method` am Document; Frontend-Badge „Text per OCR extrahiert“.
 
 ---
 

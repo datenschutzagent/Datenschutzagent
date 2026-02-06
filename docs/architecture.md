@@ -12,7 +12,7 @@ The project follows a modern, containerized architecture (monolithic backend, se
 | **Storage** | Local / MinIO (S3) | Configurable in `backend/app/storage.py`; object storage for document files. |
 | **LLM Runtime** | Ollama | Local inference (e.g. Llama 3, Mistral); URL/model via env. |
 | **AI Framework** | PydanticAI | Structured prompts and outputs in `backend/app/core/llm.py` and `services/check_runner.py`. |
-| **Task Queue** | Celery + Redis | Planned for async extraction and long-running checks. |
+| **Task Queue** | Celery + Redis | Async document extraction (Celery worker); upload returns 201 immediately. |
 
 ## High-Level Data Flow
 
@@ -42,10 +42,10 @@ graph TD
 
 ### 2. Document Service
 *   **Location**: `backend/app/api/routes/documents.py`, `backend/app/services/document_processor.py`, `backend/app/storage.py`
-*   **Entities**: `Document` (name, type, version, format, `storage_path`, `content`).
+*   **Entities**: `Document` (name, type, version, format, `storage_path`, `content`, optional `extraction_method`: `"text"` \| `"ocr"`).
 *   **Responsibilities**:
     *   Upload → storage (local or MinIO) and DB record.
-    *   Text extraction (PDF/DOCX/XLSX) on upload; result stored in `Document.content`.
+    *   Text extraction (PDF/DOCX/XLSX) on upload; result stored in `Document.content`. For PDFs with little extractable text (e.g. scanned documents), **OCR** runs automatically via Ollama Vision (configurable model, e.g. qwen2.5-vl); `extraction_method` is set to `"ocr"` in that case and shown in the frontend.
 
 ### 3. Playbook Engine
 *   **Location**: `backend/app/api/routes/playbooks.py`, `backend/app/models/db.py` (`PlaybookModel`)

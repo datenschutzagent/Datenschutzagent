@@ -22,7 +22,7 @@ Abgleich der Projektbeschreibung (Anforderungen) mit dem aktuellen Implementieru
 | :--- | :--- | :--- |
 | Formate DOCX, PDF, XLSX | ✅ | `document_processor.py` (PyMuPDF, python-docx, openpyxl). |
 | Text- und Strukturextraktion | ✅ | Bei Upload; Speicherung in `Document.content`. |
-| OCR (gescannte PDFs) | ❌ | Kein Tesseract/OCR. |
+| OCR (gescannte PDFs) | ✅ | Ollama Vision (z. B. qwen2.5-vl, minicpm-v); bei textarmen PDFs automatischer Fallback in `document_processor.py`; `extraction_method` (text/ocr) am Document, Frontend-Badge „Text per OCR extrahiert“. |
 | DE/EN | ⚠️ | Case hat `language`; Playbook/Checks sprachabhängig noch nicht ausgebaut. |
 
 ### C) Playbook-basierte Vorprüfung
@@ -80,3 +80,4 @@ Abgleich der Projektbeschreibung (Anforderungen) mit dem aktuellen Implementieru
 5. **Dokument-Versionierung:** ~~v1/v2 pro Dokumenttyp~~ ✅ (Version pro (case_id, document_type) beim Upload; GET /documents?document_type=…; Frontend Version + Hinweis).
 6. **Sicherheit & Audit:** ~~Audit-Log~~ ✅ (activity_log, Activities-API, Timeline). AuthN/AuthZ noch offen.
 7. ~~**Asynchrone Jobs (Celery + Redis)**~~ ✅ Extraktion nach Upload asynchron (Task `extract_document_text`); Upload 201 sofort. Run-Checks-Status: `GET /cases/{id}/run-checks/status`. Siehe sprint_plan.md.
+8. ~~**OCR (gescannte PDFs)**~~ ✅ Ollama Vision (qwen2.5-vl / minicpm-v); Schwellwert in `document_processor.py`; `extraction_method` am Document; Frontend-Badge „Text per OCR extrahiert“.

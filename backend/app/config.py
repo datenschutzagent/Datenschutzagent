@@ -46,6 +46,12 @@ class Settings(BaseSettings):
     ollama_timeout_seconds: float = 120.0
     ollama_enabled: bool = True
 
+    # OCR via Ollama Vision (gescannte PDFs; z. B. qwen2.5-vl, minicpm-v)
+    ollama_ocr_model: str = "qwen2.5-vl"
+    ollama_ocr_enabled: bool = True
+    ocr_min_chars_per_page: int = 50  # below this avg chars/page → use OCR fallback
+    ocr_dpi: int = 150  # resolution for PDF page images sent to vision model
+
     @property
     def database_sync_url(self) -> str:
         """Sync DB URL for Celery worker (psycopg2)."""

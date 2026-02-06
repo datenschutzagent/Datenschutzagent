@@ -1,6 +1,6 @@
 # Sprint-Plan (aktuell)
 
-Stand: Nach Umsetzung Sprint „Asynchrone Jobs (Celery + Redis)“. Abgeschlossen: Dokument-Versionierung; Asynchrone Jobs. Vorherige Sprints (Dokumente beim Anlegen; Reproduzierbarkeit + Artefakte; Cross-Document-Checks; Fachbereiche, Playbook-YAML, Playbook-CRUD; Audit-Log + Activity-Timeline; Playbook-Detail; Mehrfach-Upload; Annotated Documents) abgeschlossen.
+Stand: Sprint **OCR (gescannte PDFs) via Ollama Vision** abgeschlossen. Abgeschlossen: OCR (Ollama Vision, extraction_method, Frontend-Badge), Asynchrone Jobs (Celery + Redis), Dokument-Versionierung, Dokumente beim Anlegen, Reproduzierbarkeit + Artefakte, Cross-Document-Checks, Fachbereiche/Playbook-YAML/Playbook-CRUD, Audit-Log + Activity-Timeline, Playbook-Detail, Mehrfach-Upload, Annotated Documents.
 
 ---
 
@@ -122,6 +122,23 @@ Stand: Nach Umsetzung Sprint „Asynchrone Jobs (Celery + Redis)“. Abgeschloss
 
 ---
 
-## Folgesprint (optional, danach)
+## Sprint – OCR (gescannte PDFs) via Ollama Vision (abgeschlossen)
 
-- OCR (gescannte PDFs), DE/EN-Ausbau, AuthN/AuthZ.
+**Ziel:** Gescannte PDFs (ohne Text-Layer) werden per OCR mit Ollama-Vision-Modellen (z. B. Qwen2.5-VL, MiniCPM-V) verarbeitet; Run-Checks und VVT-Normalisierung funktionieren auch für eingescannte Dokumente. Kennzeichnung „Text per OCR extrahiert“ im Frontend.
+
+| # | Aufgabe | Status |
+| :--- | :--- | :--- |
+| 1 | **Backend – OCR-Pipeline** – In `document_processor.py`: Für PDFs Schwellwert (Zeichen pro Seite); bei Textarmut: PDF-Seiten mit PyMuPDF als PNG rendern, Ollama Vision (`ollama_ocr_model`) pro Seite, Text zusammenfügen. Konfiguration: `ollama_ocr_model`, `ollama_ocr_enabled`, `ocr_min_chars_per_page`, `ocr_dpi`. | ✅ |
+| 2 | **Dependencies** – Kein Tesseract/poppler; bestehende `ollama`-Bibliothek und PyMuPDF (PNG-Rendering) genutzt. | ✅ |
+| 3 | **ExtractionResult & Celery** – `extract_text` liefert `ExtractionResult(text, extraction_method)`; Celery-Task schreibt `content` und `extraction_method` (text/ocr). | ✅ |
+| 4 | **Datenmodell & API** – Document um `extraction_method` erweitert; Migration `backend/migrations/001_add_document_extraction_method.sql`; Document-Response und Case-Response liefern das Feld. | ✅ |
+| 5 | **Frontend** – Case-Detail: Bei Dokumenten mit `extraction_method === "ocr"` Badge „Text per OCR extrahiert“. | ✅ |
+| 6 | **Dokumentation** – roadmap.md, requirements_gap.md, api.md, sprint_plan.md aktualisiert. | ✅ |
+
+---
+
+## Folgesprints (optional, danach)
+
+- **DE/EN-Ausbau:** Case-Sprache (`language`) in Playbook-Checks und VVT-Prompts berücksichtigen; ggf. getrennte Check-Texte pro Sprache.
+- **AuthN/AuthZ:** OAuth2/OIDC (z. B. Keycloak), RBAC (Rollen), geschützte API-Routen und Frontend-Login.
+- **Retention/Archivierung:** Konfigurierbare Aufbewahrungsfristen (Roadmap Phase 4).

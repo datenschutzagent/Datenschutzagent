@@ -50,8 +50,9 @@ def extract_document_text(self, document_id: str) -> dict:
         if not row.storage_path:
             return {"ok": False, "error": "no_storage_path"}
         content_bytes = get_file(row.storage_path)
-        text = extract_text(row.name, content_bytes)
-        row.content = text
+        result = extract_text(row.name, content_bytes)
+        row.content = result.text
+        row.extraction_method = result.extraction_method
         session.commit()
         return {"ok": True, "document_id": document_id}
     except FileNotFoundError:

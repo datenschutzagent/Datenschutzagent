@@ -31,8 +31,8 @@ Das Backend ist mit FastAPI umgesetzt. Interaktive Doku:
 
 | Methode | Pfad | Beschreibung |
 | :--- | :--- | :--- |
-| GET | `/api/v1/documents/` | Dokumente auflisten. Query: optional `case_id`, optional `document_type`. Sortierung: nach Typ, dann Version (aufsteigend). Response enthält `version` (v1, v2, … pro Dokumenttyp). |
-| GET | `/api/v1/documents/{id}` | Einzelnes Dokument (Metadaten). |
+| GET | `/api/v1/documents/` | Dokumente auflisten. Query: optional `case_id`, optional `document_type`. Sortierung: nach Typ, dann Version (aufsteigend). Response enthält `version` (v1, v2, … pro Dokumenttyp) und optional `extraction_method` (`"text"` \| `"ocr"`), wenn die Textextraktion per OCR (Ollama Vision) erfolgte. |
+| GET | `/api/v1/documents/{id}` | Einzelnes Dokument (Metadaten inkl. `extraction_method`). |
 | POST | `/api/v1/documents/` | Einzelnes Dokument hochladen (Form: `case_id`, `file`, `document_type`, `uploaded_by`). Version wird pro (case_id, document_type) automatisch vergeben. **Textextraktion:** asynchron (Celery), wenn `CELERY_BROKER_URL` gesetzt; sonst synchron. Response 201 sofort; `Document.content` wird ggf. nachträglich gefüllt. |
 | POST | `/api/v1/documents/bulk` | Mehrere Dokumente in einem Request hochladen (Form: `case_id`, `files` (mehrere Dateien), `document_type`, `uploaded_by`). Gleicher Typ für alle; Version pro (case_id, document_type) automatisch fortlaufend. Textextraktion asynchron (Celery), wenn konfiguriert. Response: Liste der angelegten Dokumente (201). |
 | DELETE | `/api/v1/documents/{id}` | Dokument löschen (DB + Storage, 204). |
@@ -73,3 +73,4 @@ Das Backend ist mit FastAPI umgesetzt. Interaktive Doku:
 *   **Dokument-Versionierung:** Version pro (case_id, document_type) beim Upload automatisch; GET /documents mit optionalem `document_type`; Sortierung nach Typ, Version; Case-Response dokumente sortiert; Frontend zeigt v1, v2, … und Hinweis bei Upload.
 *   **Asynchrone Jobs (Celery + Redis):** Celery-Worker in docker-compose; Task `extract_document_text` für Textextraktion nach Upload. Upload gibt sofort 201; Extraktion läuft im Hintergrund. Bei fehlendem Broker läuft Extraktion weiterhin synchron. **GET /cases/{id}/run-checks/status** für Status des letzten Run-Checks (Polling). Frontend optional unverändert (kein Polling für Extraktion).
 *   **Fachbereiche:** `GET /api/v1/departments` aus Konfiguration (`data/fachbereiche.yaml`). **Playbook-YAML:** Standard-Playbooks in `data/playbooks/`, Auto-Import bei leerer Playbook-Tabelle; Checks unterstützen optional `scope`/`type`. **Frontend Playbook-CRUD:** Anlegen (Dialog), Bearbeiten, Archivieren, Löschen, Duplizieren auf Playbook-Detail-Seite. **Frontend:** Findings mit `document_id=null` werden als „Vorgangsbezogen“ angezeigt.
+*   **OCR (gescannte PDFs):** Bei textarmen PDFs wird automatisch Ollama Vision (konfigurierbar: `OLLAMA_OCR_MODEL`, z. B. qwen2.5-vl) genutzt; PDF-Seiten werden als Bilder an das Modell gesendet. Document-Feld `extraction_method` (`text` \| `ocr`); Frontend zeigt bei `ocr` den Badge „Text per OCR extrahiert“.

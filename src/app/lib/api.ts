@@ -44,6 +44,7 @@ function mapDocument(d: Record<string, unknown>): Record<string, unknown> {
     sizeBytes: sizeBytes,
     format: d.format,
     caseId: d.case_id,
+    extractionMethod: d.extraction_method ?? undefined,
   };
 }
 
@@ -197,6 +198,8 @@ export interface ApiDocument {
   sizeBytes?: number;
   format: string;
   caseId?: string;
+  /** "ocr" when text was extracted via Ollama Vision (scanned PDFs); "text" or undefined otherwise */
+  extractionMethod?: "text" | "ocr";
 }
 
 export interface ApiFinding {

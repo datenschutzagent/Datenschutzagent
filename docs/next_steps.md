@@ -1,6 +1,6 @@
 # Nächste Schritte – Plan nach Roadmap & Gap-Analyse
 
-Stand: Aktualisiert nach Abgleich mit Code. Die Punkte 1–3 (Run-Checks, Frontend-API, Finding-Status, DELETE Document, Playbook PATCH/DELETE), **VVT** (Backend + Frontend mit echter API), **DSB-Report**, **Audit-Log + Activity-Timeline** sowie **Fachbereiche** (YAML + GET /departments), **Playbook-YAML** (Standard-Playbooks pro FB/zentral, Auto-Import beim ersten Start) und **Playbook-CRUD im Frontend** (Anlegen, Bearbeiten, Archivieren, Löschen, Duplizieren) sind umgesetzt. Nächster Sprint: siehe `docs/sprint_plan.md` bzw. Roadmap Phase 3 (z. B. Cross-Document-Checks).
+Stand: Nach Abgleich mit Code (Dokument-Versionierung, Celery/Redis, Cross-Document, Artefakte abgeschlossen). Die Punkte 1–7 aus der Gap-Analyse (Run-Checks, Frontend-API, Finding-Status, VVT, Cross-Document, Artefakte, Versionierung, Audit, asynchrone Jobs) sind umgesetzt. **Verbleibende Lücken:** AuthN/AuthZ, OCR, DE/EN-Ausbau, optional Retention/Monitoring. Nächster Sprint: siehe `docs/sprint_plan.md`.
 
 ---
 
@@ -94,22 +94,23 @@ Stand: Aktualisiert nach Abgleich mit Code. Die Punkte 1–3 (Run-Checks, Fronte
 ## 3. Abgleich Roadmap/Gap ↔ Code
 
 - **Phase 1 „Noch offen“:**  
-  - Frontend an echte API anbinden: **erledigt** (Cases, Documents, Findings, Playbooks, Run-Checks, Finding-Status nutzen `api.ts`).  
-  - Dokument-Versionierung v1/v2: **nicht implementiert.**  
-  - Asynchrone Jobs (Redis/Celery): **nicht implementiert.**
+  - Frontend an echte API anbinden: **erledigt** (Cases, Documents, Findings, Playbooks, Run-Checks, Finding-Status, Playbook-Detail nutzen `api.ts`).  
+  - Dokument-Versionierung v1/v2: **erledigt** (Version pro (case_id, document_type) in `documents.py`; `_next_version_for_type()`; Frontend zeigt Version und Hinweis „Neue Version“).  
+  - Asynchrone Jobs (Redis/Celery): **erledigt** (Celery-Worker in docker-compose; Task `extract_document_text`; Upload 201 sofort; `GET /cases/{id}/run-checks/status`).
 
 - **Phase 2:**  
   - Run-Checks API: **implementiert** (`POST /cases/{id}/run-checks`, Findings persistiert).  
   - Ollama-Status: **implementiert** (`/health` prüft Ollama bei `ollama_enabled`).  
-  - VVT (Fingerprinting, Modell, Mapping, Frontend): **implementiert** (`vvt_service.py`, `GET /cases/{id}/vvt-normalization`, `VVTNormalizationView` mit `getVVTNormalization()`). Optional: Export Ziel-Template noch offen.
+  - VVT (Fingerprinting, Modell, Mapping, Frontend): **implementiert** (`vvt_service.py`, `GET /cases/{id}/vvt-normalization`, `VVTNormalizationView`). Export Ziel-Template (DOCX) und CSV: **erledigt.**
 
-- **Gap „Findings maschinenlesbar“:**  
-  - Modell + Case-Response + Erzeugung durch Run-Checks + PATCH Findings: **erledigt.**
+- **Phase 3 (Cross-Document & Artefakte):**  
+  - Cross-Document-Checks: **erledigt** (`scope: case`/`cross_document`, `run_cross_document_check`, Findings mit `document_id=null`, Frontend „Vorgangsbezogen“).  
+  - DSB-Report, annotierte DOCX/PDF, VVT-Export: **erledigt.**  
+  - Reproduzierbarkeit (playbook_version, model im activity_log): **erledigt.**
 
-- **Gap „Finding-Status in UI“:**  
-  - Enum/DB + API `PATCH /findings/{id}` + UI (Case-Detail Status-Buttons): **erledigt.**
+- **Gap „Findings maschinenlesbar“ / „Finding-Status in UI“:** **erledigt.**
 
-- **Verbleibende Lücken:** Phase 3 (Cross-Document); optional VVT Ziel-Template (DOCX), PDF für annotierte Dokumente, Dokument-Versionierung, Auth/Audit. DSB-Report, VVT CSV-Export und annotierte DOCX sind erledigt.
+- **Verbleibende Lücken (Roadmap Phase 4 / Gap):** AuthN/AuthZ (OAuth2/OIDC, RBAC), OCR (gescannte PDFs), DE/EN-Ausbau (sprachabhängige Playbook-Checks), optional Retention/Archivierung, Logging/Monitoring.
 
 ---
 

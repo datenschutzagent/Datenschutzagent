@@ -449,6 +449,9 @@ export function CaseDetailPage() {
                               <h4 className="font-medium text-slate-900">{doc.name}</h4>
                               <Badge variant="outline">{documentTypeLabels[doc.type as keyof typeof documentTypeLabels] ?? doc.type}</Badge>
                               <Badge variant="outline">v{doc.version}</Badge>
+                              {doc.extractionMethod === "ocr" && (
+                                <Badge variant="secondary" className="text-xs">Text per OCR extrahiert</Badge>
+                              )}
                             </div>
                             <div className="flex items-center gap-3 text-sm text-slate-600">
                               <span>{doc.format.toUpperCase()}</span>

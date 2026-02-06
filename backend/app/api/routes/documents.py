@@ -55,7 +55,13 @@ async def _process_one_upload(
     file_format = EXT_TO_FORMAT[ext]
     content = await file.read()
     size_bytes = len(content)
-    text_content = None if async_extraction else extract_text(filename, content)
+    if async_extraction:
+        text_content = None
+        extraction_method = None
+    else:
+        ext_result = extract_text(filename, content)
+        text_content = ext_result.text
+        extraction_method = ext_result.extraction_method
     version = await _next_version_for_type(db, case_id, document_type)
     doc = DocumentModel(
         case_id=case_id,
@@ -67,6 +73,7 @@ async def _process_one_upload(
         uploaded_by=uploaded_by or "unknown",
         storage_path="",
         content=text_content,
+        extraction_method=extraction_method,
     )
     db.add(doc)
     await db.flush()
