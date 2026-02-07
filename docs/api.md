@@ -57,6 +57,11 @@ Das Backend ist mit FastAPI umgesetzt. Interaktive Doku:
 | :--- | :--- | :--- |
 | GET | `/api/v1/documents/` | Dokumente auflisten. Query: optional `case_id`, optional `document_type`. Sortierung: nach Typ, dann Version (aufsteigend). Response enthält `version` (v1, v2, … pro Dokumenttyp) und optional `extraction_method` (`"text"` \| `"ocr"`), wenn die Textextraktion per OCR (Ollama Vision) erfolgte. |
 | GET | `/api/v1/documents/{id}` | Einzelnes Dokument (Metadaten inkl. `extraction_method`). |
+| GET | `/api/v1/documents/{id}/download` | Originaldatei des Dokuments herunterladen (Stream mit Content-Disposition). |
+| GET | `/api/v1/documents/{id}/content` | Extrahierter Text des Dokuments (JSON: `{ "content": "..." }`) für Anzeige im Frontend. |
+| GET | `/api/v1/documents/{id}/comments` | Kommentare zum Dokument (sortiert nach `created_at`). Response: `[{ "id", "document_id", "case_id", "author", "user_id", "text", "created_at" }]`. |
+| POST | `/api/v1/documents/{id}/comments` | Kommentar hinzufügen. Body: `{ "text": "..." }`. **Rolle editor/admin.** Autor aus aktuellem User. |
+| PATCH | `/api/v1/documents/{id}` | Dokument aktualisieren (z. B. extrahierter Text). Body: `{ "content": "..." }`. **Rolle editor/admin.** Bei geänderter `content` werden Weaviate-Chunks des Dokuments entfernt (RAG erst nach erneuter Indexierung aktuell). |
 | POST | `/api/v1/documents/` | Einzelnes Dokument hochladen (Form: `case_id`, `file`, `document_type`, `uploaded_by`). Version wird pro (case_id, document_type) automatisch vergeben. **Textextraktion:** asynchron (Celery), wenn `CELERY_BROKER_URL` gesetzt; sonst synchron. Response 201 sofort; `Document.content` wird ggf. nachträglich gefüllt. |
 | POST | `/api/v1/documents/bulk` | Mehrere Dokumente in einem Request hochladen (Form: `case_id`, `files` (mehrere Dateien), `document_type`, `uploaded_by`). Gleicher Typ für alle; Version pro (case_id, document_type) automatisch fortlaufend. Textextraktion asynchron (Celery), wenn konfiguriert. Response: Liste der angelegten Dokumente (201). |
 | DELETE | `/api/v1/documents/{id}` | Dokument löschen (DB + Storage, 204). |

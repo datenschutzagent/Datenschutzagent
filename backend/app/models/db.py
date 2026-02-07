@@ -66,6 +66,19 @@ class DocumentModel(Base):
     case: Mapped["CaseModel"] = relationship("CaseModel", back_populates="documents")
 
 
+class DocumentCommentModel(Base):
+    """User comments on a document (discussion / notes)."""
+    __tablename__ = "document_comments"
+
+    id: Mapped[uuid.UUID] = mapped_column(PG_UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    document_id: Mapped[uuid.UUID] = mapped_column(PG_UUID(as_uuid=True), ForeignKey("documents.id", ondelete="CASCADE"), nullable=False)
+    case_id: Mapped[uuid.UUID] = mapped_column(PG_UUID(as_uuid=True), ForeignKey("cases.id", ondelete="CASCADE"), nullable=False)
+    author: Mapped[str] = mapped_column(String(200), nullable=False, default="")
+    user_id: Mapped[uuid.UUID | None] = mapped_column(PG_UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    text: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+
+
 class FindingModel(Base):
     __tablename__ = "findings"
 
@@ -130,6 +143,19 @@ def orm_to_activity_response(orm: ActivityLogModel) -> dict[str, Any]:
         "case_id": orm.case_id,
         "event_type": orm.event_type,
         "payload": orm.payload or {},
+        "created_at": orm.created_at,
+    }
+
+
+def orm_to_document_comment_response(orm: DocumentCommentModel) -> dict[str, Any]:
+    """Map DocumentCommentModel to API response shape (snake_case)."""
+    return {
+        "id": orm.id,
+        "document_id": orm.document_id,
+        "case_id": orm.case_id,
+        "author": orm.author,
+        "user_id": orm.user_id,
+        "text": orm.text,
         "created_at": orm.created_at,
     }
 

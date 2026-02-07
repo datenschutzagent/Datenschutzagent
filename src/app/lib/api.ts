@@ -615,6 +615,75 @@ export async function deleteDocument(id: string): Promise<void> {
   await request("DELETE", `/documents/${id}`);
 }
 
+/** Update document (e.g. extracted content). Editor/admin only. */
+export async function updateDocument(
+  documentId: string,
+  body: { content?: string }
+): Promise<ApiDocument> {
+  const d = await request<Record<string, unknown>>("PATCH", `/documents/${documentId}`, {
+    body,
+  });
+  return mapDocument(d) as ApiDocument;
+}
+
+/** Download the original document file as a blob (for save/open). */
+export async function getDocumentDownloadBlob(documentId: string): Promise<Blob> {
+  const url = `${API_BASE}${API_PREFIX}/documents/${documentId}/download`;
+  const res = await fetch(url, { headers: authHeaders() });
+  if (!res.ok) {
+    const detail = await parseErrorResponse(res);
+    throw new Error(detail);
+  }
+  return res.blob();
+}
+
+/** Get extracted text content of a document (for in-app display). */
+export async function getDocumentContent(documentId: string): Promise<{ content: string }> {
+  return request<{ content: string }>("GET", `/documents/${documentId}/content`);
+}
+
+// --- Document comments ---
+export interface ApiDocumentComment {
+  id: string;
+  document_id: string;
+  case_id: string;
+  author: string;
+  user_id: string | null;
+  text: string;
+  created_at: string;
+}
+
+export async function getDocumentComments(documentId: string): Promise<ApiDocumentComment[]> {
+  const list = (await request<Record<string, unknown>[]>("GET", `/documents/${documentId}/comments`)) ?? [];
+  return list.map((c) => ({
+    id: c.id as string,
+    document_id: c.document_id as string,
+    case_id: c.case_id as string,
+    author: (c.author as string) ?? "",
+    user_id: (c.user_id as string) ?? null,
+    text: (c.text as string) ?? "",
+    created_at: (c.created_at as string) ?? "",
+  }));
+}
+
+export async function createDocumentComment(
+  documentId: string,
+  text: string
+): Promise<ApiDocumentComment> {
+  const c = await request<Record<string, unknown>>("POST", `/documents/${documentId}/comments`, {
+    body: { text },
+  });
+  return {
+    id: c.id as string,
+    document_id: c.document_id as string,
+    case_id: c.case_id as string,
+    author: (c.author as string) ?? "",
+    user_id: (c.user_id as string) ?? null,
+    text: (c.text as string) ?? "",
+    created_at: (c.created_at as string) ?? "",
+  };
+}
+
 // --- Findings ---
 export async function updateFindingStatus(findingId: string, status: FindingStatus): Promise<ApiFinding> {
   const f = await request<Record<string, unknown>>("PATCH", `/findings/${findingId}`, {
