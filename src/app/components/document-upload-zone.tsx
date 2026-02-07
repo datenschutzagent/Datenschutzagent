@@ -170,17 +170,17 @@ export function DocumentUploadZone({ caseId, uploadedBy = "", onUploadComplete }
       <div
         className={`border-2 border-dashed rounded-lg p-12 text-center transition-colors ${
           isDragging
-            ? "border-blue-500 bg-blue-50"
-            : "border-slate-300 hover:border-blue-400 hover:bg-slate-50"
+            ? "border-blue-500 dark:border-blue-400 bg-blue-50 dark:bg-blue-900/30"
+            : "border-slate-300 dark:border-slate-600 hover:border-blue-400 dark:hover:border-blue-500 hover:bg-slate-50 dark:hover:bg-slate-800/50"
         }`}
         onDragOver={handleDragOver}
         onDragLeave={handleDragLeave}
         onDrop={handleDrop}
       >
-        <Upload className={`size-12 mx-auto mb-4 ${isDragging ? "text-blue-600" : "text-slate-400"}`} />
-        <p className="text-slate-600 mb-2">
+        <Upload className={`size-12 mx-auto mb-4 ${isDragging ? "text-blue-600 dark:text-blue-400" : "text-slate-400 dark:text-slate-500"}`} />
+        <p className="text-slate-600 dark:text-slate-400 mb-2">
           Dateien hierher ziehen oder{" "}
-          <label className="text-blue-600 hover:text-blue-700 cursor-pointer">
+          <label className="text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 cursor-pointer">
             klicken zum Auswählen
             <input
               type="file"
@@ -191,7 +191,7 @@ export function DocumentUploadZone({ caseId, uploadedBy = "", onUploadComplete }
             />
           </label>
         </p>
-        <p className="text-sm text-slate-500">
+        <p className="text-sm text-slate-500 dark:text-slate-400">
           Unterstützte Formate: DOCX, PDF, XLSX, DOC (max. 10 MB)
         </p>
       </div>
@@ -199,25 +199,25 @@ export function DocumentUploadZone({ caseId, uploadedBy = "", onUploadComplete }
       {/* Uploaded Files List */}
       {uploadedFiles.length > 0 && (
         <div className="space-y-3">
-          <h4 className="font-medium text-slate-900">Hochgeladene Dateien ({uploadedFiles.length})</h4>
+          <h4 className="font-medium text-slate-900 dark:text-slate-100">Hochgeladene Dateien ({uploadedFiles.length})</h4>
           
           {uploadedFiles.map((uploadedFile) => (
             <Card key={uploadedFile.id} className="p-4">
               <div className="flex items-start gap-3">
                 <div className="mt-1">
                   {uploadedFile.status === "uploading" && (
-                    <div className="size-10 rounded-full bg-blue-100 flex items-center justify-center">
-                      <Upload className="size-5 text-blue-600 animate-pulse" />
+                    <div className="size-10 rounded-full bg-blue-100 dark:bg-blue-900/50 flex items-center justify-center">
+                      <Upload className="size-5 text-blue-600 dark:text-blue-400 animate-pulse" />
                     </div>
                   )}
                   {uploadedFile.status === "success" && (
-                    <div className="size-10 rounded-full bg-green-100 flex items-center justify-center">
-                      <Check className="size-5 text-green-600" />
+                    <div className="size-10 rounded-full bg-green-100 dark:bg-green-900/50 flex items-center justify-center">
+                      <Check className="size-5 text-green-600 dark:text-green-400" />
                     </div>
                   )}
                   {uploadedFile.status === "error" && (
-                    <div className="size-10 rounded-full bg-red-100 flex items-center justify-center">
-                      <AlertCircle className="size-5 text-red-600" />
+                    <div className="size-10 rounded-full bg-red-100 dark:bg-red-900/50 flex items-center justify-center">
+                      <AlertCircle className="size-5 text-red-600 dark:text-red-400" />
                     </div>
                   )}
                 </div>
@@ -225,8 +225,8 @@ export function DocumentUploadZone({ caseId, uploadedBy = "", onUploadComplete }
                 <div className="flex-1">
                   <div className="flex items-start justify-between mb-2">
                     <div>
-                      <h5 className="font-medium text-slate-900">{uploadedFile.file.name}</h5>
-                      <p className="text-sm text-slate-600">
+                      <h5 className="font-medium text-slate-900 dark:text-slate-100">{uploadedFile.file.name}</h5>
+                      <p className="text-sm text-slate-600 dark:text-slate-400">
                         {(uploadedFile.file.size / 1024).toFixed(0)} KB
                       </p>
                     </div>
@@ -244,7 +244,7 @@ export function DocumentUploadZone({ caseId, uploadedBy = "", onUploadComplete }
                   )}
 
                   {uploadedFile.status === "error" && uploadedFile.errorMessage && (
-                    <div className="flex items-center gap-2 text-red-600 text-sm">
+                    <div className="flex items-center gap-2 text-red-600 dark:text-red-400 text-sm">
                       <AlertCircle className="size-4" />
                       <span>{uploadedFile.errorMessage}</span>
                     </div>
@@ -278,8 +278,8 @@ export function DocumentUploadZone({ caseId, uploadedBy = "", onUploadComplete }
 
       {/* Actions */}
       {uploadedFiles.length > 0 && (
-        <div className="flex items-center justify-between pt-4 border-t">
-          <p className="text-sm text-slate-600">
+        <div className="flex items-center justify-between pt-4 border-t border-border">
+          <p className="text-sm text-slate-600 dark:text-slate-400">
             {uploadedFiles.filter(f => f.status === "success").length} von {uploadedFiles.length} erfolgreich
             {!canComplete && " • Bitte Dokumenttypen zuweisen"}
           </p>

@@ -68,7 +68,7 @@ export function VVTNormalizationView({ caseId, documentId }: VVTNormalizationVie
 
   if (loading && !data) {
     return (
-      <div className="flex items-center justify-center py-12 gap-2 text-slate-600">
+      <div className="flex items-center justify-center py-12 gap-2 text-slate-600 dark:text-slate-400 dark:text-slate-500">
         <Loader2 className="size-5 animate-spin" />
         <span>VVT wird analysiert…</span>
       </div>
@@ -104,7 +104,7 @@ export function VVTNormalizationView({ caseId, documentId }: VVTNormalizationVie
           <div className="flex items-start justify-between">
             <div className="flex items-start gap-4">
               <div className="p-3 bg-blue-100 rounded-lg">
-                <FileSpreadsheet className="size-8 text-blue-600" />
+                <FileSpreadsheet className="size-8 text-blue-600 dark:text-blue-400" />
               </div>
               <div>
                 <CardTitle>VVT-Normalisierung</CardTitle>
@@ -135,27 +135,27 @@ export function VVTNormalizationView({ caseId, documentId }: VVTNormalizationVie
         <CardContent className="space-y-4">
           <div>
             <div className="flex items-center justify-between mb-2">
-              <span className="text-sm text-slate-600">Gesamt-Completion</span>
+              <span className="text-sm text-slate-600 dark:text-slate-400 dark:text-slate-500">Gesamt-Completion</span>
               <span className="text-sm font-medium">{completionRate}%</span>
             </div>
             <Progress value={completionRate} className="h-2" />
           </div>
           <div className="grid grid-cols-4 gap-4 pt-2 border-t">
             <div className="text-center">
-              <p className="text-2xl font-semibold text-slate-900">{totalFields}</p>
-              <p className="text-xs text-slate-600">Pflichtfelder</p>
+              <p className="text-2xl font-semibold text-slate-900 dark:text-slate-100">{totalFields}</p>
+              <p className="text-xs text-slate-600 dark:text-slate-400 dark:text-slate-500">Pflichtfelder</p>
             </div>
             <div className="text-center">
-              <p className="text-2xl font-semibold text-green-600">{filledFields}</p>
-              <p className="text-xs text-slate-600">Ausgefüllt</p>
+              <p className="text-2xl font-semibold text-green-600 dark:text-green-400">{filledFields}</p>
+              <p className="text-xs text-slate-600 dark:text-slate-400 dark:text-slate-500">Ausgefüllt</p>
             </div>
             <div className="text-center">
               <p className="text-2xl font-semibold text-orange-600">{inconsistentFields}</p>
-              <p className="text-xs text-slate-600">Inkonsistent</p>
+              <p className="text-xs text-slate-600 dark:text-slate-400 dark:text-slate-500">Inkonsistent</p>
             </div>
             <div className="text-center">
-              <p className="text-2xl font-semibold text-red-600">{missingFields}</p>
-              <p className="text-xs text-slate-600">Fehlend</p>
+              <p className="text-2xl font-semibold text-red-600 dark:text-red-400">{missingFields}</p>
+              <p className="text-xs text-slate-600 dark:text-slate-400 dark:text-slate-500">Fehlend</p>
             </div>
           </div>
         </CardContent>
@@ -168,18 +168,18 @@ export function VVTNormalizationView({ caseId, documentId }: VVTNormalizationVie
         </CardHeader>
         <CardContent>
           <div className="flex items-center gap-4">
-            <div className="flex-1 p-4 border rounded-lg bg-slate-50">
-              <p className="text-sm text-slate-600 mb-1">Erkanntes Template</p>
-              <p className="font-medium text-slate-900">{data?.sourceTemplate || "—"}</p>
+            <div className="flex-1 p-4 border rounded-lg bg-slate-50 dark:bg-slate-800/50">
+              <p className="text-sm text-slate-600 dark:text-slate-400 dark:text-slate-500 mb-1">Erkanntes Template</p>
+              <p className="font-medium text-slate-900 dark:text-slate-100">{data?.sourceTemplate || "—"}</p>
               {data?.documentName && (
-                <p className="text-xs text-slate-500 mt-1">Dokument: {data.documentName}</p>
+                <p className="text-xs text-slate-500 dark:text-slate-400 dark:text-slate-500 mt-1">Dokument: {data.documentName}</p>
               )}
             </div>
-            <ArrowRight className="size-6 text-slate-400" />
+            <ArrowRight className="size-6 text-slate-400 dark:text-slate-500" />
             <div className="flex-1 p-4 border rounded-lg bg-blue-50 border-blue-200">
-              <p className="text-sm text-blue-600 mb-1">Ziel-Template</p>
-              <p className="font-medium text-blue-900">Kanonisches VVT-Modell v3.1</p>
-              <p className="text-xs text-blue-600 mt-1">Gold Standard</p>
+              <p className="text-sm text-blue-600 dark:text-blue-400 mb-1">Ziel-Template</p>
+              <p className="font-medium text-blue-900 dark:text-blue-100">Kanonisches VVT-Modell v3.1</p>
+              <p className="text-xs text-blue-600 dark:text-blue-400 mt-1">Gold Standard</p>
             </div>
           </div>
         </CardContent>
@@ -231,23 +231,23 @@ export function VVTNormalizationView({ caseId, documentId }: VVTNormalizationVie
 
 function VVTFieldCard({ field }: { field: ApiVVTField }) {
   return (
-    <div className="p-4 border rounded-lg hover:bg-slate-50">
+    <div className="p-4 border rounded-lg hover:bg-slate-50 dark:hover:bg-slate-800/50 dark:bg-slate-800/50">
       <div className="flex items-start gap-3">
-        {field.status === "filled" && <CheckCircle2 className="size-5 text-green-600 mt-0.5" />}
-        {field.status === "missing" && <AlertCircle className="size-5 text-red-600 mt-0.5" />}
+        {field.status === "filled" && <CheckCircle2 className="size-5 text-green-600 dark:text-green-400 mt-0.5" />}
+        {field.status === "missing" && <AlertCircle className="size-5 text-red-600 dark:text-red-400 mt-0.5" />}
         {field.status === "inconsistent" && <AlertCircle className="size-5 text-orange-600 mt-0.5" />}
         
         <div className="flex-1">
           <div className="flex items-center gap-2 mb-2">
-            <h4 className="font-medium text-slate-900">{field.fieldName}</h4>
+            <h4 className="font-medium text-slate-900 dark:text-slate-100">{field.fieldName}</h4>
             {field.required && (
               <Badge variant="outline" className="text-xs">Pflichtfeld</Badge>
             )}
             {field.status === "filled" && (
-              <Badge className="bg-green-100 text-green-700">Ausgefüllt</Badge>
+              <Badge className="bg-green-100 text-green-700 dark:bg-green-900/50 dark:text-green-300">Ausgefüllt</Badge>
             )}
             {field.status === "missing" && (
-              <Badge className="bg-red-100 text-red-700">Fehlend</Badge>
+              <Badge className="bg-red-100 text-red-700 dark:bg-red-900/50 dark:text-red-300">Fehlend</Badge>
             )}
             {field.status === "inconsistent" && (
               <Badge className="bg-orange-100 text-orange-700">Inkonsistent</Badge>
@@ -256,8 +256,8 @@ function VVTFieldCard({ field }: { field: ApiVVTField }) {
 
           {field.canonicalValue && (
             <div className="mb-2">
-              <p className="text-sm text-slate-600 mb-1">Kanonischer Wert:</p>
-              <p className="text-sm text-slate-900 bg-slate-50 p-2 rounded border">
+              <p className="text-sm text-slate-600 dark:text-slate-400 dark:text-slate-500 mb-1">Kanonischer Wert:</p>
+              <p className="text-sm text-slate-900 dark:text-slate-100 bg-slate-50 dark:bg-slate-800/50 p-2 rounded border">
                 {field.canonicalValue}
               </p>
             </div>
@@ -265,7 +265,7 @@ function VVTFieldCard({ field }: { field: ApiVVTField }) {
 
           {field.evidence && (
             <div className="mb-2">
-              <p className="text-xs text-slate-500">
+              <p className="text-xs text-slate-500 dark:text-slate-400 dark:text-slate-500">
                 <strong>Evidenz:</strong> {field.evidence}
               </p>
             </div>
@@ -280,7 +280,7 @@ function VVTFieldCard({ field }: { field: ApiVVTField }) {
             </Alert>
           )}
 
-          <p className="text-xs text-slate-400 mt-2">Quelle: {field.sourceTemplate}</p>
+          <p className="text-xs text-slate-400 dark:text-slate-500 mt-2">Quelle: {field.sourceTemplate}</p>
         </div>
       </div>
     </div>

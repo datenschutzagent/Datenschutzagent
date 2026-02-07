@@ -38,27 +38,27 @@ export function PlaybooksPage() {
   });
 
   return (
-    <div className="min-h-screen bg-slate-50">
+    <div className="min-h-screen bg-slate-50 dark:bg-slate-950 transition-colors">
       {/* Header */}
-      <header className="bg-white border-b border-slate-200">
+      <header className="bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 transition-colors">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
           <div className="flex items-center justify-between">
             <div>
-              <h1 className="text-2xl font-semibold text-slate-900">Datenschutz-Agent</h1>
-              <p className="text-sm text-slate-600 mt-1">Universität • Forschungsvorhaben</p>
+              <h1 className="text-2xl font-semibold text-slate-900 dark:text-slate-100">Datenschutz-Agent</h1>
+              <p className="text-sm text-slate-600 dark:text-slate-400 mt-1">Universität • Forschungsvorhaben</p>
             </div>
             <nav className="flex items-center gap-6">
-              <Link to="/" className="text-sm font-medium text-slate-600 hover:text-slate-900">
+              <Link to="/" className="text-sm font-medium text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100">
                 Vorgänge
               </Link>
-              <Link to="/playbooks" className="text-sm font-medium text-blue-600">
+              <Link to="/playbooks" className="text-sm font-medium text-blue-600 dark:text-blue-400">
                 Playbooks
               </Link>
-              <Link to="/profile" className="text-sm font-medium text-slate-600 hover:text-slate-900">
+              <Link to="/profile" className="text-sm font-medium text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100">
                 Mein Profil
               </Link>
               {isAdmin(auth?.user ?? null) && (
-                <Link to="/admin" className="text-sm font-medium text-slate-600 hover:text-slate-900">
+                <Link to="/admin" className="text-sm font-medium text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100">
                   Verwaltung
                 </Link>
               )}
@@ -73,8 +73,8 @@ export function PlaybooksPage() {
         {/* Page Header */}
         <div className="flex items-center justify-between mb-6">
           <div>
-            <h2 className="text-xl font-semibold text-slate-900">Playbooks</h2>
-            <p className="text-sm text-slate-600 mt-1">
+            <h2 className="text-xl font-semibold text-slate-900 dark:text-slate-100">Playbooks</h2>
+            <p className="text-sm text-slate-600 dark:text-slate-400 mt-1">
               Versionierte Prüfvorlagen für verschiedene Fachbereiche und Case-Typen
             </p>
           </div>
@@ -91,7 +91,7 @@ export function PlaybooksPage() {
           <CardContent className="pt-6">
             <div className="flex gap-4">
               <div className="flex-1 relative">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-slate-400" />
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-slate-400 dark:text-slate-500" />
                 <Input
                   placeholder="Suche nach Name oder Fachbereich..."
                   value={searchTerm}
@@ -124,11 +124,11 @@ export function PlaybooksPage() {
             >
               <CardHeader>
                 <div className="flex items-start justify-between mb-2">
-                  <BookOpen className="size-8 text-blue-600" />
+                  <BookOpen className="size-8 text-blue-600 dark:text-blue-400" />
                   {playbook.isActive ? (
-                    <Badge className="bg-green-100 text-green-700">Aktiv</Badge>
+                    <Badge className="bg-green-100 text-green-700 dark:bg-green-900/50 dark:text-green-300">Aktiv</Badge>
                   ) : (
-                    <Badge className="bg-slate-100 text-slate-700">
+                    <Badge className="bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300">
                       <Archive className="size-3 mr-1" />
                       Archiviert
                     </Badge>
@@ -142,17 +142,17 @@ export function PlaybooksPage() {
               <CardContent>
                 <div className="space-y-3">
                   <div className="flex items-center justify-between text-sm">
-                    <span className="text-slate-600">Version</span>
+                    <span className="text-slate-600 dark:text-slate-400">Version</span>
                     <Badge variant="outline">{playbook.version}</Badge>
                   </div>
                   <div className="flex items-center justify-between text-sm">
-                    <span className="text-slate-600">Checks</span>
+                    <span className="text-slate-600 dark:text-slate-400">Checks</span>
                     <div className="flex items-center gap-1">
-                      <CheckSquare className="size-4 text-blue-600" />
+                      <CheckSquare className="size-4 text-blue-600 dark:text-blue-400" />
                       <span className="font-medium">{playbook.checks?.length ?? 0}</span>
                     </div>
                   </div>
-                  <div className="text-xs text-slate-500 pt-2 border-t">
+                  <div className="text-xs text-slate-500 dark:text-slate-400 pt-2 border-t border-border">
                     Erstellt: {new Date(playbook.createdAt).toLocaleDateString("de-DE")}
                   </div>
                 </div>
@@ -164,16 +164,16 @@ export function PlaybooksPage() {
         {loading && (
           <Card>
             <CardContent className="py-12 text-center">
-              <p className="text-slate-600">Playbooks werden geladen…</p>
+              <p className="text-slate-600 dark:text-slate-400">Playbooks werden geladen…</p>
             </CardContent>
           </Card>
         )}
         {!loading && filteredPlaybooks.length === 0 && (
           <Card>
             <CardContent className="py-12 text-center">
-              <BookOpen className="size-12 text-slate-300 mx-auto mb-4" />
-              <p className="text-slate-600">Keine Playbooks gefunden</p>
-              <p className="text-sm text-slate-500 mt-1">
+              <BookOpen className="size-12 text-slate-300 dark:text-slate-500 mx-auto mb-4" />
+              <p className="text-slate-600 dark:text-slate-400">Keine Playbooks gefunden</p>
+              <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">
                 Versuchen Sie, Ihre Suchkriterien anzupassen
               </p>
             </CardContent>

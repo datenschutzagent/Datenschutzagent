@@ -3,7 +3,7 @@ import uuid
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import DateTime, ForeignKey, Index, Integer, String, Text
+from sqlalchemy import Boolean, DateTime, ForeignKey, Index, Integer, String, Text
 from sqlalchemy.dialects.postgresql import ARRAY, JSONB, UUID as PG_UUID
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
@@ -109,6 +109,18 @@ class UserModel(Base):
     preferences: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class PromptTemplateModel(Base):
+    """Versioned prompt template for LLM (check runner, VVT). One active version per key."""
+    __tablename__ = "prompt_templates"
+
+    id: Mapped[uuid.UUID] = mapped_column(PG_UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    key: Mapped[str] = mapped_column(String(100), nullable=False)
+    version: Mapped[str] = mapped_column(String(50), nullable=False)
+    content: Mapped[str] = mapped_column(Text, nullable=False)
+    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
 
 
 class ActivityLogModel(Base):
@@ -222,6 +234,18 @@ def orm_to_playbook_response(orm: PlaybookModel) -> dict[str, Any]:
         "content": orm.content,
         "case_type": orm.case_type,
         "department": orm.department,
+        "is_active": orm.is_active,
+        "created_at": orm.created_at,
+    }
+
+
+def orm_to_prompt_template_response(orm: PromptTemplateModel) -> dict[str, Any]:
+    """Map PromptTemplateModel to API response."""
+    return {
+        "id": orm.id,
+        "key": orm.key,
+        "version": orm.version,
+        "content": orm.content,
         "is_active": orm.is_active,
         "created_at": orm.created_at,
     }

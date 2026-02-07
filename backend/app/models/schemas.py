@@ -253,6 +253,35 @@ class UserUpdate(BaseModel):
     preferences: UserPreferences | dict[str, Any] | None = None
 
 
+# --- Admin: Prompt templates (versioned) ---
+class PromptTemplateResponse(BaseModel):
+    id: UUID
+    key: str
+    version: str
+    content: str
+    is_active: bool
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class PromptTemplateCreate(BaseModel):
+    key: str = Field(..., min_length=1, max_length=100)
+    version: str | None = Field(default=None, max_length=50)
+    content: str = Field(..., min_length=1)
+    set_active: bool = True
+
+
+class PromptTemplateUpdate(BaseModel):
+    is_active: bool | None = None
+
+
+class PromptTemplateKeyMeta(BaseModel):
+    key: str
+    description: str
+    placeholders: list[str]
+
+
 # --- Activity / Audit Log ---
 class ActivityResponse(BaseModel):
     """Single activity log entry for the timeline."""

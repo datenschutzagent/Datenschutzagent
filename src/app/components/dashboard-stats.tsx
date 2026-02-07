@@ -56,16 +56,16 @@ export function DashboardStats({ cases: casesProp }: DashboardStatsProps = {}) {
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">Aktive Vorgänge</CardTitle>
-            <FileText className="size-4 text-slate-600" />
+            <FileText className="size-4 text-slate-600 dark:text-slate-400" />
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-semibold">{activeCases}</div>
-            <p className="text-xs text-slate-600 mt-1">
+            <p className="text-xs text-slate-600 dark:text-slate-400 mt-1">
               von {totalCases} gesamt
             </p>
             <div className="flex items-center gap-1 mt-2">
-              <TrendingUp className="size-3 text-green-600" />
-              <span className="text-xs text-green-600">+2 seit letzter Woche</span>
+              <TrendingUp className="size-3 text-green-600 dark:text-green-400" />
+              <span className="text-xs text-green-600 dark:text-green-400">+2 seit letzter Woche</span>
             </div>
           </CardContent>
         </Card>
@@ -73,16 +73,16 @@ export function DashboardStats({ cases: casesProp }: DashboardStatsProps = {}) {
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">Kritische Findings</CardTitle>
-            <AlertCircle className="size-4 text-red-600" />
+            <AlertCircle className="size-4 text-red-600 dark:text-red-400" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-semibold text-red-600">{criticalFindings}</div>
-            <p className="text-xs text-slate-600 mt-1">
+            <div className="text-2xl font-semibold text-red-600 dark:text-red-400">{criticalFindings}</div>
+            <p className="text-xs text-slate-600 dark:text-slate-400 mt-1">
               von {totalFindings} gesamt
             </p>
             <div className="flex items-center gap-1 mt-2">
-              <TrendingDown className="size-3 text-green-600" />
-              <span className="text-xs text-green-600">-3 seit letzter Woche</span>
+              <TrendingDown className="size-3 text-green-600 dark:text-green-400" />
+              <span className="text-xs text-green-600 dark:text-green-400">-3 seit letzter Woche</span>
             </div>
           </CardContent>
         </Card>
@@ -90,16 +90,16 @@ export function DashboardStats({ cases: casesProp }: DashboardStatsProps = {}) {
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">Entscheidungsvorlage</CardTitle>
-            <CheckCircle2 className="size-4 text-green-600" />
+            <CheckCircle2 className="size-4 text-green-600 dark:text-green-400" />
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-semibold">{readyForDecision}</div>
-            <p className="text-xs text-slate-600 mt-1">
+            <p className="text-xs text-slate-600 dark:text-slate-400 mt-1">
               bereit für Freigabe
             </p>
             <div className="flex items-center gap-1 mt-2">
-              <Clock className="size-3 text-slate-400" />
-              <span className="text-xs text-slate-600">Ø 3.5 Tage in Review</span>
+              <Clock className="size-3 text-slate-400 dark:text-slate-500" />
+              <span className="text-xs text-slate-600 dark:text-slate-400">Ø 3.5 Tage in Review</span>
             </div>
           </CardContent>
         </Card>
@@ -107,15 +107,15 @@ export function DashboardStats({ cases: casesProp }: DashboardStatsProps = {}) {
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">Aktive Playbooks</CardTitle>
-            <BookOpen className="size-4 text-blue-600" />
+            <BookOpen className="size-4 text-blue-600 dark:text-blue-400" />
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-semibold">{activePlaybooks}</div>
-            <p className="text-xs text-slate-600 mt-1">
+            <p className="text-xs text-slate-600 dark:text-slate-400 mt-1">
               {playbooks.length} gesamt
             </p>
             <div className="flex items-center gap-1 mt-2">
-              <span className="text-xs text-slate-600">Für {playbookDepartments} Fachbereiche</span>
+              <span className="text-xs text-slate-600 dark:text-slate-400">Für {playbookDepartments} Fachbereiche</span>
             </div>
           </CardContent>
         </Card>
@@ -131,20 +131,20 @@ export function DashboardStats({ cases: casesProp }: DashboardStatsProps = {}) {
           <CardContent>
             <div className="space-y-3">
               {[
-                { status: "in_review", label: "In Vorprüfung", count: cases.filter(c => c.status === "in_review").length, color: "bg-blue-100 text-blue-700" },
-                { status: "questions_pending", label: "Rückfragen ausstehend", count: cases.filter(c => c.status === "questions_pending").length, color: "bg-amber-100 text-amber-700" },
-                { status: "revision", label: "Revision", count: cases.filter(c => c.status === "revision").length, color: "bg-purple-100 text-purple-700" },
-                { status: "ready_for_decision", label: "Entscheidungsvorlage", count: cases.filter(c => c.status === "ready_for_decision").length, color: "bg-green-100 text-green-700" },
-                { status: "completed", label: "Abgeschlossen", count: completedCases, color: "bg-gray-100 text-gray-600" },
+                { status: "in_review", label: "In Vorprüfung", count: cases.filter(c => c.status === "in_review").length, color: "bg-blue-100 text-blue-700 dark:bg-blue-900/50 dark:text-blue-300", bar: "bg-blue-100 dark:bg-blue-500" },
+                { status: "questions_pending", label: "Rückfragen ausstehend", count: cases.filter(c => c.status === "questions_pending").length, color: "bg-amber-100 text-amber-700 dark:bg-amber-900/50 dark:text-amber-300", bar: "bg-amber-100 dark:bg-amber-500" },
+                { status: "revision", label: "Revision", count: cases.filter(c => c.status === "revision").length, color: "bg-purple-100 text-purple-700 dark:bg-purple-900/50 dark:text-purple-300", bar: "bg-purple-100 dark:bg-purple-500" },
+                { status: "ready_for_decision", label: "Entscheidungsvorlage", count: cases.filter(c => c.status === "ready_for_decision").length, color: "bg-green-100 text-green-700 dark:bg-green-900/50 dark:text-green-300", bar: "bg-green-100 dark:bg-green-500" },
+                { status: "completed", label: "Abgeschlossen", count: completedCases, color: "bg-gray-100 text-gray-600 dark:bg-slate-800 dark:text-slate-400", bar: "bg-gray-100 dark:bg-slate-500" },
               ].map((item) => (
                 <div key={item.status} className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
                     <Badge className={item.color}>{item.label}</Badge>
                   </div>
                   <div className="flex items-center gap-3">
-                    <div className="w-32 bg-slate-100 rounded-full h-2">
+                    <div className="w-32 bg-slate-100 dark:bg-slate-700 rounded-full h-2">
                       <div 
-                        className={`h-2 rounded-full ${item.color.replace('text-', 'bg-').split(' ')[0]}`}
+                        className={`h-2 rounded-full ${item.bar ?? item.color.replace('text-', 'bg-').split(' ')[0]}`}
                         style={{ width: `${(item.count / totalCases) * 100}%` }}
                       />
                     </div>
@@ -164,39 +164,19 @@ export function DashboardStats({ cases: casesProp }: DashboardStatsProps = {}) {
           <CardContent>
             <div className="space-y-3">
               {[
-                { 
-                  severity: "critical", 
-                  label: "Kritisch", 
-                  count: cases.reduce((sum, c) => sum + c.findings.filter(f => f.severity === "critical" && f.status === "open").length, 0),
-                  color: "bg-red-100 text-red-700" 
-                },
-                { 
-                  severity: "high", 
-                  label: "Hoch", 
-                  count: cases.reduce((sum, c) => sum + c.findings.filter(f => f.severity === "high" && f.status === "open").length, 0),
-                  color: "bg-orange-100 text-orange-700" 
-                },
-                { 
-                  severity: "medium", 
-                  label: "Mittel", 
-                  count: cases.reduce((sum, c) => sum + c.findings.filter(f => f.severity === "medium" && f.status === "open").length, 0),
-                  color: "bg-yellow-100 text-yellow-700" 
-                },
-                { 
-                  severity: "low", 
-                  label: "Niedrig", 
-                  count: cases.reduce((sum, c) => sum + c.findings.filter(f => f.severity === "low" && f.status === "open").length, 0),
-                  color: "bg-blue-100 text-blue-700" 
-                },
+                { severity: "critical", label: "Kritisch", count: cases.reduce((sum, c) => sum + c.findings.filter(f => f.severity === "critical" && f.status === "open").length, 0), color: "bg-red-100 text-red-700 dark:bg-red-900/50 dark:text-red-300", bar: "bg-red-100 dark:bg-red-500" },
+                { severity: "high", label: "Hoch", count: cases.reduce((sum, c) => sum + c.findings.filter(f => f.severity === "high" && f.status === "open").length, 0), color: "bg-orange-100 text-orange-700 dark:bg-orange-900/50 dark:text-orange-300", bar: "bg-orange-100 dark:bg-orange-500" },
+                { severity: "medium", label: "Mittel", count: cases.reduce((sum, c) => sum + c.findings.filter(f => f.severity === "medium" && f.status === "open").length, 0), color: "bg-yellow-100 text-yellow-700 dark:bg-yellow-900/50 dark:text-yellow-300", bar: "bg-yellow-100 dark:bg-yellow-500" },
+                { severity: "low", label: "Niedrig", count: cases.reduce((sum, c) => sum + c.findings.filter(f => f.severity === "low" && f.status === "open").length, 0), color: "bg-blue-100 text-blue-700 dark:bg-blue-900/50 dark:text-blue-300", bar: "bg-blue-100 dark:bg-blue-500" },
               ].map((item) => (
                 <div key={item.severity} className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
                     <Badge className={item.color}>{item.label}</Badge>
                   </div>
                   <div className="flex items-center gap-3">
-                    <div className="w-32 bg-slate-100 rounded-full h-2">
+                    <div className="w-32 bg-slate-100 dark:bg-slate-700 rounded-full h-2">
                       <div 
-                        className={`h-2 rounded-full ${item.color.replace('text-', 'bg-').split(' ')[0]}`}
+                        className={`h-2 rounded-full ${item.bar ?? item.color.replace('text-', 'bg-').split(' ')[0]}`}
                         style={{ width: `${item.count > 0 ? (item.count / (criticalFindings + 10)) * 100 : 0}%` }}
                       />
                     </div>
@@ -218,22 +198,22 @@ export function DashboardStats({ cases: casesProp }: DashboardStatsProps = {}) {
         <CardContent>
           <div className="space-y-4">
             {recentCases.map((caseItem) => (
-              <div key={caseItem.id} className="flex items-start gap-4 pb-4 border-b last:border-0 last:pb-0">
-                <div className="size-2 rounded-full bg-blue-600 mt-2" />
+              <div key={caseItem.id} className="flex items-start gap-4 pb-4 border-b border-border last:border-0 last:pb-0">
+                <div className="size-2 rounded-full bg-blue-600 dark:bg-blue-500 mt-2" />
                 <div className="flex-1">
                   <div className="flex items-center gap-2 mb-1">
-                    <h4 className="font-medium text-slate-900">{caseItem.title}</h4>
+                    <h4 className="font-medium text-slate-900 dark:text-slate-100">{caseItem.title}</h4>
                     <Badge variant="outline" className="text-xs">{caseItem.department}</Badge>
                   </div>
-                  <p className="text-sm text-slate-600">
+                  <p className="text-sm text-slate-600 dark:text-slate-400">
                     {caseItem.findings.filter(f => f.status === "open").length} offene Findings
                   </p>
                 </div>
                 <div className="text-right">
-                  <p className="text-xs text-slate-500">
+                  <p className="text-xs text-slate-500 dark:text-slate-400">
                     {new Date(caseItem.updatedAt).toLocaleDateString("de-DE")}
                   </p>
-                  <p className="text-xs text-slate-500">
+                  <p className="text-xs text-slate-500 dark:text-slate-400">
                     {new Date(caseItem.updatedAt).toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" })}
                   </p>
                 </div>
@@ -257,17 +237,17 @@ export function DashboardStats({ cases: casesProp }: DashboardStatsProps = {}) {
                 c.status === "in_review" || c.status === "questions_pending" || c.status === "revision"
               ).length;
               return (
-                <div key={dept} className="p-4 border rounded-lg">
+                <div key={dept} className="p-4 border border-border rounded-lg">
                   <div className="flex items-center gap-2 mb-2">
-                    <Users className="size-4 text-blue-600" />
-                    <h4 className="font-medium text-slate-900">{dept}</h4>
+                    <Users className="size-4 text-blue-600 dark:text-blue-400" />
+                    <h4 className="font-medium text-slate-900 dark:text-slate-100">{dept}</h4>
                   </div>
                   <div className="flex items-center justify-between text-sm">
-                    <span className="text-slate-600">Aktiv:</span>
+                    <span className="text-slate-600 dark:text-slate-400">Aktiv:</span>
                     <span className="font-medium">{deptActiveCases}</span>
                   </div>
                   <div className="flex items-center justify-between text-sm">
-                    <span className="text-slate-600">Gesamt:</span>
+                    <span className="text-slate-600 dark:text-slate-400">Gesamt:</span>
                     <span className="font-medium">{deptCases.length}</span>
                   </div>
                 </div>

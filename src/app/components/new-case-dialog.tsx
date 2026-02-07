@@ -120,21 +120,21 @@ export function NewCaseDialog({ open, onOpenChange, onSuccess }: NewCaseDialogPr
         {/* Step Indicator */}
         <div className="flex items-center gap-2 mb-4">
           <div className="flex items-center gap-2">
-            <div className={`size-8 rounded-full flex items-center justify-center ${step >= 1 ? "bg-blue-600 text-white" : "bg-slate-200 text-slate-600"}`}>
+            <div className={`size-8 rounded-full flex items-center justify-center ${step >= 1 ? "bg-blue-600 text-white" : "bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-400"}`}>
               {step > 1 ? <CheckCircle2 className="size-5" /> : "1"}
             </div>
             <span className="text-sm font-medium">Grunddaten</span>
           </div>
-          <div className="flex-1 h-px bg-slate-200 max-w-4" />
+          <div className="flex-1 h-px bg-slate-200 dark:bg-slate-700 max-w-4" />
           <div className="flex items-center gap-2">
-            <div className={`size-8 rounded-full flex items-center justify-center ${step >= 2 ? "bg-blue-600 text-white" : "bg-slate-200 text-slate-600"}`}>
+            <div className={`size-8 rounded-full flex items-center justify-center ${step >= 2 ? "bg-blue-600 text-white" : "bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-400"}`}>
               {step > 2 ? <CheckCircle2 className="size-5" /> : "2"}
             </div>
             <span className="text-sm font-medium">Playbook</span>
           </div>
-          <div className="flex-1 h-px bg-slate-200 max-w-4" />
+          <div className="flex-1 h-px bg-slate-200 dark:bg-slate-700 max-w-4" />
           <div className="flex items-center gap-2">
-            <div className={`size-8 rounded-full flex items-center justify-center ${step >= 3 ? "bg-blue-600 text-white" : "bg-slate-200 text-slate-600"}`}>
+            <div className={`size-8 rounded-full flex items-center justify-center ${step >= 3 ? "bg-blue-600 text-white" : "bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-400"}`}>
               3
             </div>
             <span className="text-sm font-medium">Dokumente (optional)</span>
@@ -146,7 +146,7 @@ export function NewCaseDialog({ open, onOpenChange, onSuccess }: NewCaseDialogPr
             {/* Title */}
             <div className="space-y-2">
               <Label htmlFor="title">
-                Titel des Forschungsvorhabens <span className="text-red-600">*</span>
+                Titel des Forschungsvorhabens <span className="text-red-600 dark:text-red-400">*</span>
               </Label>
               <Input
                 id="title"
@@ -159,7 +159,7 @@ export function NewCaseDialog({ open, onOpenChange, onSuccess }: NewCaseDialogPr
             {/* Department */}
             <div className="space-y-2">
               <Label htmlFor="department">
-                Fachbereich <span className="text-red-600">*</span>
+                Fachbereich <span className="text-red-600 dark:text-red-400">*</span>
               </Label>
               <Select value={formData.department} onValueChange={(value) => setFormData({ ...formData, department: value, caseType: "" })}>
                 <SelectTrigger id="department">
@@ -230,12 +230,12 @@ export function NewCaseDialog({ open, onOpenChange, onSuccess }: NewCaseDialogPr
 
             <div className="space-y-2">
               <Label>
-                Case-Typ / Playbook auswählen <span className="text-red-600">*</span>
+                Case-Typ / Playbook auswählen <span className="text-red-600 dark:text-red-400">*</span>
               </Label>
               <div className="space-y-3">
                 {selectedPlaybooks.length === 0 && (
-                  <div className="text-center py-8 text-slate-500">
-                    <FileText className="size-12 mx-auto mb-2 text-slate-300" />
+                  <div className="text-center py-8 text-slate-500 dark:text-slate-400">
+                    <FileText className="size-12 mx-auto mb-2 text-slate-300 dark:text-slate-500" />
                     <p>Keine aktiven Playbooks für diesen Fachbereich verfügbar.</p>
                     <p className="text-sm mt-1">Bitte wählen Sie einen anderen Fachbereich.</p>
                   </div>
@@ -253,11 +253,11 @@ export function NewCaseDialog({ open, onOpenChange, onSuccess }: NewCaseDialogPr
                     <div className="flex items-start justify-between">
                       <div className="flex-1">
                         <div className="flex items-center gap-2 mb-1">
-                          <h4 className="font-medium text-slate-900">{playbook.name}</h4>
+                          <h4 className="font-medium text-slate-900 dark:text-slate-100">{playbook.name}</h4>
                           <Badge variant="outline">{playbook.version}</Badge>
                         </div>
-                        <p className="text-sm text-slate-600 mb-2">{playbook.caseType ?? playbook.name}</p>
-                        <div className="flex items-center gap-4 text-xs text-slate-500">
+                        <p className="text-sm text-slate-600 dark:text-slate-400 mb-2">{playbook.caseType ?? playbook.name}</p>
+                        <div className="flex items-center gap-4 text-xs text-slate-500 dark:text-slate-400">
                           <span>{playbook.checks?.length ?? 0} Checks</span>
                         </div>
                       </div>
@@ -274,7 +274,7 @@ export function NewCaseDialog({ open, onOpenChange, onSuccess }: NewCaseDialogPr
 
         {step === 3 && (
           <div className="space-y-4">
-            <p className="text-sm text-slate-600">
+            <p className="text-sm text-slate-600 dark:text-slate-400">
               Sie können jetzt Dokumente hinzufügen oder den Vorgang ohne Dokumente anlegen und später hochladen.
             </p>
             <div className="space-y-2">
@@ -293,7 +293,7 @@ export function NewCaseDialog({ open, onOpenChange, onSuccess }: NewCaseDialogPr
               </Select>
             </div>
             <div className="border-2 border-dashed border-slate-300 rounded-lg p-6 text-center">
-              <Upload className="size-10 mx-auto mb-2 text-slate-400" />
+              <Upload className="size-10 mx-auto mb-2 text-slate-400 dark:text-slate-500" />
               <Label className="text-blue-600 hover:text-blue-700 cursor-pointer">
                 Dateien auswählen
                 <input
@@ -304,7 +304,7 @@ export function NewCaseDialog({ open, onOpenChange, onSuccess }: NewCaseDialogPr
                   onChange={(e) => addPendingFiles(e.target.files)}
                 />
               </Label>
-              <p className="text-sm text-slate-500 mt-1">DOCX, PDF, XLSX, DOC (max. 10 MB)</p>
+              <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">DOCX, PDF, XLSX, DOC (max. 10 MB)</p>
             </div>
             {pendingFiles.length > 0 && (
               <ul className="space-y-2">
@@ -322,7 +322,7 @@ export function NewCaseDialog({ open, onOpenChange, onSuccess }: NewCaseDialogPr
         )}
 
         {submitError && (
-          <p className="text-sm text-red-600">{submitError}</p>
+          <p className="text-sm text-red-600 dark:text-red-400">{submitError}</p>
         )}
         <DialogFooter>
           {step >= 2 && (

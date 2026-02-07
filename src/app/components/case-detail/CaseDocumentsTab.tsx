@@ -77,20 +77,20 @@ export function CaseDocumentsTab({
       <CardContent>
         <div className="space-y-3">
           {caseData.documents.map((doc) => (
-            <div key={doc.id} className="p-4 border rounded-lg hover:bg-slate-50">
+            <div key={doc.id} className="p-4 border border-border rounded-lg hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors">
               <div className="flex items-start justify-between">
                 <div className="flex items-start gap-3">
-                  <FileText className="size-5 text-blue-600 mt-0.5" />
+                  <FileText className="size-5 text-blue-600 dark:text-blue-400 mt-0.5" />
                   <div>
                     <div className="flex items-center gap-2 mb-1">
-                      <h4 className="font-medium text-slate-900">{doc.name}</h4>
+                      <h4 className="font-medium text-slate-900 dark:text-slate-100">{doc.name}</h4>
                       <Badge variant="outline">{documentTypeLabels[doc.type as keyof typeof documentTypeLabels] ?? doc.type}</Badge>
                       <Badge variant="outline">v{doc.version}</Badge>
                       {doc.extractionMethod === "ocr" && (
                         <Badge variant="secondary" className="text-xs">Text per OCR extrahiert</Badge>
                       )}
                     </div>
-                    <div className="flex items-center gap-3 text-sm text-slate-600">
+                    <div className="flex items-center gap-3 text-sm text-slate-600 dark:text-slate-400">
                       <span>{doc.format.toUpperCase()}</span>
                       <span>•</span>
                       <span>{doc.size}</span>

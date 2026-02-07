@@ -84,11 +84,11 @@ export function CaseDetailPage() {
 
   if (loading && !caseData) {
     return (
-      <div className="min-h-screen bg-slate-50 flex items-center justify-center">
+      <div className="min-h-screen bg-slate-50 dark:bg-slate-950 flex items-center justify-center transition-colors">
         <Card className="max-w-md">
           <CardContent className="pt-6 text-center">
-            <Loader2 className="size-12 text-slate-400 mx-auto mb-4 animate-spin" />
-            <p className="text-slate-600">Vorgang wird geladen…</p>
+            <Loader2 className="size-12 text-slate-400 dark:text-slate-500 mx-auto mb-4 animate-spin" />
+            <p className="text-slate-600 dark:text-slate-400">Vorgang wird geladen…</p>
           </CardContent>
         </Card>
       </div>
@@ -96,11 +96,11 @@ export function CaseDetailPage() {
   }
   if (error || !caseData) {
     return (
-      <div className="min-h-screen bg-slate-50 flex items-center justify-center">
+      <div className="min-h-screen bg-slate-50 dark:bg-slate-950 flex items-center justify-center transition-colors">
         <Card className="max-w-md">
           <CardContent className="pt-6 text-center">
-            <AlertCircle className="size-12 text-slate-300 mx-auto mb-4" />
-            <p className="text-slate-600">{error || "Vorgang nicht gefunden"}</p>
+            <AlertCircle className="size-12 text-slate-300 dark:text-slate-500 mx-auto mb-4" />
+            <p className="text-slate-600 dark:text-slate-400">{error || "Vorgang nicht gefunden"}</p>
             <Button className="mt-4" onClick={() => navigate("/")}>
               Zurück zur Übersicht
             </Button>
@@ -115,27 +115,27 @@ export function CaseDetailPage() {
   const openFindings = caseData.findings.filter(f => f.status === "open");
 
   return (
-    <div className="min-h-screen bg-slate-50">
+    <div className="min-h-screen bg-slate-50 dark:bg-slate-950 transition-colors">
       {/* Header */}
-      <header className="bg-white border-b border-slate-200">
+      <header className="bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 transition-colors">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
           <div className="flex items-center justify-between">
             <div>
-              <h1 className="text-2xl font-semibold text-slate-900">Datenschutz-Agent</h1>
-              <p className="text-sm text-slate-600 mt-1">Universität • Forschungsvorhaben</p>
+              <h1 className="text-2xl font-semibold text-slate-900 dark:text-slate-100">Datenschutz-Agent</h1>
+              <p className="text-sm text-slate-600 dark:text-slate-400 mt-1">Universität • Forschungsvorhaben</p>
             </div>
             <nav className="flex items-center gap-6">
-              <Link to="/" className="text-sm font-medium text-blue-600">
+              <Link to="/" className="text-sm font-medium text-blue-600 dark:text-blue-400">
                 Vorgänge
               </Link>
-              <Link to="/playbooks" className="text-sm font-medium text-slate-600 hover:text-slate-900">
+              <Link to="/playbooks" className="text-sm font-medium text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100">
                 Playbooks
               </Link>
-              <Link to="/profile" className="text-sm font-medium text-slate-600 hover:text-slate-900">
+              <Link to="/profile" className="text-sm font-medium text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100">
                 Mein Profil
               </Link>
               {isAdmin(auth?.user ?? null) && (
-                <Link to="/admin" className="text-sm font-medium text-slate-600 hover:text-slate-900">
+                <Link to="/admin" className="text-sm font-medium text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100">
                   Verwaltung
                 </Link>
               )}
@@ -155,8 +155,8 @@ export function CaseDetailPage() {
 
         {/* Viewer hint */}
         {auth?.user && auth.user.role === "viewer" && (
-          <Alert className="mb-4 border-amber-200 bg-amber-50">
-            <AlertDescription className="text-amber-800">
+          <Alert className="mb-4 border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-900/30">
+            <AlertDescription className="text-amber-800 dark:text-amber-200">
               Sie haben nur Leserechte. Bearbeiten, Löschen und das Ausführen von Checks sind nicht möglich.
             </AlertDescription>
           </Alert>
@@ -167,12 +167,12 @@ export function CaseDetailPage() {
           <div className="flex items-start justify-between mb-4">
             <div>
               <div className="flex items-center gap-3 mb-2">
-                <h2 className="text-2xl font-semibold text-slate-900">{caseData.title}</h2>
+                <h2 className="text-2xl font-semibold text-slate-900 dark:text-slate-100">{caseData.title}</h2>
                 <Badge className={statusColors[caseData.status]}>
                   {statusLabels[caseData.status]}
                 </Badge>
               </div>
-              <div className="flex items-center gap-4 text-sm text-slate-600">
+              <div className="flex items-center gap-4 text-sm text-slate-600 dark:text-slate-400">
                 <span>{caseData.department}</span>
                 <span>•</span>
                 <span>{caseData.caseType}</span>
@@ -216,9 +216,9 @@ export function CaseDetailPage() {
 
           {/* Alert for Critical Issues */}
           {criticalFindings.length > 0 && (
-            <Alert className="border-red-200 bg-red-50">
-              <AlertCircle className="size-4 text-red-600" />
-              <AlertDescription className="text-red-800">
+            <Alert className="border-red-200 dark:border-red-800 bg-red-50 dark:bg-red-900/30">
+              <AlertCircle className="size-4 text-red-600 dark:text-red-400" />
+              <AlertDescription className="text-red-800 dark:text-red-200">
                 <strong>{criticalFindings.length} kritische</strong> und <strong>{highFindings.length} hohe</strong> Findings 
                 müssen vor Entscheidungsvorlage bearbeitet werden.
               </AlertDescription>
@@ -234,7 +234,7 @@ export function CaseDetailPage() {
             <TabsTrigger value="findings">
               Findings ({caseData.findings.length})
               {openFindings.length > 0 && (
-                <Badge className="ml-2 bg-red-600 text-white">{openFindings.length}</Badge>
+                <Badge className="ml-2 bg-red-600 dark:bg-red-700 text-white">{openFindings.length}</Badge>
               )}
             </TabsTrigger>
             <TabsTrigger value="audit">Audit Trail</TabsTrigger>
@@ -329,19 +329,19 @@ export function CaseDetailPage() {
           {selectedFinding && (
             <div className="space-y-4">
               <div>
-                <h4 className="text-sm font-medium text-slate-900 mb-1">Beschreibung</h4>
-                <p className="text-sm text-slate-600">{selectedFinding.description}</p>
+                <h4 className="text-sm font-medium text-slate-900 dark:text-slate-100 mb-1">Beschreibung</h4>
+                <p className="text-sm text-slate-600 dark:text-slate-400">{selectedFinding.description}</p>
               </div>
               <div>
-                <h4 className="text-sm font-medium text-slate-900 mb-1">Empfehlung</h4>
-                <p className="text-sm text-blue-600">{selectedFinding.recommendation}</p>
+                <h4 className="text-sm font-medium text-slate-900 dark:text-slate-100 mb-1">Empfehlung</h4>
+                <p className="text-sm text-blue-600 dark:text-blue-400">{selectedFinding.recommendation}</p>
               </div>
               <div>
-                <h4 className="text-sm font-medium text-slate-900 mb-1">Evidenzen</h4>
-                <ul className="text-sm text-slate-600 space-y-1">
+                <h4 className="text-sm font-medium text-slate-900 dark:text-slate-100 mb-1">Evidenzen</h4>
+                <ul className="text-sm text-slate-600 dark:text-slate-400 space-y-1">
                   {selectedFinding.evidence.map((ev, i) => (
                     <li key={i} className="flex items-start gap-2">
-                      <span className="text-blue-600">•</span>
+                      <span className="text-blue-600 dark:text-blue-400">•</span>
                       <span>{ev}</span>
                     </li>
                   ))}

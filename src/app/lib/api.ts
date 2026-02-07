@@ -240,6 +240,50 @@ export async function getConnectionsStatus(): Promise<ApiConnectionsStatus> {
   return request<ApiConnectionsStatus>("GET", "/admin/connections");
 }
 
+// --- Admin: Prompt templates (versioned) ---
+export interface ApiPromptTemplate {
+  id: string;
+  key: string;
+  version: string;
+  content: string;
+  is_active: boolean;
+  created_at: string;
+}
+
+export interface ApiPromptTemplateKeyMeta {
+  key: string;
+  description: string;
+  placeholders: string[];
+}
+
+export async function getAdminPromptTemplates(key?: string): Promise<ApiPromptTemplate[]> {
+  const q = key ? `?key=${encodeURIComponent(key)}` : "";
+  return request<ApiPromptTemplate[]>("GET", `/admin/prompt-templates${q}`);
+}
+
+export async function getAdminPromptTemplateVersions(key: string): Promise<ApiPromptTemplate[]> {
+  return request<ApiPromptTemplate[]>("GET", `/admin/prompt-templates/versions?key=${encodeURIComponent(key)}`);
+}
+
+export async function getAdminPromptTemplateKeys(): Promise<ApiPromptTemplateKeyMeta[]> {
+  return request<ApiPromptTemplateKeyMeta[]>("GET", "/admin/prompt-templates/keys");
+}
+
+export async function createAdminPromptTemplate(body: {
+  key: string;
+  version?: string;
+  content: string;
+  set_active?: boolean;
+}): Promise<ApiPromptTemplate> {
+  return request<ApiPromptTemplate>("POST", "/admin/prompt-templates", { body });
+}
+
+export async function setActivePromptTemplate(id: string, isActive: boolean): Promise<ApiPromptTemplate> {
+  return request<ApiPromptTemplate>("PATCH", `/admin/prompt-templates/${id}`, {
+    body: { is_active: isActive },
+  });
+}
+
 // --- Types (aligned with backend and mock-data) ---
 export type CaseStatus =
   | "intake"

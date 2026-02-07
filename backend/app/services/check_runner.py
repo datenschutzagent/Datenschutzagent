@@ -7,11 +7,64 @@ from pydantic import BaseModel, Field
 from app.config import settings
 from app.core.llm import create_agent
 from app.models.schemas import FindingSeverityEnum
+from app.services.prompt_template_service import get_active_template, render
 
 # Per-document character limit for LLM context (single-doc and cross-doc)
 CONTEXT_CHARS_PER_DOC = 15000
 # Max context size for RAG-assembled chunks (single document check)
 RAG_CONTEXT_CHARS = 20000
+
+# Built-in defaults when no DB template is active (use same placeholder names as configurable templates)
+DEFAULT_CHECK_FULL_TEXT_DOCUMENT_SYSTEM = (
+    "You are a strict data protection auditor. Analyze the provided document text against the specific requirement. {language_hint}"
+)
+DEFAULT_CHECK_FULL_TEXT_DOCUMENT_USER = """Requirement: {requirement}
+
+Document Text:
+---
+{document_text}
+---
+
+Evaluate if the document meets the requirement.
+"""
+DEFAULT_CHECK_FULL_TEXT_CROSS_SYSTEM = (
+    "You are a strict data protection auditor. Analyze the following set of documents "
+    "as a whole (e.g. consistency between them, completeness across documents). "
+    "Answer based on the combined context and the given requirement. {language_hint}"
+)
+DEFAULT_CHECK_FULL_TEXT_CROSS_USER = """Requirement: {requirement}
+
+Documents (consider all of them together):
+{documents}
+
+Evaluate whether the set of documents meets the requirement (e.g. consistency, completeness).
+"""
+DEFAULT_CHECK_RAG_DOCUMENT_SYSTEM = (
+    "You are a strict data protection auditor. You are given relevant excerpts from a document "
+    "(retrieved by semantic search). Analyze these excerpts against the specific requirement. {language_hint}"
+)
+DEFAULT_CHECK_RAG_DOCUMENT_USER = """Requirement: {requirement}
+
+Relevant document excerpts:
+---
+{excerpts}
+---
+
+Evaluate if the document (based on these excerpts) meets the requirement.
+"""
+DEFAULT_CHECK_RAG_CROSS_SYSTEM = (
+    "You are a strict data protection auditor. You are given relevant excerpts from "
+    "multiple documents (retrieved by semantic search). Analyze them as a whole against the requirement. {language_hint}"
+)
+DEFAULT_CHECK_RAG_CROSS_USER = """Requirement: {requirement}
+
+Relevant excerpts from case documents:
+---
+{excerpts}
+---
+
+Evaluate whether the set of documents (based on these excerpts) meets the requirement.
+"""
 
 
 class CheckResult(BaseModel):
@@ -37,22 +90,17 @@ async def run_check(
     language: str | None = None,
 ) -> CheckResult:
     """Run a single check against a document using the LLM."""
-    system = "You are a strict data protection auditor. Analyze the provided document text against the specific requirement."
-    if language:
-        system += " " + _language_hint(language)
-    agent = create_agent(system_prompt=system)
+    language_hint = _language_hint(language) if language else ""
+    system_tpl = await get_active_template("check_full_text_document_system")
+    system = render(system_tpl or DEFAULT_CHECK_FULL_TEXT_DOCUMENT_SYSTEM, {"language_hint": language_hint})
+    user_tpl = await get_active_template("check_full_text_document_user")
     truncated_text = document_text[:20000] if document_text else ""
-    prompt = f"""
-    Requirement: {check_instruction}
-
-    Document Text:
-    ---
-    {truncated_text}
-    ---
-
-    Evaluate if the document meets the requirement.
-    """
-    result = await agent.run(prompt, result_type=CheckResult)
+    user_content = render(
+        user_tpl or DEFAULT_CHECK_FULL_TEXT_DOCUMENT_USER,
+        {"requirement": check_instruction, "document_text": truncated_text},
+    )
+    agent = create_agent(system_prompt=system)
+    result = await agent.run(user_content, result_type=CheckResult)
     return result.data
 
 
@@ -66,28 +114,21 @@ async def run_cross_document_check(
     documents: list of (document_id, extracted_text). Findings from this check
     are persisted with document_id=None.
     """
-    system = (
-        "You are a strict data protection auditor. Analyze the following set of documents "
-        "as a whole (e.g. consistency between them, completeness across documents). "
-        "Answer based on the combined context and the given requirement."
-    )
-    if language:
-        system += " " + _language_hint(language)
-    agent = create_agent(system_prompt=system)
+    language_hint = _language_hint(language) if language else ""
+    system_tpl = await get_active_template("check_full_text_cross_system")
+    system = render(system_tpl or DEFAULT_CHECK_FULL_TEXT_CROSS_SYSTEM, {"language_hint": language_hint})
     parts: List[str] = []
     for i, (doc_id, text) in enumerate(documents, 1):
         truncated = (text or "")[:CONTEXT_CHARS_PER_DOC]
         parts.append(f"--- Document {i} (id: {doc_id}) ---\n{truncated}")
     combined = "\n\n".join(parts)
-    prompt = f"""
-    Requirement: {check_instruction}
-
-    Documents (consider all of them together):
-    {combined}
-
-    Evaluate whether the set of documents meets the requirement (e.g. consistency, completeness).
-    """
-    result = await agent.run(prompt, result_type=CheckResult)
+    user_tpl = await get_active_template("check_full_text_cross_user")
+    user_content = render(
+        user_tpl or DEFAULT_CHECK_FULL_TEXT_CROSS_USER,
+        {"requirement": check_instruction, "documents": combined},
+    )
+    agent = create_agent(system_prompt=system)
+    result = await agent.run(user_content, result_type=CheckResult)
     return result.data
 
 
@@ -109,24 +150,16 @@ async def run_check_rag(
     combined = "\n\n---\n\n".join(chunks)
     if len(combined) > RAG_CONTEXT_CHARS:
         combined = combined[:RAG_CONTEXT_CHARS] + "\n\n[... truncated ...]"
-    system = (
-        "You are a strict data protection auditor. You are given relevant excerpts from a document "
-        "(retrieved by semantic search). Analyze these excerpts against the specific requirement."
+    language_hint = _language_hint(language) if language else ""
+    system_tpl = await get_active_template("check_rag_document_system")
+    system = render(system_tpl or DEFAULT_CHECK_RAG_DOCUMENT_SYSTEM, {"language_hint": language_hint})
+    user_tpl = await get_active_template("check_rag_document_user")
+    user_content = render(
+        user_tpl or DEFAULT_CHECK_RAG_DOCUMENT_USER,
+        {"requirement": check_instruction, "excerpts": combined},
     )
-    if language:
-        system += " " + _language_hint(language)
     agent = create_agent(system_prompt=system)
-    prompt = f"""
-    Requirement: {check_instruction}
-
-    Relevant document excerpts:
-    ---
-    {combined}
-    ---
-
-    Evaluate if the document (based on these excerpts) meets the requirement.
-    """
-    result = await agent.run(prompt, result_type=CheckResult)
+    result = await agent.run(user_content, result_type=CheckResult)
     return result.data
 
 
@@ -149,22 +182,14 @@ async def run_cross_document_check_rag(
     combined = "\n\n---\n\n".join(chunks)
     if len(combined) > CONTEXT_CHARS_PER_DOC * 3:
         combined = combined[: CONTEXT_CHARS_PER_DOC * 3] + "\n\n[... truncated ...]"
-    system = (
-        "You are a strict data protection auditor. You are given relevant excerpts from "
-        "multiple documents (retrieved by semantic search). Analyze them as a whole against the requirement."
+    language_hint = _language_hint(language) if language else ""
+    system_tpl = await get_active_template("check_rag_cross_system")
+    system = render(system_tpl or DEFAULT_CHECK_RAG_CROSS_SYSTEM, {"language_hint": language_hint})
+    user_tpl = await get_active_template("check_rag_cross_user")
+    user_content = render(
+        user_tpl or DEFAULT_CHECK_RAG_CROSS_USER,
+        {"requirement": check_instruction, "excerpts": combined},
     )
-    if language:
-        system += " " + _language_hint(language)
     agent = create_agent(system_prompt=system)
-    prompt = f"""
-    Requirement: {check_instruction}
-
-    Relevant excerpts from case documents:
-    ---
-    {combined}
-    ---
-
-    Evaluate whether the set of documents (based on these excerpts) meets the requirement.
-    """
-    result = await agent.run(prompt, result_type=CheckResult)
+    result = await agent.run(user_content, result_type=CheckResult)
     return result.data

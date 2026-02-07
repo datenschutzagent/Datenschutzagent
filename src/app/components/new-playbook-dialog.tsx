@@ -189,7 +189,7 @@ export function NewPlaybookDialog({
                 Check hinzufügen
               </Button>
             </div>
-            <div className="space-y-3 border rounded-lg p-3 bg-slate-50 max-h-[280px] overflow-y-auto">
+            <div className="space-y-3 border rounded-lg p-3 bg-slate-50 dark:bg-slate-800/50 max-h-[280px] overflow-y-auto">
               {checks.map((check, index) => (
                 <div key={index} className="flex gap-2 items-start">
                   <div className="flex-1 space-y-2">
@@ -211,7 +211,7 @@ export function NewPlaybookDialog({
                     variant="ghost"
                     size="icon"
                     onClick={() => removeCheck(index)}
-                    className="text-slate-500 hover:text-red-600"
+                    className="text-slate-500 dark:text-slate-400 hover:text-red-600 dark:hover:text-red-400"
                   >
                     <Trash2 className="size-4" />
                   </Button>
@@ -220,7 +220,7 @@ export function NewPlaybookDialog({
             </div>
           </div>
         </div>
-        {submitError && <p className="text-sm text-red-600">{submitError}</p>}
+        {submitError && <p className="text-sm text-red-600 dark:text-red-400">{submitError}</p>}
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)}>
             Abbrechen

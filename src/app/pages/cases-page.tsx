@@ -98,27 +98,27 @@ export function CasesPage() {
   };
 
   return (
-    <div className="min-h-screen bg-slate-50">
+    <div className="min-h-screen bg-slate-50 dark:bg-slate-950 transition-colors">
       {/* Header */}
-      <header className="bg-white border-b border-slate-200">
+      <header className="bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 transition-colors">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
           <div className="flex items-center justify-between">
             <div>
-              <h1 className="text-2xl font-semibold text-slate-900">Datenschutz-Agent</h1>
-              <p className="text-sm text-slate-600 mt-1">Universität • Forschungsvorhaben</p>
+              <h1 className="text-2xl font-semibold text-slate-900 dark:text-slate-100">Datenschutz-Agent</h1>
+              <p className="text-sm text-slate-600 dark:text-slate-400 mt-1">Universität • Forschungsvorhaben</p>
             </div>
             <nav className="flex items-center gap-6">
-              <Link to="/" className="text-sm font-medium text-blue-600">
+              <Link to="/" className="text-sm font-medium text-blue-600 dark:text-blue-400">
                 Vorgänge
               </Link>
-              <Link to="/playbooks" className="text-sm font-medium text-slate-600 hover:text-slate-900">
+              <Link to="/playbooks" className="text-sm font-medium text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100">
                 Playbooks
               </Link>
-              <Link to="/profile" className="text-sm font-medium text-slate-600 hover:text-slate-900">
+              <Link to="/profile" className="text-sm font-medium text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100">
                 Mein Profil
               </Link>
               {isAdmin(auth?.user ?? null) && (
-                <Link to="/admin" className="text-sm font-medium text-slate-600 hover:text-slate-900">
+                <Link to="/admin" className="text-sm font-medium text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100">
                   Verwaltung
                 </Link>
               )}
@@ -133,8 +133,8 @@ export function CasesPage() {
         {/* Page Header */}
         <div className="flex items-center justify-between mb-6">
           <div>
-            <h2 className="text-xl font-semibold text-slate-900">Vorgänge</h2>
-            <p className="text-sm text-slate-600 mt-1">
+            <h2 className="text-xl font-semibold text-slate-900 dark:text-slate-100">Vorgänge</h2>
+            <p className="text-sm text-slate-600 dark:text-slate-400 mt-1">
               {filteredCases.length} {filteredCases.length === 1 ? "Vorgang" : "Vorgänge"}
             </p>
           </div>
@@ -221,29 +221,29 @@ export function CasesPage() {
                       <div className="flex items-center justify-between">
                         <div className="flex items-center gap-6 text-sm">
                           <div className="flex items-center gap-2">
-                            <FileText className="size-4 text-slate-400" />
-                            <span className="text-slate-600">{caseItem.documents.length} Dokumente</span>
+                            <FileText className="size-4 text-slate-400 dark:text-slate-500" />
+                            <span className="text-slate-600 dark:text-slate-400">{caseItem.documents.length} Dokumente</span>
                           </div>
                           {stats.critical > 0 && (
                             <div className="flex items-center gap-2">
-                              <AlertCircle className="size-4 text-red-600" />
-                              <span className="text-red-600 font-medium">{stats.critical} kritisch</span>
+                              <AlertCircle className="size-4 text-red-600 dark:text-red-400" />
+                              <span className="text-red-600 dark:text-red-400 font-medium">{stats.critical} kritisch</span>
                             </div>
                           )}
                           {stats.high > 0 && (
                             <div className="flex items-center gap-2">
-                              <AlertCircle className="size-4 text-orange-600" />
-                              <span className="text-orange-600 font-medium">{stats.high} hoch</span>
+                              <AlertCircle className="size-4 text-orange-600 dark:text-orange-400" />
+                              <span className="text-orange-600 dark:text-orange-400 font-medium">{stats.high} hoch</span>
                             </div>
                           )}
                           {stats.fixed > 0 && (
                             <div className="flex items-center gap-2">
-                              <CheckCircle2 className="size-4 text-green-600" />
-                              <span className="text-green-600">{stats.fixed} behoben</span>
+                              <CheckCircle2 className="size-4 text-green-600 dark:text-green-400" />
+                              <span className="text-green-600 dark:text-green-400">{stats.fixed} behoben</span>
                             </div>
                           )}
                         </div>
-                        <div className="flex items-center gap-3 text-sm text-slate-600">
+                        <div className="flex items-center gap-3 text-sm text-slate-600 dark:text-slate-400">
                           <Clock className="size-4" />
                           <span>Playbook: {caseItem.playbookVersion || "—"}</span>
                         </div>
@@ -251,12 +251,12 @@ export function CasesPage() {
                       {(caseItem as { deadline?: string }).deadline && (
                         <div className="mt-4">
                           <div className="flex items-center gap-2">
-                            <Calendar className="size-4 text-slate-400" />
-                            <span className="text-slate-600">Fällig: {formatDeadline((caseItem as { deadline: string }).deadline)}</span>
+                            <Calendar className="size-4 text-slate-400 dark:text-slate-500" />
+                            <span className="text-slate-600 dark:text-slate-400">Fällig: {formatDeadline((caseItem as { deadline: string }).deadline)}</span>
                           </div>
                           {deadlineStatus === "overdue" && (
                             <div className="mt-2">
-                              <Badge className="bg-red-600 text-white">
+                              <Badge className="bg-red-600 dark:bg-red-700 text-white">
                                 <AlertTriangle className="size-4 mr-1" />
                                 Überfällig
                               </Badge>
@@ -264,7 +264,7 @@ export function CasesPage() {
                           )}
                           {deadlineStatus === "soon" && (
                             <div className="mt-2">
-                              <Badge className="bg-orange-600 text-white">
+                              <Badge className="bg-orange-600 dark:bg-orange-700 text-white">
                                 <AlertTriangle className="size-4 mr-1" />
                                 Bald fällig
                               </Badge>
@@ -281,15 +281,15 @@ export function CasesPage() {
             {loading && (
               <Card>
                 <CardContent className="py-12 text-center">
-                  <p className="text-slate-600">Vorgänge werden geladen…</p>
+                  <p className="text-slate-600 dark:text-slate-400">Vorgänge werden geladen…</p>
                 </CardContent>
               </Card>
             )}
             {error && (
               <Card>
                 <CardContent className="py-12 text-center">
-                  <AlertCircle className="size-12 text-red-500 mx-auto mb-4" />
-                  <p className="text-slate-600">{error}</p>
+                  <AlertCircle className="size-12 text-red-500 dark:text-red-400 mx-auto mb-4" />
+                  <p className="text-slate-600 dark:text-slate-400">{error}</p>
                   <Button className="mt-4" variant="outline" onClick={loadCases}>Erneut versuchen</Button>
                 </CardContent>
               </Card>
@@ -297,9 +297,9 @@ export function CasesPage() {
             {!loading && !error && filteredCases.length === 0 && (
               <Card>
                 <CardContent className="py-12 text-center">
-                  <FileText className="size-12 text-slate-300 mx-auto mb-4" />
-                  <p className="text-slate-600">Keine Vorgänge gefunden</p>
-                  <p className="text-sm text-slate-500 mt-1">
+                  <FileText className="size-12 text-slate-300 dark:text-slate-500 mx-auto mb-4" />
+                  <p className="text-slate-600 dark:text-slate-400">Keine Vorgänge gefunden</p>
+                  <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">
                     Versuchen Sie, Ihre Suchkriterien anzupassen
                   </p>
                 </CardContent>

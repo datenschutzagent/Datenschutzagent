@@ -128,10 +128,10 @@ export function PlaybookDetailPage() {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-slate-50 flex items-center justify-center">
+      <div className="min-h-screen bg-slate-50 dark:bg-slate-950 flex items-center justify-center transition-colors">
         <div className="flex flex-col items-center gap-4">
-          <Loader2 className="size-10 animate-spin text-blue-600" />
-          <p className="text-slate-600">Playbook wird geladen…</p>
+          <Loader2 className="size-10 animate-spin text-blue-600 dark:text-blue-400" />
+          <p className="text-slate-600 dark:text-slate-400">Playbook wird geladen…</p>
         </div>
       </div>
     );
@@ -139,12 +139,12 @@ export function PlaybookDetailPage() {
 
   if (error || !playbook) {
     return (
-      <div className="min-h-screen bg-slate-50 flex items-center justify-center">
+      <div className="min-h-screen bg-slate-50 dark:bg-slate-950 flex items-center justify-center transition-colors">
         <Card className="max-w-md">
           <CardContent className="pt-6 text-center">
-            <AlertCircle className="size-12 text-slate-300 mx-auto mb-4" />
-            <p className="text-slate-600">Playbook nicht gefunden</p>
-            {error && <p className="text-sm text-red-600 mt-2">{error}</p>}
+            <AlertCircle className="size-12 text-slate-300 dark:text-slate-500 mx-auto mb-4" />
+            <p className="text-slate-600 dark:text-slate-400">Playbook nicht gefunden</p>
+            {error && <p className="text-sm text-red-600 dark:text-red-400 mt-2">{error}</p>}
             <Button className="mt-4" onClick={() => navigate("/playbooks")}>
               Zurück zur Übersicht
             </Button>
@@ -160,27 +160,27 @@ export function PlaybookDetailPage() {
   const mandatoryChecks = checks.filter((c) => c.mandatory);
 
   return (
-    <div className="min-h-screen bg-slate-50">
+    <div className="min-h-screen bg-slate-50 dark:bg-slate-950 transition-colors">
       {/* Header */}
-      <header className="bg-white border-b border-slate-200">
+      <header className="bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 transition-colors">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
           <div className="flex items-center justify-between">
             <div>
-              <h1 className="text-2xl font-semibold text-slate-900">Datenschutz-Agent</h1>
-              <p className="text-sm text-slate-600 mt-1">Universität • Forschungsvorhaben</p>
+              <h1 className="text-2xl font-semibold text-slate-900 dark:text-slate-100">Datenschutz-Agent</h1>
+              <p className="text-sm text-slate-600 dark:text-slate-400 mt-1">Universität • Forschungsvorhaben</p>
             </div>
             <nav className="flex items-center gap-6">
-              <Link to="/" className="text-sm font-medium text-slate-600 hover:text-slate-900">
+              <Link to="/" className="text-sm font-medium text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100">
                 Vorgänge
               </Link>
-              <Link to="/playbooks" className="text-sm font-medium text-blue-600">
+              <Link to="/playbooks" className="text-sm font-medium text-blue-600 dark:text-blue-400">
                 Playbooks
               </Link>
-              <Link to="/profile" className="text-sm font-medium text-slate-600 hover:text-slate-900">
+              <Link to="/profile" className="text-sm font-medium text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100">
                 Mein Profil
               </Link>
               {isAdmin(auth?.user ?? null) && (
-                <Link to="/admin" className="text-sm font-medium text-slate-600 hover:text-slate-900">
+                <Link to="/admin" className="text-sm font-medium text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100">
                   Verwaltung
                 </Link>
               )}
@@ -202,23 +202,23 @@ export function PlaybookDetailPage() {
         <div className="mb-6">
           <div className="flex items-start justify-between mb-4">
             <div className="flex items-start gap-4">
-              <div className="p-3 bg-blue-100 rounded-lg">
-                <BookOpen className="size-8 text-blue-600" />
+              <div className="p-3 bg-blue-100 dark:bg-blue-900/50 rounded-lg">
+                <BookOpen className="size-8 text-blue-600 dark:text-blue-400" />
               </div>
               <div>
                 <div className="flex items-center gap-3 mb-2">
-                  <h2 className="text-2xl font-semibold text-slate-900">{playbook.name}</h2>
+                  <h2 className="text-2xl font-semibold text-slate-900 dark:text-slate-100">{playbook.name}</h2>
                   {playbook.status === "active" && (
-                    <Badge className="bg-green-100 text-green-700">Aktiv</Badge>
+                    <Badge className="bg-green-100 text-green-700 dark:bg-green-900/50 dark:text-green-300">Aktiv</Badge>
                   )}
                   {playbook.status === "draft" && (
-                    <Badge className="bg-amber-100 text-amber-700">Entwurf</Badge>
+                    <Badge className="bg-amber-100 text-amber-700 dark:bg-amber-900/50 dark:text-amber-300">Entwurf</Badge>
                   )}
                   {playbook.status === "archived" && (
-                    <Badge className="bg-slate-100 text-slate-700">Archiviert</Badge>
+                    <Badge className="bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300">Archiviert</Badge>
                   )}
                 </div>
-                <div className="flex items-center gap-4 text-sm text-slate-600">
+                <div className="flex items-center gap-4 text-sm text-slate-600 dark:text-slate-400">
                   <span>{playbook.department ?? "—"}</span>
                   <span>•</span>
                   <span>{playbook.caseType ?? "—"}</span>
@@ -260,7 +260,7 @@ export function PlaybookDetailPage() {
               )}
               <Button
                 variant="outline"
-                className="gap-2 text-red-600 hover:text-red-700 hover:bg-red-50"
+                className="gap-2 text-red-600 dark:text-red-400 hover:text-red-700 dark:hover:text-red-300 hover:bg-red-50 dark:hover:bg-red-900/30"
                 onClick={() => setDeleteDialogOpen(true)}
                 disabled={actionLoading}
               >
@@ -290,27 +290,27 @@ export function PlaybookDetailPage() {
                 </CardHeader>
                 <CardContent className="space-y-3 text-sm">
                   <div>
-                    <span className="text-slate-600">Playbook-ID:</span>
+                    <span className="text-slate-600 dark:text-slate-400">Playbook-ID:</span>
                     <p className="font-medium">{playbook.id}</p>
                   </div>
                   <div>
-                    <span className="text-slate-600">Version:</span>
+                    <span className="text-slate-600 dark:text-slate-400">Version:</span>
                     <p className="font-medium">{playbook.version}</p>
                   </div>
                   <div>
-                    <span className="text-slate-600">Fachbereich:</span>
+                    <span className="text-slate-600 dark:text-slate-400">Fachbereich:</span>
                     <p className="font-medium">{playbook.department}</p>
                   </div>
                   <div>
-                    <span className="text-slate-600">Case-Typ:</span>
+                    <span className="text-slate-600 dark:text-slate-400">Case-Typ:</span>
                     <p className="font-medium">{playbook.caseType}</p>
                   </div>
                   <div>
-                    <span className="text-slate-600">Erstellt:</span>
+                    <span className="text-slate-600 dark:text-slate-400">Erstellt:</span>
                     <p className="font-medium">{playbook.createdAt ? new Date(playbook.createdAt as string).toLocaleDateString("de-DE") : "—"}</p>
                   </div>
                   <div>
-                    <span className="text-slate-600">Letzte Aktualisierung:</span>
+                    <span className="text-slate-600 dark:text-slate-400">Letzte Aktualisierung:</span>
                     <p className="font-medium">{playbook.updatedAt ? new Date(playbook.updatedAt as string).toLocaleDateString("de-DE") : "—"}</p>
                   </div>
                 </CardContent>
@@ -323,19 +323,19 @@ export function PlaybookDetailPage() {
                 </CardHeader>
                 <CardContent className="space-y-3">
                   <div className="flex items-center justify-between">
-                    <span className="text-sm text-slate-600">Checks gesamt</span>
+                    <span className="text-sm text-slate-600 dark:text-slate-400">Checks gesamt</span>
                     <Badge variant="outline">{checks.length}</Badge>
                   </div>
                   <div className="flex items-center justify-between">
-                    <span className="text-sm text-slate-600">Pflichtchecks</span>
-                    <Badge className="bg-blue-100 text-blue-700">{mandatoryChecks.length}</Badge>
+                    <span className="text-sm text-slate-600 dark:text-slate-400">Pflichtchecks</span>
+                    <Badge className="bg-blue-100 text-blue-700 dark:bg-blue-900/50 dark:text-blue-300">{mandatoryChecks.length}</Badge>
                   </div>
                   <div className="flex items-center justify-between">
-                    <span className="text-sm text-slate-600">Dokumenten-Checks</span>
+                    <span className="text-sm text-slate-600 dark:text-slate-400">Dokumenten-Checks</span>
                     <Badge variant="outline">{documentChecks.length}</Badge>
                   </div>
                   <div className="flex items-center justify-between">
-                    <span className="text-sm text-slate-600">Cross-Document-Checks</span>
+                    <span className="text-sm text-slate-600 dark:text-slate-400">Cross-Document-Checks</span>
                     <Badge variant="outline">{crossDocChecks.length}</Badge>
                   </div>
                 </CardContent>
@@ -348,14 +348,14 @@ export function PlaybookDetailPage() {
                 </CardHeader>
                 <CardContent className="space-y-3">
                   <div className="flex items-center justify-between">
-                    <span className="text-sm text-slate-600">Aktive Vorgänge</span>
+                    <span className="text-sm text-slate-600 dark:text-slate-400">Aktive Vorgänge</span>
                     <Badge variant="outline">2</Badge>
                   </div>
                   <div className="flex items-center justify-between">
-                    <span className="text-sm text-slate-600">Abgeschlossene Vorgänge</span>
+                    <span className="text-sm text-slate-600 dark:text-slate-400">Abgeschlossene Vorgänge</span>
                     <Badge variant="outline">15</Badge>
                   </div>
-                  <div className="text-xs text-slate-500 pt-2 border-t">
+                  <div className="text-xs text-slate-500 dark:text-slate-400 pt-2 border-t border-border">
                     Dieses Playbook wird aktiv für laufende Forschungsvorhaben verwendet.
                   </div>
                 </CardContent>
@@ -373,12 +373,12 @@ export function PlaybookDetailPage() {
                   {Array.from(new Set(checks.map((c) => c.category).filter(Boolean))).map((category) => {
                     const checksInCategory = checks.filter((c) => c.category === category);
                     return (
-                      <div key={category} className="p-4 border rounded-lg">
-                        <h4 className="font-medium text-slate-900 mb-2">{category}</h4>
-                        <p className="text-sm text-slate-600">
+                      <div key={category} className="p-4 border border-border rounded-lg">
+                        <h4 className="font-medium text-slate-900 dark:text-slate-100 mb-2">{category}</h4>
+                        <p className="text-sm text-slate-600 dark:text-slate-400">
                           {checksInCategory.length} Check{checksInCategory.length !== 1 ? "s" : ""}
                           {checksInCategory.filter((c) => c.mandatory).length > 0 && (
-                            <span className="text-blue-600 ml-2">
+                            <span className="text-blue-600 dark:text-blue-400 ml-2">
                               ({checksInCategory.filter((c) => c.mandatory).length} Pflicht)
                             </span>
                           )}
@@ -407,21 +407,21 @@ export function PlaybookDetailPage() {
               <CardContent>
                 <div className="space-y-3">
                   {documentChecks.map((check) => (
-                    <div key={check.id} className="p-4 border rounded-lg hover:bg-slate-50">
+                    <div key={check.id} className="p-4 border border-border rounded-lg hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors">
                       <div className="flex items-start gap-3">
-                        <CheckSquare className="size-5 text-blue-600 mt-0.5" />
+                        <CheckSquare className="size-5 text-blue-600 dark:text-blue-400 mt-0.5" />
                         <div className="flex-1">
                           <div className="flex items-center gap-2 mb-1">
-                            <h4 className="font-medium text-slate-900">{check.name}</h4>
+                            <h4 className="font-medium text-slate-900 dark:text-slate-100">{check.name}</h4>
                             {check.mandatory && (
-                              <Badge className="bg-blue-100 text-blue-700">Pflicht</Badge>
+                              <Badge className="bg-blue-100 text-blue-700 dark:bg-blue-900/50 dark:text-blue-300">Pflicht</Badge>
                             )}
                             <Badge variant="outline" className="text-xs">{check.category}</Badge>
                           </div>
-                          <p className="text-sm text-slate-600 mb-2">{check.description}</p>
+                          <p className="text-sm text-slate-600 dark:text-slate-400 mb-2">{check.description}</p>
                           <div className="flex items-center gap-2">
-                            <FileText className="size-4 text-slate-400" />
-                            <span className="text-xs text-slate-500">
+                            <FileText className="size-4 text-slate-400 dark:text-slate-500" />
+                            <span className="text-xs text-slate-500 dark:text-slate-400">
                               Ziel-Dokumente: {check.targetDocuments.join(", ")}
                             </span>
                           </div>
@@ -447,23 +447,23 @@ export function PlaybookDetailPage() {
               <CardContent>
                 <div className="space-y-3">
                   {crossDocChecks.map((check) => (
-                    <div key={check.id} className="p-4 border rounded-lg hover:bg-slate-50">
+                    <div key={check.id} className="p-4 border border-border rounded-lg hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors">
                       <div className="flex items-start gap-3">
-                        <div className="p-1.5 bg-purple-100 rounded">
-                          <CheckSquare className="size-5 text-purple-600" />
+                        <div className="p-1.5 bg-purple-100 dark:bg-purple-900/50 rounded">
+                          <CheckSquare className="size-5 text-purple-600 dark:text-purple-400" />
                         </div>
                         <div className="flex-1">
                           <div className="flex items-center gap-2 mb-1">
-                            <h4 className="font-medium text-slate-900">{check.name}</h4>
+                            <h4 className="font-medium text-slate-900 dark:text-slate-100">{check.name}</h4>
                             {check.mandatory && (
-                              <Badge className="bg-blue-100 text-blue-700">Pflicht</Badge>
+                              <Badge className="bg-blue-100 text-blue-700 dark:bg-blue-900/50 dark:text-blue-300">Pflicht</Badge>
                             )}
                             <Badge variant="outline" className="text-xs">{check.category}</Badge>
                           </div>
-                          <p className="text-sm text-slate-600 mb-2">{check.description}</p>
+                          <p className="text-sm text-slate-600 dark:text-slate-400 mb-2">{check.description}</p>
                           <div className="flex items-center gap-2">
-                            <FileText className="size-4 text-slate-400" />
-                            <span className="text-xs text-slate-500">
+                            <FileText className="size-4 text-slate-400 dark:text-slate-500" />
+                            <span className="text-xs text-slate-500 dark:text-slate-400">
                               Beteiligt: {check.targetDocuments.join(", ")}
                             </span>
                           </div>
@@ -487,21 +487,21 @@ export function PlaybookDetailPage() {
                 <div className="space-y-4">
                   <div className="flex gap-4">
                     <div className="flex flex-col items-center">
-                      <div className="size-3 rounded-full bg-green-600" />
-                      <div className="w-px h-full bg-slate-200" />
+                      <div className="size-3 rounded-full bg-green-600 dark:bg-green-500" />
+                      <div className="w-px h-full bg-slate-200 dark:bg-slate-700" />
                     </div>
                     <div className="flex-1 pb-6">
                       <div className="flex items-center gap-2 mb-1">
-                        <Badge className="bg-green-100 text-green-700">{playbook.version}</Badge>
-                        <Badge className="bg-blue-100 text-blue-700">Aktuell</Badge>
+                        <Badge className="bg-green-100 text-green-700 dark:bg-green-900/50 dark:text-green-300">{playbook.version}</Badge>
+                        <Badge className="bg-blue-100 text-blue-700 dark:bg-blue-900/50 dark:text-blue-300">Aktuell</Badge>
                       </div>
-                      <p className="text-sm font-medium text-slate-900 mb-1">
+                      <p className="text-sm font-medium text-slate-900 dark:text-slate-100 mb-1">
                         Aktualisierung: AVV-Checks erweitert
                       </p>
-                      <p className="text-xs text-slate-600 mb-2">
+                      <p className="text-xs text-slate-600 dark:text-slate-400 mb-2">
                         {playbook.updatedAt ? new Date(playbook.updatedAt as string).toLocaleString("de-DE") : "—"}
                       </p>
-                      <ul className="text-xs text-slate-500 space-y-1 ml-4 list-disc">
+                      <ul className="text-xs text-slate-500 dark:text-slate-400 space-y-1 ml-4 list-disc">
                         <li>Neue Checks für Drittlandtransfer hinzugefügt</li>
                         <li>TOMs-Anlage-Prüfung erweitert</li>
                       </ul>
@@ -509,36 +509,36 @@ export function PlaybookDetailPage() {
                   </div>
                   <div className="flex gap-4">
                     <div className="flex flex-col items-center">
-                      <div className="size-3 rounded-full bg-slate-400" />
-                      <div className="w-px h-full bg-slate-200" />
+                      <div className="size-3 rounded-full bg-slate-400 dark:bg-slate-500" />
+                      <div className="w-px h-full bg-slate-200 dark:bg-slate-700" />
                     </div>
                     <div className="flex-1 pb-6">
                       <div className="flex items-center gap-2 mb-1">
                         <Badge variant="outline">v2.2.0</Badge>
                       </div>
-                      <p className="text-sm font-medium text-slate-900 mb-1">
+                      <p className="text-sm font-medium text-slate-900 dark:text-slate-100 mb-1">
                         DSFA-Screening-Logik verbessert
                       </p>
-                      <p className="text-xs text-slate-600 mb-2">
+                      <p className="text-xs text-slate-600 dark:text-slate-400 mb-2">
                         {new Date("2025-12-10").toLocaleString("de-DE")}
                       </p>
-                      <ul className="text-xs text-slate-500 space-y-1 ml-4 list-disc">
+                      <ul className="text-xs text-slate-500 dark:text-slate-400 space-y-1 ml-4 list-disc">
                         <li>Schwellenwert-Kriterien aktualisiert</li>
                       </ul>
                     </div>
                   </div>
                   <div className="flex gap-4">
                     <div className="flex flex-col items-center">
-                      <div className="size-3 rounded-full bg-slate-400" />
+                      <div className="size-3 rounded-full bg-slate-400 dark:bg-slate-500" />
                     </div>
                     <div className="flex-1">
                       <div className="flex items-center gap-2 mb-1">
                         <Badge variant="outline">v2.0.0</Badge>
                       </div>
-                      <p className="text-sm font-medium text-slate-900 mb-1">
+                      <p className="text-sm font-medium text-slate-900 dark:text-slate-100 mb-1">
                         Initiale Version für {playbook.department}
                       </p>
-                      <p className="text-xs text-slate-600">
+                      <p className="text-xs text-slate-600 dark:text-slate-400">
                         {playbook.createdAt ? new Date(playbook.createdAt as string).toLocaleString("de-DE") : "—"}
                       </p>
                     </div>
@@ -571,7 +571,7 @@ export function PlaybookDetailPage() {
             <AlertDialogCancel>Abbrechen</AlertDialogCancel>
             <AlertDialogAction
               onClick={handleDelete}
-              className="bg-red-600 hover:bg-red-700"
+              className="bg-red-600 dark:bg-red-700 hover:bg-red-700 dark:hover:bg-red-800"
               disabled={actionLoading}
             >
               {actionLoading ? "Wird gelöscht…" : "Löschen"}

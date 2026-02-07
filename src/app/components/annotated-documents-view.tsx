@@ -58,7 +58,7 @@ export function AnnotatedDocumentsView({ caseId }: AnnotatedDocumentsViewProps) 
   if (loading) {
     return (
       <div className="flex items-center justify-center py-12">
-        <Loader2 className="size-8 animate-spin text-slate-400" />
+        <Loader2 className="size-8 animate-spin text-slate-400 dark:text-slate-500" />
       </div>
     );
   }
@@ -67,7 +67,7 @@ export function AnnotatedDocumentsView({ caseId }: AnnotatedDocumentsViewProps) 
     return (
       <Card>
         <CardContent className="py-6">
-          <p className="text-sm text-red-600">{error}</p>
+          <p className="text-sm text-red-600 dark:text-red-400">{error}</p>
         </CardContent>
       </Card>
     );
@@ -79,8 +79,8 @@ export function AnnotatedDocumentsView({ caseId }: AnnotatedDocumentsViewProps) 
         <CardHeader>
           <div className="flex items-start justify-between">
             <div className="flex items-start gap-4">
-              <div className="p-3 bg-purple-100 rounded-lg">
-                <MessageSquare className="size-8 text-purple-600" />
+              <div className="p-3 bg-purple-100 dark:bg-purple-900/50 rounded-lg">
+                <MessageSquare className="size-8 text-purple-600 dark:text-purple-400" />
               </div>
               <div>
                 <CardTitle>Kommentierte Dokumente</CardTitle>
@@ -109,8 +109,8 @@ export function AnnotatedDocumentsView({ caseId }: AnnotatedDocumentsViewProps) 
 
       {items.length === 0 ? (
         <Card>
-          <CardContent className="py-8 text-center text-slate-600">
-            <FileText className="size-12 mx-auto mb-3 text-slate-300" />
+          <CardContent className="py-8 text-center text-slate-600 dark:text-slate-400">
+            <FileText className="size-12 mx-auto mb-3 text-slate-300 dark:text-slate-500" />
             <p>Keine Dokumente mit Findings.</p>
             <p className="text-sm mt-1">Führen Sie zuerst „Checks starten“ aus, um Findings zu erzeugen.</p>
           </CardContent>
@@ -122,7 +122,7 @@ export function AnnotatedDocumentsView({ caseId }: AnnotatedDocumentsViewProps) 
               <CardHeader>
                 <div className="flex items-start justify-between">
                   <div className="flex items-start gap-3">
-                    <FileText className="size-6 text-blue-600 mt-1" />
+                    <FileText className="size-6 text-blue-600 dark:text-blue-400 mt-1" />
                     <div>
                       <CardTitle className="text-lg">{item.document_name}</CardTitle>
                       <CardDescription className="flex items-center gap-3 mt-1">
@@ -155,7 +155,7 @@ export function AnnotatedDocumentsView({ caseId }: AnnotatedDocumentsViewProps) 
         <CardHeader>
           <CardTitle className="text-base">Hinweis</CardTitle>
         </CardHeader>
-        <CardContent className="space-y-2 text-sm text-slate-600">
+        <CardContent className="space-y-2 text-sm text-slate-600 dark:text-slate-400">
           <p>Die heruntergeladene DOCX enthält den extrahierten Dokumentinhalt sowie einen Abschnitt mit allen Findings (Check-Name, Schwere, Beschreibung, Empfehlung).</p>
         </CardContent>
       </Card>

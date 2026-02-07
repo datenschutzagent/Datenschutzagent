@@ -91,7 +91,7 @@ export function CasesSearchFilter({
       {/* Search Bar */}
       <div className="flex gap-2">
         <div className="relative flex-1">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-slate-400" />
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-slate-400 dark:text-slate-500" />
           <Input
             placeholder="Vorgänge durchsuchen (Titel, Antragsteller, Abteilung...)"
             value={filters.searchQuery}
@@ -101,7 +101,7 @@ export function CasesSearchFilter({
           {filters.searchQuery && (
             <button
               onClick={() => handleSearchChange("")}
-              className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 dark:text-slate-500 hover:text-slate-600 dark:hover:text-slate-300"
             >
               <X className="size-4" />
             </button>
@@ -240,13 +240,13 @@ export function CasesSearchFilter({
       {/* Active Filters Display */}
       {hasActiveFilters && (
         <div className="flex flex-wrap gap-2 items-center">
-          <span className="text-sm text-slate-600">Aktive Filter:</span>
+          <span className="text-sm text-slate-600 dark:text-slate-400">Aktive Filter:</span>
           {filters.status !== "all" && (
             <Badge variant="secondary" className="gap-1">
               Status: {statusLabels[filters.status as CaseStatus]}
               <button
                 onClick={() => handleStatusChange("all")}
-                className="hover:text-slate-900"
+                className="hover:text-slate-900 dark:hover:text-slate-100"
               >
                 <X className="size-3" />
               </button>
@@ -257,7 +257,7 @@ export function CasesSearchFilter({
               Priorität: {priorityLabels[filters.priority as Priority]}
               <button
                 onClick={() => handlePriorityChange("all")}
-                className="hover:text-slate-900"
+                className="hover:text-slate-900 dark:hover:text-slate-100"
               >
                 <X className="size-3" />
               </button>
@@ -268,7 +268,7 @@ export function CasesSearchFilter({
               Abteilung: {filters.department}
               <button
                 onClick={() => handleDepartmentChange("all")}
-                className="hover:text-slate-900"
+                className="hover:text-slate-900 dark:hover:text-slate-100"
               >
                 <X className="size-3" />
               </button>
@@ -279,7 +279,7 @@ export function CasesSearchFilter({
               {filters.hasDeadline ? "Mit Frist" : "Ohne Frist"}
               <button
                 onClick={() => handleDeadlineFilter("all")}
-                className="hover:text-slate-900"
+                className="hover:text-slate-900 dark:hover:text-slate-100"
               >
                 <X className="size-3" />
               </button>
@@ -290,7 +290,7 @@ export function CasesSearchFilter({
               {tag}
               <button
                 onClick={() => handleTagToggle(tag)}
-                className="hover:text-slate-900"
+                className="hover:text-slate-900 dark:hover:text-slate-100"
               >
                 <X className="size-3" />
               </button>

@@ -49,24 +49,24 @@ export function CaseOverviewTab({
           </CardHeader>
           <CardContent className="space-y-3 text-sm">
             <div>
-              <span className="text-slate-600">Vorgang-ID:</span>
+              <span className="text-slate-600 dark:text-slate-400">Vorgang-ID:</span>
               <p className="font-medium">{caseData.id}</p>
             </div>
             <div>
-              <span className="text-slate-600">Erstellt von:</span>
+              <span className="text-slate-600 dark:text-slate-400">Erstellt von:</span>
               <p className="font-medium">{caseData.createdBy}</p>
             </div>
             <div>
-              <span className="text-slate-600">Zugewiesen an:</span>
+              <span className="text-slate-600 dark:text-slate-400">Zugewiesen an:</span>
               <p className="font-medium">{caseData.assignee}</p>
             </div>
             <div>
-              <span className="text-slate-600">Sprache:</span>
+              <span className="text-slate-600 dark:text-slate-400">Sprache:</span>
               <p className="font-medium">{caseData.language.toUpperCase()}</p>
             </div>
             {caseData.priority && (
               <div>
-                <span className="text-slate-600">Priorität:</span>
+                <span className="text-slate-600 dark:text-slate-400">Priorität:</span>
                 <div className="mt-1">
                   <Badge className={priorityColors[caseData.priority]}>
                     {priorityLabels[caseData.priority]}
@@ -76,7 +76,7 @@ export function CaseOverviewTab({
             )}
             {caseData.deadline && (
               <div>
-                <span className="text-slate-600">Frist:</span>
+                <span className="text-slate-600 dark:text-slate-400">Frist:</span>
                 <p className="font-medium">{new Date(caseData.deadline).toLocaleDateString("de-DE", { day: "2-digit", month: "2-digit", year: "numeric" })}</p>
                 {(() => {
                   const today = new Date();
@@ -84,13 +84,13 @@ export function CaseOverviewTab({
                   const daysUntil = Math.ceil((deadline.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
                   if (daysUntil < 0) {
                     return (
-                      <Badge className="mt-1 bg-red-600 text-white">
+                      <Badge className="mt-1 bg-red-600 dark:bg-red-700 text-white">
                         {Math.abs(daysUntil)} Tage überfällig
                       </Badge>
                     );
                   } else if (daysUntil <= 3) {
                     return (
-                      <Badge className="mt-1 bg-orange-600 text-white">
+                      <Badge className="mt-1 bg-orange-600 dark:bg-orange-700 text-white">
                         Noch {daysUntil} {daysUntil === 1 ? "Tag" : "Tage"}
                       </Badge>
                     );
@@ -100,11 +100,11 @@ export function CaseOverviewTab({
               </div>
             )}
             <div>
-              <span className="text-slate-600">Playbook:</span>
+              <span className="text-slate-600 dark:text-slate-400">Playbook:</span>
               <p className="font-medium">{caseData.playbookVersion}</p>
             </div>
             <div>
-              <span className="text-slate-600">Letzte Aktualisierung:</span>
+              <span className="text-slate-600 dark:text-slate-400">Letzte Aktualisierung:</span>
               <p className="font-medium">{new Date(caseData.updatedAt).toLocaleDateString("de-DE")}</p>
             </div>
           </CardContent>
@@ -116,24 +116,24 @@ export function CaseOverviewTab({
           </CardHeader>
           <CardContent className="space-y-3">
             <div className="flex items-center justify-between">
-              <span className="text-sm text-slate-600">Dokumente</span>
+              <span className="text-sm text-slate-600 dark:text-slate-400">Dokumente</span>
               <Badge variant="outline">{caseData.documents.length}</Badge>
             </div>
             <div className="flex items-center justify-between">
-              <span className="text-sm text-slate-600">Findings gesamt</span>
+              <span className="text-sm text-slate-600 dark:text-slate-400">Findings gesamt</span>
               <Badge variant="outline">{caseData.findings.length}</Badge>
             </div>
             <div className="flex items-center justify-between">
-              <span className="text-sm text-red-600">Kritisch (offen)</span>
-              <Badge className="bg-red-100 text-red-700">{criticalFindings.length}</Badge>
+              <span className="text-sm text-red-600 dark:text-red-400">Kritisch (offen)</span>
+              <Badge className="bg-red-100 text-red-700 dark:bg-red-900/50 dark:text-red-300">{criticalFindings.length}</Badge>
             </div>
             <div className="flex items-center justify-between">
-              <span className="text-sm text-orange-600">Hoch (offen)</span>
-              <Badge className="bg-orange-100 text-orange-700">{highFindings.length}</Badge>
+              <span className="text-sm text-orange-600 dark:text-orange-400">Hoch (offen)</span>
+              <Badge className="bg-orange-100 text-orange-700 dark:bg-orange-900/50 dark:text-orange-300">{highFindings.length}</Badge>
             </div>
             <div className="flex items-center justify-between">
-              <span className="text-sm text-green-600">Behoben</span>
-              <Badge className="bg-green-100 text-green-700">
+              <span className="text-sm text-green-600 dark:text-green-400">Behoben</span>
+              <Badge className="bg-green-100 text-green-700 dark:bg-green-900/50 dark:text-green-300">
                 {caseData.findings.filter(f => f.status === "fixed").length}
               </Badge>
             </div>
@@ -163,7 +163,7 @@ export function CaseOverviewTab({
                 <div className="space-y-2">
                   <label className="text-sm font-medium">Playbook</label>
                   <select
-                    className="w-full border rounded-md px-3 py-2"
+                    className="w-full border border-input rounded-md px-3 py-2 bg-input-background"
                     value={selectedPlaybookId}
                     onChange={(e) => setSelectedPlaybookId(e.target.value)}
                   >
@@ -176,7 +176,7 @@ export function CaseOverviewTab({
                 <div className="space-y-2">
                   <label className="text-sm font-medium">Prüfvariante</label>
                   <select
-                    className="w-full border rounded-md px-3 py-2"
+                    className="w-full border border-input rounded-md px-3 py-2 bg-input-background"
                     value={runChecksStrategy}
                     onChange={(e) => setRunChecksStrategy(e.target.value as "full_text" | "rag" | "both")}
                   >
@@ -184,7 +184,7 @@ export function CaseOverviewTab({
                     <option value="rag">RAG (relevante Chunks aus Weaviate)</option>
                     <option value="both">Beide (Vergleich Volltext + RAG)</option>
                   </select>
-                  <p className="text-xs text-slate-500">
+                  <p className="text-xs text-slate-500 dark:text-slate-400">
                     RAG nutzt die Vektordatenbank; „Beide“ führt Volltext- und RAG-Checks parallel aus.
                   </p>
                 </div>
@@ -222,25 +222,25 @@ export function CaseOverviewTab({
             .map((finding) => (
               <div
                 key={finding.id}
-                className="p-4 border rounded-lg hover:bg-slate-50 cursor-pointer"
+                className="p-4 border border-border rounded-lg hover:bg-slate-50 dark:hover:bg-slate-800/50 cursor-pointer transition-colors"
                 onClick={() => onSelectFinding(finding)}
               >
                 <div className="flex items-start gap-3">
-                  <AlertCircle className="size-5 text-red-600 mt-0.5" />
+                  <AlertCircle className="size-5 text-red-600 dark:text-red-400 mt-0.5" />
                   <div className="flex-1">
                     <div className="flex items-center gap-2 mb-1">
-                      <h4 className="font-medium text-slate-900">{finding.checkName}</h4>
+                      <h4 className="font-medium text-slate-900 dark:text-slate-100">{finding.checkName}</h4>
                       <Badge className={severityColors[finding.severity]}>
                         {finding.severity}
                       </Badge>
                       {finding.sourceStrategy === "rag" && (
-                        <Badge variant="secondary" className="text-xs bg-purple-100 text-purple-800">RAG</Badge>
+                        <Badge variant="secondary" className="text-xs bg-purple-100 text-purple-800 dark:bg-purple-900/50 dark:text-purple-300">RAG</Badge>
                       )}
                       {finding.sourceStrategy === "full_text" && (
                         <Badge variant="outline" className="text-xs">Volltext</Badge>
                       )}
                     </div>
-                    <p className="text-sm text-slate-600">{finding.description}</p>
+                    <p className="text-sm text-slate-600 dark:text-slate-400">{finding.description}</p>
                   </div>
                 </div>
               </div>
