@@ -1,8 +1,10 @@
 import { createBrowserRouter, Navigate, useLocation } from "react-router";
 import { CasesPage } from "./pages/cases-page";
 import { CaseDetailPage } from "./pages/case-detail-page";
+import { VvtOverviewPage } from "./pages/vvt-overview-page";
 import { PlaybooksPage } from "./pages/playbooks-page";
 import { PlaybookDetailPage } from "./pages/playbook-detail-page";
+import { LegalBasesPage } from "./pages/legal-bases-page";
 import { ProfilePage } from "./pages/profile-page";
 import { AdminPage } from "./pages/admin-page";
 import { AuthCallbackPage } from "./pages/auth-callback-page";
@@ -53,6 +55,14 @@ export const router = createBrowserRouter([
     ),
   },
   {
+    path: "/vvt-overview",
+    element: (
+      <AuthGuard>
+        <VvtOverviewPage />
+      </AuthGuard>
+    ),
+  },
+  {
     path: "/playbooks",
     element: (
       <AuthGuard>
@@ -65,6 +75,14 @@ export const router = createBrowserRouter([
     element: (
       <AuthGuard>
         <PlaybookDetailPage />
+      </AuthGuard>
+    ),
+  },
+  {
+    path: "/legal-bases",
+    element: (
+      <AuthGuard>
+        <LegalBasesPage />
       </AuthGuard>
     ),
   },

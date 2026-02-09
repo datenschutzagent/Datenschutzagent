@@ -20,9 +20,11 @@ import {
   createPlaybook,
   updatePlaybook,
   deletePlaybook,
+  getLegalBases,
   canEdit as userCanEdit,
   isAdmin,
   type ApiPlaybook,
+  type ApiLegalBase,
 } from "../lib/api";
 import { useAuthOptional } from "../contexts/AuthContext";
 import {
@@ -36,6 +38,7 @@ import {
   Archive,
   Loader2,
   Trash2,
+  Scale,
 } from "lucide-react";
 import { useState, useEffect } from "react";
 
@@ -64,6 +67,9 @@ export function PlaybookDetailPage() {
   const [editDialogOpen, setEditDialogOpen] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [actionLoading, setActionLoading] = useState(false);
+  const [legalBases, setLegalBases] = useState<ApiLegalBase[]>([]);
+  const [selectedLegalIds, setSelectedLegalIds] = useState<string[]>([]);
+  const [legalBasesSaveLoading, setLegalBasesSaveLoading] = useState(false);
 
   const loadPlaybook = () => {
     if (!playbookId) return;
@@ -85,6 +91,19 @@ export function PlaybookDetailPage() {
     }
     loadPlaybook();
   }, [playbookId]);
+
+  useEffect(() => {
+    getLegalBases().then(setLegalBases).catch(() => setLegalBases([]));
+  }, []);
+
+  useEffect(() => {
+    if (playbook?.content && typeof playbook.content === "object" && playbook.content !== null) {
+      const ids = (playbook.content as Record<string, unknown>).legal_basis_ids;
+      setSelectedLegalIds(Array.isArray(ids) ? ids.map(String) : []);
+    } else {
+      setSelectedLegalIds([]);
+    }
+  }, [playbook?.id, playbook?.content]);
 
   const handleArchive = async () => {
     if (!playbook?.id) return;
@@ -113,16 +132,38 @@ export function PlaybookDetailPage() {
     if (!playbook) return;
     setActionLoading(true);
     try {
+      const content = playbook.content as Record<string, unknown> | undefined;
+      const legalBasisIds = content && Array.isArray(content.legal_basis_ids) ? content.legal_basis_ids : [];
       const created = await createPlaybook({
         name: `Kopie von ${playbook.name}`,
         version: "1.0",
-        content: { checks: playbook.checks ?? [] },
+        content: { checks: playbook.checks ?? [], legal_basis_ids: legalBasisIds },
         case_type: playbook.caseType ?? null,
         department: playbook.department ?? null,
       });
       navigate(`/playbooks/${created.id}`);
     } finally {
       setActionLoading(false);
+    }
+  };
+
+  const toggleLegalBase = (id: string) => {
+    setSelectedLegalIds((prev) =>
+      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
+    );
+  };
+
+  const saveLegalBases = async () => {
+    if (!playbook) return;
+    setLegalBasesSaveLoading(true);
+    try {
+      const content = (playbook.content as Record<string, unknown>) ?? {};
+      const updated = await updatePlaybook(playbook.id, {
+        content: { ...content, legal_basis_ids: selectedLegalIds },
+      });
+      setPlaybook(updated);
+    } finally {
+      setLegalBasesSaveLoading(false);
     }
   };
 
@@ -173,8 +214,14 @@ export function PlaybookDetailPage() {
               <Link to="/" className="text-sm font-medium text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100">
                 Vorgänge
               </Link>
+              <Link to="/vvt-overview" className="text-sm font-medium text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100">
+                VVT-Übersicht
+              </Link>
               <Link to="/playbooks" className="text-sm font-medium text-blue-600 dark:text-blue-400">
                 Playbooks
+              </Link>
+              <Link to="/legal-bases" className="text-sm font-medium text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100">
+                Rechtsgrundlagen
               </Link>
               <Link to="/profile" className="text-sm font-medium text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100">
                 Mein Profil
@@ -361,6 +408,63 @@ export function PlaybookDetailPage() {
                 </CardContent>
               </Card>
             </div>
+
+            {/* Rechtsgrundlagen */}
+            {canEdit && (
+              <Card>
+                <CardHeader>
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <CardTitle className="text-base flex items-center gap-2">
+                        <Scale className="size-4 text-amber-600 dark:text-amber-400" />
+                        Rechtsgrundlagen
+                      </CardTitle>
+                      <CardDescription>
+                        Nur referenzierte Rechtsgrundlagen stehen dem Agenten bei Playbook-Checks zur Verfügung (RAG).
+                      </CardDescription>
+                    </div>
+                    <Button
+                      size="sm"
+                      onClick={saveLegalBases}
+                      disabled={legalBasesSaveLoading}
+                    >
+                      {legalBasesSaveLoading && <Loader2 className="size-4 animate-spin mr-2" />}
+                      Speichern
+                    </Button>
+                  </div>
+                </CardHeader>
+                <CardContent>
+                  {legalBases.length === 0 ? (
+                    <p className="text-sm text-slate-600 dark:text-slate-400">
+                      Keine Rechtsgrundlagen angelegt. Legen Sie unter Rechtsgrundlagen DSGVO, BDSG o. Ä. an.
+                    </p>
+                  ) : (
+                    <div className="space-y-2 max-h-48 overflow-y-auto">
+                      {legalBases.map((lb) => (
+                        <label
+                          key={lb.id}
+                          className="flex items-center gap-2 p-2 rounded hover:bg-slate-50 dark:hover:bg-slate-800/50 cursor-pointer"
+                        >
+                          <input
+                            type="checkbox"
+                            checked={selectedLegalIds.includes(lb.id)}
+                            onChange={() => toggleLegalBase(lb.id)}
+                            className="rounded border-slate-300"
+                          />
+                          <span className="text-sm font-medium">{lb.title}</span>
+                          {lb.shortName && (
+                            <Badge variant="outline" className="text-xs">{lb.shortName}</Badge>
+                          )}
+                          {lb.applicability === "conditional" && (
+                            <Badge variant="secondary" className="text-xs">bedingt</Badge>
+                          )}
+                        </label>
+                      ))}
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            )}
 
             {/* Check Categories */}
             <Card>

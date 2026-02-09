@@ -8,6 +8,7 @@ from app.config import settings
 logger = logging.getLogger(__name__)
 
 COLLECTION_NAME = "DocumentChunk"
+LEGAL_BASE_CHUNK_COLLECTION = "LegalBaseChunk"
 
 
 def chunk_text(
@@ -113,6 +114,159 @@ def _ensure_collection(client):
         vectorizer_config=Configure.Vectorizer.none(),
     )
     logger.info("Weaviate collection %s created", COLLECTION_NAME)
+
+
+def _ensure_legal_base_collection(client):
+    """Create LegalBaseChunk collection if it does not exist."""
+    from weaviate.collections.classes.config import Configure, DataType, Property
+
+    if client.collections.exists(LEGAL_BASE_CHUNK_COLLECTION):
+        return
+    client.collections.create(
+        name=LEGAL_BASE_CHUNK_COLLECTION,
+        properties=[
+            Property(name="text", data_type=DataType.TEXT),
+            Property(name="legal_base_id", data_type=DataType.UUID),
+            Property(name="legal_base_title", data_type=DataType.TEXT),
+            Property(name="chunk_index", data_type=DataType.INT),
+        ],
+        vectorizer_config=Configure.Vectorizer.none(),
+    )
+    logger.info("Weaviate collection %s created", LEGAL_BASE_CHUNK_COLLECTION)
+
+
+def index_legal_base(legal_base_id: UUID, title: str, content: str) -> bool:
+    """
+    Chunk legal base content, embed via Ollama, and upsert into Weaviate (replace existing chunks for legal_base_id).
+    Returns True on success, False on skip/failure.
+    """
+    if not settings.weaviate_indexing_enabled:
+        return False
+
+    client = get_weaviate_client()
+    if not client:
+        return False
+
+    content = (content or "").strip()
+    if not content:
+        delete_legal_base_chunks(legal_base_id)
+        return True
+
+    try:
+        from weaviate.collections.classes.filters import Filter
+
+        _ensure_legal_base_collection(client)
+        collection = client.collections.get(LEGAL_BASE_CHUNK_COLLECTION)
+        collection.data.delete_many(where=Filter.by_property("legal_base_id").equal(legal_base_id))
+
+        chunks = chunk_text(content)
+        if not chunks:
+            return True
+
+        title_display = (title or "").strip() or "Rechtsgrundlage"
+        for i, chunk in enumerate(chunks):
+            vector = get_embedding(chunk)
+            if not vector:
+                logger.warning("Skipping legal base chunk %s for %s (no embedding)", i, legal_base_id)
+                continue
+            collection.data.insert(
+                properties={
+                    "text": chunk,
+                    "legal_base_id": legal_base_id,
+                    "legal_base_title": title_display,
+                    "chunk_index": i,
+                },
+                vector=vector,
+            )
+
+        return True
+    except Exception as e:
+        logger.exception("Weaviate index_legal_base failed: %s", e)
+        return False
+    finally:
+        try:
+            client.close()
+        except Exception:
+            pass
+
+
+def delete_legal_base_chunks(legal_base_id: UUID) -> bool:
+    """Remove all chunks for a legal base. Returns True if client available and delete ran."""
+    from weaviate.collections.classes.filters import Filter
+
+    client = get_weaviate_client()
+    if not client:
+        return False
+    try:
+        if not client.collections.exists(LEGAL_BASE_CHUNK_COLLECTION):
+            return True
+        collection = client.collections.get(LEGAL_BASE_CHUNK_COLLECTION)
+        collection.data.delete_many(where=Filter.by_property("legal_base_id").equal(legal_base_id))
+        return True
+    except Exception as e:
+        logger.warning("Weaviate delete_legal_base_chunks failed: %s", e)
+        return False
+    finally:
+        try:
+            client.close()
+        except Exception:
+            pass
+
+
+def get_relevant_legal_base_chunks(
+    legal_base_ids: list[UUID],
+    query_text: str,
+    *,
+    top_k: int | None = None,
+    include_source: bool = True,
+) -> list[str]:
+    """
+    Return list of chunk text strings from the given legal bases most relevant to query_text.
+    If include_source is True, each string is prefixed with "[Quelle: <title>] " for attribution.
+    """
+    if not legal_base_ids or not (query_text or "").strip():
+        return []
+
+    k = top_k or getattr(settings, "weaviate_legal_bases_top_k", 8)
+    client = get_weaviate_client()
+    if not client:
+        return []
+
+    query_vector = get_embedding(query_text)
+    if not query_vector:
+        return []
+
+    try:
+        from weaviate.collections.classes.filters import Filter
+
+        if not client.collections.exists(LEGAL_BASE_CHUNK_COLLECTION):
+            return []
+        collection = client.collections.get(LEGAL_BASE_CHUNK_COLLECTION)
+        response = collection.query.near_vector(
+            near_vector=query_vector,
+            limit=k,
+            filters=Filter.by_property("legal_base_id").contains_any(legal_base_ids),
+        )
+        result: list[str] = []
+        for obj in response.objects:
+            props = obj.properties or {}
+            text = props.get("text") or ""
+            if not text:
+                continue
+            if include_source:
+                title = (props.get("legal_base_title") or "").strip() or "Rechtsgrundlage"
+                result.append(f"[Quelle: {title}]\n{text}")
+            else:
+                result.append(text)
+        return result
+    except Exception as e:
+        logger.warning("Weaviate get_relevant_legal_base_chunks failed: %s", e)
+        return []
+    finally:
+        try:
+            client.close()
+        except Exception:
+            pass
 
 
 def index_document_chunks(document_id: UUID, case_id: UUID, text: str) -> bool:

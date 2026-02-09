@@ -161,6 +161,45 @@ class PlaybookResponse(BaseModel):
     model_config = {"from_attributes": True}
 
 
+# --- Legal Base (Rechtsgrundlagen) ---
+ApplicabilityEnum = Literal["always", "conditional"]
+
+
+class LegalBaseCreate(BaseModel):
+    title: str = Field(..., min_length=1, max_length=500)
+    short_name: str | None = Field(default=None, max_length=100)
+    content: str = Field(default="")
+    applicability: ApplicabilityEnum = "always"
+    department_codes: list[str] | None = None
+    case_types: list[str] | None = None
+    internal_only: bool = False
+
+
+class LegalBaseUpdate(BaseModel):
+    title: str | None = Field(default=None, min_length=1, max_length=500)
+    short_name: str | None = None
+    content: str | None = None
+    applicability: ApplicabilityEnum | None = None
+    department_codes: list[str] | None = None
+    case_types: list[str] | None = None
+    internal_only: bool | None = None
+
+
+class LegalBaseResponse(BaseModel):
+    id: UUID
+    title: str
+    short_name: str | None = None
+    content: str
+    applicability: ApplicabilityEnum
+    department_codes: list[str] = Field(default_factory=list)
+    case_types: list[str] = Field(default_factory=list)
+    internal_only: bool = False
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
 # --- VVT Normalization (canonical model) ---
 VVTFieldStatusEnum = Literal["filled", "missing", "inconsistent"]
 
@@ -182,6 +221,39 @@ class VVTNormalizationResponse(BaseModel):
     document_name: str = ""
     source_template: str = ""
     fields: list[VVTFieldResponse] = []
+
+
+# --- VVT Overview (university-level) ---
+class VVTOverviewItem(BaseModel):
+    """One row in the VVT overview: case with VVT metadata (no LLM)."""
+    case_id: UUID
+    title: str
+    department: str
+    case_type: str
+    status: str
+    updated_at: datetime
+    has_vvt_document: bool
+    vvt_completeness: int | None = None  # from last DSB report if available
+    vvt_document_name: str | None = None
+
+
+class VVTOverviewStatsGroup(BaseModel):
+    """Aggregation for one department or case_type."""
+    name: str  # department or case_type value
+    total_cases: int
+    with_vvt: int
+    without_vvt: int
+    avg_completeness: float | None = None  # only over cases with report + VVT
+
+
+class VVTOverviewStatsResponse(BaseModel):
+    """Stats for VVT overview: totals + by department + by case_type."""
+    total_cases: int = 0
+    with_vvt: int = 0
+    without_vvt: int = 0
+    avg_completeness: float | None = None
+    by_department: list[VVTOverviewStatsGroup] = []
+    by_case_type: list[VVTOverviewStatsGroup] = []
 
 
 # --- DSB Report ---

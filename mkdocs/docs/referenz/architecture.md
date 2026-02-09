@@ -67,7 +67,7 @@ graph TD
 
 ### 6a. Weaviate (optional)
 *   **Location**: `backend/app/services/weaviate_service.py`
-*   **Responsibilities**: After document text extraction (including OCR), content is chunked (configurable size/overlap), embedded via Ollama, and stored in Weaviate. On document or case deletion, chunks are removed (case deletion runs chunk removal in `asyncio.to_thread` so the API stays responsive). RAG checks embed the requirement, retrieve top-k chunks per document or per case, and pass only that context to the LLM. Configured via `WEAVIATE_URL`, `WEAVIATE_INDEXING_ENABLED`, `WEAVIATE_CHUNK_SIZE_CHARS`, `WEAVIATE_CHUNK_OVERLAP_CHARS`, `WEAVIATE_TOP_K`, `OLLAMA_EMBEDDING_MODEL`.
+*   **Responsibilities**: After document text extraction (including OCR), content is chunked (configurable size/overlap), embedded via Ollama, and stored in Weaviate. On document or case deletion, chunks are removed (case deletion runs chunk removal in `asyncio.to_thread` so the API stays responsive). RAG checks embed the requirement, retrieve top-k chunks per document or per case, and pass only that context to the LLM. All Weaviate-related settings (backend and, when using docker-compose, the Weaviate container) are configured via `.env` / `.env.example`: `WEAVIATE_URL`, `WEAVIATE_INDEXING_ENABLED`, `WEAVIATE_CHUNK_SIZE_CHARS`, `WEAVIATE_CHUNK_OVERLAP_CHARS`, `WEAVIATE_TOP_K`, `OLLAMA_EMBEDDING_MODEL`, and optionally `WEAVIATE_PERSISTENCE_DATA_PATH`, `WEAVIATE_QUERY_DEFAULTS_LIMIT`, `WEAVIATE_CLUSTER_HOSTNAME`.
 
 ### 7. Storage
 *   **Location**: `backend/app/storage.py`

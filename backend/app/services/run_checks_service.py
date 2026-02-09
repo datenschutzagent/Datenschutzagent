@@ -6,13 +6,33 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.config import settings
-from app.models.db import CaseModel, FindingModel, PlaybookModel
+from app.models.db import CaseModel, FindingModel, LegalBaseModel, PlaybookModel
 from app.services.check_runner import (
     run_check,
     run_check_rag,
     run_cross_document_check,
     run_cross_document_check_rag,
 )
+from app.services.weaviate_service import get_relevant_legal_base_chunks
+
+
+def _legal_base_applicable(
+    base: LegalBaseModel,
+    case_department: str,
+    case_case_type: str,
+) -> bool:
+    """True if this legal base is applicable for the given case (department, case_type, internal_only)."""
+    if base.applicability == "always":
+        return True
+    if base.applicability != "conditional":
+        return False
+    if base.department_codes and case_department not in base.department_codes:
+        return False
+    if base.case_types and case_case_type not in base.case_types:
+        return False
+    if base.internal_only and case_case_type != "Innenrecht":
+        return False
+    return True
 
 
 async def run_checks_impl(
@@ -56,9 +76,62 @@ async def run_checks_impl(
             document_checks.append(item)
 
     case_language = getattr(case, "language", None) or "de"
+    case_department = getattr(case, "department", None) or ""
+    case_case_type = getattr(case, "case_type", None) or ""
     findings_added = 0
     rag_skipped = False
     errors: list[dict] = []
+
+    def _parse_uuid_list(ids: list) -> set[UUID]:
+        out: set[UUID] = set()
+        for x in ids or []:
+            if isinstance(x, UUID):
+                out.add(x)
+            elif isinstance(x, str):
+                try:
+                    out.add(UUID(x))
+                except (ValueError, TypeError):
+                    pass
+        return out
+
+    playbook_content = playbook.content if isinstance(playbook.content, dict) else {}
+    playbook_legal_ids_raw = playbook_content.get("legal_basis_ids") or []
+    if not isinstance(playbook_legal_ids_raw, list):
+        playbook_legal_ids_raw = []
+    playbook_legal_ids = list(_parse_uuid_list(playbook_legal_ids_raw))
+
+    legal_bases_by_id: dict[UUID, LegalBaseModel] = {}
+    all_ref_ids = set(playbook_legal_ids)
+    for item in raw_checks:
+        if isinstance(item, dict):
+            check_ids = item.get("legal_basis_ids")
+            if isinstance(check_ids, list):
+                all_ref_ids |= _parse_uuid_list(check_ids)
+    if all_ref_ids:
+        lb_result = await db.execute(
+            select(LegalBaseModel).where(LegalBaseModel.id.in_(all_ref_ids))
+        )
+        for lb in lb_result.scalars().all():
+            if _legal_base_applicable(lb, case_department, case_case_type):
+                legal_bases_by_id[lb.id] = lb
+
+    def _legal_base_ids_for_check(item: dict) -> list[UUID]:
+        check_ids = item.get("legal_basis_ids") if isinstance(item, dict) else None
+        if isinstance(check_ids, list) and check_ids:
+            ids = _parse_uuid_list(check_ids)
+            return [uid for uid in ids if uid in legal_bases_by_id]
+        return [uid for uid in playbook_legal_ids if uid in legal_bases_by_id]
+
+    def _legal_bases_context_for_instruction(instruction: str, legal_base_ids: list[UUID]) -> str:
+        if not legal_base_ids or not instruction:
+            return ""
+        chunks = get_relevant_legal_base_chunks(
+            legal_base_ids,
+            instruction,
+            top_k=settings.weaviate_legal_bases_top_k,
+            include_source=True,
+        )
+        return "\n\n".join(chunks) if chunks else ""
 
     def _instruction_for_check(item: dict) -> str:
         if case_language in ("en", "de_en"):
@@ -101,9 +174,13 @@ async def run_checks_impl(
             instruction = _instruction_for_check(item)
             if not instruction:
                 continue
+            lb_ids = _legal_base_ids_for_check(item)
+            legal_ctx = _legal_bases_context_for_instruction(instruction, lb_ids)
             if "full_text" in strategies:
                 try:
-                    check_result = await run_check(text, instruction, language=case_language)
+                    check_result = await run_check(
+                        text, instruction, language=case_language, legal_bases_context=legal_ctx or None
+                    )
                 except Exception as e:
                     errors.append({"check": name, "scope": "document", "document_id": str(doc.id), "strategy": "full_text", "error": str(e)})
                     continue
@@ -120,7 +197,9 @@ async def run_checks_impl(
                     )
             if "rag" in strategies:
                 try:
-                    rag_result = await run_check_rag(doc.id, case_id, instruction, language=case_language)
+                    rag_result = await run_check_rag(
+                        doc.id, case_id, instruction, language=case_language, legal_bases_context=legal_ctx or None
+                    )
                 except Exception as e:
                     errors.append({"check": name, "scope": "document", "document_id": str(doc.id), "strategy": "rag", "error": str(e)})
                     rag_skipped = True
@@ -148,9 +227,13 @@ async def run_checks_impl(
             instruction = _instruction_for_check(item)
             if not instruction:
                 continue
+            lb_ids = _legal_base_ids_for_check(item)
+            legal_ctx = _legal_bases_context_for_instruction(instruction, lb_ids)
             if "full_text" in strategies:
                 try:
-                    check_result = await run_cross_document_check(doc_list, instruction, language=case_language)
+                    check_result = await run_cross_document_check(
+                        doc_list, instruction, language=case_language, legal_bases_context=legal_ctx or None
+                    )
                 except Exception as e:
                     errors.append({"check": name, "scope": "case", "document_id": None, "strategy": "full_text", "error": str(e)})
                     continue
@@ -167,7 +250,9 @@ async def run_checks_impl(
                     )
             if "rag" in strategies:
                 try:
-                    rag_result = await run_cross_document_check_rag(case_id, instruction, language=case_language)
+                    rag_result = await run_cross_document_check_rag(
+                        case_id, instruction, language=case_language, legal_bases_context=legal_ctx or None
+                    )
                 except Exception as e:
                     errors.append({"check": name, "scope": "case", "document_id": None, "strategy": "rag", "error": str(e)})
                     rag_skipped = True

@@ -111,8 +111,14 @@ export function CasesPage() {
               <Link to="/" className="text-sm font-medium text-blue-600 dark:text-blue-400">
                 Vorgänge
               </Link>
+              <Link to="/vvt-overview" className="text-sm font-medium text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100">
+                VVT-Übersicht
+              </Link>
               <Link to="/playbooks" className="text-sm font-medium text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100">
                 Playbooks
+              </Link>
+              <Link to="/legal-bases" className="text-sm font-medium text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100">
+                Rechtsgrundlagen
               </Link>
               <Link to="/profile" className="text-sm font-medium text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100">
                 Mein Profil

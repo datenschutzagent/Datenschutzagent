@@ -18,7 +18,7 @@ RAG_CONTEXT_CHARS = 20000
 DEFAULT_CHECK_FULL_TEXT_DOCUMENT_SYSTEM = (
     "You are a strict data protection auditor. Analyze the provided document text against the specific requirement. {language_hint}"
 )
-DEFAULT_CHECK_FULL_TEXT_DOCUMENT_USER = """Requirement: {requirement}
+DEFAULT_CHECK_FULL_TEXT_DOCUMENT_USER = """{legal_bases_section}Requirement: {requirement}
 
 Document Text:
 ---
@@ -32,7 +32,7 @@ DEFAULT_CHECK_FULL_TEXT_CROSS_SYSTEM = (
     "as a whole (e.g. consistency between them, completeness across documents). "
     "Answer based on the combined context and the given requirement. {language_hint}"
 )
-DEFAULT_CHECK_FULL_TEXT_CROSS_USER = """Requirement: {requirement}
+DEFAULT_CHECK_FULL_TEXT_CROSS_USER = """{legal_bases_section}Requirement: {requirement}
 
 Documents (consider all of them together):
 {documents}
@@ -43,7 +43,7 @@ DEFAULT_CHECK_RAG_DOCUMENT_SYSTEM = (
     "You are a strict data protection auditor. You are given relevant excerpts from a document "
     "(retrieved by semantic search). Analyze these excerpts against the specific requirement. {language_hint}"
 )
-DEFAULT_CHECK_RAG_DOCUMENT_USER = """Requirement: {requirement}
+DEFAULT_CHECK_RAG_DOCUMENT_USER = """{legal_bases_section}Requirement: {requirement}
 
 Relevant document excerpts:
 ---
@@ -56,7 +56,7 @@ DEFAULT_CHECK_RAG_CROSS_SYSTEM = (
     "You are a strict data protection auditor. You are given relevant excerpts from "
     "multiple documents (retrieved by semantic search). Analyze them as a whole against the requirement. {language_hint}"
 )
-DEFAULT_CHECK_RAG_CROSS_USER = """Requirement: {requirement}
+DEFAULT_CHECK_RAG_CROSS_USER = """{legal_bases_section}Requirement: {requirement}
 
 Relevant excerpts from case documents:
 ---
@@ -84,10 +84,18 @@ def _language_hint(language: str | None) -> str:
     return "Document/case language: DE/EN (mixed or both). Evaluate and respond in the language of the document content."
 
 
+def _legal_bases_section(legal_bases_context: str | None) -> str:
+    """Format optional legal bases context for prompt. Returns empty string if none."""
+    if not (legal_bases_context or legal_bases_context.strip()):
+        return ""
+    return "Relevant legal requirements (excerpts from referenced legal bases):\n---\n" + legal_bases_context.strip() + "\n---\n\n"
+
+
 async def run_check(
     document_text: str,
     check_instruction: str,
     language: str | None = None,
+    legal_bases_context: str | None = None,
 ) -> CheckResult:
     """Run a single check against a document using the LLM."""
     language_hint = _language_hint(language) if language else ""
@@ -97,7 +105,11 @@ async def run_check(
     truncated_text = document_text[:20000] if document_text else ""
     user_content = render(
         user_tpl or DEFAULT_CHECK_FULL_TEXT_DOCUMENT_USER,
-        {"requirement": check_instruction, "document_text": truncated_text},
+        {
+            "requirement": check_instruction,
+            "document_text": truncated_text,
+            "legal_bases_section": _legal_bases_section(legal_bases_context),
+        },
     )
     agent = create_agent(system_prompt=system)
     result = await agent.run(user_content, result_type=CheckResult)
@@ -108,6 +120,7 @@ async def run_cross_document_check(
     documents: List[tuple[UUID, str]],
     check_instruction: str,
     language: str | None = None,
+    legal_bases_context: str | None = None,
 ) -> CheckResult:
     """
     Run a single check across multiple documents (case-level / cross-document).
@@ -125,7 +138,11 @@ async def run_cross_document_check(
     user_tpl = await get_active_template("check_full_text_cross_user")
     user_content = render(
         user_tpl or DEFAULT_CHECK_FULL_TEXT_CROSS_USER,
-        {"requirement": check_instruction, "documents": combined},
+        {
+            "requirement": check_instruction,
+            "documents": combined,
+            "legal_bases_section": _legal_bases_section(legal_bases_context),
+        },
     )
     agent = create_agent(system_prompt=system)
     result = await agent.run(user_content, result_type=CheckResult)
@@ -137,6 +154,7 @@ async def run_check_rag(
     case_id: UUID,
     check_instruction: str,
     language: str | None = None,
+    legal_bases_context: str | None = None,
 ) -> CheckResult | None:
     """
     Run a single check using RAG: embed check_instruction, retrieve relevant chunks for the document
@@ -156,7 +174,11 @@ async def run_check_rag(
     user_tpl = await get_active_template("check_rag_document_user")
     user_content = render(
         user_tpl or DEFAULT_CHECK_RAG_DOCUMENT_USER,
-        {"requirement": check_instruction, "excerpts": combined},
+        {
+            "requirement": check_instruction,
+            "excerpts": combined,
+            "legal_bases_section": _legal_bases_section(legal_bases_context),
+        },
     )
     agent = create_agent(system_prompt=system)
     result = await agent.run(user_content, result_type=CheckResult)
@@ -167,6 +189,7 @@ async def run_cross_document_check_rag(
     case_id: UUID,
     check_instruction: str,
     language: str | None = None,
+    legal_bases_context: str | None = None,
 ) -> CheckResult | None:
     """
     Run a cross-document check using RAG: retrieve relevant chunks for the case from Weaviate,
@@ -188,7 +211,11 @@ async def run_cross_document_check_rag(
     user_tpl = await get_active_template("check_rag_cross_user")
     user_content = render(
         user_tpl or DEFAULT_CHECK_RAG_CROSS_USER,
-        {"requirement": check_instruction, "excerpts": combined},
+        {
+            "requirement": check_instruction,
+            "excerpts": combined,
+            "legal_bases_section": _legal_bases_section(legal_bases_context),
+        },
     )
     agent = create_agent(system_prompt=system)
     result = await agent.run(user_content, result_type=CheckResult)

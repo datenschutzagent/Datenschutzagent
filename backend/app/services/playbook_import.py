@@ -52,7 +52,10 @@ def _yaml_to_model_data(data: dict[str, Any]) -> dict[str, Any] | None:
     if not isinstance(checks, list):
         checks = []
     normalized = [_normalize_check_scope(c) if isinstance(c, dict) else c for c in checks]
-    content = {"checks": normalized}
+    content: dict[str, Any] = {"checks": normalized}
+    legal_basis_ids = data.get("legal_basis_ids")
+    if isinstance(legal_basis_ids, list):
+        content["legal_basis_ids"] = [str(x) for x in legal_basis_ids]
     return {
         "name": str(name),
         "version": str(version),

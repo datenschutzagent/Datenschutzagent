@@ -93,4 +93,16 @@ Die Anwendung wird über Umgebungsvariablen konfiguriert. Im Projektroot liegt e
 
 ## Weaviate (RAG, optional)
 
-Weaviate wird über docker-compose und Backend-Config gesteuert. Relevante Optionen (in der App-Konfiguration): `WEAVIATE_URL`, `WEAVIATE_INDEXING_ENABLED`, Chunk-Größe/Overlap, `WEAVIATE_TOP_K`, `OLLAMA_EMBEDDING_MODEL`. Details siehe [Architektur](referenz/architecture.md).
+Wie die übrigen Dienste wird Weaviate über `.env` konfiguriert. docker-compose liest die Weaviate-Container-Optionen aus denselben Variablen (mit Präfix `WEAVIATE_`). Details siehe [Architektur](referenz/architecture.md).
+
+| Variable | Beschreibung |
+| :--- | :--- |
+| `WEAVIATE_URL` | URL der Weaviate-Instanz (Backend). In Docker z. B. `http://weaviate:8080`. |
+| `WEAVIATE_INDEXING_ENABLED` | RAG-Indexierung nach Textextraktion ein- oder ausschalten. |
+| `WEAVIATE_CHUNK_SIZE_CHARS` | Chunk-Größe in Zeichen für die Indexierung (Default 800). |
+| `WEAVIATE_CHUNK_OVERLAP_CHARS` | Überlappung zwischen Chunks in Zeichen (Default 100). |
+| `WEAVIATE_TOP_K` | Anzahl relevanter Chunks pro RAG-Abfrage (Default 5). |
+| `OLLAMA_EMBEDDING_MODEL` | Ollama-Modell für Embeddings (z. B. `nomic-embed-text`). |
+| `WEAVIATE_PERSISTENCE_DATA_PATH` | Persistenzpfad im Weaviate-Container (nur docker-compose; Default `/var/lib/weaviate`). |
+| `WEAVIATE_QUERY_DEFAULTS_LIMIT` | Default-Limit für Weaviate-Abfragen im Container (Default 25). |
+| `WEAVIATE_CLUSTER_HOSTNAME` | Cluster-Hostname des Weaviate-Containers (Default `node1`). |

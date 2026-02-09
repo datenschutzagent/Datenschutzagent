@@ -69,9 +69,18 @@ class Settings(BaseSettings):
     # Weaviate (optional; RAG document checks)
     weaviate_url: str = "http://localhost:8080"
     weaviate_indexing_enabled: bool = False
+
+    @field_validator("weaviate_indexing_enabled", mode="before")
+    @classmethod
+    def parse_weaviate_indexing_enabled(cls, v: str | bool) -> bool:
+        if isinstance(v, bool):
+            return v
+        s = str(v).strip().lower()
+        return s in ("true", "1", "yes", "on")
     weaviate_chunk_size_chars: int = 800
     weaviate_chunk_overlap_chars: int = 100
     weaviate_top_k: int = 5
+    weaviate_legal_bases_top_k: int = 8
     ollama_embedding_model: str = "nomic-embed-text"
 
     @property

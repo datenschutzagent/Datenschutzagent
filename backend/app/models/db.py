@@ -34,6 +34,22 @@ class CaseModel(Base):
     findings: Mapped[list["FindingModel"]] = relationship("FindingModel", back_populates="case", cascade="all, delete-orphan")
 
 
+class LegalBaseModel(Base):
+    """Legal bases (Rechtsgrundlagen): DSGVO, BDSG, sector laws, agreements. Content is chunked and indexed in Weaviate for RAG."""
+    __tablename__ = "legal_bases"
+
+    id: Mapped[uuid.UUID] = mapped_column(PG_UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    title: Mapped[str] = mapped_column(String(500), nullable=False)
+    short_name: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    content: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    applicability: Mapped[str] = mapped_column(String(20), nullable=False, default="always")  # "always" | "conditional"
+    department_codes: Mapped[list[str] | None] = mapped_column(ARRAY(String), nullable=True)
+    case_types: Mapped[list[str] | None] = mapped_column(ARRAY(String), nullable=True)
+    internal_only: Mapped[bool] = mapped_column(default=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
 class PlaybookModel(Base):
     __tablename__ = "playbooks"
 
@@ -272,6 +288,22 @@ def orm_to_case_response(orm: CaseModel) -> dict[str, Any]:
         "playbook_version": orm.playbook_version,
         "documents": [orm_to_document_response(d) for d in docs_sorted],
         "findings": [orm_to_finding_response(f) for f in orm.findings],
+    }
+
+
+def orm_to_legal_base_response(orm: LegalBaseModel) -> dict[str, Any]:
+    """Map LegalBaseModel to API response (snake_case)."""
+    return {
+        "id": orm.id,
+        "title": orm.title,
+        "short_name": orm.short_name,
+        "content": orm.content or "",
+        "applicability": orm.applicability,
+        "department_codes": orm.department_codes or [],
+        "case_types": orm.case_types or [],
+        "internal_only": orm.internal_only,
+        "created_at": orm.created_at,
+        "updated_at": orm.updated_at,
     }
 
 
