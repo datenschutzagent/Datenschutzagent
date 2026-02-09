@@ -22,6 +22,9 @@ import {
   type ApiDocumentComment,
 } from "../../lib/api";
 import { Download, Loader2, MessageSquare, Pencil, X } from "lucide-react";
+import MDEditor from "@uiw/react-md-editor";
+import "@uiw/react-md-editor/markdown-editor.css";
+import ReactMarkdown from "react-markdown";
 
 export interface DocumentViewDialogProps {
   open: boolean;
@@ -154,7 +157,7 @@ export function DocumentViewDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-3xl max-h-[85vh] flex flex-col">
+      <DialogContent className="max-w-6xl max-h-[90vh] flex flex-col">
         <DialogHeader>
           <DialogTitle>{doc?.name ?? "Dokument"}</DialogTitle>
           <DialogDescription>
@@ -183,19 +186,25 @@ export function DocumentViewDialog({
               <span className="ml-2">Originaldatei herunterladen</span>
             </Button>
           </div>
-          <ScrollArea className="flex-1 min-h-[200px] rounded-md border bg-slate-50 p-4">
+          <div className="flex-1 min-h-[50vh] max-h-[60vh] flex flex-col overflow-hidden rounded-md border bg-slate-50">
+            <ScrollArea className="h-full">
+              <div className="p-4">
             {loading ? (
               <div className="flex items-center justify-center py-8">
                 <Loader2 className="size-6 animate-spin text-slate-500" />
               </div>
             ) : editMode ? (
               <div className="space-y-2">
-                <textarea
-                  className="w-full min-h-[200px] rounded border bg-white p-3 font-sans text-sm text-slate-800 resize-y"
-                  value={editContent}
-                  onChange={(e) => setEditContent(e.target.value)}
-                  placeholder="Extrahierter Text…"
-                />
+                <div data-color-mode="light">
+                  <MDEditor
+                    value={editContent}
+                    onChange={(val) => setEditContent(val ?? "")}
+                    height={400}
+                    preview="live"
+                    visibleDragbar={false}
+                    textareaProps={{ placeholder: "Extrahierter Text (Markdown möglich)…" }}
+                  />
+                </div>
                 <div className="flex gap-2">
                   <Button size="sm" onClick={saveEdit} disabled={saveLoading}>
                     {saveLoading ? <Loader2 className="size-4 animate-spin" /> : "Speichern"}
@@ -225,12 +234,14 @@ export function DocumentViewDialog({
             ) : content.trim() === "" ? (
               <p className="text-slate-500 italic">Kein Text extrahiert.</p>
             ) : (
-              <pre className="whitespace-pre-wrap font-sans text-sm text-slate-800">
-                {content}
-              </pre>
+              <div className="prose prose-slate max-w-none font-sans text-base leading-relaxed text-slate-800">
+                <ReactMarkdown>{content}</ReactMarkdown>
+              </div>
             )}
-          </ScrollArea>
-          <div className="border-t pt-3 space-y-2">
+              </div>
+            </ScrollArea>
+          </div>
+          <div className="border-t pt-3 space-y-2 shrink-0">
             <h4 className="text-sm font-medium flex items-center gap-2">
               <MessageSquare className="size-4" />
               Kommentare ({comments.length})
@@ -241,7 +252,7 @@ export function DocumentViewDialog({
                 Kommentare werden geladen…
               </div>
             ) : (
-              <ScrollArea className="max-h-[180px] rounded border bg-slate-50 p-2">
+              <ScrollArea className="max-h-[200px] rounded border bg-slate-50 p-2">
                 <div className="space-y-2">
                   {comments.length === 0 ? (
                     <p className="text-sm text-slate-500 italic">Noch keine Kommentare.</p>
