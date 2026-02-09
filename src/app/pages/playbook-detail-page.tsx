@@ -30,7 +30,7 @@ import {
   BookOpen,
   CheckSquare,
   FileText,
-  AlertCircle,
+  CircleAlert,
   Edit,
   Copy,
   Archive,
@@ -142,7 +142,7 @@ export function PlaybookDetailPage() {
       <div className="min-h-screen bg-slate-50 dark:bg-slate-950 flex items-center justify-center transition-colors">
         <Card className="max-w-md">
           <CardContent className="pt-6 text-center">
-            <AlertCircle className="size-12 text-slate-300 dark:text-slate-500 mx-auto mb-4" />
+            <CircleAlert className="size-12 text-slate-300 dark:text-slate-500 mx-auto mb-4" />
             <p className="text-slate-600 dark:text-slate-400">Playbook nicht gefunden</p>
             {error && <p className="text-sm text-red-600 dark:text-red-400 mt-2">{error}</p>}
             <Button className="mt-4" onClick={() => navigate("/playbooks")}>

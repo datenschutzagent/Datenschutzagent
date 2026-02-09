@@ -4,7 +4,7 @@ import {
   TrendingUp, 
   TrendingDown,
   FileText, 
-  AlertCircle, 
+  CircleAlert, 
   CheckCircle2, 
   Clock,
   Users,
@@ -73,7 +73,7 @@ export function DashboardStats({ cases: casesProp }: DashboardStatsProps = {}) {
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">Kritische Findings</CardTitle>
-            <AlertCircle className="size-4 text-red-600 dark:text-red-400" />
+            <CircleAlert className="size-4 text-red-600 dark:text-red-400" />
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-semibold text-red-600 dark:text-red-400">{criticalFindings}</div>

@@ -1,6 +1,5 @@
 from pydantic_ai import Agent
-from pydantic_ai.models.openai import OpenAIChatModel
-from pydantic_ai.providers.ollama import OllamaProvider
+from pydantic_ai.models.openai import OpenAIModel
 
 from app.config import settings
 
@@ -11,11 +10,11 @@ def _ollama_base_url() -> str:
     return f"{base}/v1" if not base.endswith("/v1") else base
 
 
-def get_ollama_model() -> OpenAIChatModel:
-    """Get configured Ollama model via Pydantic AI OllamaProvider."""
-    return OpenAIChatModel(
+def get_ollama_model() -> OpenAIModel:
+    """Get configured Ollama model (OpenAI-compatible API) via Pydantic AI OpenAIModel."""
+    return OpenAIModel(
         settings.ollama_model,
-        provider=OllamaProvider(base_url=_ollama_base_url()),
+        base_url=_ollama_base_url(),
     )
 
 

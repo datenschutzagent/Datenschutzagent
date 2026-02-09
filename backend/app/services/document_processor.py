@@ -141,13 +141,22 @@ def extract_text(filename: str, content: bytes) -> ExtractionResult:
     if filename_lower.endswith(".pdf"):
         return extract_text_from_pdf(content)
     if filename_lower.endswith(".docx"):
-        text = extract_text_from_docx(content)
-        return ExtractionResult(text=text, extraction_method=EXTRACTION_METHOD_TEXT)
+        try:
+            text = extract_text_from_docx(content)
+            return ExtractionResult(text=text, extraction_method=EXTRACTION_METHOD_TEXT)
+        except Exception:
+            logger.exception("DOCX text extraction failed", extra={"filename": filename})
+            raise
     if filename_lower.endswith(".xlsx"):
-        text = extract_text_from_xlsx(content)
-        return ExtractionResult(text=text, extraction_method=EXTRACTION_METHOD_TEXT)
+        try:
+            text = extract_text_from_xlsx(content)
+            return ExtractionResult(text=text, extraction_method=EXTRACTION_METHOD_TEXT)
+        except Exception:
+            logger.exception("XLSX text extraction failed", extra={"filename": filename})
+            raise
     try:
         text = content.decode("utf-8")
         return ExtractionResult(text=text, extraction_method=EXTRACTION_METHOD_TEXT)
     except UnicodeDecodeError:
+        logger.debug("UTF-8 decode failed for %s", filename)
         return ExtractionResult(text="", extraction_method=EXTRACTION_METHOD_TEXT)

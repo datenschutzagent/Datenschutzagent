@@ -8,7 +8,7 @@ import { Alert, AlertDescription } from "./ui/alert";
 import { 
   FileSpreadsheet, 
   CheckCircle2, 
-  AlertCircle, 
+  CircleAlert, 
   ArrowRight,
   Download,
   RefreshCw,
@@ -19,11 +19,13 @@ import { getVVTNormalization, getVVTExportBlob, downloadBlob, type ApiVVTField }
 interface VVTNormalizationViewProps {
   caseId: string;
   documentId?: string;
+  /** When false, the API is not called (lazy load). Default true for backward compatibility. */
+  active?: boolean;
 }
 
-export function VVTNormalizationView({ caseId, documentId }: VVTNormalizationViewProps) {
+export function VVTNormalizationView({ caseId, documentId, active = true }: VVTNormalizationViewProps) {
   const [data, setData] = useState<{ fields: ApiVVTField[]; documentName: string; sourceTemplate: string } | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [exportLoading, setExportLoading] = useState(false);
 
@@ -43,8 +45,8 @@ export function VVTNormalizationView({ caseId, documentId }: VVTNormalizationVie
   }, [caseId, documentId]);
 
   useEffect(() => {
-    load();
-  }, [load]);
+    if (active) load();
+  }, [active, load]);
 
   const handleExport = async () => {
     setExportLoading(true);
@@ -234,8 +236,8 @@ function VVTFieldCard({ field }: { field: ApiVVTField }) {
     <div className="p-4 border rounded-lg hover:bg-slate-50 dark:hover:bg-slate-800/50 dark:bg-slate-800/50">
       <div className="flex items-start gap-3">
         {field.status === "filled" && <CheckCircle2 className="size-5 text-green-600 dark:text-green-400 mt-0.5" />}
-        {field.status === "missing" && <AlertCircle className="size-5 text-red-600 dark:text-red-400 mt-0.5" />}
-        {field.status === "inconsistent" && <AlertCircle className="size-5 text-orange-600 mt-0.5" />}
+        {field.status === "missing" && <CircleAlert className="size-5 text-red-600 dark:text-red-400 mt-0.5" />}
+        {field.status === "inconsistent" && <CircleAlert className="size-5 text-orange-600 mt-0.5" />}
         
         <div className="flex-1">
           <div className="flex items-center gap-2 mb-2">
@@ -273,7 +275,7 @@ function VVTFieldCard({ field }: { field: ApiVVTField }) {
 
           {field.finding && (
             <Alert className="mt-2 border-orange-200 bg-orange-50">
-              <AlertCircle className="size-4 text-orange-600" />
+              <CircleAlert className="size-4 text-orange-600" />
               <AlertDescription className="text-orange-800 text-sm">
                 {field.finding}
               </AlertDescription>

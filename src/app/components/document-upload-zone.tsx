@@ -3,7 +3,7 @@ import { Card } from "./ui/card";
 import { Button } from "./ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./ui/select";
 import { Progress } from "./ui/progress";
-import { Upload, X, Check, AlertCircle, Loader2 } from "lucide-react";
+import { Upload, X, Check, CircleAlert, Loader2 } from "lucide-react";
 import { documentTypeLabels, type DocumentType } from "../lib/mock-data";
 import { randomUUID } from "../lib/uuid";
 import { uploadDocument, uploadDocumentsBulk } from "../lib/api";
@@ -217,7 +217,7 @@ export function DocumentUploadZone({ caseId, uploadedBy = "", onUploadComplete }
                   )}
                   {uploadedFile.status === "error" && (
                     <div className="size-10 rounded-full bg-red-100 dark:bg-red-900/50 flex items-center justify-center">
-                      <AlertCircle className="size-5 text-red-600 dark:text-red-400" />
+                      <CircleAlert className="size-5 text-red-600 dark:text-red-400" />
                     </div>
                   )}
                 </div>
@@ -245,7 +245,7 @@ export function DocumentUploadZone({ caseId, uploadedBy = "", onUploadComplete }
 
                   {uploadedFile.status === "error" && uploadedFile.errorMessage && (
                     <div className="flex items-center gap-2 text-red-600 dark:text-red-400 text-sm">
-                      <AlertCircle className="size-4" />
+                      <CircleAlert className="size-4" />
                       <span>{uploadedFile.errorMessage}</span>
                     </div>
                   )}

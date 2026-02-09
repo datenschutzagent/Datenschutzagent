@@ -7,7 +7,7 @@ import { Alert, AlertDescription } from "./ui/alert";
 import {
   FileText,
   Download,
-  AlertCircle,
+  CircleAlert,
   CheckCircle2,
   Shield,
   TrendingUp,
@@ -15,7 +15,14 @@ import {
   Users,
   Loader2,
 } from "lucide-react";
-import { getDSBReport, getDSBReportBlob, downloadBlob, type DSBReportViewData } from "../lib/api";
+import {
+  getDSBReportIfExists,
+  getDSBReportBlob,
+  getDSBReportStatus,
+  generateDSBReport,
+  downloadBlob,
+  type DSBReportViewData,
+} from "../lib/api";
 
 interface DSBReportViewProps {
   caseId: string;
@@ -30,17 +37,22 @@ const statusLabel: Record<string, string> = {
   completed: "Abgeschlossen",
 };
 
+const POLL_INTERVAL_MS = 2000;
+
 export function DSBReportView({ caseId }: DSBReportViewProps) {
   const [data, setData] = useState<DSBReportViewData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [downloadLoading, setDownloadLoading] = useState(false);
+  const [generating, setGenerating] = useState(false);
 
   const load = useCallback(() => {
     setLoading(true);
     setError(null);
-    getDSBReport(caseId)
-      .then(setData)
+    getDSBReportIfExists(caseId)
+      .then((report) => {
+        setData(report ?? null);
+      })
       .catch((e) => setError(e instanceof Error ? e.message : "Fehler beim Laden"))
       .finally(() => setLoading(false));
   }, [caseId]);
@@ -48,6 +60,44 @@ export function DSBReportView({ caseId }: DSBReportViewProps) {
   useEffect(() => {
     load();
   }, [load]);
+
+  const handleGenerateReport = useCallback(() => {
+    setGenerating(true);
+    setError(null);
+    generateDSBReport(caseId)
+      .then((result) => {
+        if (result.status === "completed") {
+          load();
+          setGenerating(false);
+          return;
+        }
+        const poll = () => {
+          getDSBReportStatus(caseId).then((status) => {
+            if (status.status === "running") {
+              setTimeout(poll, POLL_INTERVAL_MS);
+              return;
+            }
+            if (status.status === "failed") {
+              setError(status.error ?? "Report-Erstellung fehlgeschlagen");
+              setGenerating(false);
+              return;
+            }
+            if (status.status === "completed") {
+              load();
+              setGenerating(false);
+            }
+          }).catch((e) => {
+            setError(e instanceof Error ? e.message : "Fehler beim Prüfen des Status");
+            setGenerating(false);
+          });
+        };
+        poll();
+      })
+      .catch((e) => {
+        setError(e instanceof Error ? e.message : "Report-Erstellung fehlgeschlagen");
+        setGenerating(false);
+      });
+  }, [caseId, load]);
 
   const handleDownloadMarkdown = async () => {
     setDownloadLoading(true);
@@ -63,7 +113,7 @@ export function DSBReportView({ caseId }: DSBReportViewProps) {
     }
   };
 
-  if (loading && !data) {
+  if (loading && !data && !generating) {
     return (
       <div className="flex items-center justify-center py-12 gap-2 text-slate-600 dark:text-slate-400 dark:text-slate-500 dark:text-slate-400">
         <Loader2 className="size-5 animate-spin" />
@@ -83,10 +133,55 @@ export function DSBReportView({ caseId }: DSBReportViewProps) {
     );
   }
 
+  if (!data && !loading) {
+    return (
+      <div className="space-y-6">
+        <Card>
+          <CardHeader>
+            <CardTitle>DSB Summary Report</CardTitle>
+            <CardDescription>Noch kein Report für diesen Vorgang vorhanden.</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <p className="text-sm text-slate-600 dark:text-slate-400 mb-4">
+              Der Report wird auf Basis der hochgeladenen Dokumente und der durchgeführten Playbook-Checks erstellt.
+              Erstellen Sie den Report, um eine Übersicht zu erhalten.
+            </p>
+            <Button onClick={handleGenerateReport} disabled={generating}>
+              {generating ? (
+                <>
+                  <Loader2 className="size-4 animate-spin mr-2" />
+                  Report wird erstellt…
+                </>
+              ) : (
+                "Report erstellen"
+              )}
+            </Button>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
   const reportData = data!;
 
   return (
     <div className="space-y-6">
+      {reportData.reportStale && (
+        <Alert className="border-amber-200 bg-amber-50 dark:border-amber-800 dark:bg-amber-950/30">
+          <CircleAlert className="size-4 text-amber-600 dark:text-amber-400" />
+          <AlertDescription className="text-amber-800 dark:text-amber-200">
+            Die Datenbasis hat sich geändert (neue Dokumente oder neue Analyse). Der Report basiert nicht mehr auf dem
+            aktuellen Stand. Bitte erstellen Sie den Report neu.
+          </AlertDescription>
+          <div className="mt-3">
+            <Button size="sm" onClick={handleGenerateReport} disabled={generating}>
+              {generating ? <Loader2 className="size-4 animate-spin mr-2" /> : null}
+              Report neu erstellen
+            </Button>
+          </div>
+        </Alert>
+      )}
+
       {/* Header */}
       <Card>
         <CardHeader>
@@ -103,6 +198,15 @@ export function DSBReportView({ caseId }: DSBReportViewProps) {
               </div>
             </div>
             <div className="flex gap-2">
+              <Button
+                variant="outline"
+                className="gap-2"
+                onClick={handleGenerateReport}
+                disabled={generating}
+              >
+                {generating ? <Loader2 className="size-4 animate-spin" /> : null}
+                Report neu erstellen
+              </Button>
               <Button
                 variant="outline"
                 className="gap-2"
@@ -165,7 +269,7 @@ export function DSBReportView({ caseId }: DSBReportViewProps) {
             </div>
             <div className="p-4 border rounded-lg">
               <div className="flex items-center gap-2 mb-2">
-                <AlertCircle className="size-4 text-red-600 dark:text-red-400" />
+                <CircleAlert className="size-4 text-red-600 dark:text-red-400" />
                 <span className="text-sm text-slate-600 dark:text-slate-400 dark:text-slate-500 dark:text-slate-400">Findings</span>
               </div>
               <p className="text-2xl font-semibold">{reportData.summary.totalFindings}</p>
@@ -178,16 +282,39 @@ export function DSBReportView({ caseId }: DSBReportViewProps) {
                 <CheckCircle2 className="size-4 text-green-600 dark:text-green-400" />
                 <span className="text-sm text-slate-600 dark:text-slate-400 dark:text-slate-500 dark:text-slate-400">VVT-Vollständigkeit</span>
               </div>
-              <p className="text-2xl font-semibold">{reportData.summary.vvtCompleteness}%</p>
+              <p className="text-2xl font-semibold">
+                {reportData.summary.vvtAvailable ? `${reportData.summary.vvtCompleteness}%` : "–"}
+              </p>
+              {!reportData.summary.vvtAvailable && (
+                <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">Kein VVT vorhanden</p>
+              )}
             </div>
           </div>
 
-          {reportData.summary.dsfaRequired && (
-            <Alert className="border-amber-200 bg-amber-50">
-              <Shield className="size-4 text-amber-600" />
-              <AlertDescription className="text-amber-800">
-                <strong>DSFA erforderlich:</strong> Die Schwellenwertanalyse deutet auf eine 
-                erforderliche Datenschutz-Folgenabschätzung hin.
+          {reportData.summary.dsfaAssessment === "unclear" && (
+            <Alert className="border-slate-200 bg-slate-50 dark:border-slate-700 dark:bg-slate-900/50">
+              <Shield className="size-4 text-slate-600 dark:text-slate-400" />
+              <AlertDescription className="text-slate-700 dark:text-slate-300">
+                <strong>DSFA-Einschätzung:</strong> Unklar – noch keine Schwellenwertanalyse bzw. Check-Läufe durchgeführt.
+                Bitte Playbook-Checks ausführen, um eine Einschätzung zu erhalten.
+              </AlertDescription>
+            </Alert>
+          )}
+          {reportData.summary.dsfaAssessment === "required" && (
+            <Alert className="border-amber-200 bg-amber-50 dark:border-amber-900/50 dark:bg-amber-950/30">
+              <Shield className="size-4 text-amber-600 dark:text-amber-400" />
+              <AlertDescription className="text-amber-800 dark:text-amber-200">
+                <strong>DSFA erforderlich:</strong> Basierend auf den aktuellen Findings (kritisch/hoch) deutet die
+                Auswertung auf eine erforderliche Datenschutz-Folgenabschätzung hin.
+              </AlertDescription>
+            </Alert>
+          )}
+          {reportData.summary.dsfaAssessment === "not_required" && (
+            <Alert className="border-green-200 bg-green-50 dark:border-green-900/50 dark:bg-green-950/30">
+              <Shield className="size-4 text-green-600 dark:text-green-400" />
+              <AlertDescription className="text-green-800 dark:text-green-200">
+                <strong>DSFA nicht erforderlich:</strong> Basierend auf den aktuellen Findings wurde keine
+                Notwendigkeit für eine DSFA festgestellt.
               </AlertDescription>
             </Alert>
           )}
@@ -198,7 +325,7 @@ export function DSBReportView({ caseId }: DSBReportViewProps) {
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
-            <AlertCircle className="size-5 text-red-600 dark:text-red-400" />
+            <CircleAlert className="size-5 text-red-600 dark:text-red-400" />
             Identifizierte Risiken
           </CardTitle>
           <CardDescription>
@@ -221,7 +348,7 @@ export function DSBReportView({ caseId }: DSBReportViewProps) {
               }`}
             >
               <div className="flex items-start gap-3">
-                <AlertCircle
+                <CircleAlert
                   className={`size-5 mt-0.5 ${
                     risk.severity === "critical"
                       ? "text-red-600 dark:text-red-400"
@@ -303,7 +430,7 @@ export function DSBReportView({ caseId }: DSBReportViewProps) {
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <Clock className="size-5" />
-            Nächste Schritte
+            {reportData.next_steps_is_suggested !== false ? "Nächste Schritte (Vorschläge)" : "Nächste Schritte"}
           </CardTitle>
         </CardHeader>
         <CardContent>

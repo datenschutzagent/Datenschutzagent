@@ -6,7 +6,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "../components/ui/tabs"
 import { Alert, AlertDescription } from "../components/ui/alert";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "../components/ui/dialog";
 import { statusLabels, statusColors, findingStatusLabels, severityColors } from "../lib/mock-data";
-import { getCase, getPlaybooks, runChecks, updateFindingStatus, getDSBReportBlob, downloadBlob, canEdit, isAdmin, type ApiCase, type ApiFinding, type ApiPlaybook, type RunChecksStrategy } from "../lib/api";
+import { getCase, getPlaybooks, runChecks, getRunChecksStatus, updateFindingStatus, getDSBReportBlob, downloadBlob, canEdit, isAdmin, type ApiCase, type ApiFinding, type ApiPlaybook, type RunChecksStrategy } from "../lib/api";
 import { useAuthOptional } from "../contexts/AuthContext";
 import { VVTNormalizationView } from "../components/vvt-normalization-view";
 import { DSBReportView } from "../components/dsb-report-view";
@@ -16,7 +16,7 @@ import { AppHeaderUser } from "../components/app-header-user";
 import { CaseOverviewTab } from "../components/case-detail/CaseOverviewTab";
 import { CaseDocumentsTab } from "../components/case-detail/CaseDocumentsTab";
 import { CaseFindingsTab } from "../components/case-detail/CaseFindingsTab";
-import { ArrowLeft, Download, MessageSquare, Loader2 } from "lucide-react";
+import { ArrowLeft, Download, MessageSquare, Loader2, CircleAlert } from "lucide-react";
 import { useState, useEffect } from "react";
 
 export function CaseDetailPage() {
@@ -34,6 +34,8 @@ export function CaseDetailPage() {
   const [selectedPlaybookId, setSelectedPlaybookId] = useState<string>("");
   const [runChecksStrategy, setRunChecksStrategy] = useState<"full_text" | "rag" | "both">("full_text");
   const [runChecksLoading, setRunChecksLoading] = useState(false);
+  const [runChecksStatus, setRunChecksStatus] = useState<"idle" | "running" | "completed" | "failed">("idle");
+  const [runChecksError, setRunChecksError] = useState<string | null>(null);
   const [findingStatusLoading, setFindingStatusLoading] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState("overview");
   const [dsbReportDownloading, setDsbReportDownloading] = useState(false);
@@ -59,17 +61,46 @@ export function CaseDetailPage() {
   const handleRunChecks = async () => {
     if (!caseId || !selectedPlaybookId) return;
     setRunChecksLoading(true);
+    setRunChecksError(null);
     try {
       const strategies: RunChecksStrategy[] =
         runChecksStrategy === "both" ? ["full_text", "rag"] : [runChecksStrategy];
-      const updated = await runChecks(caseId, selectedPlaybookId, strategies);
-      setCaseData(updated);
-      setRunChecksOpen(false);
-      setSelectedPlaybookId("");
+      const result = await runChecks(caseId, selectedPlaybookId, strategies);
+      if ("accepted" in result && result.accepted) {
+        setRunChecksStatus("running");
+      } else {
+        setCaseData(result as ApiCase);
+        setRunChecksOpen(false);
+        setSelectedPlaybookId("");
+      }
+    } catch (e) {
+      setRunChecksError(e instanceof Error ? e.message : "Checks fehlgeschlagen.");
     } finally {
       setRunChecksLoading(false);
     }
   };
+
+  // Poll run-checks status when job was accepted (202) and dialog is open
+  useEffect(() => {
+    if (!caseId || runChecksStatus !== "running" || !runChecksOpen) return;
+    const interval = setInterval(async () => {
+      try {
+        const statusRes = await getRunChecksStatus(caseId);
+        if (statusRes.status === "completed") {
+          setRunChecksStatus("idle");
+          loadCase();
+          setRunChecksOpen(false);
+          setSelectedPlaybookId("");
+        } else if (statusRes.status === "failed") {
+          setRunChecksStatus("failed");
+          setRunChecksError(statusRes.error ?? "Checks fehlgeschlagen.");
+        }
+      } catch {
+        // keep polling
+      }
+    }, 2500);
+    return () => clearInterval(interval);
+  }, [caseId, runChecksStatus, runChecksOpen]);
 
   const handleFindingStatus = async (findingId: string, status: "accepted" | "overruled" | "fixed") => {
     setFindingStatusLoading(findingId);
@@ -99,7 +130,7 @@ export function CaseDetailPage() {
       <div className="min-h-screen bg-slate-50 dark:bg-slate-950 flex items-center justify-center transition-colors">
         <Card className="max-w-md">
           <CardContent className="pt-6 text-center">
-            <AlertCircle className="size-12 text-slate-300 dark:text-slate-500 mx-auto mb-4" />
+            <CircleAlert className="size-12 text-slate-300 dark:text-slate-500 mx-auto mb-4" />
             <p className="text-slate-600 dark:text-slate-400">{error || "Vorgang nicht gefunden"}</p>
             <Button className="mt-4" onClick={() => navigate("/")}>
               Zurück zur Übersicht
@@ -217,7 +248,7 @@ export function CaseDetailPage() {
           {/* Alert for Critical Issues */}
           {criticalFindings.length > 0 && (
             <Alert className="border-red-200 dark:border-red-800 bg-red-50 dark:bg-red-900/30">
-              <AlertCircle className="size-4 text-red-600 dark:text-red-400" />
+              <CircleAlert className="size-4 text-red-600 dark:text-red-400" />
               <AlertDescription className="text-red-800 dark:text-red-200">
                 <strong>{criticalFindings.length} kritische</strong> und <strong>{highFindings.length} hohe</strong> Findings 
                 müssen vor Entscheidungsvorlage bearbeitet werden.
@@ -258,6 +289,9 @@ export function CaseDetailPage() {
               setRunChecksStrategy={setRunChecksStrategy}
               onRunChecks={handleRunChecks}
               runChecksLoading={runChecksLoading}
+              runChecksStatus={runChecksStatus}
+              runChecksError={runChecksError}
+              setRunChecksError={setRunChecksError}
               onSelectFinding={setSelectedFinding}
               canEdit={userCanEdit}
             />
@@ -294,7 +328,7 @@ export function CaseDetailPage() {
 
           {/* VVT Normalization Tab */}
           <TabsContent value="vvt">
-            <VVTNormalizationView caseId={caseData.id} />
+            <VVTNormalizationView caseId={caseData.id} active={activeTab === "vvt"} />
           </TabsContent>
 
           {/* DSB Report Tab */}

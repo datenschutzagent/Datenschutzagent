@@ -10,7 +10,7 @@ import { CasesSearchFilter, CasesFilters } from "../components/cases-search-filt
 import { statusLabels, statusColors, priorityColors, priorityLabels } from "../lib/mock-data";
 import { getCases, canEdit, isAdmin, type ApiCase } from "../lib/api";
 import { useAuthOptional } from "../contexts/AuthContext";
-import { Plus, FileText, AlertCircle, CheckCircle2, Clock, LayoutDashboard, Calendar, AlertTriangle } from "lucide-react";
+import { Plus, FileText, CircleAlert, CheckCircle2, Clock, LayoutDashboard, Calendar, AlertTriangle } from "lucide-react";
 import { useState, useMemo, useEffect } from "react";
 
 export function CasesPage() {
@@ -226,13 +226,13 @@ export function CasesPage() {
                           </div>
                           {stats.critical > 0 && (
                             <div className="flex items-center gap-2">
-                              <AlertCircle className="size-4 text-red-600 dark:text-red-400" />
+                              <CircleAlert className="size-4 text-red-600 dark:text-red-400" />
                               <span className="text-red-600 dark:text-red-400 font-medium">{stats.critical} kritisch</span>
                             </div>
                           )}
                           {stats.high > 0 && (
                             <div className="flex items-center gap-2">
-                              <AlertCircle className="size-4 text-orange-600 dark:text-orange-400" />
+                              <CircleAlert className="size-4 text-orange-600 dark:text-orange-400" />
                               <span className="text-orange-600 dark:text-orange-400 font-medium">{stats.high} hoch</span>
                             </div>
                           )}
@@ -288,7 +288,7 @@ export function CasesPage() {
             {error && (
               <Card>
                 <CardContent className="py-12 text-center">
-                  <AlertCircle className="size-12 text-red-500 dark:text-red-400 mx-auto mb-4" />
+                  <CircleAlert className="size-12 text-red-500 dark:text-red-400 mx-auto mb-4" />
                   <p className="text-slate-600 dark:text-slate-400">{error}</p>
                   <Button className="mt-4" variant="outline" onClick={loadCases}>Erneut versuchen</Button>
                 </CardContent>

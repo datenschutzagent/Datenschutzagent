@@ -73,6 +73,10 @@ graph TD
 *   **Location**: `backend/app/storage.py`
 *   **Backends**: `local` (filesystem under `storage_local_path`) or `minio` (S3-compatible). Configured via `STORAGE_BACKEND` and S3 env vars.
 
+## Frontend (Kurzüberblick)
+
+Die Oberfläche ist eine React-SPA (Vite), Seiten: Vorgänge (Cases), Case-Detail (Tabs: Übersicht, Dokumente, Findings, VVT, DSB-Report, Annotierte Dokumente, Aktivitäten), Playbooks, Playbook-Detail, Mein Profil, Verwaltung (Admin). Routing und API-Aufrufe zentral in `src/app/lib/api.ts`.
+
 ## Deployment
 
 Designed for **on-premise** use with Docker Compose. Frontend, backend, Postgres, MinIO, Redis, and optionally Weaviate run in containers; Ollama is typically run on the host or another machine and reached via `OLLAMA_BASE_URL` (e.g. `http://host.docker.internal:11434`).

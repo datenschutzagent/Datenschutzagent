@@ -1,0 +1,4 @@
+# MkDocs und Theme für die Dokumentation
+# Verwendung: pip install -r mkdocs/requirements-docs.txt
+mkdocs>=1.5.0
+mkdocs-material>=9.0.0

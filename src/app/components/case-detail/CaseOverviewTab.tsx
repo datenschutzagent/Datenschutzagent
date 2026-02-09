@@ -4,7 +4,7 @@ import { Button } from "../ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "../ui/dialog";
 import { severityColors, priorityLabels, priorityColors } from "../../lib/mock-data";
 import type { ApiCase, ApiFinding, ApiPlaybook, RunChecksStrategy } from "../../lib/api";
-import { AlertCircle, Download, FileCheck, Loader2, Shield } from "lucide-react";
+import { CircleAlert, Download, FileCheck, Loader2, Shield } from "lucide-react";
 
 export interface CaseOverviewTabProps {
   caseData: ApiCase;
@@ -19,6 +19,9 @@ export interface CaseOverviewTabProps {
   setRunChecksStrategy: (s: "full_text" | "rag" | "both") => void;
   onRunChecks: () => void;
   runChecksLoading: boolean;
+  runChecksStatus: "idle" | "running" | "completed" | "failed";
+  runChecksError: string | null;
+  setRunChecksError: (err: string | null) => void;
   onSelectFinding: (finding: ApiFinding) => void;
   /** When false (e.g. viewer role), hide/disable write actions like Run Checks. */
   canEdit?: boolean;
@@ -37,6 +40,9 @@ export function CaseOverviewTab({
   setRunChecksStrategy,
   onRunChecks,
   runChecksLoading,
+  runChecksStatus,
+  runChecksError,
+  setRunChecksError,
   onSelectFinding,
   canEdit = true,
 }: CaseOverviewTabProps) {
@@ -188,9 +194,28 @@ export function CaseOverviewTab({
                     RAG nutzt die Vektordatenbank; „Beide“ führt Volltext- und RAG-Checks parallel aus.
                   </p>
                 </div>
+                {(runChecksStatus === "running" || runChecksError) && (
+                  <div className="rounded-md border p-3 text-sm">
+                    {runChecksStatus === "running" && (
+                      <div className="flex items-center gap-2 text-slate-600 dark:text-slate-400">
+                        <Loader2 className="size-4 animate-spin" />
+                        Playbook-Checks werden ausgeführt… Bitte kurz warten.
+                      </div>
+                    )}
+                    {runChecksError && (
+                      <div className="text-amber-700 dark:text-amber-400">
+                        <p className="font-medium">Playbook-Checks fehlgeschlagen</p>
+                        <p className="mt-1">{runChecksError}</p>
+                        <Button variant="outline" size="sm" className="mt-2" onClick={() => setRunChecksError(null)}>
+                          Schließen
+                        </Button>
+                      </div>
+                    )}
+                  </div>
+                )}
                 <div className="flex justify-end gap-2">
-                  <Button variant="outline" onClick={() => setRunChecksOpen(false)}>Abbrechen</Button>
-                  <Button onClick={onRunChecks} disabled={!selectedPlaybookId || runChecksLoading}>
+                  <Button variant="outline" onClick={() => { setRunChecksOpen(false); setRunChecksError(null); }}>Abbrechen</Button>
+                  <Button onClick={onRunChecks} disabled={!selectedPlaybookId || runChecksLoading || runChecksStatus === "running"}>
                     {runChecksLoading ? <Loader2 className="size-4 animate-spin" /> : null}
                     Checks starten
                   </Button>
@@ -226,7 +251,7 @@ export function CaseOverviewTab({
                 onClick={() => onSelectFinding(finding)}
               >
                 <div className="flex items-start gap-3">
-                  <AlertCircle className="size-5 text-red-600 dark:text-red-400 mt-0.5" />
+                  <CircleAlert className="size-5 text-red-600 dark:text-red-400 mt-0.5" />
                   <div className="flex-1">
                     <div className="flex items-center gap-2 mb-1">
                       <h4 className="font-medium text-slate-900 dark:text-slate-100">{finding.checkName}</h4>

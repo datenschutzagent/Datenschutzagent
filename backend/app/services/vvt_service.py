@@ -1,12 +1,21 @@
 """VVT normalization: map raw document text to canonical VVT model using LLM."""
 from __future__ import annotations
 
-from typing import Literal
+from typing import Annotated, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, BeforeValidator, Field
 
 from app.core.llm import create_agent
 from app.services.prompt_template_service import get_active_template, render
+
+
+def _coerce_canonical_value(v: str | list[str] | None) -> str | None:
+    """Accept str or list[str] from LLM and normalize to str | None."""
+    if v is None:
+        return None
+    if isinstance(v, list):
+        return ", ".join(str(x).strip() for x in v if x) if v else None
+    return v if isinstance(v, str) else str(v)
 
 # Canonical VVT field names (DSGVO Art. 30 / common ROPA/VVT templates)
 CANONICAL_VVT_FIELD_NAMES = [
@@ -21,13 +30,16 @@ CANONICAL_VVT_FIELD_NAMES = [
 ]
 
 
+_CanonicalValue = Annotated[str | None, BeforeValidator(_coerce_canonical_value)]
+
+
 class _VVTExtractionField(BaseModel):
     """Single field as extracted by LLM (internal)."""
     field_name: str = Field(description="Exact name of the VVT field from the canonical list.")
     status: Literal["filled", "missing", "inconsistent"] = Field(
         description="One of: filled, missing, inconsistent"
     )
-    canonical_value: str | None = Field(default=None, description="Extracted or normalized value if present.")
+    canonical_value: _CanonicalValue = Field(default=None, description="Extracted or normalized value if present.")
     evidence: str | None = Field(default=None, description="Where in the document this was found (e.g. sheet, row, column).")
     finding: str | None = Field(default=None, description="If inconsistent or problematic, short explanation.")
 

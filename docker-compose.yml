@@ -108,7 +108,7 @@ services:
         condition: service_healthy
     volumes:
       - backend_storage:/app/storage
-    command: celery -A app.celery_app worker -l info
+    command: celery -A app.celery_app worker -l info -Q extraction,celery
     restart: on-failure
 
   frontend:

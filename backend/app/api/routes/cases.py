@@ -19,7 +19,14 @@ from sqlalchemy.orm import selectinload
 from app.config import settings
 from app.database import get_db
 from app.models import CaseCreate, CaseModel, CaseResponse, CaseUpdate, orm_to_case_response
-from app.models.db import ActivityLogModel, DocumentModel, FindingModel, PlaybookModel, orm_to_activity_response
+from app.models.db import (
+    ActivityLogModel,
+    DocumentModel,
+    DSBReportJobModel,
+    PlaybookModel,
+    RunChecksJobModel,
+    orm_to_activity_response,
+)
 from app.models.schemas import (
     ActivityResponse,
     AnnotatedDocumentListItem,
@@ -33,14 +40,18 @@ from app.services.annotated_document_service import (
     build_annotated_pdf,
     list_annotatable_documents,
 )
-from app.services.check_runner import (
-    run_check,
-    run_check_rag,
-    run_cross_document_check,
-    run_cross_document_check_rag,
-)
+from app.services.run_checks_service import run_checks_impl
+from app.celery_app import build_dsb_report_task, run_playbook_checks
 from app.services.weaviate_service import delete_chunks_by_case_id
-from app.services.dsb_report_service import build_dsb_report, render_report_markdown
+from app.services.dsb_report_service import (
+    build_dsb_report,
+    compute_stale,
+    get_last_run_checks_at,
+    get_latest_report,
+    render_report_markdown,
+    save_report,
+)
+from app.services.dsb_report_service import _payload_to_report
 from app.services.vvt_service import normalize_vvt
 from app.core.auth import require_roles
 
@@ -238,6 +249,12 @@ async def get_vvt_normalization_export(
         doc = vvt_docs[0]
 
     raw_text = doc.content or ""
+    if not raw_text.strip():
+        raise HTTPException(
+            status_code=404,
+            detail="VVT-Dokument hat keinen extrahierten Inhalt",
+        )
+
     case_lang = getattr(case, "language", None)
     extraction = await normalize_vvt(raw_text, language=case_lang)
     date_str = datetime.utcnow().strftime("%Y-%m-%d")
@@ -313,6 +330,14 @@ async def get_vvt_normalization(
         doc = vvt_docs[0]
 
     raw_text = doc.content or ""
+    if not raw_text.strip():
+        return VVTNormalizationResponse(
+            document_id=doc.id,
+            document_name=doc.name,
+            source_template="",
+            fields=[],
+        )
+
     case_lang = getattr(case, "language", None)
     extraction = await normalize_vvt(raw_text, language=case_lang)
 
@@ -343,12 +368,28 @@ async def get_dsb_report(
     db: AsyncSession = Depends(get_db),
 ):
     """
-    Get DSB summary report for the case. format=markdown (default) or format=json.
-    Markdown returns file download with Content-Disposition.
+    Get stored DSB summary report for the case. Returns 404 if no report exists.
+    format=json (with report_stale, stale_reason) or format=markdown (download).
     """
-    report = await build_dsb_report(case_id, db)
+    result = await db.execute(select(CaseModel).where(CaseModel.id == case_id))
+    if result.scalar_one_or_none() is None:
+        raise HTTPException(status_code=404, detail="Case not found")
+    report_row = await get_latest_report(case_id, db)
+    if not report_row:
+        raise HTTPException(status_code=404, detail="No report available. Generate a report first.")
+    report = _payload_to_report(report_row.payload)
+    result = await db.execute(
+        select(CaseModel).where(CaseModel.id == case_id).options(selectinload(CaseModel.documents))
+    )
+    case = result.scalar_one_or_none()
+    current_doc_count = len(case.documents) if case else 0
+    current_last_run_at = await get_last_run_checks_at(case_id, db)
+    report_stale, stale_reason = compute_stale(report_row, current_doc_count, current_last_run_at)
     if format == "json":
-        return JSONResponse(content=report.model_dump(mode="json"))
+        out = report.model_dump(mode="json")
+        out["report_stale"] = report_stale
+        out["stale_reason"] = stale_reason
+        return JSONResponse(content=out)
     md = render_report_markdown(report)
     slug = re.sub(r"[^\w\s-]", "", report.case_title)[:50].strip() or "Report"
     slug = re.sub(r"[-\s]+", "-", slug)
@@ -360,6 +401,61 @@ async def get_dsb_report(
         headers={
             "Content-Disposition": f'attachment; filename="{filename}"',
         },
+    )
+
+
+@router.get("/{case_id}/dsb-report/status")
+async def get_dsb_report_status(
+    case_id: UUID,
+    db: AsyncSession = Depends(get_db),
+):
+    """Return status of report generation for polling: no_report, running, completed, failed."""
+    result = await db.execute(select(CaseModel).where(CaseModel.id == case_id))
+    if result.scalar_one_or_none() is None:
+        raise HTTPException(status_code=404, detail="Case not found")
+    report_row = await get_latest_report(case_id, db)
+    job_result = await db.execute(
+        select(DSBReportJobModel)
+        .where(DSBReportJobModel.case_id == case_id)
+        .order_by(DSBReportJobModel.created_at.desc())
+        .limit(1)
+    )
+    job = job_result.scalar_one_or_none()
+    if job and job.status == "running":
+        return {"status": "running", "job_id": str(job.id), "error": None}
+    if job and job.status == "failed":
+        return {"status": "failed", "job_id": str(job.id), "error": job.error}
+    if report_row:
+        return {"status": "completed", "job_id": None, "error": None}
+    return {"status": "no_report", "job_id": None, "error": None}
+
+
+@router.post("/{case_id}/dsb-report/generate")
+async def generate_dsb_report(
+    case_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    _user=require_roles("editor", "admin"),
+):
+    """Start DSB report generation. Returns 202 when queued (Celery), 200 when run synchronously."""
+    result = await db.execute(select(CaseModel).where(CaseModel.id == case_id))
+    if result.scalar_one_or_none() is None:
+        raise HTTPException(status_code=404, detail="Case not found")
+    use_async = settings.celery_enabled and bool((settings.celery_broker_url or "").strip())
+    if use_async:
+        job = DSBReportJobModel(case_id=case_id, status="running")
+        db.add(job)
+        await db.flush()
+        await db.refresh(job)
+        build_dsb_report_task.delay(str(job.id))
+        return JSONResponse(
+            status_code=202,
+            content={"job_id": str(job.id), "status": "running", "message": "Report wird erstellt."},
+        )
+    report = await build_dsb_report(case_id, db)
+    await save_report(case_id, report, db)
+    return JSONResponse(
+        status_code=200,
+        content={"status": "completed", "message": "Report erstellt.", "generated_at": report.generated_at.isoformat()},
     )
 
 
@@ -408,33 +504,45 @@ async def get_run_checks_status(
     case_id: UUID,
     db: AsyncSession = Depends(get_db),
 ):
-    """Return the latest run_checks activity for this case (for polling / status display)."""
+    """Return the latest run_checks job status for this case (for polling). Includes last_run activity for timeline."""
     result = await db.execute(select(CaseModel).where(CaseModel.id == case_id))
     if result.scalar_one_or_none() is None:
         raise HTTPException(status_code=404, detail="Case not found")
+    job_result = await db.execute(
+        select(RunChecksJobModel)
+        .where(RunChecksJobModel.case_id == case_id)
+        .order_by(RunChecksJobModel.created_at.desc())
+        .limit(1)
+    )
+    job = job_result.scalar_one_or_none()
     activity_result = await db.execute(
         select(ActivityLogModel)
         .where(ActivityLogModel.case_id == case_id, ActivityLogModel.event_type == "run_checks")
         .order_by(ActivityLogModel.created_at.desc())
         .limit(1)
     )
-    last = activity_result.scalar_one_or_none()
-    if not last:
-        return {"status": "never_run", "last_run": None}
+    last_activity = activity_result.scalar_one_or_none()
+    last_run = orm_to_activity_response(last_activity) if last_activity else None
+    if not job:
+        return {"status": "never_run", "job_id": None, "playbook_name": None, "findings_count": None, "error": None, "last_run": last_run}
     return {
-        "status": "completed",
-        "last_run": orm_to_activity_response(last),
+        "status": job.status,
+        "job_id": str(job.id),
+        "playbook_name": job.playbook_name,
+        "findings_count": job.findings_count,
+        "error": job.error,
+        "last_run": last_run,
     }
 
 
-@router.post("/{case_id}/run-checks", response_model=CaseResponse)
+@router.post("/{case_id}/run-checks")
 async def run_checks(
     case_id: UUID,
     body: RunChecksRequest,
     db: AsyncSession = Depends(get_db),
     _user=require_roles("editor", "admin"),
 ):
-    """Run playbook checks against all case documents and persist findings."""
+    """Run playbook checks against all case documents. Returns 202 when queued (Celery), 200 with case when run synchronously."""
     result = await db.execute(
         select(CaseModel)
         .where(CaseModel.id == case_id)
@@ -454,180 +562,40 @@ async def run_checks(
         await db.refresh(case)
         return CaseResponse(**orm_to_case_response(case))
 
-    # Split by scope: document (default) vs case/cross_document
-    document_checks: list[dict] = []
-    case_checks: list[dict] = []
-    for item in raw_checks:
-        if not isinstance(item, dict):
-            continue
-        scope = (item.get("scope") or item.get("type") or "document").lower()
-        if scope in ("case", "cross_document"):
-            case_checks.append(item)
-        else:
-            document_checks.append(item)
-
     strategies = body.strategies or ["full_text"]
-    case_language = getattr(case, "language", None) or "de"
-    findings_added = 0
-    rag_skipped = False
-    errors: list[dict] = []  # {"check": str, "scope": "document"|"case", "document_id": str|None, "strategy": str, "error": str}
+    use_async = settings.celery_enabled and bool((settings.celery_broker_url or "").strip())
 
-    def _instruction_for_check(item: dict) -> str:
-        """Resolve check instruction: use instruction_en when case language is en or de_en."""
-        if case_language in ("en", "de_en"):
-            instr = item.get("instruction_en") or item.get("instruction") or item.get("requirement")
-        else:
-            instr = item.get("instruction") or item.get("requirement") or item.get("instruction_en")
-        return instr or ""
-
-    def _add_finding(
-        *,
-        case_id: UUID,
-        document_id: UUID | None,
-        check_name: str,
-        severity: str,
-        description: str,
-        evidence: list,
-        recommendation: str,
-        source_strategy: str | None = "full_text",
-    ):
-        nonlocal findings_added
-        finding = FindingModel(
+    if use_async:
+        job = RunChecksJobModel(
             case_id=case_id,
-            document_id=document_id,
-            check_name=check_name,
-            severity=severity,
-            status="open",
-            category=check_name,
-            description=description,
-            evidence=evidence or [],
-            recommendation=recommendation or "",
-            source_strategy=source_strategy,
+            status="running",
+            playbook_id=playbook.id,
+            playbook_name=playbook.name,
+            strategies=strategies,
         )
-        db.add(finding)
-        findings_added += 1
+        db.add(job)
+        await db.flush()
+        await db.refresh(job)
+        celery_result = run_playbook_checks.delay(str(job.id))
+        job.celery_task_id = celery_result.id
+        await db.commit()
+        return JSONResponse(
+            status_code=202,
+            content={
+                "job_id": str(job.id),
+                "status": "running",
+                "message": "Playbook-Checks werden ausgeführt.",
+            },
+        )
 
-    # Document-scoped checks: one run per document per check (per strategy)
-    for doc in case.documents:
-        text = (doc.content or "") or ""
-        for item in document_checks:
-            name = item.get("name") or item.get("check_name") or "Check"
-            instruction = _instruction_for_check(item)
-            if not instruction:
-                continue
-            if "full_text" in strategies:
-                try:
-                    check_result = await run_check(text, instruction, language=case_language)
-                except Exception as e:
-                    logger.warning("Run check failed (full_text, document): check=%s doc_id=%s: %s", name, doc.id, e)
-                    errors.append({"check": name, "scope": "document", "document_id": str(doc.id), "strategy": "full_text", "error": str(e)})
-                    continue
-                if not check_result.is_compliant:
-                    _add_finding(
-                        case_id=case_id,
-                        document_id=doc.id,
-                        check_name=name,
-                        severity=check_result.severity,
-                        description=check_result.description,
-                        evidence=check_result.evidence or [],
-                        recommendation=check_result.recommendation or "",
-                        source_strategy="full_text",
-                    )
-            if "rag" in strategies:
-                try:
-                    rag_result = await run_check_rag(doc.id, case_id, instruction, language=case_language)
-                except Exception as e:
-                    logger.warning("Run check failed (rag, document): check=%s doc_id=%s: %s", name, doc.id, e)
-                    errors.append({"check": name, "scope": "document", "document_id": str(doc.id), "strategy": "rag", "error": str(e)})
-                    rag_skipped = True
-                    continue
-                if rag_result is None:
-                    rag_skipped = True
-                    errors.append({"check": name, "scope": "document", "document_id": str(doc.id), "strategy": "rag", "error": "Weaviate/chunks unavailable"})
-                    continue
-                if not rag_result.is_compliant:
-                    _add_finding(
-                        case_id=case_id,
-                        document_id=doc.id,
-                        check_name=name,
-                        severity=rag_result.severity,
-                        description=rag_result.description,
-                        evidence=rag_result.evidence or [],
-                        recommendation=rag_result.recommendation or "",
-                        source_strategy="rag",
-                    )
-
-    # Case-scoped (cross-document) checks: one run per check with all documents (per strategy)
-    if case_checks and case.documents:
-        doc_list = [(doc.id, (doc.content or "") or "") for doc in case.documents]
-        for item in case_checks:
-            name = item.get("name") or item.get("check_name") or "Check"
-            instruction = _instruction_for_check(item)
-            if not instruction:
-                continue
-            if "full_text" in strategies:
-                try:
-                    check_result = await run_cross_document_check(doc_list, instruction, language=case_language)
-                except Exception as e:
-                    logger.warning("Run check failed (full_text, case): check=%s: %s", name, e)
-                    errors.append({"check": name, "scope": "case", "document_id": None, "strategy": "full_text", "error": str(e)})
-                    continue
-                if not check_result.is_compliant:
-                    _add_finding(
-                        case_id=case_id,
-                        document_id=None,
-                        check_name=name,
-                        severity=check_result.severity,
-                        description=check_result.description,
-                        evidence=check_result.evidence or [],
-                        recommendation=check_result.recommendation or "",
-                        source_strategy="full_text",
-                    )
-            if "rag" in strategies:
-                try:
-                    rag_result = await run_cross_document_check_rag(case_id, instruction, language=case_language)
-                except Exception as e:
-                    logger.warning("Run check failed (rag, case): check=%s: %s", name, e)
-                    errors.append({"check": name, "scope": "case", "document_id": None, "strategy": "rag", "error": str(e)})
-                    rag_skipped = True
-                    continue
-                if rag_result is None:
-                    rag_skipped = True
-                    errors.append({"check": name, "scope": "case", "document_id": None, "strategy": "rag", "error": "Weaviate/chunks unavailable"})
-                    continue
-                if not rag_result.is_compliant:
-                    _add_finding(
-                        case_id=case_id,
-                        document_id=None,
-                        check_name=name,
-                        severity=rag_result.severity,
-                        description=rag_result.description,
-                        evidence=rag_result.evidence or [],
-                        recommendation=rag_result.recommendation or "",
-                        source_strategy="rag",
-                    )
-
-    await db.flush()
-    activity_payload = {
-        "playbook_id": str(body.playbook_id),
-        "playbook_name": playbook.name,
-        "playbook_version": playbook.version,
-        "model": settings.ollama_model,
-        "findings_count": findings_added,
-        "strategies": strategies,
-    }
-    if rag_skipped:
-        activity_payload["rag_fallback"] = "rag requested but Weaviate/chunks unavailable for some checks"
-    if errors:
-        activity_payload["errors"] = errors
-        activity_payload["skipped_checks_count"] = len(errors)
+    findings_added, errors, activity_payload = await run_checks_impl(db, case_id, body.playbook_id, strategies)
     activity = ActivityLogModel(
         case_id=case_id,
         event_type="run_checks",
         payload=activity_payload,
     )
     db.add(activity)
-    # Reload case with documents and findings for response
+    await db.flush()
     result2 = await db.execute(
         select(CaseModel)
         .where(CaseModel.id == case_id)

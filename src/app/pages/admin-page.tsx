@@ -19,7 +19,7 @@ import {
   type ApiPromptTemplateKeyMeta,
 } from "../lib/api";
 import { useAuthOptional } from "../contexts/AuthContext";
-import { CheckCircle2, XCircle, HelpCircle, Loader2, AlertCircle, Pencil, History } from "lucide-react";
+import { CheckCircle2, XCircle, HelpCircle, Loader2, CircleAlert, Pencil, History } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -108,7 +108,7 @@ export function AdminPage() {
         </header>
         <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
           <Alert className="border-amber-200 bg-amber-50">
-            <AlertCircle className="size-4 text-amber-600" />
+            <CircleAlert className="size-4 text-amber-600" />
             <AlertDescription className="text-amber-800">
               Sie haben keine Berechtigung für die Verwaltung. Nur Nutzer mit der Rolle „Admin“ können diese Seite aufrufen.
             </AlertDescription>

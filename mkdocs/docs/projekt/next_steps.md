@@ -1,6 +1,6 @@
 # Nächste Schritte – Plan nach Roadmap & Gap-Analyse
 
-Stand: Feb 2026, nach Abgleich mit Code. Phase 1–3 der Roadmap und die priorisierten Gap-Punkte (Run-Checks, Frontend-API, Finding-Status, VVT, Cross-Document, Artefakte, Versionierung, Audit, Celery, OCR, Weaviate/RAG, Code-Review, DE/EN-Ausbau, **AuthN OAuth2/OIDC**, **AuthZ/RBAC**) sind umgesetzt. **Verbleibende Lücken:** optional Retention/Archivierung. **Nächster Sprint:** siehe `docs/sprint_plan.md`.
+Stand: Feb 2026, nach Abgleich mit Code. Phase 1–3 der Roadmap und die priorisierten Gap-Punkte (Run-Checks, Frontend-API, Finding-Status, VVT, Cross-Document, Artefakte, Versionierung, Audit, Celery, OCR, Weaviate/RAG, Code-Review, DE/EN-Ausbau, **AuthN OAuth2/OIDC**, **AuthZ/RBAC**) sind umgesetzt. **Verbleibende Lücken:** optional Retention/Archivierung. **Nächster Sprint:** siehe [Sprint-Plan](sprint_plan.md).
 
 ---
 
@@ -51,7 +51,7 @@ Stand: Feb 2026, nach Abgleich mit Code. Phase 1–3 der Roadmap und die prioris
 | :--- | :--- | :--- |
 | **Retention/Archivierung** | Optional | Konfigurierbare Aufbewahrungsfristen (Roadmap Phase 4). |
 
-Konkrete Sprint-Planung und Backlog: **`docs/sprint_plan.md`**.
+Konkrete Sprint-Planung und Backlog: [Sprint-Plan](sprint_plan.md).
 
 ---
 

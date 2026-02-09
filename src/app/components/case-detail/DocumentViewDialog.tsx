@@ -38,6 +38,8 @@ export function DocumentViewDialog({
   canEdit = true,
 }: DocumentViewDialogProps) {
   const [content, setContent] = useState<string | null>(null);
+  const [extractionStatus, setExtractionStatus] = useState<"pending" | "processing" | "done" | "failed" | undefined>(undefined);
+  const [extractionError, setExtractionError] = useState<string | undefined>(undefined);
   const [loading, setLoading] = useState(false);
   const [downloadLoading, setDownloadLoading] = useState(false);
   const [comments, setComments] = useState<ApiDocumentComment[]>([]);
@@ -59,25 +61,45 @@ export function DocumentViewDialog({
     }
   }, [doc?.id]);
 
+  const fetchContent = useCallback(async () => {
+    if (!doc?.id) return;
+    const res = await getDocumentContent(doc.id);
+    setContent(res.content ?? "");
+    setExtractionStatus(res.extractionStatus);
+    setExtractionError(res.extractionError);
+    return res;
+  }, [doc?.id]);
+
   useEffect(() => {
     if (!open || !doc) {
       setContent(null);
+      setExtractionStatus(undefined);
+      setExtractionError(undefined);
       setComments([]);
       return;
     }
     let cancelled = false;
     setLoading(true);
-    getDocumentContent(doc.id)
-      .then((res) => {
-        if (!cancelled) setContent(res.content ?? "");
-      })
+    fetchContent()
+      .then(() => {})
       .finally(() => {
         if (!cancelled) setLoading(false);
       });
     return () => {
       cancelled = true;
     };
-  }, [open, doc?.id]);
+  }, [open, doc?.id, fetchContent]);
+
+  // Poll content while extraction is pending or processing
+  useEffect(() => {
+    if (!open || !doc?.id || loading) return;
+    const status = extractionStatus ?? doc.extractionStatus;
+    if (status !== "pending" && status !== "processing") return;
+    const interval = setInterval(() => {
+      fetchContent();
+    }, 2500);
+    return () => clearInterval(interval);
+  }, [open, doc?.id, doc?.extractionStatus, extractionStatus, loading, fetchContent]);
 
   useEffect(() => {
     if (!open || !doc) return;
@@ -184,7 +206,23 @@ export function DocumentViewDialog({
                   </Button>
                 </div>
               </div>
-            ) : content === null ? null : content.trim() === "" ? (
+            ) : content === null ? null : (extractionStatus ?? doc?.extractionStatus) === "failed" ? (
+              <div className="space-y-2">
+                <p className="text-amber-700 dark:text-amber-400 font-medium">Extraktion fehlgeschlagen.</p>
+                {extractionError ?? doc?.extractionError ? (
+                  <p className="text-sm text-slate-600 dark:text-slate-400 whitespace-pre-wrap break-words">
+                    {extractionError ?? doc?.extractionError}
+                  </p>
+                ) : null}
+                <p className="text-slate-500 italic">Kein Text extrahiert.</p>
+              </div>
+            ) : (extractionStatus ?? doc?.extractionStatus) === "pending" ||
+              (extractionStatus ?? doc?.extractionStatus) === "processing" ? (
+              <div className="flex flex-col items-center justify-center py-8 gap-2">
+                <Loader2 className="size-6 animate-spin text-slate-500" />
+                <p className="text-slate-600 dark:text-slate-400">Text wird extrahiert… Bitte kurz warten.</p>
+              </div>
+            ) : content.trim() === "" ? (
               <p className="text-slate-500 italic">Kein Text extrahiert.</p>
             ) : (
               <pre className="whitespace-pre-wrap font-sans text-sm text-slate-800">

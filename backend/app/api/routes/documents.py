@@ -70,10 +70,14 @@ async def _process_one_upload(
     if async_extraction:
         text_content = None
         extraction_method = None
+        extraction_status = "pending"
+        extraction_error = None
     else:
         ext_result = extract_text(filename, content)
         text_content = ext_result.text
         extraction_method = ext_result.extraction_method
+        extraction_status = "done"
+        extraction_error = None
     version = await _next_version_for_type(db, case_id, document_type)
     doc = DocumentModel(
         case_id=case_id,
@@ -86,6 +90,8 @@ async def _process_one_upload(
         storage_path="",
         content=text_content,
         extraction_method=extraction_method,
+        extraction_status=extraction_status,
+        extraction_error=extraction_error,
     )
     db.add(doc)
     await db.flush()
@@ -148,12 +154,16 @@ async def get_document_content(
     document_id: UUID,
     db: AsyncSession = Depends(get_db),
 ):
-    """Get the extracted text content of a document (for in-app display)."""
+    """Get the extracted text content of a document (for in-app display). Includes extraction_status and extraction_error for UI state."""
     result = await db.execute(select(DocumentModel).where(DocumentModel.id == document_id))
     doc = result.scalar_one_or_none()
     if not doc:
         raise HTTPException(status_code=404, detail="Document not found")
-    return {"content": doc.content or ""}
+    return {
+        "content": doc.content or "",
+        "extraction_status": doc.extraction_status,
+        "extraction_error": doc.extraction_error,
+    }
 
 
 @router.get("/{document_id}/comments", response_model=list[DocumentCommentResponse])

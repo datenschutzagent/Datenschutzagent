@@ -1,0 +1,60 @@
+site_name: Datenschutzagent Docs
+docs_dir: docs
+
+theme:
+  name: material
+  features:
+    - navigation.tabs
+    - navigation.sections
+    - toc.integrate
+  palette:
+    - scheme: default
+      primary: teal
+      accent: purple
+    - scheme: slate
+      primary: teal
+      accent: purple
+      toggle:
+        icon: material/brightness-4
+        name: Switch to dark mode
+
+nav:
+  - Start:
+    - Einführung: index.md
+    - Schnellstart: schnellstart.md
+  - Benutzerhandbuch:
+    - Vorgänge: benutzerhandbuch/vorgaenge.md
+    - Dokumente: benutzerhandbuch/dokumente.md
+    - Playbooks: benutzerhandbuch/playbooks.md
+    - Playbook-Checks: benutzerhandbuch/playbook-checks.md
+    - Findings und Status: benutzerhandbuch/findings-status.md
+    - VVT-Normalisierung: benutzerhandbuch/vvt-normalisierung.md
+    - DSB-Report: benutzerhandbuch/dsb-report.md
+    - Annotierte Dokumente: benutzerhandbuch/annotierte-dokumente.md
+    - Mein Profil: benutzerhandbuch/profil.md
+  - Administration:
+    - Verwaltung: administration/verwaltung.md
+    - Authentifizierung (OIDC): administration/auth.md
+    - Rollen (RBAC): administration/rollen.md
+    - CLI: administration/cli.md
+    - Datenbank-Migrationen: administration/migrationen.md
+  - Konfiguration: konfiguration.md
+  - Referenz:
+    - API: referenz/api.md
+    - Architektur: referenz/architecture.md
+  - Projekt:
+    - Roadmap: projekt/roadmap.md
+    - Requirements & Gap-Analyse: projekt/requirements_gap.md
+    - Nächste Schritte: projekt/next_steps.md
+    - Sprint-Plan: projekt/sprint_plan.md
+  - Rechtliches:
+    - Lizenzen & Danksagungen: rechtliches/attributions.md
+
+markdown_extensions:
+  - admonition
+  - pymdownx.details
+  - pymdownx.superfences
+  - pymdownx.tabbed:
+      alternate_style: true
+  - attr_list
+  - md_in_html

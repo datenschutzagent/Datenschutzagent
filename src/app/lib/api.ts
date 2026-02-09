@@ -62,6 +62,8 @@ function mapDocument(d: Record<string, unknown>): Record<string, unknown> {
     format: d.format,
     caseId: d.case_id,
     extractionMethod: d.extraction_method ?? undefined,
+    extractionStatus: (d.extraction_status as "pending" | "processing" | "done" | "failed") ?? undefined,
+    extractionError: (d.extraction_error as string) ?? undefined,
   };
 }
 
@@ -373,6 +375,10 @@ export interface ApiDocument {
   caseId?: string;
   /** "ocr" when text was extracted via Ollama Vision (scanned PDFs); "text" or undefined otherwise */
   extractionMethod?: "text" | "ocr";
+  /** Async extraction state: pending | processing | done | failed */
+  extractionStatus?: "pending" | "processing" | "done" | "failed";
+  /** Error message when extractionStatus === "failed" */
+  extractionError?: string;
 }
 
 /** "full_text" | "rag" – which run-checks strategy produced this finding */
@@ -407,13 +413,17 @@ export interface ApiPlaybook {
 }
 
 // --- DSB Report (API returns snake_case; we map to camelCase for UI) ---
+export type DSFAAssessment = "required" | "not_required" | "unclear";
+
 export interface ApiDSBReportSummary {
   total_documents: number;
   total_findings: number;
   critical_findings: number;
   high_findings: number;
   dsfa_required: boolean;
+  dsfa_assessment?: DSFAAssessment;
   vvt_completeness: number;
+  vvt_available?: boolean;
 }
 
 export interface ApiDSBReportRisk {
@@ -433,6 +443,7 @@ export interface ApiDSBReport {
   open_questions: string[];
   recommendations: string[];
   next_steps: string[];
+  next_steps_is_suggested?: boolean;
 }
 
 // --- Cases ---
@@ -462,15 +473,68 @@ export async function deleteCase(id: string): Promise<void> {
 
 export type RunChecksStrategy = "full_text" | "rag";
 
+/** When POST run-checks returns 202, the job was queued (Celery). */
+export interface RunChecksAcceptedResponse {
+  accepted: true;
+  jobId: string;
+  status: "running";
+}
+
+/** Response of GET /cases/:id/run-checks/status */
+export interface RunChecksStatusResponse {
+  status: "never_run" | "running" | "completed" | "failed";
+  job_id: string | null;
+  playbook_name: string | null;
+  findings_count: number | null;
+  error: string | null;
+  last_run: { id: string; case_id: string; event_type: string; payload: Record<string, unknown>; created_at: string } | null;
+}
+
 export async function runChecks(
   caseId: string,
   playbookId: string,
   strategies: RunChecksStrategy[] = ["full_text"],
-): Promise<ApiCase> {
-  const c = await request<Record<string, unknown>>("POST", `/cases/${caseId}/run-checks`, {
-    body: { playbook_id: playbookId, strategies },
+): Promise<ApiCase | RunChecksAcceptedResponse> {
+  const url = `${API_BASE}${API_PREFIX}/cases/${caseId}/run-checks`;
+  const headers: Record<string, string> = { "Content-Type": "application/json" };
+  if (accessToken) headers["Authorization"] = `Bearer ${accessToken}`;
+  const res = await fetch(url, {
+    method: "POST",
+    headers,
+    body: JSON.stringify({ playbook_id: playbookId, strategies }),
   });
-  return mapCase(c) as ApiCase;
+  if (!res.ok) {
+    const detail = await parseErrorResponse(res);
+    throw new Error(detail);
+  }
+  const data = (await res.json()) as Record<string, unknown>;
+  if (res.status === 202) {
+    return {
+      accepted: true,
+      jobId: (data.job_id as string) ?? "",
+      status: "running",
+    };
+  }
+  return mapCase(data) as ApiCase;
+}
+
+export async function getRunChecksStatus(caseId: string): Promise<RunChecksStatusResponse> {
+  const raw = await request<{
+    status: string;
+    job_id: string | null;
+    playbook_name: string | null;
+    findings_count: number | null;
+    error: string | null;
+    last_run: RunChecksStatusResponse["last_run"];
+  }>("GET", `/cases/${caseId}/run-checks/status`);
+  return {
+    status: raw.status as RunChecksStatusResponse["status"],
+    job_id: raw.job_id,
+    playbook_name: raw.playbook_name,
+    findings_count: raw.findings_count,
+    error: raw.error,
+    last_run: raw.last_run,
+  };
 }
 
 // --- Case Activities (Audit Log) ---
@@ -548,15 +612,22 @@ export interface DSBReportViewData {
     criticalFindings: number;
     highFindings: number;
     dsfaRequired: boolean;
+    dsfaAssessment: DSFAAssessment;
     vvtCompleteness: number;
+    vvtAvailable: boolean;
   };
   risks: ApiDSBReportRisk[];
   openQuestions: string[];
   recommendations: string[];
   nextSteps: string[];
+  next_steps_is_suggested?: boolean;
+  reportStale?: boolean;
+  staleReason?: string | null;
 }
 
-function mapDSBReport(r: ApiDSBReport): DSBReportViewData {
+function mapDSBReport(
+  r: ApiDSBReport & { report_stale?: boolean; stale_reason?: string | null }
+): DSBReportViewData {
   const s = r.summary;
   return {
     caseId: r.case_id,
@@ -570,18 +641,69 @@ function mapDSBReport(r: ApiDSBReport): DSBReportViewData {
       criticalFindings: s?.critical_findings ?? 0,
       highFindings: s?.high_findings ?? 0,
       dsfaRequired: s?.dsfa_required ?? false,
+      dsfaAssessment: (s?.dsfa_assessment as DSFAAssessment) ?? "unclear",
       vvtCompleteness: s?.vvt_completeness ?? 0,
+      vvtAvailable: s?.vvt_available ?? false,
     },
     risks: r.risks ?? [],
     openQuestions: r.open_questions ?? [],
     recommendations: r.recommendations ?? [],
     nextSteps: r.next_steps ?? [],
+    next_steps_is_suggested: r.next_steps_is_suggested ?? true,
+    reportStale: r.report_stale,
+    staleReason: r.stale_reason ?? null,
   };
+}
+
+/** Fetches report if it exists; returns null on 404 (no report yet). */
+export async function getDSBReportIfExists(caseId: string): Promise<DSBReportViewData | null> {
+  const url = `${API_BASE}${API_PREFIX}/cases/${caseId}/dsb-report?format=json`;
+  const res = await fetch(url, { headers: authHeaders() });
+  if (res.status === 404) return null;
+  if (!res.ok) {
+    const detail = await parseErrorResponse(res);
+    throw new Error(detail);
+  }
+  const r = (await res.json()) as ApiDSBReport & { report_stale?: boolean; stale_reason?: string | null };
+  return mapDSBReport(r);
 }
 
 export async function getDSBReport(caseId: string): Promise<DSBReportViewData> {
   const r = await request<ApiDSBReport>("GET", `/cases/${caseId}/dsb-report?format=json`);
   return mapDSBReport(r);
+}
+
+/** Status of report generation for polling. */
+export interface DSBReportStatusResponse {
+  status: "no_report" | "running" | "completed" | "failed";
+  job_id: string | null;
+  error: string | null;
+}
+
+export async function getDSBReportStatus(caseId: string): Promise<DSBReportStatusResponse> {
+  return request<DSBReportStatusResponse>("GET", `/cases/${caseId}/dsb-report/status`);
+}
+
+/** Start report generation. Returns 202 payload when queued (job_id), 200 when sync. */
+export async function generateDSBReport(caseId: string): Promise<
+  | { status: "running"; job_id: string; message?: string }
+  | { status: "completed"; message?: string; generated_at?: string }
+> {
+  const url = `${API_BASE}${API_PREFIX}/cases/${caseId}/dsb-report/generate`;
+  const res = await fetch(url, { method: "POST", headers: authHeaders() });
+  if (!res.ok) {
+    const detail = await parseErrorResponse(res);
+    throw new Error(detail);
+  }
+  const data = (await res.json()) as Record<string, unknown>;
+  if (res.status === 202) {
+    return { status: "running", job_id: (data.job_id as string) ?? "", message: data.message as string | undefined };
+  }
+  return {
+    status: "completed",
+    message: data.message as string | undefined,
+    generated_at: data.generated_at as string | undefined,
+  };
 }
 
 export async function getDSBReportBlob(
@@ -681,9 +803,25 @@ export async function getDocumentDownloadBlob(documentId: string): Promise<Blob>
   return res.blob();
 }
 
-/** Get extracted text content of a document (for in-app display). */
-export async function getDocumentContent(documentId: string): Promise<{ content: string }> {
-  return request<{ content: string }>("GET", `/documents/${documentId}/content`);
+/** Response of GET /documents/:id/content (extracted text and extraction state). */
+export interface DocumentContentResponse {
+  content: string;
+  extractionStatus?: "pending" | "processing" | "done" | "failed";
+  extractionError?: string;
+}
+
+/** Get extracted text content of a document (for in-app display). Includes extraction status for UI. */
+export async function getDocumentContent(documentId: string): Promise<DocumentContentResponse> {
+  const raw = await request<{
+    content: string;
+    extraction_status?: string;
+    extraction_error?: string;
+  }>("GET", `/documents/${documentId}/content`);
+  return {
+    content: raw.content ?? "",
+    extractionStatus: raw.extraction_status as DocumentContentResponse["extractionStatus"] | undefined,
+    extractionError: raw.extraction_error,
+  };
 }
 
 // --- Document comments ---

@@ -1,6 +1,7 @@
 """Async database session and engine."""
 from collections.abc import AsyncGenerator
 
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from app.config import settings
@@ -34,7 +35,27 @@ async def get_db() -> AsyncGenerator[AsyncSession, None]:
             await session.close()
 
 
+# Idempotent schema migrations for existing DBs (create_all does not add columns to existing tables).
+# Only ADD COLUMN IF NOT EXISTS / CREATE INDEX IF NOT EXISTS; no data-changing UPDATEs.
+_SCHEMA_MIGRATIONS = [
+    "ALTER TABLE documents ADD COLUMN IF NOT EXISTS extraction_method VARCHAR(20)",
+    "ALTER TABLE findings ADD COLUMN IF NOT EXISTS source_strategy VARCHAR(20)",
+    "ALTER TABLE users ADD COLUMN IF NOT EXISTS oidc_sub VARCHAR(500) NULL",
+    "CREATE UNIQUE INDEX IF NOT EXISTS ix_users_oidc_sub ON users (oidc_sub) WHERE oidc_sub IS NOT NULL",
+    "ALTER TABLE users ADD COLUMN IF NOT EXISTS role VARCHAR(20) NOT NULL DEFAULT 'viewer'",
+]
+
+
 async def init_db() -> None:
-    """Create all tables. Call on app startup."""
+    """Create all tables and run idempotent schema migrations. Call on app startup."""
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+        for stmt in _SCHEMA_MIGRATIONS:
+            try:
+                await conn.execute(text(stmt))
+            except Exception as e:
+                # Table "users" may not exist on very old DBs; create_all already created it with all columns
+                err = str(e).lower()
+                if "does not exist" in err and "users" in err:
+                    continue
+                raise

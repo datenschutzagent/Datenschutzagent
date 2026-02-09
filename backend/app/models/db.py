@@ -61,6 +61,8 @@ class DocumentModel(Base):
     storage_path: Mapped[str] = mapped_column(String(1000), nullable=False)  # path in MinIO or local FS
     content: Mapped[str] = mapped_column(Text, nullable=True)  # Extracted text content
     extraction_method: Mapped[str | None] = mapped_column(String(20), nullable=True)  # "text" | "ocr"
+    extraction_status: Mapped[str] = mapped_column(String(20), nullable=False, default="pending")  # pending | processing | done | failed
+    extraction_error: Mapped[str | None] = mapped_column(Text, nullable=True)  # Error message when extraction_status=failed
     uploaded_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
 
     case: Mapped["CaseModel"] = relationship("CaseModel", back_populates="documents")
@@ -135,6 +137,52 @@ class ActivityLogModel(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
 
 
+class RunChecksJobModel(Base):
+    """One row per run-checks execution; status running/completed/failed for async feedback."""
+    __tablename__ = "run_checks_jobs"
+    __table_args__ = (Index("ix_run_checks_jobs_case_id_created_at", "case_id", "created_at"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(PG_UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    case_id: Mapped[uuid.UUID] = mapped_column(PG_UUID(as_uuid=True), ForeignKey("cases.id", ondelete="CASCADE"), nullable=False)
+    status: Mapped[str] = mapped_column(String(20), nullable=False)  # running | completed | failed
+    playbook_id: Mapped[uuid.UUID] = mapped_column(PG_UUID(as_uuid=True), ForeignKey("playbooks.id", ondelete="CASCADE"), nullable=False)
+    playbook_name: Mapped[str] = mapped_column(String(200), nullable=False)
+    strategies: Mapped[list[str]] = mapped_column(ARRAY(String), nullable=False, default=list)
+    celery_task_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    findings_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    result_payload: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class DSBReportModel(Base):
+    """Latest DSB report per case; overwritten on each generation."""
+    __tablename__ = "dsb_reports"
+
+    case_id: Mapped[uuid.UUID] = mapped_column(PG_UUID(as_uuid=True), ForeignKey("cases.id", ondelete="CASCADE"), primary_key=True)
+    generated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    payload: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
+    basis_document_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    basis_last_run_checks_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class DSBReportJobModel(Base):
+    """One row per DSB report generation job; status running/completed/failed for async feedback."""
+    __tablename__ = "dsb_report_jobs"
+    __table_args__ = (Index("ix_dsb_report_jobs_case_id_created_at", "case_id", "created_at"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(PG_UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    case_id: Mapped[uuid.UUID] = mapped_column(PG_UUID(as_uuid=True), ForeignKey("cases.id", ondelete="CASCADE"), nullable=False)
+    status: Mapped[str] = mapped_column(String(20), nullable=False)  # running | completed | failed
+    celery_task_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
 def orm_to_user_response(orm: UserModel) -> dict[str, Any]:
     """Map UserModel to API response shape."""
     return {
@@ -185,6 +233,8 @@ def orm_to_document_response(orm: DocumentModel) -> dict[str, Any]:
         "format": orm.format,
         "case_id": orm.case_id,
         "extraction_method": orm.extraction_method,
+        "extraction_status": orm.extraction_status,
+        "extraction_error": orm.extraction_error,
     }
 
 

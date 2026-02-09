@@ -1,6 +1,6 @@
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../ui/card";
 import { Badge } from "../ui/badge";
-import { AlertCircle, CheckCircle2, Shield, XCircle } from "lucide-react";
+import { CircleAlert, CheckCircle2, Shield, XCircle } from "lucide-react";
 import { findingStatusLabels, severityColors } from "../../lib/mock-data";
 import type { ApiCase, ApiFinding } from "../../lib/api";
 
@@ -25,7 +25,7 @@ export function CaseFindingsTab({ caseData, onSelectFinding }: CaseFindingsTabPr
               onClick={() => onSelectFinding(finding)}
             >
               <div className="flex items-start gap-3">
-                {finding.status === "open" && <AlertCircle className="size-5 text-red-600 dark:text-red-400 mt-0.5" />}
+                {finding.status === "open" && <CircleAlert className="size-5 text-red-600 dark:text-red-400 mt-0.5" />}
                 {finding.status === "fixed" && <CheckCircle2 className="size-5 text-green-600 dark:text-green-400 mt-0.5" />}
                 {finding.status === "accepted" && <Shield className="size-5 text-blue-600 dark:text-blue-400 mt-0.5" />}
                 {finding.status === "overruled" && <XCircle className="size-5 text-slate-600 dark:text-slate-400 mt-0.5" />}
