@@ -1,12 +1,9 @@
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "./ui/card";
 import { Badge } from "./ui/badge";
-import { 
-  TrendingUp, 
-  TrendingDown,
-  FileText, 
-  CircleAlert, 
-  CheckCircle2, 
-  Clock,
+import {
+  FileText,
+  CircleAlert,
+  CheckCircle2,
   Users,
   BookOpen
 } from "lucide-react";
@@ -64,8 +61,7 @@ export function DashboardStats({ cases: casesProp }: DashboardStatsProps = {}) {
               von {totalCases} gesamt
             </p>
             <div className="flex items-center gap-1 mt-2">
-              <TrendingUp className="size-3 text-green-600 dark:text-green-400" />
-              <span className="text-xs text-green-600 dark:text-green-400">+2 seit letzter Woche</span>
+              <span className="text-xs text-slate-500 dark:text-slate-400">{completedCases} abgeschlossen</span>
             </div>
           </CardContent>
         </Card>
@@ -81,8 +77,7 @@ export function DashboardStats({ cases: casesProp }: DashboardStatsProps = {}) {
               von {totalFindings} gesamt
             </p>
             <div className="flex items-center gap-1 mt-2">
-              <TrendingDown className="size-3 text-green-600 dark:text-green-400" />
-              <span className="text-xs text-green-600 dark:text-green-400">-3 seit letzter Woche</span>
+              <span className="text-xs text-slate-500 dark:text-slate-400">{fixedFindings} behoben</span>
             </div>
           </CardContent>
         </Card>
@@ -98,8 +93,7 @@ export function DashboardStats({ cases: casesProp }: DashboardStatsProps = {}) {
               bereit für Freigabe
             </p>
             <div className="flex items-center gap-1 mt-2">
-              <Clock className="size-3 text-slate-400 dark:text-slate-500" />
-              <span className="text-xs text-slate-600 dark:text-slate-400">Ø 3.5 Tage in Review</span>
+              <span className="text-xs text-slate-500 dark:text-slate-400">bereit für Freigabe</span>
             </div>
           </CardContent>
         </Card>

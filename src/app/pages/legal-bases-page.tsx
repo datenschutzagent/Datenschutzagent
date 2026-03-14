@@ -1,5 +1,5 @@
 import { Link, useNavigate } from "react-router";
-import { AppHeaderUser } from "../components/app-header-user";
+import { AppLayout } from "../components/app-layout";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../components/ui/card";
 import { Badge } from "../components/ui/badge";
 import { Button } from "../components/ui/button";
@@ -31,10 +31,10 @@ import {
   updateLegalBase,
   deleteLegalBase,
   canEdit,
-  isAdmin,
   type ApiLegalBase,
 } from "../lib/api";
 import { useAuthOptional } from "../contexts/AuthContext";
+import { toast } from "sonner";
 import { Plus, Scale, Edit, Trash2, Loader2 } from "lucide-react";
 import { useState, useEffect } from "react";
 
@@ -134,6 +134,7 @@ export function LegalBasesPage() {
       }
       setDialogOpen(false);
       loadBases();
+      toast.success(editing ? "Rechtsgrundlage gespeichert" : "Rechtsgrundlage angelegt");
     } catch (e) {
       setSubmitError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -148,6 +149,7 @@ export function LegalBasesPage() {
       await deleteLegalBase(deleteTarget.id);
       setDeleteTarget(null);
       loadBases();
+      toast.success("Rechtsgrundlage gelöscht");
     } finally {
       setActionLoading(false);
     }
@@ -156,42 +158,7 @@ export function LegalBasesPage() {
   const canEditBases = canEdit(auth?.user ?? null);
 
   return (
-    <div className="min-h-screen bg-slate-50 dark:bg-slate-950 transition-colors">
-      <header className="bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 transition-colors">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <h1 className="text-2xl font-semibold text-slate-900 dark:text-slate-100">Datenschutz-Agent</h1>
-              <p className="text-sm text-slate-600 dark:text-slate-400 mt-1">Universität • Forschungsvorhaben</p>
-            </div>
-            <nav className="flex items-center gap-6">
-              <Link to="/" className="text-sm font-medium text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100">
-                Vorgänge
-              </Link>
-              <Link to="/vvt-overview" className="text-sm font-medium text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100">
-                VVT-Übersicht
-              </Link>
-              <Link to="/playbooks" className="text-sm font-medium text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100">
-                Playbooks
-              </Link>
-              <Link to="/legal-bases" className="text-sm font-medium text-blue-600 dark:text-blue-400">
-                Rechtsgrundlagen
-              </Link>
-              <Link to="/profile" className="text-sm font-medium text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100">
-                Mein Profil
-              </Link>
-              {isAdmin(auth?.user ?? null) && (
-                <Link to="/admin" className="text-sm font-medium text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100">
-                  Verwaltung
-                </Link>
-              )}
-              <AppHeaderUser />
-            </nav>
-          </div>
-        </div>
-      </header>
-
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+    <AppLayout>
         <div className="flex items-center justify-between mb-6">
           <div>
             <h2 className="text-xl font-semibold text-slate-900 dark:text-slate-100">Rechtsgrundlagen</h2>
@@ -240,7 +207,7 @@ export function LegalBasesPage() {
                     <div className="flex gap-1 shrink-0">
                       {canEditBases && (
                         <>
-                          <Button variant="ghost" size="icon" className="size-8" onClick={() => openEdit(base)}>
+                          <Button variant="ghost" size="icon" className="size-8" onClick={() => openEdit(base)} aria-label={`${base.title} bearbeiten`}>
                             <Edit className="size-4" />
                           </Button>
                           <Button
@@ -248,6 +215,7 @@ export function LegalBasesPage() {
                             size="icon"
                             className="size-8 text-red-600 hover:text-red-700"
                             onClick={() => setDeleteTarget(base)}
+                            aria-label={`${base.title} löschen`}
                           >
                             <Trash2 className="size-4" />
                           </Button>
@@ -281,8 +249,6 @@ export function LegalBasesPage() {
             ))}
           </div>
         )}
-      </main>
-
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
         <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
@@ -400,6 +366,6 @@ export function LegalBasesPage() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-    </div>
+    </AppLayout>
   );
 }

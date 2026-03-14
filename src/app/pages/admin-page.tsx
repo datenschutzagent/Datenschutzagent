@@ -1,6 +1,6 @@
 import { Link, useNavigate } from "react-router";
 import { useState, useEffect } from "react";
-import { AppHeaderUser } from "../components/app-header-user";
+import { AppLayout } from "../components/app-layout";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../components/ui/card";
 import { Button } from "../components/ui/button";
 import { Alert, AlertDescription } from "../components/ui/alert";
@@ -99,25 +99,17 @@ export function AdminPage() {
 
   if (auth?.user && !isAdmin(auth.user)) {
     return (
-      <div className="min-h-screen bg-slate-50">
-        <header className="bg-white border-b border-slate-200">
-          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex justify-between items-center">
-            <h1 className="text-2xl font-semibold text-slate-900">Datenschutz-Agent</h1>
-            <AppHeaderUser />
-          </div>
-        </header>
-        <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-          <Alert className="border-amber-200 bg-amber-50">
-            <CircleAlert className="size-4 text-amber-600" />
-            <AlertDescription className="text-amber-800">
-              Sie haben keine Berechtigung für die Verwaltung. Nur Nutzer mit der Rolle „Admin“ können diese Seite aufrufen.
-            </AlertDescription>
-          </Alert>
-          <Button className="mt-4" variant="outline" onClick={() => navigate("/")}>
-            Zurück zur Startseite
-          </Button>
-        </main>
-      </div>
+      <AppLayout maxWidth=”max-w-4xl”>
+        <Alert className=”border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-900/30”>
+          <CircleAlert className=”size-4 text-amber-600 dark:text-amber-400” />
+          <AlertDescription className=”text-amber-800 dark:text-amber-200”>
+            Sie haben keine Berechtigung für die Verwaltung. Nur Nutzer mit der Rolle „Admin” können diese Seite aufrufen.
+          </AlertDescription>
+        </Alert>
+        <Button className=”mt-4” variant=”outline” onClick={() => navigate(“/”)}>
+          Zurück zur Startseite
+        </Button>
+      </AppLayout>
     );
   }
 
@@ -231,40 +223,7 @@ export function AdminPage() {
   const activeByKey = new Map(promptTemplates.filter((t) => t.is_active).map((t) => [t.key, t]));
 
   return (
-    <div className="min-h-screen bg-slate-50 dark:bg-slate-950 transition-colors">
-      <header className="bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 transition-colors">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <h1 className="text-2xl font-semibold text-slate-900 dark:text-slate-100">Datenschutz-Agent</h1>
-              <p className="text-sm text-slate-600 dark:text-slate-400 mt-1">Universität • Forschungsvorhaben</p>
-            </div>
-            <nav className="flex items-center gap-6">
-              <Link to="/" className="text-sm font-medium text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100">
-                Vorgänge
-              </Link>
-              <Link to="/vvt-overview" className="text-sm font-medium text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100">
-                VVT-Übersicht
-              </Link>
-              <Link to="/playbooks" className="text-sm font-medium text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100">
-                Playbooks
-              </Link>
-              <Link to="/legal-bases" className="text-sm font-medium text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100">
-                Rechtsgrundlagen
-              </Link>
-              <Link to="/profile" className="text-sm font-medium text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100">
-                Mein Profil
-              </Link>
-              <Link to="/admin" className="text-sm font-medium text-blue-600 dark:text-blue-400">
-                Verwaltung
-              </Link>
-              <AppHeaderUser />
-            </nav>
-          </div>
-        </div>
-      </header>
-
-      <main className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+    <AppLayout maxWidth="max-w-4xl">
         <h2 className="text-xl font-semibold text-slate-900 dark:text-slate-100 mb-6">Verwaltung</h2>
 
         {error && (
@@ -532,7 +491,6 @@ export function AdminPage() {
             )}
           </DialogContent>
         </Dialog>
-      </main>
-    </div>
+    </AppLayout>
   );
 }

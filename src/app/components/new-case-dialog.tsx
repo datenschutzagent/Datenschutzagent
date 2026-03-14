@@ -7,6 +7,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from ".
 import { Textarea } from "./ui/textarea";
 import { Badge } from "./ui/badge";
 import { FileText, CheckCircle2, Upload, X } from "lucide-react";
+import { toast } from "sonner";
 import { getDepartments, getPlaybooks, createCase, uploadDocumentsBulk, type ApiCase, type ApiDepartment, type ApiPlaybook } from "../lib/api";
 import { documentTypeLabels, type DocumentType } from "../lib/mock-data";
 
@@ -79,6 +80,7 @@ export function NewCaseDialog({ open, onOpenChange, onSuccess }: NewCaseDialogPr
         description: "",
         assignee: "DSB Team",
       });
+      toast.success("Vorgang erfolgreich angelegt");
       onSuccess?.(newCase);
     } catch (e) {
       setSubmitError(e instanceof Error ? e.message : "Fehler beim Anlegen");
@@ -125,14 +127,14 @@ export function NewCaseDialog({ open, onOpenChange, onSuccess }: NewCaseDialogPr
             </div>
             <span className="text-sm font-medium">Grunddaten</span>
           </div>
-          <div className="flex-1 h-px bg-slate-200 dark:bg-slate-700 max-w-4" />
+          <div className="flex-1 h-px bg-slate-200 dark:bg-slate-700" />
           <div className="flex items-center gap-2">
             <div className={`size-8 rounded-full flex items-center justify-center ${step >= 2 ? "bg-blue-600 text-white" : "bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-400"}`}>
               {step > 2 ? <CheckCircle2 className="size-5" /> : "2"}
             </div>
             <span className="text-sm font-medium">Playbook</span>
           </div>
-          <div className="flex-1 h-px bg-slate-200 dark:bg-slate-700 max-w-4" />
+          <div className="flex-1 h-px bg-slate-200 dark:bg-slate-700" />
           <div className="flex items-center gap-2">
             <div className={`size-8 rounded-full flex items-center justify-center ${step >= 3 ? "bg-blue-600 text-white" : "bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-400"}`}>
               3
@@ -337,11 +339,11 @@ export function NewCaseDialog({ open, onOpenChange, onSuccess }: NewCaseDialogPr
           )}
           {step === 2 && (
             <>
+              <Button variant="outline" onClick={handleSubmit} disabled={!canSubmit || loading}>
+                {loading ? "Wird angelegt…" : "Ohne Dokumente anlegen"}
+              </Button>
               <Button onClick={() => setStep(3)} disabled={!canSubmit}>
                 Weiter
-              </Button>
-              <Button onClick={handleSubmit} disabled={!canSubmit || loading}>
-                {loading ? "Wird angelegt…" : "Vorgang anlegen (ohne Dokumente)"}
               </Button>
             </>
           )}
