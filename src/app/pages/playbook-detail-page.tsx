@@ -13,7 +13,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "../components/ui/alert-dialog";
-import { AppHeaderUser } from "../components/app-header-user";
+import { AppLayout } from "../components/app-layout";
 import { NewPlaybookDialog } from "../components/new-playbook-dialog";
 import {
   getPlaybook,
@@ -22,13 +22,11 @@ import {
   deletePlaybook,
   getLegalBases,
   canEdit as userCanEdit,
-  isAdmin,
   type ApiPlaybook,
   type ApiLegalBase,
 } from "../lib/api";
 import { useAuthOptional } from "../contexts/AuthContext";
 import {
-  ArrowLeft,
   BookOpen,
   CheckSquare,
   FileText,
@@ -39,7 +37,9 @@ import {
   Loader2,
   Trash2,
   Scale,
+  ChevronRight,
 } from "lucide-react";
+import { toast } from "sonner";
 import { useState, useEffect } from "react";
 
 /** Normalize API check item for display (backend may use name/instruction or check_name/requirement). */
@@ -111,6 +111,7 @@ export function PlaybookDetailPage() {
     try {
       const updated = await updatePlaybook(playbook.id, { is_active: false });
       setPlaybook(updated);
+      toast.success("Playbook archiviert");
     } finally {
       setActionLoading(false);
     }
@@ -169,29 +170,33 @@ export function PlaybookDetailPage() {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-slate-50 dark:bg-slate-950 flex items-center justify-center transition-colors">
-        <div className="flex flex-col items-center gap-4">
-          <Loader2 className="size-10 animate-spin text-blue-600 dark:text-blue-400" />
-          <p className="text-slate-600 dark:text-slate-400">Playbook wird geladen…</p>
+      <AppLayout>
+        <div className="flex items-center justify-center py-24">
+          <div className="flex flex-col items-center gap-4">
+            <Loader2 className="size-10 animate-spin text-blue-600 dark:text-blue-400" />
+            <p className="text-slate-600 dark:text-slate-400">Playbook wird geladen…</p>
+          </div>
         </div>
-      </div>
+      </AppLayout>
     );
   }
 
   if (error || !playbook) {
     return (
-      <div className="min-h-screen bg-slate-50 dark:bg-slate-950 flex items-center justify-center transition-colors">
-        <Card className="max-w-md">
-          <CardContent className="pt-6 text-center">
-            <CircleAlert className="size-12 text-slate-300 dark:text-slate-500 mx-auto mb-4" />
-            <p className="text-slate-600 dark:text-slate-400">Playbook nicht gefunden</p>
-            {error && <p className="text-sm text-red-600 dark:text-red-400 mt-2">{error}</p>}
-            <Button className="mt-4" onClick={() => navigate("/playbooks")}>
-              Zurück zur Übersicht
-            </Button>
-          </CardContent>
-        </Card>
-      </div>
+      <AppLayout>
+        <div className="flex items-center justify-center py-24">
+          <Card className="max-w-md">
+            <CardContent className="pt-6 text-center">
+              <CircleAlert className="size-12 text-slate-300 dark:text-slate-500 mx-auto mb-4" />
+              <p className="text-slate-600 dark:text-slate-400">Playbook nicht gefunden</p>
+              {error && <p className="text-sm text-red-600 dark:text-red-400 mt-2">{error}</p>}
+              <Button className="mt-4" onClick={() => navigate("/playbooks")}>
+                Zurück zur Übersicht
+              </Button>
+            </CardContent>
+          </Card>
+        </div>
+      </AppLayout>
     );
   }
 
@@ -201,49 +206,19 @@ export function PlaybookDetailPage() {
   const mandatoryChecks = checks.filter((c) => c.mandatory);
 
   return (
-    <div className="min-h-screen bg-slate-50 dark:bg-slate-950 transition-colors">
-      {/* Header */}
-      <header className="bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 transition-colors">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <h1 className="text-2xl font-semibold text-slate-900 dark:text-slate-100">Datenschutz-Agent</h1>
-              <p className="text-sm text-slate-600 dark:text-slate-400 mt-1">Universität • Forschungsvorhaben</p>
-            </div>
-            <nav className="flex items-center gap-6">
-              <Link to="/" className="text-sm font-medium text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100">
-                Vorgänge
-              </Link>
-              <Link to="/vvt-overview" className="text-sm font-medium text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100">
-                VVT-Übersicht
-              </Link>
-              <Link to="/playbooks" className="text-sm font-medium text-blue-600 dark:text-blue-400">
-                Playbooks
-              </Link>
-              <Link to="/legal-bases" className="text-sm font-medium text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100">
-                Rechtsgrundlagen
-              </Link>
-              <Link to="/profile" className="text-sm font-medium text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100">
-                Mein Profil
-              </Link>
-              {isAdmin(auth?.user ?? null) && (
-                <Link to="/admin" className="text-sm font-medium text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100">
-                  Verwaltung
-                </Link>
-              )}
-              <AppHeaderUser />
-            </nav>
-          </div>
-        </div>
-      </header>
-
-      {/* Main Content */}
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        {/* Back Button */}
-        <Button variant="ghost" className="mb-4 gap-2" onClick={() => navigate("/playbooks")}>
-          <ArrowLeft className="size-4" />
-          Zurück zur Übersicht
-        </Button>
+    <AppLayout>
+      {/* Breadcrumb Navigation */}
+      <nav aria-label="Breadcrumb" className="mb-4">
+        <ol className="flex items-center gap-1.5 text-sm text-slate-600 dark:text-slate-400">
+          <li>
+            <Link to="/playbooks" className="hover:text-slate-900 dark:hover:text-slate-100">Playbooks</Link>
+          </li>
+          <li><ChevronRight className="size-3.5" /></li>
+          <li className="text-slate-900 dark:text-slate-100 font-medium truncate max-w-[300px]">
+            {playbook.name}
+          </li>
+        </ol>
+      </nav>
 
         {/* Playbook Header */}
         <div className="mb-6">
@@ -652,7 +627,6 @@ export function PlaybookDetailPage() {
             </Card>
           </TabsContent>
         </Tabs>
-      </main>
       <NewPlaybookDialog
         open={editDialogOpen}
         onOpenChange={setEditDialogOpen}
@@ -683,6 +657,6 @@ export function PlaybookDetailPage() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-    </div>
+    </AppLayout>
   );
 }

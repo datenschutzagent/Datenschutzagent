@@ -102,6 +102,7 @@ export function CasesSearchFilter({
             <button
               onClick={() => handleSearchChange("")}
               className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 dark:text-slate-500 hover:text-slate-600 dark:hover:text-slate-300"
+              aria-label="Suche leeren"
             >
               <X className="size-4" />
             </button>
@@ -247,6 +248,7 @@ export function CasesSearchFilter({
               <button
                 onClick={() => handleStatusChange("all")}
                 className="hover:text-slate-900 dark:hover:text-slate-100"
+                aria-label="Status-Filter entfernen"
               >
                 <X className="size-3" />
               </button>
@@ -258,6 +260,7 @@ export function CasesSearchFilter({
               <button
                 onClick={() => handlePriorityChange("all")}
                 className="hover:text-slate-900 dark:hover:text-slate-100"
+                aria-label="Priorität-Filter entfernen"
               >
                 <X className="size-3" />
               </button>
@@ -269,6 +272,7 @@ export function CasesSearchFilter({
               <button
                 onClick={() => handleDepartmentChange("all")}
                 className="hover:text-slate-900 dark:hover:text-slate-100"
+                aria-label="Abteilung-Filter entfernen"
               >
                 <X className="size-3" />
               </button>
@@ -280,6 +284,7 @@ export function CasesSearchFilter({
               <button
                 onClick={() => handleDeadlineFilter("all")}
                 className="hover:text-slate-900 dark:hover:text-slate-100"
+                aria-label="Frist-Filter entfernen"
               >
                 <X className="size-3" />
               </button>
@@ -291,6 +296,7 @@ export function CasesSearchFilter({
               <button
                 onClick={() => handleTagToggle(tag)}
                 className="hover:text-slate-900 dark:hover:text-slate-100"
+                aria-label={`Tag "${tag}" entfernen`}
               >
                 <X className="size-3" />
               </button>

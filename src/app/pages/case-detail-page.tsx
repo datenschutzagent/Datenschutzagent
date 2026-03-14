@@ -6,17 +6,18 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "../components/ui/tabs"
 import { Alert, AlertDescription } from "../components/ui/alert";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "../components/ui/dialog";
 import { statusLabels, statusColors, findingStatusLabels, severityColors } from "../lib/mock-data";
-import { getCase, getPlaybooks, runChecks, getRunChecksStatus, updateFindingStatus, getDSBReportBlob, downloadBlob, canEdit, isAdmin, type ApiCase, type ApiFinding, type ApiPlaybook, type RunChecksStrategy } from "../lib/api";
+import { getCase, getPlaybooks, runChecks, getRunChecksStatus, updateFindingStatus, getDSBReportBlob, downloadBlob, canEdit, type ApiCase, type ApiFinding, type ApiPlaybook, type RunChecksStrategy } from "../lib/api";
 import { useAuthOptional } from "../contexts/AuthContext";
 import { VVTNormalizationView } from "../components/vvt-normalization-view";
 import { DSBReportView } from "../components/dsb-report-view";
 import { AnnotatedDocumentsView } from "../components/annotated-documents-view";
 import { ActivityTimeline } from "../components/activity-timeline";
-import { AppHeaderUser } from "../components/app-header-user";
+import { AppLayout } from "../components/app-layout";
 import { CaseOverviewTab } from "../components/case-detail/CaseOverviewTab";
 import { CaseDocumentsTab } from "../components/case-detail/CaseDocumentsTab";
 import { CaseFindingsTab } from "../components/case-detail/CaseFindingsTab";
-import { ArrowLeft, Download, MessageSquare, Loader2, CircleAlert } from "lucide-react";
+import { ArrowLeft, Download, MessageSquare, Loader2, CircleAlert, ChevronRight } from "lucide-react";
+import { toast } from "sonner";
 import { useState, useEffect } from "react";
 
 export function CaseDetailPage() {
@@ -108,6 +109,10 @@ export function CaseDetailPage() {
       await updateFindingStatus(findingId, status);
       loadCase();
       setSelectedFinding(null);
+      const statusLabel = status === "accepted" ? "akzeptiert" : status === "overruled" ? "überfahren" : "behoben";
+      toast.success(`Finding als ${statusLabel} markiert`);
+    } catch (e) {
+      toast.error("Fehler beim Aktualisieren des Finding-Status");
     } finally {
       setFindingStatusLoading(null);
     }
@@ -115,29 +120,33 @@ export function CaseDetailPage() {
 
   if (loading && !caseData) {
     return (
-      <div className="min-h-screen bg-slate-50 dark:bg-slate-950 flex items-center justify-center transition-colors">
-        <Card className="max-w-md">
-          <CardContent className="pt-6 text-center">
-            <Loader2 className="size-12 text-slate-400 dark:text-slate-500 mx-auto mb-4 animate-spin" />
-            <p className="text-slate-600 dark:text-slate-400">Vorgang wird geladen…</p>
-          </CardContent>
-        </Card>
-      </div>
+      <AppLayout>
+        <div className="flex items-center justify-center py-24">
+          <Card className="max-w-md">
+            <CardContent className="pt-6 text-center">
+              <Loader2 className="size-12 text-slate-400 dark:text-slate-500 mx-auto mb-4 animate-spin" />
+              <p className="text-slate-600 dark:text-slate-400">Vorgang wird geladen…</p>
+            </CardContent>
+          </Card>
+        </div>
+      </AppLayout>
     );
   }
   if (error || !caseData) {
     return (
-      <div className="min-h-screen bg-slate-50 dark:bg-slate-950 flex items-center justify-center transition-colors">
-        <Card className="max-w-md">
-          <CardContent className="pt-6 text-center">
-            <CircleAlert className="size-12 text-slate-300 dark:text-slate-500 mx-auto mb-4" />
-            <p className="text-slate-600 dark:text-slate-400">{error || "Vorgang nicht gefunden"}</p>
-            <Button className="mt-4" onClick={() => navigate("/")}>
-              Zurück zur Übersicht
-            </Button>
-          </CardContent>
-        </Card>
-      </div>
+      <AppLayout>
+        <div className="flex items-center justify-center py-24">
+          <Card className="max-w-md">
+            <CardContent className="pt-6 text-center">
+              <CircleAlert className="size-12 text-slate-300 dark:text-slate-500 mx-auto mb-4" />
+              <p className="text-slate-600 dark:text-slate-400">{error || "Vorgang nicht gefunden"}</p>
+              <Button className="mt-4" onClick={() => navigate("/")}>
+                Zurück zur Übersicht
+              </Button>
+            </CardContent>
+          </Card>
+        </div>
+      </AppLayout>
     );
   }
 
@@ -146,49 +155,19 @@ export function CaseDetailPage() {
   const openFindings = caseData.findings.filter(f => f.status === "open");
 
   return (
-    <div className="min-h-screen bg-slate-50 dark:bg-slate-950 transition-colors">
-      {/* Header */}
-      <header className="bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 transition-colors">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <h1 className="text-2xl font-semibold text-slate-900 dark:text-slate-100">Datenschutz-Agent</h1>
-              <p className="text-sm text-slate-600 dark:text-slate-400 mt-1">Universität • Forschungsvorhaben</p>
-            </div>
-            <nav className="flex items-center gap-6">
-              <Link to="/" className="text-sm font-medium text-blue-600 dark:text-blue-400">
-                Vorgänge
-              </Link>
-              <Link to="/vvt-overview" className="text-sm font-medium text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100">
-                VVT-Übersicht
-              </Link>
-              <Link to="/playbooks" className="text-sm font-medium text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100">
-                Playbooks
-              </Link>
-              <Link to="/legal-bases" className="text-sm font-medium text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100">
-                Rechtsgrundlagen
-              </Link>
-              <Link to="/profile" className="text-sm font-medium text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100">
-                Mein Profil
-              </Link>
-              {isAdmin(auth?.user ?? null) && (
-                <Link to="/admin" className="text-sm font-medium text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100">
-                  Verwaltung
-                </Link>
-              )}
-              <AppHeaderUser />
-            </nav>
-          </div>
-        </div>
-      </header>
-
-      {/* Main Content */}
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        {/* Back Button */}
-        <Button variant="ghost" className="mb-4 gap-2" onClick={() => navigate("/")}>
-          <ArrowLeft className="size-4" />
-          Zurück zur Übersicht
-        </Button>
+    <AppLayout>
+      {/* Breadcrumb Navigation */}
+      <nav aria-label="Breadcrumb" className="mb-4">
+        <ol className="flex items-center gap-1.5 text-sm text-slate-600 dark:text-slate-400">
+          <li>
+            <Link to="/" className="hover:text-slate-900 dark:hover:text-slate-100">Vorgänge</Link>
+          </li>
+          <li><ChevronRight className="size-3.5" /></li>
+          <li className="text-slate-900 dark:text-slate-100 font-medium truncate max-w-[300px]">
+            {caseData.title}
+          </li>
+        </ol>
+      </nav>
 
         {/* Viewer hint */}
         {auth?.user && auth.user.role === "viewer" && (
@@ -347,7 +326,6 @@ export function CaseDetailPage() {
             <AnnotatedDocumentsView caseId={caseData.id} />
           </TabsContent>
         </Tabs>
-      </main>
 
       {/* Finding Detail Dialog */}
       <Dialog open={!!selectedFinding} onOpenChange={() => setSelectedFinding(null)}>
@@ -418,6 +396,6 @@ export function CaseDetailPage() {
           )}
         </DialogContent>
       </Dialog>
-    </div>
+    </AppLayout>
   );
 }

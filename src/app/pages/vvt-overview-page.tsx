@@ -17,7 +17,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "../components/ui/select";
-import { AppHeaderUser } from "../components/app-header-user";
+import { AppLayout } from "../components/app-layout";
 import { statusLabels, statusColors } from "../lib/mock-data";
 import type { CaseStatus } from "../lib/mock-data";
 import {
@@ -30,7 +30,6 @@ import {
   type ApiVVTOverviewStats,
   type ApiDepartment,
 } from "../lib/api";
-import { useAuthOptional } from "../contexts/AuthContext";
 import { Download, FileText, Loader2, BarChart3 } from "lucide-react";
 import { useState, useEffect } from "react";
 
@@ -42,7 +41,6 @@ const HAS_VVT_OPTIONS = [
 ];
 
 export function VvtOverviewPage() {
-  const auth = useAuthOptional();
   const [items, setItems] = useState<ApiVVTOverviewItem[]>([]);
   const [stats, setStats] = useState<ApiVVTOverviewStats | null>(null);
   const [departments, setDepartments] = useState<ApiDepartment[]>([]);
@@ -137,56 +135,7 @@ export function VvtOverviewPage() {
     statusColors[s as CaseStatus] ?? "bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300";
 
   return (
-    <div className="min-h-screen bg-slate-50 dark:bg-slate-950 transition-colors">
-      <header className="bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 transition-colors">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <h1 className="text-2xl font-semibold text-slate-900 dark:text-slate-100">
-                Datenschutz-Agent
-              </h1>
-              <p className="text-sm text-slate-600 dark:text-slate-400 mt-1">
-                Universität • Forschungsvorhaben
-              </p>
-            </div>
-            <nav className="flex items-center gap-6">
-              <Link
-                to="/"
-                className="text-sm font-medium text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100"
-              >
-                Vorgänge
-              </Link>
-              <Link
-                to="/vvt-overview"
-                className="text-sm font-medium text-blue-600 dark:text-blue-400"
-              >
-                VVT-Übersicht
-              </Link>
-              <Link
-                to="/playbooks"
-                className="text-sm font-medium text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100"
-              >
-                Playbooks
-              </Link>
-              <Link
-                to="/legal-bases"
-                className="text-sm font-medium text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100"
-              >
-                Rechtsgrundlagen
-              </Link>
-              <Link
-                to="/profile"
-                className="text-sm font-medium text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100"
-              >
-                Mein Profil
-              </Link>
-              <AppHeaderUser />
-            </nav>
-          </div>
-        </div>
-      </header>
-
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+    <AppLayout>
         <div className="flex items-center justify-between mb-6">
           <div>
             <h2 className="text-xl font-semibold text-slate-900 dark:text-slate-100">
@@ -436,7 +385,7 @@ export function VvtOverviewPage() {
                       </TableRow>
                     ) : (
                       items.map((row) => (
-                        <TableRow key={row.case_id}>
+                        <TableRow key={row.case_id} className="hover:bg-muted/50">
                           <TableCell>
                             <Link
                               to={`/cases/${row.case_id}`}
@@ -480,7 +429,6 @@ export function VvtOverviewPage() {
             )}
           </CardContent>
         </Card>
-      </main>
-    </div>
+    </AppLayout>
   );
 }

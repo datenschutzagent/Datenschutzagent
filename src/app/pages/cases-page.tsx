@@ -3,12 +3,13 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../co
 import { Badge } from "../components/ui/badge";
 import { Button } from "../components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "../components/ui/tabs";
-import { AppHeaderUser } from "../components/app-header-user";
+import { Skeleton } from "../components/ui/skeleton";
+import { AppLayout } from "../components/app-layout";
 import { DashboardStats } from "../components/dashboard-stats";
 import { NewCaseDialog } from "../components/new-case-dialog";
 import { CasesSearchFilter, CasesFilters } from "../components/cases-search-filter";
 import { statusLabels, statusColors, priorityColors, priorityLabels } from "../lib/mock-data";
-import { getCases, canEdit, isAdmin, type ApiCase } from "../lib/api";
+import { getCases, canEdit, type ApiCase } from "../lib/api";
 import { useAuthOptional } from "../contexts/AuthContext";
 import { Plus, FileText, CircleAlert, CheckCircle2, Clock, LayoutDashboard, Calendar, AlertTriangle } from "lucide-react";
 import { useState, useMemo, useEffect } from "react";
@@ -83,7 +84,7 @@ export function CasesPage() {
   // Check if deadline is overdue or soon
   const getDeadlineStatus = (deadline?: string) => {
     if (!deadline) return null;
-    const today = new Date("2026-02-06"); // Using current mock date
+    const today = new Date();
     const deadlineDate = new Date(deadline);
     const daysUntil = Math.ceil((deadlineDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
     
@@ -98,226 +99,210 @@ export function CasesPage() {
   };
 
   return (
-    <div className="min-h-screen bg-slate-50 dark:bg-slate-950 transition-colors">
-      {/* Header */}
-      <header className="bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 transition-colors">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <h1 className="text-2xl font-semibold text-slate-900 dark:text-slate-100">Datenschutz-Agent</h1>
-              <p className="text-sm text-slate-600 dark:text-slate-400 mt-1">Universität • Forschungsvorhaben</p>
+    <AppLayout>
+      {/* Page Header */}
+      <div className="flex items-center justify-between mb-6">
+        <div>
+          <h2 className="text-xl font-semibold text-slate-900 dark:text-slate-100">Vorgänge</h2>
+          <p className="text-sm text-slate-600 dark:text-slate-400 mt-1">
+            {filteredCases.length} {filteredCases.length === 1 ? "Vorgang" : "Vorgänge"}
+          </p>
+        </div>
+        {canEdit(auth?.user ?? null) && (
+          <Button className="gap-2" onClick={() => setIsNewCaseDialogOpen(true)}>
+            <Plus className="size-4" />
+            Neuer Vorgang
+          </Button>
+        )}
+      </div>
+
+      {/* Tabs for Dashboard vs List View */}
+      <Tabs defaultValue="list" className="space-y-6">
+        <TabsList>
+          <TabsTrigger value="list" className="gap-2">
+            <FileText className="size-4" />
+            Vorgänge
+          </TabsTrigger>
+          <TabsTrigger value="dashboard" className="gap-2">
+            <LayoutDashboard className="size-4" />
+            Dashboard
+          </TabsTrigger>
+        </TabsList>
+
+        {/* List View */}
+        <TabsContent value="list" className="space-y-6">
+          {/* Filters */}
+          <Card>
+            <CardContent className="pt-6">
+              <CasesSearchFilter
+                filters={filters}
+                onFiltersChange={setFilters}
+                availableDepartments={availableDepartments}
+                availableTags={availableTags}
+              />
+            </CardContent>
+          </Card>
+
+          {/* Loading State */}
+          {loading && (
+            <div className="space-y-4">
+              {[1, 2, 3].map((i) => (
+                <Card key={i}>
+                  <CardHeader>
+                    <div className="flex items-center gap-3 mb-2">
+                      <Skeleton className="h-6 w-64" />
+                      <Skeleton className="h-5 w-20" />
+                    </div>
+                    <Skeleton className="h-4 w-48" />
+                  </CardHeader>
+                  <CardContent>
+                    <div className="flex items-center gap-6">
+                      <Skeleton className="h-4 w-28" />
+                      <Skeleton className="h-4 w-24" />
+                    </div>
+                  </CardContent>
+                </Card>
+              ))}
             </div>
-            <nav className="flex items-center gap-6">
-              <Link to="/" className="text-sm font-medium text-blue-600 dark:text-blue-400">
-                Vorgänge
-              </Link>
-              <Link to="/vvt-overview" className="text-sm font-medium text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100">
-                VVT-Übersicht
-              </Link>
-              <Link to="/playbooks" className="text-sm font-medium text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100">
-                Playbooks
-              </Link>
-              <Link to="/legal-bases" className="text-sm font-medium text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100">
-                Rechtsgrundlagen
-              </Link>
-              <Link to="/profile" className="text-sm font-medium text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100">
-                Mein Profil
-              </Link>
-              {isAdmin(auth?.user ?? null) && (
-                <Link to="/admin" className="text-sm font-medium text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100">
-                  Verwaltung
-                </Link>
-              )}
-              <AppHeaderUser />
-            </nav>
-          </div>
-        </div>
-      </header>
-
-      {/* Main Content */}
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        {/* Page Header */}
-        <div className="flex items-center justify-between mb-6">
-          <div>
-            <h2 className="text-xl font-semibold text-slate-900 dark:text-slate-100">Vorgänge</h2>
-            <p className="text-sm text-slate-600 dark:text-slate-400 mt-1">
-              {filteredCases.length} {filteredCases.length === 1 ? "Vorgang" : "Vorgänge"}
-            </p>
-          </div>
-          {canEdit(auth?.user ?? null) && (
-            <Button className="gap-2" onClick={() => setIsNewCaseDialogOpen(true)}>
-              <Plus className="size-4" />
-              Neuer Vorgang
-            </Button>
           )}
-        </div>
 
-        {/* Tabs for Dashboard vs List View */}
-        <Tabs defaultValue="list" className="space-y-6">
-          <TabsList>
-            <TabsTrigger value="list" className="gap-2">
-              <FileText className="size-4" />
-              Vorgänge
-            </TabsTrigger>
-            <TabsTrigger value="dashboard" className="gap-2">
-              <LayoutDashboard className="size-4" />
-              Dashboard
-            </TabsTrigger>
-          </TabsList>
-
-          {/* List View */}
-          <TabsContent value="list" className="space-y-6">
-            {/* Filters */}
+          {/* Error State */}
+          {!loading && error && (
             <Card>
-              <CardContent className="pt-6">
-                <CasesSearchFilter
-                  filters={filters}
-                  onFiltersChange={setFilters}
-                  availableDepartments={availableDepartments}
-                  availableTags={availableTags}
-                />
+              <CardContent className="py-12 text-center">
+                <CircleAlert className="size-12 text-red-500 dark:text-red-400 mx-auto mb-4" />
+                <p className="text-slate-600 dark:text-slate-400">{error}</p>
+                <Button className="mt-4" variant="outline" onClick={loadCases}>Erneut versuchen</Button>
               </CardContent>
             </Card>
+          )}
 
-            {/* Cases List */}
+          {/* Cases List */}
+          {!loading && !error && (
             <div className="space-y-4">
               {filteredCases.map((caseItem) => {
                 const stats = getStatsForCase(caseItem);
                 const deadlineStatus = getDeadlineStatus(caseItem.deadline);
                 return (
-                  <Card
+                  <Link
                     key={caseItem.id}
-                    className="hover:shadow-md transition-shadow cursor-pointer"
-                    onClick={() => navigate(`/cases/${caseItem.id}`)}
+                    to={`/cases/${caseItem.id}`}
+                    className="block"
                   >
-                    <CardHeader>
-                      <div className="flex items-start justify-between">
-                        <div className="flex-1">
-                          <div className="flex items-center gap-3 mb-2 flex-wrap">
-                            <CardTitle className="text-lg">{caseItem.title}</CardTitle>
-                            <Badge className={statusColors[caseItem.status]}>
-                              {statusLabels[caseItem.status]}
-                            </Badge>
-                            {(caseItem as { priority?: string }).priority && (
-                              <Badge className={priorityColors[(caseItem as { priority: string }).priority]}>
-                                {priorityLabels[(caseItem as { priority: string }).priority]}
+                    <Card className="hover:shadow-md transition-shadow">
+                      <CardHeader>
+                        <div className="flex items-start justify-between">
+                          <div className="flex-1">
+                            <div className="flex items-center gap-3 mb-2 flex-wrap">
+                              <CardTitle className="text-lg">{caseItem.title}</CardTitle>
+                              <Badge className={statusColors[caseItem.status]}>
+                                {statusLabels[caseItem.status]}
                               </Badge>
+                              {(caseItem as { priority?: string }).priority && (
+                                <Badge className={priorityColors[(caseItem as { priority: string }).priority]}>
+                                  {priorityLabels[(caseItem as { priority: string }).priority]}
+                                </Badge>
+                              )}
+                            </div>
+                            <CardDescription className="flex items-center gap-4 text-sm">
+                              <span>{caseItem.department}</span>
+                              <span>&bull;</span>
+                              <span>{caseItem.caseType}</span>
+                              <span>&bull;</span>
+                              <span>Erstellt: {new Date(caseItem.createdAt).toLocaleDateString("de-DE")}</span>
+                            </CardDescription>
+                            {(caseItem as { tags?: string[] }).tags?.length ? (
+                              <div className="flex flex-wrap gap-2 mt-2">
+                                {(caseItem as { tags: string[] }).tags.map((tag) => (
+                                  <Badge key={tag} variant="outline" className="text-xs">
+                                    {tag}
+                                  </Badge>
+                                ))}
+                              </div>
+                            ) : null}
+                          </div>
+                        </div>
+                      </CardHeader>
+                      <CardContent>
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-6 text-sm">
+                            <div className="flex items-center gap-2">
+                              <FileText className="size-4 text-slate-400 dark:text-slate-500" />
+                              <span className="text-slate-600 dark:text-slate-400">{caseItem.documents.length} Dokumente</span>
+                            </div>
+                            {stats.critical > 0 && (
+                              <div className="flex items-center gap-2">
+                                <CircleAlert className="size-4 text-red-600 dark:text-red-400" />
+                                <span className="text-red-600 dark:text-red-400 font-medium">{stats.critical} kritisch</span>
+                              </div>
+                            )}
+                            {stats.high > 0 && (
+                              <div className="flex items-center gap-2">
+                                <CircleAlert className="size-4 text-orange-600 dark:text-orange-400" />
+                                <span className="text-orange-600 dark:text-orange-400 font-medium">{stats.high} hoch</span>
+                              </div>
+                            )}
+                            {stats.fixed > 0 && (
+                              <div className="flex items-center gap-2">
+                                <CheckCircle2 className="size-4 text-green-600 dark:text-green-400" />
+                                <span className="text-green-600 dark:text-green-400">{stats.fixed} behoben</span>
+                              </div>
                             )}
                           </div>
-                          <CardDescription className="flex items-center gap-4 text-sm">
-                            <span>{caseItem.department}</span>
-                            <span>•</span>
-                            <span>{caseItem.caseType}</span>
-                            <span>•</span>
-                            <span>Erstellt: {new Date(caseItem.createdAt).toLocaleDateString("de-DE")}</span>
-                          </CardDescription>
-                          {(caseItem as { tags?: string[] }).tags?.length ? (
-                            <div className="flex flex-wrap gap-2 mt-2">
-                              {(caseItem as { tags: string[] }).tags.map((tag) => (
-                                <Badge key={tag} variant="outline" className="text-xs">
-                                  {tag}
+                          <div className="flex items-center gap-3 text-sm text-slate-600 dark:text-slate-400">
+                            <Clock className="size-4" />
+                            <span>Playbook: {caseItem.playbookVersion || "—"}</span>
+                          </div>
+                        </div>
+                        {(caseItem as { deadline?: string }).deadline && (
+                          <div className="mt-4">
+                            <div className="flex items-center gap-2">
+                              <Calendar className="size-4 text-slate-400 dark:text-slate-500" />
+                              <span className="text-slate-600 dark:text-slate-400">Fällig: {formatDeadline((caseItem as { deadline: string }).deadline)}</span>
+                            </div>
+                            {deadlineStatus === "overdue" && (
+                              <div className="mt-2">
+                                <Badge className="bg-red-600 dark:bg-red-700 text-white">
+                                  <AlertTriangle className="size-4 mr-1" />
+                                  Überfällig
                                 </Badge>
-                              ))}
-                            </div>
-                          ) : null}
-                        </div>
-                      </div>
-                    </CardHeader>
-                    <CardContent>
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-6 text-sm">
-                          <div className="flex items-center gap-2">
-                            <FileText className="size-4 text-slate-400 dark:text-slate-500" />
-                            <span className="text-slate-600 dark:text-slate-400">{caseItem.documents.length} Dokumente</span>
+                              </div>
+                            )}
+                            {deadlineStatus === "soon" && (
+                              <div className="mt-2">
+                                <Badge className="bg-orange-600 dark:bg-orange-700 text-white">
+                                  <AlertTriangle className="size-4 mr-1" />
+                                  Bald fällig
+                                </Badge>
+                              </div>
+                            )}
                           </div>
-                          {stats.critical > 0 && (
-                            <div className="flex items-center gap-2">
-                              <CircleAlert className="size-4 text-red-600 dark:text-red-400" />
-                              <span className="text-red-600 dark:text-red-400 font-medium">{stats.critical} kritisch</span>
-                            </div>
-                          )}
-                          {stats.high > 0 && (
-                            <div className="flex items-center gap-2">
-                              <CircleAlert className="size-4 text-orange-600 dark:text-orange-400" />
-                              <span className="text-orange-600 dark:text-orange-400 font-medium">{stats.high} hoch</span>
-                            </div>
-                          )}
-                          {stats.fixed > 0 && (
-                            <div className="flex items-center gap-2">
-                              <CheckCircle2 className="size-4 text-green-600 dark:text-green-400" />
-                              <span className="text-green-600 dark:text-green-400">{stats.fixed} behoben</span>
-                            </div>
-                          )}
-                        </div>
-                        <div className="flex items-center gap-3 text-sm text-slate-600 dark:text-slate-400">
-                          <Clock className="size-4" />
-                          <span>Playbook: {caseItem.playbookVersion || "—"}</span>
-                        </div>
-                      </div>
-                      {(caseItem as { deadline?: string }).deadline && (
-                        <div className="mt-4">
-                          <div className="flex items-center gap-2">
-                            <Calendar className="size-4 text-slate-400 dark:text-slate-500" />
-                            <span className="text-slate-600 dark:text-slate-400">Fällig: {formatDeadline((caseItem as { deadline: string }).deadline)}</span>
-                          </div>
-                          {deadlineStatus === "overdue" && (
-                            <div className="mt-2">
-                              <Badge className="bg-red-600 dark:bg-red-700 text-white">
-                                <AlertTriangle className="size-4 mr-1" />
-                                Überfällig
-                              </Badge>
-                            </div>
-                          )}
-                          {deadlineStatus === "soon" && (
-                            <div className="mt-2">
-                              <Badge className="bg-orange-600 dark:bg-orange-700 text-white">
-                                <AlertTriangle className="size-4 mr-1" />
-                                Bald fällig
-                              </Badge>
-                            </div>
-                          )}
-                        </div>
-                      )}
-                    </CardContent>
-                  </Card>
+                        )}
+                      </CardContent>
+                    </Card>
+                  </Link>
                 );
               })}
+
+              {filteredCases.length === 0 && (
+                <Card>
+                  <CardContent className="py-12 text-center">
+                    <FileText className="size-12 text-slate-300 dark:text-slate-500 mx-auto mb-4" />
+                    <p className="text-slate-600 dark:text-slate-400">Keine Vorgänge gefunden</p>
+                    <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">
+                      Versuchen Sie, Ihre Suchkriterien anzupassen
+                    </p>
+                  </CardContent>
+                </Card>
+              )}
             </div>
+          )}
+        </TabsContent>
 
-            {loading && (
-              <Card>
-                <CardContent className="py-12 text-center">
-                  <p className="text-slate-600 dark:text-slate-400">Vorgänge werden geladen…</p>
-                </CardContent>
-              </Card>
-            )}
-            {error && (
-              <Card>
-                <CardContent className="py-12 text-center">
-                  <CircleAlert className="size-12 text-red-500 dark:text-red-400 mx-auto mb-4" />
-                  <p className="text-slate-600 dark:text-slate-400">{error}</p>
-                  <Button className="mt-4" variant="outline" onClick={loadCases}>Erneut versuchen</Button>
-                </CardContent>
-              </Card>
-            )}
-            {!loading && !error && filteredCases.length === 0 && (
-              <Card>
-                <CardContent className="py-12 text-center">
-                  <FileText className="size-12 text-slate-300 dark:text-slate-500 mx-auto mb-4" />
-                  <p className="text-slate-600 dark:text-slate-400">Keine Vorgänge gefunden</p>
-                  <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">
-                    Versuchen Sie, Ihre Suchkriterien anzupassen
-                  </p>
-                </CardContent>
-              </Card>
-            )}
-          </TabsContent>
-
-          <TabsContent value="dashboard">
-            <DashboardStats cases={cases} />
-          </TabsContent>
-        </Tabs>
-      </main>
+        <TabsContent value="dashboard">
+          <DashboardStats cases={cases} />
+        </TabsContent>
+      </Tabs>
 
       <NewCaseDialog
         open={isNewCaseDialogOpen}
@@ -328,6 +313,6 @@ export function CasesPage() {
           navigate(`/cases/${newCase.id}`);
         }}
       />
-    </div>
+    </AppLayout>
   );
 }

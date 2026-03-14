@@ -1,12 +1,12 @@
 import { Link, useNavigate } from "react-router";
-import { AppHeaderUser } from "../components/app-header-user";
+import { AppLayout } from "../components/app-layout";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../components/ui/card";
 import { Badge } from "../components/ui/badge";
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../components/ui/select";
 import { NewPlaybookDialog } from "../components/new-playbook-dialog";
-import { getPlaybooks, canEdit, isAdmin, type ApiPlaybook } from "../lib/api";
+import { getPlaybooks, canEdit, type ApiPlaybook } from "../lib/api";
 import { useAuthOptional } from "../contexts/AuthContext";
 import { Plus, Search, Filter, BookOpen, CheckSquare, Archive } from "lucide-react";
 import { useState, useEffect } from "react";
@@ -38,44 +38,7 @@ export function PlaybooksPage() {
   });
 
   return (
-    <div className="min-h-screen bg-slate-50 dark:bg-slate-950 transition-colors">
-      {/* Header */}
-      <header className="bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 transition-colors">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <h1 className="text-2xl font-semibold text-slate-900 dark:text-slate-100">Datenschutz-Agent</h1>
-              <p className="text-sm text-slate-600 dark:text-slate-400 mt-1">Universität • Forschungsvorhaben</p>
-            </div>
-            <nav className="flex items-center gap-6">
-              <Link to="/" className="text-sm font-medium text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100">
-                Vorgänge
-              </Link>
-              <Link to="/vvt-overview" className="text-sm font-medium text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100">
-                VVT-Übersicht
-              </Link>
-              <Link to="/playbooks" className="text-sm font-medium text-blue-600 dark:text-blue-400">
-                Playbooks
-              </Link>
-              <Link to="/legal-bases" className="text-sm font-medium text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100">
-                Rechtsgrundlagen
-              </Link>
-              <Link to="/profile" className="text-sm font-medium text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100">
-                Mein Profil
-              </Link>
-              {isAdmin(auth?.user ?? null) && (
-                <Link to="/admin" className="text-sm font-medium text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100">
-                  Verwaltung
-                </Link>
-              )}
-              <AppHeaderUser />
-            </nav>
-          </div>
-        </div>
-      </header>
-
-      {/* Main Content */}
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+    <AppLayout>
         {/* Page Header */}
         <div className="flex items-center justify-between mb-6">
           <div>
@@ -123,11 +86,8 @@ export function PlaybooksPage() {
         {/* Playbooks Grid */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           {filteredPlaybooks.map((playbook) => (
-            <Card
-              key={playbook.id}
-              className="hover:shadow-md transition-shadow cursor-pointer"
-              onClick={() => navigate(`/playbooks/${playbook.id}`)}
-            >
+            <Link key={playbook.id} to={`/playbooks/${playbook.id}`} className="block">
+            <Card className="hover:shadow-md transition-shadow h-full">
               <CardHeader>
                 <div className="flex items-start justify-between mb-2">
                   <BookOpen className="size-8 text-blue-600 dark:text-blue-400" />
@@ -164,6 +124,7 @@ export function PlaybooksPage() {
                 </div>
               </CardContent>
             </Card>
+            </Link>
           ))}
         </div>
 
@@ -185,7 +146,6 @@ export function PlaybooksPage() {
             </CardContent>
           </Card>
         )}
-      </main>
       <NewPlaybookDialog
         open={newPlaybookOpen}
         onOpenChange={setNewPlaybookOpen}
@@ -194,6 +154,6 @@ export function PlaybooksPage() {
           navigate(`/playbooks/${pb.id}`);
         }}
       />
-    </div>
+    </AppLayout>
   );
 }
