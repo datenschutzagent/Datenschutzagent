@@ -592,6 +592,14 @@ export const severityColors: Record<FindingSeverity, string> = {
   info: "bg-slate-100 text-slate-700 border-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:border-slate-700",
 };
 
+export const severityLabels: Record<FindingSeverity, string> = {
+  critical: "Kritisch",
+  high: "Hoch",
+  medium: "Mittel",
+  low: "Niedrig",
+  info: "Info",
+};
+
 export const findingStatusLabels: Record<FindingStatus, string> = {
   open: "Offen",
   accepted: "Akzeptiert",

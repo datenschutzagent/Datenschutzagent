@@ -62,10 +62,10 @@ export function ProfilePage() {
 
   return (
     <AppLayout maxWidth="max-w-2xl">
-      <h2 className="text-xl font-semibold text-slate-900 dark:text-slate-100 mb-6">Mein Profil</h2>
+      <h2 className="text-xl font-semibold text-foreground mb-6">Mein Profil</h2>
 
       {loading && !user && (
-        <p className="text-slate-600 dark:text-slate-400">Profil wird geladen…</p>
+        <p className="text-muted-foreground">Profil wird geladen…</p>
       )}
       {error && (
         <p className="text-red-600 dark:text-red-400 mb-4">{error}</p>

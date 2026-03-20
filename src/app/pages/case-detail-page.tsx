@@ -5,7 +5,7 @@ import { Button } from "../components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "../components/ui/tabs";
 import { Alert, AlertDescription } from "../components/ui/alert";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "../components/ui/dialog";
-import { statusLabels, statusColors, findingStatusLabels, severityColors } from "../lib/mock-data";
+import { statusLabels, statusColors, findingStatusLabels, severityColors, severityLabels } from "../lib/mock-data";
 import { getCase, getPlaybooks, runChecks, getRunChecksStatus, updateFindingStatus, getDSBReportBlob, downloadBlob, canEdit, type ApiCase, type ApiFinding, type ApiPlaybook, type RunChecksStrategy } from "../lib/api";
 import { useAuthOptional } from "../contexts/AuthContext";
 import { VVTNormalizationView } from "../components/vvt-normalization-view";
@@ -333,9 +333,11 @@ export function CaseDetailPage() {
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               {selectedFinding?.checkName}
-              <Badge className={selectedFinding ? severityColors[selectedFinding.severity] : ""}>
-                {selectedFinding?.severity}
-              </Badge>
+              {selectedFinding && (
+                <Badge className={severityColors[selectedFinding.severity]}>
+                  {severityLabels[selectedFinding.severity]}
+                </Badge>
+              )}
             </DialogTitle>
             <DialogDescription>
               {selectedFinding?.category}

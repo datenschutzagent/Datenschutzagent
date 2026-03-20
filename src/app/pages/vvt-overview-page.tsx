@@ -138,10 +138,10 @@ export function VvtOverviewPage() {
     <AppLayout>
         <div className="flex items-center justify-between mb-6">
           <div>
-            <h2 className="text-xl font-semibold text-slate-900 dark:text-slate-100">
+            <h2 className="text-xl font-semibold text-foreground">
               VVT-Übersicht (Universitätsebene)
             </h2>
-            <p className="text-sm text-slate-600 dark:text-slate-400 mt-1">
+            <p className="text-sm text-muted-foreground mt-1">
               Tabellarische Übersicht aller Vorgänge mit VVT-Status und Vollständigkeit
             </p>
           </div>
@@ -170,31 +170,31 @@ export function VvtOverviewPage() {
           </CardHeader>
           <CardContent>
             {statsLoading ? (
-              <div className="flex items-center gap-2 text-slate-500">
+              <div className="flex items-center gap-2 text-muted-foreground">
                 <Loader2 className="size-4 animate-spin" />
                 Lade Statistik…
               </div>
             ) : stats ? (
               <div className="space-y-6">
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-                  <div className="rounded-lg border bg-slate-50 dark:bg-slate-900/50 p-4">
-                    <p className="text-xs text-slate-500 dark:text-slate-400">Vorgänge gesamt</p>
+                  <div className="rounded-lg border bg-muted/50 p-4">
+                    <p className="text-xs text-muted-foreground">Vorgänge gesamt</p>
                     <p className="text-2xl font-semibold">{stats.total_cases}</p>
                   </div>
-                  <div className="rounded-lg border bg-slate-50 dark:bg-slate-900/50 p-4">
-                    <p className="text-xs text-slate-500 dark:text-slate-400">Mit VVT-Dokument</p>
+                  <div className="rounded-lg border bg-muted/50 p-4">
+                    <p className="text-xs text-muted-foreground">Mit VVT-Dokument</p>
                     <p className="text-2xl font-semibold text-green-600 dark:text-green-400">
                       {stats.with_vvt}
                     </p>
                   </div>
-                  <div className="rounded-lg border bg-slate-50 dark:bg-slate-900/50 p-4">
-                    <p className="text-xs text-slate-500 dark:text-slate-400">Ohne VVT-Dokument</p>
+                  <div className="rounded-lg border bg-muted/50 p-4">
+                    <p className="text-xs text-muted-foreground">Ohne VVT-Dokument</p>
                     <p className="text-2xl font-semibold text-amber-600 dark:text-amber-400">
                       {stats.without_vvt}
                     </p>
                   </div>
-                  <div className="rounded-lg border bg-slate-50 dark:bg-slate-900/50 p-4">
-                    <p className="text-xs text-slate-500 dark:text-slate-400">Ø VVT-Vollständigkeit</p>
+                  <div className="rounded-lg border bg-muted/50 p-4">
+                    <p className="text-xs text-muted-foreground">Ø VVT-Vollständigkeit</p>
                     <p className="text-2xl font-semibold">
                       {stats.avg_completeness != null ? `${stats.avg_completeness} %` : "–"}
                     </p>
@@ -264,7 +264,7 @@ export function VvtOverviewPage() {
                 )}
               </div>
             ) : (
-              <p className="text-sm text-slate-500">Statistik nicht verfügbar.</p>
+              <p className="text-sm text-muted-foreground">Statistik nicht verfügbar.</p>
             )}
           </CardContent>
         </Card>
@@ -272,11 +272,11 @@ export function VvtOverviewPage() {
         {/* Filters */}
         <Card className="mb-6">
           <CardContent className="pt-6">
-            <div className="flex flex-wrap gap-4 items-end">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
               <div className="space-y-2">
                 <label className="text-sm font-medium">Fachbereich</label>
                 <Select value={department} onValueChange={setDepartment}>
-                  <SelectTrigger className="w-[220px]">
+                  <SelectTrigger className="w-full">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
@@ -292,7 +292,7 @@ export function VvtOverviewPage() {
               <div className="space-y-2">
                 <label className="text-sm font-medium">Vorgangstyp</label>
                 <Select value={caseType} onValueChange={setCaseType}>
-                  <SelectTrigger className="w-[200px]">
+                  <SelectTrigger className="w-full">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
@@ -308,7 +308,7 @@ export function VvtOverviewPage() {
               <div className="space-y-2">
                 <label className="text-sm font-medium">Status</label>
                 <Select value={status} onValueChange={setStatus}>
-                  <SelectTrigger className="w-[200px]">
+                  <SelectTrigger className="w-full">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
@@ -324,7 +324,7 @@ export function VvtOverviewPage() {
               <div className="space-y-2">
                 <label className="text-sm font-medium">VVT</label>
                 <Select value={hasVvt} onValueChange={setHasVvt}>
-                  <SelectTrigger className="w-[160px]">
+                  <SelectTrigger className="w-full">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
@@ -358,34 +358,70 @@ export function VvtOverviewPage() {
               </div>
             )}
             {loading ? (
-              <div className="flex items-center gap-2 text-slate-500 py-8">
+              <div className="flex items-center gap-2 text-muted-foreground py-8">
                 <Loader2 className="size-4 animate-spin" />
                 Lade Übersicht…
               </div>
+            ) : items.length === 0 ? (
+              <p className="text-center text-muted-foreground py-8">Keine Vorgänge gefunden.</p>
             ) : (
-              <div className="overflow-x-auto">
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Titel</TableHead>
-                      <TableHead>Fachbereich</TableHead>
-                      <TableHead>Vorgangstyp</TableHead>
-                      <TableHead>Status</TableHead>
-                      <TableHead>VVT vorhanden</TableHead>
-                      <TableHead className="text-right">VVT-Vollständigkeit</TableHead>
-                      <TableHead>Stand</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {items.length === 0 ? (
+              <>
+                {/* Mobile card view */}
+                <div className="md:hidden space-y-3">
+                  {items.map((row) => (
+                    <Link
+                      key={row.case_id}
+                      to={`/cases/${row.case_id}`}
+                      className="block"
+                    >
+                      <div className="rounded-lg border p-4 hover:bg-muted/50 transition-colors">
+                        <div className="flex items-start justify-between gap-2 mb-2">
+                          <span className="font-medium text-sm leading-snug">{row.title}</span>
+                          <Badge className={statusColor(row.status)} >
+                            {statusLabel(row.status)}
+                          </Badge>
+                        </div>
+                        <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
+                          <span>{row.department}</span>
+                          <span>{row.case_type}</span>
+                          <span>
+                            VVT:{" "}
+                            {row.has_vvt_document
+                              ? row.vvt_completeness != null
+                                ? `${row.vvt_completeness} %`
+                                : "Ja"
+                              : "Nein"}
+                          </span>
+                          <span>
+                            {new Date(row.updated_at).toLocaleDateString("de-DE", {
+                              day: "2-digit",
+                              month: "2-digit",
+                              year: "numeric",
+                            })}
+                          </span>
+                        </div>
+                      </div>
+                    </Link>
+                  ))}
+                </div>
+
+                {/* Desktop table view */}
+                <div className="hidden md:block overflow-x-auto">
+                  <Table>
+                    <TableHeader>
                       <TableRow>
-                        <TableCell colSpan={7} className="text-center text-slate-500 py-8">
-                          Keine Vorgänge gefunden.
-                        </TableCell>
+                        <TableHead>Titel</TableHead>
+                        <TableHead>Fachbereich</TableHead>
+                        <TableHead>Vorgangstyp</TableHead>
+                        <TableHead>Status</TableHead>
+                        <TableHead>VVT vorhanden</TableHead>
+                        <TableHead className="text-right">VVT-Vollständigkeit</TableHead>
+                        <TableHead>Stand</TableHead>
                       </TableRow>
-                    ) : (
-                      items.map((row) => (
-                        <TableRow key={row.case_id} className="hover:bg-muted/50">
+                    </TableHeader>
+                    <TableBody>
+                      {items.map((row) => (
+                        <TableRow key={row.case_id} className="hover:bg-muted/50 cursor-pointer transition-colors">
                           <TableCell>
                             <Link
                               to={`/cases/${row.case_id}`}
@@ -413,7 +449,7 @@ export function VvtOverviewPage() {
                           <TableCell className="text-right">
                             {row.vvt_completeness != null ? `${row.vvt_completeness} %` : "–"}
                           </TableCell>
-                          <TableCell className="text-slate-500 text-sm">
+                          <TableCell className="text-muted-foreground text-sm">
                             {new Date(row.updated_at).toLocaleDateString("de-DE", {
                               day: "2-digit",
                               month: "2-digit",
@@ -421,11 +457,11 @@ export function VvtOverviewPage() {
                             })}
                           </TableCell>
                         </TableRow>
-                      ))
-                    )}
-                  </TableBody>
-                </Table>
-              </div>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+              </>
             )}
           </CardContent>
         </Card>
