@@ -103,8 +103,8 @@ export function CasesPage() {
       {/* Page Header */}
       <div className="flex items-center justify-between mb-6">
         <div>
-          <h2 className="text-xl font-semibold text-slate-900 dark:text-slate-100">Vorgänge</h2>
-          <p className="text-sm text-slate-600 dark:text-slate-400 mt-1">
+          <h2 className="text-xl font-semibold text-foreground">Vorgänge</h2>
+          <p className="text-sm text-muted-foreground mt-1">
             {filteredCases.length} {filteredCases.length === 1 ? "Vorgang" : "Vorgänge"}
           </p>
         </div>
@@ -171,7 +171,7 @@ export function CasesPage() {
             <Card>
               <CardContent className="py-12 text-center">
                 <CircleAlert className="size-12 text-red-500 dark:text-red-400 mx-auto mb-4" />
-                <p className="text-slate-600 dark:text-slate-400">{error}</p>
+                <p className="text-muted-foreground">{error}</p>
                 <Button className="mt-4" variant="outline" onClick={loadCases}>Erneut versuchen</Button>
               </CardContent>
             </Card>
@@ -227,8 +227,8 @@ export function CasesPage() {
                         <div className="flex items-center justify-between">
                           <div className="flex items-center gap-6 text-sm">
                             <div className="flex items-center gap-2">
-                              <FileText className="size-4 text-slate-400 dark:text-slate-500" />
-                              <span className="text-slate-600 dark:text-slate-400">{caseItem.documents.length} Dokumente</span>
+                              <FileText className="size-4 text-muted-foreground/60" />
+                              <span className="text-muted-foreground">{caseItem.documents.length} Dokumente</span>
                             </div>
                             {stats.critical > 0 && (
                               <div className="flex items-center gap-2">
@@ -249,7 +249,7 @@ export function CasesPage() {
                               </div>
                             )}
                           </div>
-                          <div className="flex items-center gap-3 text-sm text-slate-600 dark:text-slate-400">
+                          <div className="flex items-center gap-3 text-sm text-muted-foreground">
                             <Clock className="size-4" />
                             <span>Playbook: {caseItem.playbookVersion || "—"}</span>
                           </div>
@@ -257,8 +257,8 @@ export function CasesPage() {
                         {(caseItem as { deadline?: string }).deadline && (
                           <div className="mt-4">
                             <div className="flex items-center gap-2">
-                              <Calendar className="size-4 text-slate-400 dark:text-slate-500" />
-                              <span className="text-slate-600 dark:text-slate-400">Fällig: {formatDeadline((caseItem as { deadline: string }).deadline)}</span>
+                              <Calendar className="size-4 text-muted-foreground/60" />
+                              <span className="text-muted-foreground">Fällig: {formatDeadline((caseItem as { deadline: string }).deadline)}</span>
                             </div>
                             {deadlineStatus === "overdue" && (
                               <div className="mt-2">
@@ -287,9 +287,9 @@ export function CasesPage() {
               {filteredCases.length === 0 && (
                 <Card>
                   <CardContent className="py-12 text-center">
-                    <FileText className="size-12 text-slate-300 dark:text-slate-500 mx-auto mb-4" />
-                    <p className="text-slate-600 dark:text-slate-400">Keine Vorgänge gefunden</p>
-                    <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">
+                    <FileText className="size-12 text-muted-foreground/30 mx-auto mb-4" />
+                    <p className="text-muted-foreground">Keine Vorgänge gefunden</p>
+                    <p className="text-sm text-muted-foreground mt-1">
                       Versuchen Sie, Ihre Suchkriterien anzupassen
                     </p>
                   </CardContent>

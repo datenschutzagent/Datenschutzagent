@@ -1,8 +1,19 @@
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../ui/card";
 import { Badge } from "../ui/badge";
-import { CircleAlert, CheckCircle2, Shield, XCircle } from "lucide-react";
-import { findingStatusLabels, severityColors } from "../../lib/mock-data";
+import { CircleAlert, CheckCircle2, Shield, XCircle, ShieldAlert, AlertTriangle, AlertCircle, Info } from "lucide-react";
+import { findingStatusLabels, severityColors, severityLabels } from "../../lib/mock-data";
+import type { FindingSeverity } from "../../lib/mock-data";
 import type { ApiCase, ApiFinding } from "../../lib/api";
+
+function SeverityIcon({ severity }: { severity: FindingSeverity }) {
+  switch (severity) {
+    case "critical": return <ShieldAlert className="size-3.5" />;
+    case "high": return <AlertTriangle className="size-3.5" />;
+    case "medium": return <AlertCircle className="size-3.5" />;
+    case "low": return <Info className="size-3.5" />;
+    case "info": return <Info className="size-3.5" />;
+  }
+}
 
 export interface CaseFindingsTabProps {
   caseData: ApiCase;
@@ -21,7 +32,7 @@ export function CaseFindingsTab({ caseData, onSelectFinding }: CaseFindingsTabPr
           {caseData.findings.map((finding) => (
             <div
               key={finding.id}
-              className="p-4 border border-border rounded-lg hover:bg-slate-50 dark:hover:bg-slate-800/50 cursor-pointer transition-colors"
+              className="p-4 border border-border rounded-lg hover:bg-muted/50 cursor-pointer transition-colors"
               onClick={() => onSelectFinding(finding)}
             >
               <div className="flex items-start gap-3">
@@ -31,9 +42,10 @@ export function CaseFindingsTab({ caseData, onSelectFinding }: CaseFindingsTabPr
                 {finding.status === "overruled" && <XCircle className="size-5 text-slate-600 dark:text-slate-400 mt-0.5" />}
                 <div className="flex-1">
                   <div className="flex items-center gap-2 mb-2">
-                    <h4 className="font-medium text-slate-900 dark:text-slate-100">{finding.checkName}</h4>
-                    <Badge className={severityColors[finding.severity]}>
-                      {finding.severity}
+                    <h4 className="font-medium text-foreground">{finding.checkName}</h4>
+                    <Badge className={`${severityColors[finding.severity]} flex items-center gap-1`}>
+                      <SeverityIcon severity={finding.severity} />
+                      {severityLabels[finding.severity]}
                     </Badge>
                     <Badge variant="outline">{findingStatusLabels[finding.status]}</Badge>
                     <Badge variant="outline" className="text-xs">
@@ -49,9 +61,9 @@ export function CaseFindingsTab({ caseData, onSelectFinding }: CaseFindingsTabPr
                       <Badge variant="outline" className="text-xs">Volltext</Badge>
                     )}
                   </div>
-                  <p className="text-sm text-slate-600 dark:text-slate-400 mb-2">{finding.description}</p>
+                  <p className="text-sm text-muted-foreground mb-2">{finding.description}</p>
                   <p className="text-sm text-blue-600 dark:text-blue-400 font-medium mb-1">{finding.recommendation}</p>
-                  <div className="text-xs text-slate-500 dark:text-slate-400">
+                  <div className="text-xs text-muted-foreground">
                     <strong>Evidenzen:</strong>
                     <ul className="mt-1 ml-4 list-disc">
                       {finding.evidence.map((ev, i) => (

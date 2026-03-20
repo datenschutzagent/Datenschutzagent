@@ -53,15 +53,15 @@ export function DashboardStats({ cases: casesProp }: DashboardStatsProps = {}) {
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">Aktive Vorgänge</CardTitle>
-            <FileText className="size-4 text-slate-600 dark:text-slate-400" />
+            <FileText className="size-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-semibold">{activeCases}</div>
-            <p className="text-xs text-slate-600 dark:text-slate-400 mt-1">
+            <p className="text-xs text-muted-foreground mt-1">
               von {totalCases} gesamt
             </p>
             <div className="flex items-center gap-1 mt-2">
-              <span className="text-xs text-slate-500 dark:text-slate-400">{completedCases} abgeschlossen</span>
+              <span className="text-xs text-muted-foreground">{completedCases} abgeschlossen</span>
             </div>
           </CardContent>
         </Card>
@@ -73,11 +73,11 @@ export function DashboardStats({ cases: casesProp }: DashboardStatsProps = {}) {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-semibold text-red-600 dark:text-red-400">{criticalFindings}</div>
-            <p className="text-xs text-slate-600 dark:text-slate-400 mt-1">
+            <p className="text-xs text-muted-foreground mt-1">
               von {totalFindings} gesamt
             </p>
             <div className="flex items-center gap-1 mt-2">
-              <span className="text-xs text-slate-500 dark:text-slate-400">{fixedFindings} behoben</span>
+              <span className="text-xs text-muted-foreground">{fixedFindings} behoben</span>
             </div>
           </CardContent>
         </Card>
@@ -89,11 +89,11 @@ export function DashboardStats({ cases: casesProp }: DashboardStatsProps = {}) {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-semibold">{readyForDecision}</div>
-            <p className="text-xs text-slate-600 dark:text-slate-400 mt-1">
+            <p className="text-xs text-muted-foreground mt-1">
               bereit für Freigabe
             </p>
             <div className="flex items-center gap-1 mt-2">
-              <span className="text-xs text-slate-500 dark:text-slate-400">bereit für Freigabe</span>
+              <span className="text-xs text-muted-foreground">bereit für Freigabe</span>
             </div>
           </CardContent>
         </Card>
@@ -105,11 +105,11 @@ export function DashboardStats({ cases: casesProp }: DashboardStatsProps = {}) {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-semibold">{activePlaybooks}</div>
-            <p className="text-xs text-slate-600 dark:text-slate-400 mt-1">
+            <p className="text-xs text-muted-foreground mt-1">
               {playbooks.length} gesamt
             </p>
             <div className="flex items-center gap-1 mt-2">
-              <span className="text-xs text-slate-600 dark:text-slate-400">Für {playbookDepartments} Fachbereiche</span>
+              <span className="text-xs text-muted-foreground">Für {playbookDepartments} Fachbereiche</span>
             </div>
           </CardContent>
         </Card>
@@ -136,8 +136,8 @@ export function DashboardStats({ cases: casesProp }: DashboardStatsProps = {}) {
                     <Badge className={item.color}>{item.label}</Badge>
                   </div>
                   <div className="flex items-center gap-3">
-                    <div className="w-32 bg-slate-100 dark:bg-slate-700 rounded-full h-2">
-                      <div 
+                    <div className="w-32 bg-muted rounded-full h-2">
+                      <div
                         className={`h-2 rounded-full ${item.bar ?? item.color.replace('text-', 'bg-').split(' ')[0]}`}
                         style={{ width: `${(item.count / totalCases) * 100}%` }}
                       />
@@ -168,8 +168,8 @@ export function DashboardStats({ cases: casesProp }: DashboardStatsProps = {}) {
                     <Badge className={item.color}>{item.label}</Badge>
                   </div>
                   <div className="flex items-center gap-3">
-                    <div className="w-32 bg-slate-100 dark:bg-slate-700 rounded-full h-2">
-                      <div 
+                    <div className="w-32 bg-muted rounded-full h-2">
+                      <div
                         className={`h-2 rounded-full ${item.bar ?? item.color.replace('text-', 'bg-').split(' ')[0]}`}
                         style={{ width: `${item.count > 0 ? (item.count / (criticalFindings + 10)) * 100 : 0}%` }}
                       />
@@ -196,18 +196,18 @@ export function DashboardStats({ cases: casesProp }: DashboardStatsProps = {}) {
                 <div className="size-2 rounded-full bg-blue-600 dark:bg-blue-500 mt-2" />
                 <div className="flex-1">
                   <div className="flex items-center gap-2 mb-1">
-                    <h4 className="font-medium text-slate-900 dark:text-slate-100">{caseItem.title}</h4>
+                    <h4 className="font-medium text-foreground">{caseItem.title}</h4>
                     <Badge variant="outline" className="text-xs">{caseItem.department}</Badge>
                   </div>
-                  <p className="text-sm text-slate-600 dark:text-slate-400">
+                  <p className="text-sm text-muted-foreground">
                     {caseItem.findings.filter(f => f.status === "open").length} offene Findings
                   </p>
                 </div>
                 <div className="text-right">
-                  <p className="text-xs text-slate-500 dark:text-slate-400">
+                  <p className="text-xs text-muted-foreground">
                     {new Date(caseItem.updatedAt).toLocaleDateString("de-DE")}
                   </p>
-                  <p className="text-xs text-slate-500 dark:text-slate-400">
+                  <p className="text-xs text-muted-foreground">
                     {new Date(caseItem.updatedAt).toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" })}
                   </p>
                 </div>
@@ -234,14 +234,14 @@ export function DashboardStats({ cases: casesProp }: DashboardStatsProps = {}) {
                 <div key={dept} className="p-4 border border-border rounded-lg">
                   <div className="flex items-center gap-2 mb-2">
                     <Users className="size-4 text-blue-600 dark:text-blue-400" />
-                    <h4 className="font-medium text-slate-900 dark:text-slate-100">{dept}</h4>
+                    <h4 className="font-medium text-foreground">{dept}</h4>
                   </div>
                   <div className="flex items-center justify-between text-sm">
-                    <span className="text-slate-600 dark:text-slate-400">Aktiv:</span>
+                    <span className="text-muted-foreground">Aktiv:</span>
                     <span className="font-medium">{deptActiveCases}</span>
                   </div>
                   <div className="flex items-center justify-between text-sm">
-                    <span className="text-slate-600 dark:text-slate-400">Gesamt:</span>
+                    <span className="text-muted-foreground">Gesamt:</span>
                     <span className="font-medium">{deptCases.length}</span>
                   </div>
                 </div>

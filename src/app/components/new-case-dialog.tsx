@@ -109,7 +109,7 @@ export function NewCaseDialog({ open, onOpenChange, onSuccess }: NewCaseDialogPr
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-2xl">
+      <DialogContent className="sm:max-w-2xl">
         <DialogHeader>
           <DialogTitle>Neuen Vorgang anlegen</DialogTitle>
           <DialogDescription>
@@ -122,24 +122,24 @@ export function NewCaseDialog({ open, onOpenChange, onSuccess }: NewCaseDialogPr
         {/* Step Indicator */}
         <div className="flex items-center gap-2 mb-4">
           <div className="flex items-center gap-2">
-            <div className={`size-8 rounded-full flex items-center justify-center ${step >= 1 ? "bg-blue-600 text-white" : "bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-400"}`}>
+            <div className={`size-8 rounded-full flex items-center justify-center text-sm font-medium ${step >= 1 ? "bg-blue-600 text-white" : "bg-muted text-muted-foreground"}`}>
               {step > 1 ? <CheckCircle2 className="size-5" /> : "1"}
             </div>
-            <span className="text-sm font-medium">Grunddaten</span>
+            <span className="hidden sm:block text-sm font-medium">Grunddaten</span>
           </div>
-          <div className="flex-1 h-px bg-slate-200 dark:bg-slate-700" />
+          <div className="flex-1 h-px bg-border" />
           <div className="flex items-center gap-2">
-            <div className={`size-8 rounded-full flex items-center justify-center ${step >= 2 ? "bg-blue-600 text-white" : "bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-400"}`}>
+            <div className={`size-8 rounded-full flex items-center justify-center text-sm font-medium ${step >= 2 ? "bg-blue-600 text-white" : "bg-muted text-muted-foreground"}`}>
               {step > 2 ? <CheckCircle2 className="size-5" /> : "2"}
             </div>
-            <span className="text-sm font-medium">Playbook</span>
+            <span className="hidden sm:block text-sm font-medium">Playbook</span>
           </div>
-          <div className="flex-1 h-px bg-slate-200 dark:bg-slate-700" />
+          <div className="flex-1 h-px bg-border" />
           <div className="flex items-center gap-2">
-            <div className={`size-8 rounded-full flex items-center justify-center ${step >= 3 ? "bg-blue-600 text-white" : "bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-400"}`}>
+            <div className={`size-8 rounded-full flex items-center justify-center text-sm font-medium ${step >= 3 ? "bg-blue-600 text-white" : "bg-muted text-muted-foreground"}`}>
               3
             </div>
-            <span className="text-sm font-medium">Dokumente (optional)</span>
+            <span className="hidden sm:block text-sm font-medium">Dokumente (optional)</span>
           </div>
         </div>
 
@@ -223,9 +223,9 @@ export function NewCaseDialog({ open, onOpenChange, onSuccess }: NewCaseDialogPr
 
         {step === 2 && (
           <div className="space-y-4">
-            <div className="p-4 bg-blue-50 border border-blue-200 rounded-lg">
-              <h4 className="font-medium text-blue-900 mb-1">Fachbereich: {formData.department}</h4>
-              <p className="text-sm text-blue-700">
+            <div className="p-4 bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-800 rounded-lg">
+              <h4 className="font-medium text-blue-900 dark:text-blue-100 mb-1">Fachbereich: {formData.department}</h4>
+              <p className="text-sm text-blue-700 dark:text-blue-300">
                 {selectedPlaybooks.length} {selectedPlaybooks.length === 1 ? "aktives Playbook" : "aktive Playbooks"} verfügbar
               </p>
             </div>
@@ -236,8 +236,8 @@ export function NewCaseDialog({ open, onOpenChange, onSuccess }: NewCaseDialogPr
               </Label>
               <div className="space-y-3">
                 {selectedPlaybooks.length === 0 && (
-                  <div className="text-center py-8 text-slate-500 dark:text-slate-400">
-                    <FileText className="size-12 mx-auto mb-2 text-slate-300 dark:text-slate-500" />
+                  <div className="text-center py-8 text-muted-foreground">
+                    <FileText className="size-12 mx-auto mb-2 text-muted-foreground/40" />
                     <p>Keine aktiven Playbooks für diesen Fachbereich verfügbar.</p>
                     <p className="text-sm mt-1">Bitte wählen Sie einen anderen Fachbereich.</p>
                   </div>
@@ -247,19 +247,19 @@ export function NewCaseDialog({ open, onOpenChange, onSuccess }: NewCaseDialogPr
                     key={playbook.id}
                     className={`p-4 border rounded-lg cursor-pointer transition-all ${
                       formData.caseType === (playbook.caseType ?? "")
-                        ? "border-blue-600 bg-blue-50"
-                        : "border-slate-200 hover:border-blue-300"
+                        ? "border-blue-600 bg-blue-50 dark:bg-blue-950/30"
+                        : "border-border hover:border-blue-300 dark:hover:border-blue-700"
                     }`}
                     onClick={() => setFormData({ ...formData, caseType: playbook.caseType ?? playbook.name })}
                   >
                     <div className="flex items-start justify-between">
                       <div className="flex-1">
                         <div className="flex items-center gap-2 mb-1">
-                          <h4 className="font-medium text-slate-900 dark:text-slate-100">{playbook.name}</h4>
+                          <h4 className="font-medium text-foreground">{playbook.name}</h4>
                           <Badge variant="outline">{playbook.version}</Badge>
                         </div>
-                        <p className="text-sm text-slate-600 dark:text-slate-400 mb-2">{playbook.caseType ?? playbook.name}</p>
-                        <div className="flex items-center gap-4 text-xs text-slate-500 dark:text-slate-400">
+                        <p className="text-sm text-muted-foreground mb-2">{playbook.caseType ?? playbook.name}</p>
+                        <div className="flex items-center gap-4 text-xs text-muted-foreground">
                           <span>{playbook.checks?.length ?? 0} Checks</span>
                         </div>
                       </div>
@@ -276,7 +276,7 @@ export function NewCaseDialog({ open, onOpenChange, onSuccess }: NewCaseDialogPr
 
         {step === 3 && (
           <div className="space-y-4">
-            <p className="text-sm text-slate-600 dark:text-slate-400">
+            <p className="text-sm text-muted-foreground">
               Sie können jetzt Dokumente hinzufügen oder den Vorgang ohne Dokumente anlegen und später hochladen.
             </p>
             <div className="space-y-2">
@@ -294,8 +294,8 @@ export function NewCaseDialog({ open, onOpenChange, onSuccess }: NewCaseDialogPr
                 </SelectContent>
               </Select>
             </div>
-            <div className="border-2 border-dashed border-slate-300 rounded-lg p-6 text-center">
-              <Upload className="size-10 mx-auto mb-2 text-slate-400 dark:text-slate-500" />
+            <div className="border-2 border-dashed border-border rounded-lg p-6 text-center hover:border-primary/50 transition-colors">
+              <Upload className="size-10 mx-auto mb-2 text-muted-foreground/50" />
               <Label className="text-blue-600 hover:text-blue-700 cursor-pointer">
                 Dateien auswählen
                 <input
@@ -306,14 +306,14 @@ export function NewCaseDialog({ open, onOpenChange, onSuccess }: NewCaseDialogPr
                   onChange={(e) => addPendingFiles(e.target.files)}
                 />
               </Label>
-              <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">DOCX, PDF, XLSX, DOC (max. 10 MB)</p>
+              <p className="text-sm text-muted-foreground mt-1">DOCX, PDF, XLSX, DOC (max. 10 MB)</p>
             </div>
             {pendingFiles.length > 0 && (
               <ul className="space-y-2">
                 {pendingFiles.map((f, i) => (
-                  <li key={i} className="flex items-center justify-between rounded border border-slate-200 px-3 py-2 text-sm">
+                  <li key={i} className="flex items-center justify-between rounded border px-3 py-2 text-sm">
                     <span className="truncate">{f.name}</span>
-                    <Button type="button" variant="ghost" size="sm" onClick={() => removePendingFile(i)}>
+                    <Button type="button" variant="ghost" size="sm" onClick={() => removePendingFile(i)} aria-label={`${f.name} entfernen`}>
                       <X className="size-4" />
                     </Button>
                   </li>
@@ -326,7 +326,7 @@ export function NewCaseDialog({ open, onOpenChange, onSuccess }: NewCaseDialogPr
         {submitError && (
           <p className="text-sm text-red-600 dark:text-red-400">{submitError}</p>
         )}
-        <DialogFooter>
+        <DialogFooter className="flex-col-reverse gap-2 sm:flex-row sm:gap-0">
           {step >= 2 && (
             <Button variant="outline" onClick={() => setStep((s) => (s - 1) as 1 | 2 | 3)}>
               Zurück

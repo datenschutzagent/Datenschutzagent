@@ -161,8 +161,8 @@ export function LegalBasesPage() {
     <AppLayout>
         <div className="flex items-center justify-between mb-6">
           <div>
-            <h2 className="text-xl font-semibold text-slate-900 dark:text-slate-100">Rechtsgrundlagen</h2>
-            <p className="text-sm text-slate-600 dark:text-slate-400 mt-1">
+            <h2 className="text-xl font-semibold text-foreground">Rechtsgrundlagen</h2>
+            <p className="text-sm text-muted-foreground mt-1">
               Gesetze und Vorgaben (DSGVO, BDSG, Klinik-Gesetz, Betriebsvereinbarungen) für die Prüfungen des Agenten
             </p>
           </div>
@@ -178,15 +178,15 @@ export function LegalBasesPage() {
           <Card>
             <CardContent className="py-12 text-center">
               <Loader2 className="size-8 animate-spin text-blue-600 dark:text-blue-400 mx-auto mb-2" />
-              <p className="text-slate-600 dark:text-slate-400">Rechtsgrundlagen werden geladen…</p>
+              <p className="text-muted-foreground">Rechtsgrundlagen werden geladen…</p>
             </CardContent>
           </Card>
         ) : bases.length === 0 ? (
           <Card>
             <CardContent className="py-12 text-center">
-              <Scale className="size-12 text-slate-300 dark:text-slate-500 mx-auto mb-4" />
-              <p className="text-slate-600 dark:text-slate-400">Keine Rechtsgrundlagen angelegt</p>
-              <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">
+              <Scale className="size-12 text-muted-foreground/30 mx-auto mb-4" />
+              <p className="text-muted-foreground">Keine Rechtsgrundlagen angelegt</p>
+              <p className="text-sm text-muted-foreground mt-1">
                 Legen Sie DSGVO, BDSG oder andere Vorgaben an, um sie in Playbooks zu referenzieren.
               </p>
               {canEditBases && (
@@ -233,7 +233,7 @@ export function LegalBasesPage() {
                     )}
                   </CardDescription>
                 </CardHeader>
-                <CardContent className="text-sm text-slate-600 dark:text-slate-400">
+                <CardContent className="text-sm text-muted-foreground">
                   {base.applicability === "conditional" && (
                     <div className="space-y-1">
                       {base.departmentCodes?.length > 0 && (
