@@ -99,14 +99,14 @@ export function AdminPage() {
 
   if (auth?.user && !isAdmin(auth.user)) {
     return (
-      <AppLayout maxWidth=”max-w-4xl”>
-        <Alert className=”border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-900/30”>
-          <CircleAlert className=”size-4 text-amber-600 dark:text-amber-400” />
-          <AlertDescription className=”text-amber-800 dark:text-amber-200”>
-            Sie haben keine Berechtigung für die Verwaltung. Nur Nutzer mit der Rolle „Admin” können diese Seite aufrufen.
+      <AppLayout maxWidth="max-w-4xl">
+        <Alert className="border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-900/30">
+          <CircleAlert className="size-4 text-amber-600 dark:text-amber-400" />
+          <AlertDescription className="text-amber-800 dark:text-amber-200">
+            Sie haben keine Berechtigung fuer die Verwaltung. Nur Nutzer mit der Rolle "Admin" koennen diese Seite aufrufen.
           </AlertDescription>
         </Alert>
-        <Button className=”mt-4” variant=”outline” onClick={() => navigate(“/”)}>
+        <Button className="mt-4" variant="outline" onClick={() => navigate("/")}>
           Zurück zur Startseite
         </Button>
       </AppLayout>
