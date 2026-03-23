@@ -1,0 +1,12 @@
+# Beispiel: branchenneutrale Organisationseinheiten (statt fachbereiche/zentrale_einrichtungen).
+# Kopieren Sie dieses Profil oder setzen Sie ORG_PROFILE=example und passen Sie die Liste an.
+units:
+  - code: "IT"
+    label: "Informationstechnik"
+    type: "abteilung"
+  - code: "HR"
+    label: "Personal"
+    type: "abteilung"
+  - code: "ZENTRALE"
+    label: "Zentrale Verwaltung"
+    type: "zentral"

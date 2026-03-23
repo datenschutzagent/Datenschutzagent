@@ -27,6 +27,9 @@ class CaseModel(Base):
     created_by: Mapped[str] = mapped_column(String(200), nullable=False, default="")
     assignee: Mapped[str] = mapped_column(String(200), nullable=False, default="")
     playbook_version: Mapped[str] = mapped_column(String(50), nullable=False, default="")
+    processing_context: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    special_category_data: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    international_transfer: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow)
 
@@ -286,6 +289,9 @@ def orm_to_case_response(orm: CaseModel) -> dict[str, Any]:
         "created_by": orm.created_by,
         "assignee": orm.assignee,
         "playbook_version": orm.playbook_version,
+        "processing_context": orm.processing_context,
+        "special_category_data": orm.special_category_data,
+        "international_transfer": orm.international_transfer,
         "documents": [orm_to_document_response(d) for d in docs_sorted],
         "findings": [orm_to_finding_response(f) for f in orm.findings],
     }

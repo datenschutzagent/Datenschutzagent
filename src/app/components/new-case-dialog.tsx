@@ -8,7 +8,16 @@ import { Textarea } from "./ui/textarea";
 import { Badge } from "./ui/badge";
 import { FileText, CheckCircle2, Upload, X } from "lucide-react";
 import { toast } from "sonner";
-import { getDepartments, getPlaybooks, createCase, uploadDocumentsBulk, type ApiCase, type ApiDepartment, type ApiPlaybook } from "../lib/api";
+import {
+  getDepartments,
+  getPlaybooks,
+  getPlaybooksForSelection,
+  createCase,
+  uploadDocumentsBulk,
+  type ApiCase,
+  type ApiDepartment,
+  type ApiPlaybook,
+} from "../lib/api";
 import { documentTypeLabels, type DocumentType } from "../lib/mock-data";
 
 interface NewCaseDialogProps {
@@ -20,10 +29,23 @@ interface NewCaseDialogProps {
 const ALLOWED_EXTENSIONS = [".docx", ".pdf", ".xlsx", ".doc"];
 const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
 
+const PROCESSING_CONTEXT_NONE = "none";
+
+const PROCESSING_CONTEXT_OPTIONS: { value: string; label: string }[] = [
+  { value: PROCESSING_CONTEXT_NONE, label: "Keiner / nicht festgelegt" },
+  { value: "research", label: "Forschung" },
+  { value: "hr", label: "Personal" },
+  { value: "it_operations", label: "IT-Betrieb" },
+  { value: "communications", label: "Öffentlichkeitsarbeit / Kommunikation" },
+  { value: "procurement", label: "Beschaffung" },
+  { value: "other", label: "Sonstiges" },
+];
+
 export function NewCaseDialog({ open, onOpenChange, onSuccess }: NewCaseDialogProps) {
   const [step, setStep] = useState<1 | 2 | 3>(1);
   const [departmentsFromApi, setDepartmentsFromApi] = useState<ApiDepartment[]>([]);
   const [playbooks, setPlaybooks] = useState<ApiPlaybook[]>([]);
+  const [playbooksForStep2, setPlaybooksForStep2] = useState<ApiPlaybook[]>([]);
   const [loading, setLoading] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [pendingFiles, setPendingFiles] = useState<File[]>([]);
@@ -35,6 +57,9 @@ export function NewCaseDialog({ open, onOpenChange, onSuccess }: NewCaseDialogPr
     language: "de" as "de" | "en" | "de_en",
     description: "",
     assignee: "DSB Team",
+    processingContext: PROCESSING_CONTEXT_NONE,
+    specialCategoryData: false,
+    internationalTransfer: false,
   });
 
   useEffect(() => {
@@ -45,13 +70,47 @@ export function NewCaseDialog({ open, onOpenChange, onSuccess }: NewCaseDialogPr
     getPlaybooks().then(setPlaybooks).catch(() => setPlaybooks([]));
   }, [open]);
 
+  useEffect(() => {
+    if (!open || step !== 2 || !formData.department) {
+      setPlaybooksForStep2([]);
+      return;
+    }
+    let cancelled = false;
+    getPlaybooksForSelection({
+      department: formData.department,
+      processing_context:
+        formData.processingContext === PROCESSING_CONTEXT_NONE
+          ? undefined
+          : formData.processingContext.trim() || undefined,
+      strict_case_type: false,
+    })
+      .then((rows) => {
+        if (cancelled) return;
+        const fromApi = rows.map((r) => r.playbook).filter((pb) => pb.isActive);
+        if (fromApi.length > 0) {
+          setPlaybooksForStep2(fromApi);
+          return;
+        }
+        setPlaybooksForStep2(
+          playbooks.filter((pb) => pb.department === formData.department && pb.isActive),
+        );
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setPlaybooksForStep2(
+          playbooks.filter((pb) => pb.department === formData.department && pb.isActive),
+        );
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [open, step, formData.department, formData.processingContext, playbooks]);
+
   const departments: string[] =
     departmentsFromApi.length > 0
       ? departmentsFromApi.map((d) => d.value)
       : Array.from(new Set(playbooks.map((pb) => pb.department).filter(Boolean))) as string[];
-  const selectedPlaybooks = playbooks.filter(
-    pb => pb.department === formData.department && pb.isActive
-  );
+  const selectedPlaybooks = step === 2 ? playbooksForStep2 : [];
 
   const handleSubmit = async () => {
     setSubmitError(null);
@@ -64,6 +123,12 @@ export function NewCaseDialog({ open, onOpenChange, onSuccess }: NewCaseDialogPr
         language: formData.language,
         created_by: "",
         assignee: formData.assignee,
+        processing_context:
+          formData.processingContext === PROCESSING_CONTEXT_NONE
+            ? null
+            : formData.processingContext.trim() || null,
+        special_category_data: formData.specialCategoryData,
+        international_transfer: formData.internationalTransfer,
       });
       if (pendingFiles.length > 0) {
         await uploadDocumentsBulk(newCase.id, pendingFiles, pendingDocumentType, formData.assignee || "");
@@ -79,6 +144,9 @@ export function NewCaseDialog({ open, onOpenChange, onSuccess }: NewCaseDialogPr
         language: "de",
         description: "",
         assignee: "DSB Team",
+        processingContext: PROCESSING_CONTEXT_NONE,
+        specialCategoryData: false,
+        internationalTransfer: false,
       });
       toast.success("Vorgang erfolgreich angelegt");
       onSuccess?.(newCase);
@@ -163,7 +231,12 @@ export function NewCaseDialog({ open, onOpenChange, onSuccess }: NewCaseDialogPr
               <Label htmlFor="department">
                 Fachbereich <span className="text-red-600 dark:text-red-400">*</span>
               </Label>
-              <Select value={formData.department} onValueChange={(value) => setFormData({ ...formData, department: value, caseType: "" })}>
+              <Select
+                value={formData.department}
+                onValueChange={(value) =>
+                  setFormData({ ...formData, department: value, caseType: "" })
+                }
+              >
                 <SelectTrigger id="department">
                   <SelectValue placeholder="Fachbereich auswählen" />
                 </SelectTrigger>
@@ -175,6 +248,52 @@ export function NewCaseDialog({ open, onOpenChange, onSuccess }: NewCaseDialogPr
                   ))}
                 </SelectContent>
               </Select>
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="processingContext">Verarbeitungskontext (optional)</Label>
+              <Select
+                value={formData.processingContext}
+                onValueChange={(value) =>
+                  setFormData({ ...formData, processingContext: value, caseType: "" })
+                }
+              >
+                <SelectTrigger id="processingContext">
+                  <SelectValue placeholder="Kontext wählen" />
+                </SelectTrigger>
+                <SelectContent>
+                  {PROCESSING_CONTEXT_OPTIONS.map((o) => (
+                    <SelectItem key={o.value} value={o.value}>
+                      {o.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="flex flex-col gap-3 rounded-md border border-border p-3">
+              <label className="flex items-center gap-2 text-sm cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={formData.specialCategoryData}
+                  onChange={(e) =>
+                    setFormData({ ...formData, specialCategoryData: e.target.checked })
+                  }
+                  className="rounded border-input"
+                />
+                Besondere Kategorien personenbezogener Daten (Art. 9 DSGVO)
+              </label>
+              <label className="flex items-center gap-2 text-sm cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={formData.internationalTransfer}
+                  onChange={(e) =>
+                    setFormData({ ...formData, internationalTransfer: e.target.checked })
+                  }
+                  className="rounded border-input"
+                />
+                Grenzüberschreitende Datenübermittlung relevant
+              </label>
             </div>
 
             {/* Language */}

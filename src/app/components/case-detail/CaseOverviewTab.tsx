@@ -3,6 +3,15 @@ import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "../ui/dialog";
 import { severityColors, priorityLabels, priorityColors } from "../../lib/mock-data";
+
+const PROCESSING_CONTEXT_LABELS: Record<string, string> = {
+  research: "Forschung",
+  hr: "Personal",
+  it_operations: "IT-Betrieb",
+  communications: "Öffentlichkeitsarbeit / Kommunikation",
+  procurement: "Beschaffung",
+  other: "Sonstiges",
+};
 import type { ApiCase, ApiFinding, ApiPlaybook, RunChecksStrategy } from "../../lib/api";
 import { CircleAlert, Download, FileCheck, Loader2, Shield } from "lucide-react";
 
@@ -70,6 +79,28 @@ export function CaseOverviewTab({
               <span className="text-slate-600 dark:text-slate-400">Sprache:</span>
               <p className="font-medium">{caseData.language.toUpperCase()}</p>
             </div>
+            {caseData.processingContext ? (
+              <div>
+                <span className="text-slate-600 dark:text-slate-400">Verarbeitungskontext:</span>
+                <p className="font-medium">
+                  {PROCESSING_CONTEXT_LABELS[caseData.processingContext] ??
+                    caseData.processingContext}
+                </p>
+              </div>
+            ) : null}
+            {(caseData.specialCategoryData || caseData.internationalTransfer) && (
+              <div>
+                <span className="text-slate-600 dark:text-slate-400">Hinweise:</span>
+                <p className="font-medium">
+                  {[
+                    caseData.specialCategoryData ? "Besondere Kategorien (Art. 9 DSGVO)" : null,
+                    caseData.internationalTransfer ? "Grenzüberschreitende Übermittlung" : null,
+                  ]
+                    .filter(Boolean)
+                    .join(" · ")}
+                </p>
+              </div>
+            )}
             {caseData.priority && (
               <div>
                 <span className="text-slate-600 dark:text-slate-400">Priorität:</span>

@@ -56,6 +56,9 @@ def _yaml_to_model_data(data: dict[str, Any]) -> dict[str, Any] | None:
     legal_basis_ids = data.get("legal_basis_ids")
     if isinstance(legal_basis_ids, list):
         content["legal_basis_ids"] = [str(x) for x in legal_basis_ids]
+    match_cfg = data.get("match")
+    if isinstance(match_cfg, dict):
+        content["match"] = match_cfg
     return {
         "name": str(name),
         "version": str(version),

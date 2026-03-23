@@ -40,6 +40,12 @@ class Settings(BaseSettings):
     # Playbook seed (YAML directory; used when playbooks table is empty)
     playbooks_seed_dir: str | None = None  # None = use default app/data/playbooks
 
+    # Organisation units (dropdown / case.department): YAML source
+    # If set, this file is used (absolute path or relative to app data dir, e.g. org_profiles/acme/departments.yaml).
+    departments_config_path: str | None = None
+    # If departments_config_path is empty: use data/org_profiles/{org_profile}/departments.yaml when it exists, else data/fachbereiche.yaml
+    org_profile: str = "default"
+
     # Ollama (extern gehostet, z. B. im lokalen Netzwerk)
     ollama_base_url: str = "http://localhost:11434"
     ollama_model: str = "llama3.2"

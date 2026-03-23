@@ -6,7 +6,21 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "../components/ui/tabs"
 import { Alert, AlertDescription } from "../components/ui/alert";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "../components/ui/dialog";
 import { statusLabels, statusColors, findingStatusLabels, severityColors, severityLabels } from "../lib/mock-data";
-import { getCase, getPlaybooks, runChecks, getRunChecksStatus, updateFindingStatus, getDSBReportBlob, downloadBlob, canEdit, type ApiCase, type ApiFinding, type ApiPlaybook, type RunChecksStrategy } from "../lib/api";
+import {
+  getCase,
+  getPlaybooks,
+  getPlaybooksForSelection,
+  runChecks,
+  getRunChecksStatus,
+  updateFindingStatus,
+  getDSBReportBlob,
+  downloadBlob,
+  canEdit,
+  type ApiCase,
+  type ApiFinding,
+  type ApiPlaybook,
+  type RunChecksStrategy,
+} from "../lib/api";
 import { useAuthOptional } from "../contexts/AuthContext";
 import { VVTNormalizationView } from "../components/vvt-normalization-view";
 import { DSBReportView } from "../components/dsb-report-view";
@@ -19,6 +33,15 @@ import { CaseFindingsTab } from "../components/case-detail/CaseFindingsTab";
 import { ArrowLeft, Download, MessageSquare, Loader2, CircleAlert, ChevronRight } from "lucide-react";
 import { toast } from "sonner";
 import { useState, useEffect } from "react";
+
+const PROCESSING_CONTEXT_LABELS: Record<string, string> = {
+  research: "Forschung",
+  hr: "Personal",
+  it_operations: "IT-Betrieb",
+  communications: "Öffentlichkeitsarbeit / Kommunikation",
+  procurement: "Beschaffung",
+  other: "Sonstiges",
+};
 
 export function CaseDetailPage() {
   const { caseId } = useParams();
@@ -56,8 +79,34 @@ export function CaseDetailPage() {
   }, [caseId]);
 
   useEffect(() => {
-    if (runChecksOpen) getPlaybooks().then(setPlaybooks).catch(() => setPlaybooks([]));
-  }, [runChecksOpen]);
+    if (!runChecksOpen || !caseData) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const rows = await getPlaybooksForSelection({
+          department: caseData.department,
+          processing_context: caseData.processingContext?.trim() || undefined,
+          case_type: caseData.caseType,
+          strict_case_type: true,
+        });
+        const list = rows.map((r) => r.playbook);
+        if (cancelled) return;
+        if (list.length > 0) {
+          setPlaybooks(list);
+        } else {
+          const all = await getPlaybooks();
+          if (!cancelled) setPlaybooks(all);
+        }
+      } catch {
+        if (!cancelled) {
+          getPlaybooks().then(setPlaybooks).catch(() => setPlaybooks([]));
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [runChecksOpen, caseData]);
 
   const handleRunChecks = async () => {
     if (!caseId || !selectedPlaybookId) return;
@@ -188,10 +237,33 @@ export function CaseDetailPage() {
                   {statusLabels[caseData.status]}
                 </Badge>
               </div>
-              <div className="flex items-center gap-4 text-sm text-slate-600 dark:text-slate-400">
+              <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-slate-600 dark:text-slate-400">
                 <span>{caseData.department}</span>
                 <span>•</span>
                 <span>{caseData.caseType}</span>
+                {caseData.processingContext ? (
+                  <>
+                    <span>•</span>
+                    <span>
+                      Kontext:{" "}
+                      {PROCESSING_CONTEXT_LABELS[caseData.processingContext] ??
+                        caseData.processingContext}
+                    </span>
+                  </>
+                ) : null}
+                {(caseData.specialCategoryData || caseData.internationalTransfer) && (
+                  <>
+                    <span>•</span>
+                    <span>
+                      {[
+                        caseData.specialCategoryData ? "Art. 9" : null,
+                        caseData.internationalTransfer ? "Drittland" : null,
+                      ]
+                        .filter(Boolean)
+                        .join(", ")}
+                    </span>
+                  </>
+                )}
                 <span>•</span>
                 <span>Erstellt: {new Date(caseData.createdAt).toLocaleDateString("de-DE")}</span>
               </div>

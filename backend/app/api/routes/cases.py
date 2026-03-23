@@ -129,6 +129,9 @@ async def create_case(
         assignee=body.assignee,
         status="intake",
         playbook_version="",
+        processing_context=body.processing_context,
+        special_category_data=body.special_category_data,
+        international_transfer=body.international_transfer,
     )
     db.add(case)
     await db.flush()

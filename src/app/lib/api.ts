@@ -43,6 +43,9 @@ function mapCase(d: Record<string, unknown>): Record<string, unknown> {
     createdBy: d.created_by,
     assignee: d.assignee,
     playbookVersion: d.playbook_version ?? "",
+    processingContext: (d.processing_context as string) ?? null,
+    specialCategoryData: Boolean(d.special_category_data),
+    internationalTransfer: Boolean(d.international_transfer),
     documents: Array.isArray(d.documents) ? (d.documents as Record<string, unknown>[]).map(mapDocument) : [],
     findings: Array.isArray(d.findings) ? (d.findings as Record<string, unknown>[]).map(mapFinding) : [],
   };
@@ -332,6 +335,9 @@ export interface CaseCreateInput {
   language?: "de" | "en" | "de_en";
   created_by?: string;
   assignee?: string;
+  processing_context?: string | null;
+  special_category_data?: boolean;
+  international_transfer?: boolean;
 }
 
 export interface CaseUpdateInput {
@@ -342,6 +348,9 @@ export interface CaseUpdateInput {
   language?: "de" | "en" | "de_en";
   assignee?: string;
   playbook_version?: string;
+  processing_context?: string | null;
+  special_category_data?: boolean;
+  international_transfer?: boolean;
 }
 
 export interface ApiCase {
@@ -356,6 +365,9 @@ export interface ApiCase {
   assignee: string;
   language: string;
   playbookVersion: string;
+  processingContext?: string | null;
+  specialCategoryData?: boolean;
+  internationalTransfer?: boolean;
   documents: ApiDocument[];
   findings: ApiFinding[];
   priority?: string;
@@ -970,6 +982,39 @@ export async function deleteLegalBase(id: string): Promise<void> {
 export async function getPlaybooks(): Promise<ApiPlaybook[]> {
   const list = (await request<Record<string, unknown>[]>("GET", "/playbooks")) ?? [];
   return list.map((p) => mapPlaybook(p) as ApiPlaybook);
+}
+
+export interface PlaybookMatchRow {
+  playbook: ApiPlaybook;
+  matchPriority: number;
+}
+
+export async function getPlaybooksForSelection(params: {
+  department: string;
+  processing_context?: string | null;
+  case_type?: string | null;
+  strict_case_type?: boolean;
+}): Promise<PlaybookMatchRow[]> {
+  const sp = new URLSearchParams();
+  sp.set("department", params.department);
+  if (params.processing_context != null && String(params.processing_context).trim() !== "") {
+    sp.set("processing_context", String(params.processing_context).trim());
+  }
+  if (params.case_type != null && String(params.case_type).trim() !== "") {
+    sp.set("case_type", String(params.case_type).trim());
+  }
+  if (params.strict_case_type) {
+    sp.set("strict_case_type", "true");
+  }
+  const list =
+    (await request<Record<string, unknown>[]>("GET", `/playbooks/for-selection?${sp.toString()}`)) ?? [];
+  return list.map((row) => {
+    const inner = row.playbook as Record<string, unknown> | undefined;
+    return {
+      matchPriority: typeof row.match_priority === "number" ? row.match_priority : 0,
+      playbook: mapPlaybook(inner ?? {}) as ApiPlaybook,
+    };
+  });
 }
 
 export async function getPlaybook(id: string): Promise<ApiPlaybook> {

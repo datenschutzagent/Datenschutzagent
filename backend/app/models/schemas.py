@@ -92,6 +92,9 @@ class CaseCreate(BaseModel):
     language: CaseLanguageEnum = "de"
     created_by: str = Field(default="", min_length=0)
     assignee: str = Field(default="", min_length=0)
+    processing_context: str | None = Field(default=None, max_length=80)
+    special_category_data: bool = False
+    international_transfer: bool = False
 
 
 class CaseUpdate(BaseModel):
@@ -102,6 +105,9 @@ class CaseUpdate(BaseModel):
     language: CaseLanguageEnum | None = None
     assignee: str | None = None
     playbook_version: str | None = None
+    processing_context: str | None = Field(default=None, max_length=80)
+    special_category_data: bool | None = None
+    international_transfer: bool | None = None
 
 
 class RunChecksRequest(BaseModel):
@@ -124,6 +130,9 @@ class CaseResponse(BaseModel):
     created_by: str
     assignee: str
     playbook_version: str
+    processing_context: str | None = None
+    special_category_data: bool = False
+    international_transfer: bool = False
     documents: list[DocumentResponse] = []
     findings: list[FindingResponse] = []
 
@@ -159,6 +168,13 @@ class PlaybookResponse(BaseModel):
     created_at: datetime
 
     model_config = {"from_attributes": True}
+
+
+class PlaybookMatchResult(BaseModel):
+    """Playbook plus match score from GET /playbooks/for-selection."""
+
+    playbook: PlaybookResponse
+    match_priority: int
 
 
 # --- Legal Base (Rechtsgrundlagen) ---

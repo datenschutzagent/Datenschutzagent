@@ -43,6 +43,9 @@ _SCHEMA_MIGRATIONS = [
     "ALTER TABLE users ADD COLUMN IF NOT EXISTS oidc_sub VARCHAR(500) NULL",
     "CREATE UNIQUE INDEX IF NOT EXISTS ix_users_oidc_sub ON users (oidc_sub) WHERE oidc_sub IS NOT NULL",
     "ALTER TABLE users ADD COLUMN IF NOT EXISTS role VARCHAR(20) NOT NULL DEFAULT 'viewer'",
+    "ALTER TABLE cases ADD COLUMN IF NOT EXISTS processing_context VARCHAR(80) NULL",
+    "ALTER TABLE cases ADD COLUMN IF NOT EXISTS special_category_data BOOLEAN NOT NULL DEFAULT false",
+    "ALTER TABLE cases ADD COLUMN IF NOT EXISTS international_transfer BOOLEAN NOT NULL DEFAULT false",
 ]
 
 

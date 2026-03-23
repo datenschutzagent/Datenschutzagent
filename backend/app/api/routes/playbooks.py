@@ -1,15 +1,48 @@
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.config import settings
 from app.core.auth import require_roles
 from app.database import get_db
 from app.models.db import PlaybookModel, orm_to_playbook_response
-from app.models.schemas import PlaybookCreate, PlaybookResponse, PlaybookUpdate
+from app.models.schemas import PlaybookCreate, PlaybookMatchResult, PlaybookResponse, PlaybookUpdate
+from app.services.playbook_matching import rank_playbooks_for_selection
 
 router = APIRouter()
+
+
+@router.get("/for-selection", response_model=list[PlaybookMatchResult])
+async def list_playbooks_for_selection(
+    department: str = Query(..., min_length=1, description="Case department value (e.g. from GET /departments)."),
+    processing_context: str | None = Query(None, description="Optional processing_context from case."),
+    case_type: str | None = Query(None),
+    strict_case_type: bool = Query(
+        False,
+        description="If true, playbooks with non-empty match.case_types must match case_type.",
+    ),
+    db: AsyncSession = Depends(get_db),
+):
+    """Playbooks that match the given attributes, highest match_priority first (for wizard and run-checks UI)."""
+    result = await db.execute(select(PlaybookModel))
+    pbs = list(result.scalars().all())
+    ranked = rank_playbooks_for_selection(
+        pbs,
+        department=department,
+        processing_context=processing_context,
+        case_type=case_type,
+        org_profile=(settings.org_profile or "default").strip() or "default",
+        strict_case_type=strict_case_type,
+    )
+    return [
+        PlaybookMatchResult(
+            playbook=PlaybookResponse(**orm_to_playbook_response(pb)),
+            match_priority=pri,
+        )
+        for pb, pri in ranked
+    ]
 
 
 @router.get("", response_model=list[PlaybookResponse])
