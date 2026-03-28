@@ -1,18 +1,11 @@
+import { useMemo } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../ui/card";
 import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "../ui/dialog";
 import { severityColors, priorityLabels, priorityColors } from "../../lib/mock-data";
-
-const PROCESSING_CONTEXT_LABELS: Record<string, string> = {
-  research: "Forschung",
-  hr: "Personal",
-  it_operations: "IT-Betrieb",
-  communications: "Öffentlichkeitsarbeit / Kommunikation",
-  procurement: "Beschaffung",
-  other: "Sonstiges",
-};
 import type { ApiCase, ApiFinding, ApiPlaybook, RunChecksStrategy } from "../../lib/api";
+import { useAppConfig } from "../../contexts/AppConfigContext";
 import { CircleAlert, Download, FileCheck, Loader2, Shield } from "lucide-react";
 
 export interface CaseOverviewTabProps {
@@ -55,6 +48,11 @@ export function CaseOverviewTab({
   onSelectFinding,
   canEdit = true,
 }: CaseOverviewTabProps) {
+  const appConfig = useAppConfig();
+  const processingContextLabels = useMemo<Record<string, string>>(
+    () => Object.fromEntries(appConfig.processing_context_options.map((o) => [o.value, o.label])),
+    [appConfig.processing_context_options],
+  );
   return (
     <div className="space-y-6">
       <div className="grid grid-cols-3 gap-6">
@@ -83,7 +81,7 @@ export function CaseOverviewTab({
               <div>
                 <span className="text-slate-600 dark:text-slate-400">Verarbeitungskontext:</span>
                 <p className="font-medium">
-                  {PROCESSING_CONTEXT_LABELS[caseData.processingContext] ??
+                  {processingContextLabels[caseData.processingContext] ??
                     caseData.processingContext}
                 </p>
               </div>

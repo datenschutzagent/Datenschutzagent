@@ -139,7 +139,7 @@ export function VvtOverviewPage() {
         <div className="flex items-center justify-between mb-6">
           <div>
             <h2 className="text-xl font-semibold text-foreground">
-              VVT-Übersicht (Universitätsebene)
+              VVT-Übersicht (Organisationsebene)
             </h2>
             <p className="text-sm text-muted-foreground mt-1">
               Tabellarische Übersicht aller Vorgänge mit VVT-Status und Vollständigkeit
