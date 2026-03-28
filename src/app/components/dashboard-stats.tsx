@@ -1,5 +1,6 @@
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "./ui/card";
 import { Badge } from "./ui/badge";
+import { Progress } from "./ui/progress";
 import {
   FileText,
   CircleAlert,
@@ -7,12 +8,40 @@ import {
   Users,
   BookOpen
 } from "lucide-react";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { mockCases } from "../lib/mock-data";
 import { getPlaybooks, type ApiCase, type ApiPlaybook } from "../lib/api";
 
 interface DashboardStatsProps {
   cases?: ApiCase[];
+}
+
+const SEVERITY_ORDER = ["critical", "high", "medium", "low", "info"] as const;
+const STATUS_ORDER = ["open", "accepted", "overruled", "fixed"] as const;
+const SEVERITY_LABELS: Record<string, string> = { critical: "Kritisch", high: "Hoch", medium: "Mittel", low: "Niedrig", info: "Info" };
+const STATUS_LABELS: Record<string, string> = { open: "Offen", accepted: "Akzeptiert", overruled: "Überfahren", fixed: "Behoben" };
+
+function complianceScore(casesForDept: ApiCase[]): number {
+  const allFindings = casesForDept.flatMap((c) => c.findings);
+  const total = allFindings.length;
+  if (total === 0) return 100;
+  const critOpen = allFindings.filter((f) => f.severity === "critical" && f.status === "open").length;
+  const highOpen = allFindings.filter((f) => f.severity === "high" && f.status === "open").length;
+  const medOpen = allFindings.filter((f) => f.severity === "medium" && f.status === "open").length;
+  const penalty = (critOpen * 40 + highOpen * 20 + medOpen * 5) / Math.max(total, 1) * 100;
+  return Math.max(0, Math.round(100 - penalty));
+}
+
+function scoreColor(score: number): string {
+  if (score >= 80) return "text-green-700 dark:text-green-400";
+  if (score >= 60) return "text-amber-700 dark:text-amber-400";
+  return "text-red-700 dark:text-red-400";
+}
+
+function scoreBarColor(score: number): string {
+  if (score >= 80) return "[&>div]:bg-green-500";
+  if (score >= 60) return "[&>div]:bg-amber-500";
+  return "[&>div]:bg-red-500";
 }
 
 export function DashboardStats({ cases: casesProp }: DashboardStatsProps = {}) {
@@ -45,6 +74,30 @@ export function DashboardStats({ cases: casesProp }: DashboardStatsProps = {}) {
   const recentCases = [...cases]
     .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime())
     .slice(0, 5);
+
+  // Findings-Matrix: severity × status counts
+  const findingsMatrix = useMemo(() => {
+    return STATUS_ORDER.map((status) => ({
+      status,
+      counts: SEVERITY_ORDER.map((severity) =>
+        cases.reduce(
+          (sum, c) => sum + c.findings.filter((f) => f.severity === severity && f.status === status).length,
+          0
+        )
+      ),
+    }));
+  }, [cases]);
+
+  // Compliance-Score pro Abteilung
+  const departmentScores = useMemo(() => {
+    const depts = Array.from(new Set(cases.map((c) => c.department))).sort();
+    return depts.map((dept) => {
+      const deptCases = cases.filter((c) => c.department === dept);
+      const score = complianceScore(deptCases);
+      const openCritical = deptCases.flatMap((c) => c.findings).filter((f) => f.severity === "critical" && f.status === "open").length;
+      return { dept, score, caseCount: deptCases.length, openCritical };
+    }).sort((a, b) => a.score - b.score);
+  }, [cases]);
 
   return (
     <div className="space-y-6">
@@ -183,6 +236,57 @@ export function DashboardStats({ cases: casesProp }: DashboardStatsProps = {}) {
         </Card>
       </div>
 
+      {/* Findings-Matrix: severity × status */}
+      {totalFindings > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Findings-Matrix</CardTitle>
+            <CardDescription>Anzahl der Findings nach Schweregrad und Status</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr>
+                    <th className="text-left py-2 pr-4 font-medium text-muted-foreground w-28">Status</th>
+                    {SEVERITY_ORDER.map((sev) => (
+                      <th key={sev} className="text-center py-2 px-3 font-medium text-muted-foreground">{SEVERITY_LABELS[sev]}</th>
+                    ))}
+                    <th className="text-center py-2 px-3 font-medium text-muted-foreground">Gesamt</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {findingsMatrix.map(({ status, counts }) => {
+                    const rowTotal = counts.reduce((s, n) => s + n, 0);
+                    return (
+                      <tr key={status} className="border-t border-border">
+                        <td className="py-2 pr-4 font-medium text-foreground">{STATUS_LABELS[status]}</td>
+                        {counts.map((count, i) => {
+                          const sev = SEVERITY_ORDER[i];
+                          const isHot = status === "open" && (sev === "critical" || sev === "high");
+                          return (
+                            <td key={sev} className="text-center py-2 px-3">
+                              {count > 0 ? (
+                                <span className={`inline-block min-w-[1.75rem] rounded px-1.5 py-0.5 font-semibold ${isHot ? "bg-red-100 text-red-700 dark:bg-red-900/50 dark:text-red-300" : "bg-muted text-foreground"}`}>
+                                  {count}
+                                </span>
+                              ) : (
+                                <span className="text-muted-foreground">–</span>
+                              )}
+                            </td>
+                          );
+                        })}
+                        <td className="text-center py-2 px-3 font-semibold text-foreground">{rowTotal > 0 ? rowTotal : "–"}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
       {/* Recent Activity */}
       <Card>
         <CardHeader>
@@ -217,39 +321,41 @@ export function DashboardStats({ cases: casesProp }: DashboardStatsProps = {}) {
         </CardContent>
       </Card>
 
-      {/* Department Overview */}
-      <Card>
-        <CardHeader>
-          <CardTitle>Vorgänge nach Organisationseinheit</CardTitle>
-          <CardDescription>Verteilung über alle Einheiten</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            {Array.from(new Set(cases.map(c => c.department))).map((dept) => {
-              const deptCases = cases.filter(c => c.department === dept);
-              const deptActiveCases = deptCases.filter(c => 
-                c.status === "in_review" || c.status === "questions_pending" || c.status === "revision"
-              ).length;
-              return (
-                <div key={dept} className="p-4 border border-border rounded-lg">
-                  <div className="flex items-center gap-2 mb-2">
-                    <Users className="size-4 text-blue-600 dark:text-blue-400" />
-                    <h4 className="font-medium text-foreground">{dept}</h4>
+      {/* Department Compliance Score */}
+      {departmentScores.length > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Compliance-Score nach Organisationseinheit</CardTitle>
+            <CardDescription>
+              Basierend auf offenen kritischen/hohen/mittleren Findings. Grün ≥ 80, Gelb ≥ 60, Rot &lt; 60.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-4">
+              {departmentScores.map(({ dept, score, caseCount, openCritical }) => (
+                <div key={dept} className="space-y-1">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <Users className="size-4 text-muted-foreground shrink-0" />
+                      <span className="font-medium text-foreground truncate">{dept}</span>
+                      <span className="text-xs text-muted-foreground shrink-0">({caseCount} {caseCount === 1 ? "Vorgang" : "Vorgänge"})</span>
+                    </div>
+                    <div className="flex items-center gap-2 shrink-0 ml-4">
+                      {openCritical > 0 && (
+                        <Badge className="bg-red-100 text-red-700 dark:bg-red-900/50 dark:text-red-300 text-xs">
+                          {openCritical} krit.
+                        </Badge>
+                      )}
+                      <span className={`text-sm font-semibold w-12 text-right ${scoreColor(score)}`}>{score}%</span>
+                    </div>
                   </div>
-                  <div className="flex items-center justify-between text-sm">
-                    <span className="text-muted-foreground">Aktiv:</span>
-                    <span className="font-medium">{deptActiveCases}</span>
-                  </div>
-                  <div className="flex items-center justify-between text-sm">
-                    <span className="text-muted-foreground">Gesamt:</span>
-                    <span className="font-medium">{deptCases.length}</span>
-                  </div>
+                  <Progress value={score} className={`h-2 ${scoreBarColor(score)}`} />
                 </div>
-              );
-            })}
-          </div>
-        </CardContent>
-      </Card>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      )}
     </div>
   );
 }
