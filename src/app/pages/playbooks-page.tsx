@@ -1,5 +1,6 @@
 import { Link, useNavigate } from "react-router";
 import { AppLayout } from "../components/app-layout";
+import { PageHeader } from "../components/page-header";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../components/ui/card";
 import { Badge } from "../components/ui/badge";
 import { Button } from "../components/ui/button";
@@ -9,6 +10,7 @@ import { NewPlaybookDialog } from "../components/new-playbook-dialog";
 import { Skeleton } from "../components/ui/skeleton";
 import { getPlaybooks, canEdit, type ApiPlaybook } from "../lib/api";
 import { useAuthOptional } from "../contexts/AuthContext";
+import { toast } from "sonner";
 import { Plus, Search, Filter, BookOpen, CheckSquare, Archive } from "lucide-react";
 import { useState, useEffect } from "react";
 
@@ -40,21 +42,18 @@ export function PlaybooksPage() {
 
   return (
     <AppLayout>
-        {/* Page Header */}
-        <div className="flex items-center justify-between mb-6">
-          <div>
-            <h2 className="text-xl font-semibold text-slate-900 dark:text-slate-100">Playbooks</h2>
-            <p className="text-sm text-slate-600 dark:text-slate-400 mt-1">
-              Versionierte Prüfvorlagen für verschiedene Organisationseinheiten und Vorgangstypen
-            </p>
-          </div>
-          {canEdit(auth?.user ?? null) && (
-            <Button className="gap-2" onClick={() => setNewPlaybookOpen(true)}>
-              <Plus className="size-4" />
-              Neues Playbook
-            </Button>
-          )}
-        </div>
+        <PageHeader
+          title="Playbooks"
+          description="Versionierte Prüfvorlagen für verschiedene Organisationseinheiten und Vorgangstypen"
+          action={
+            canEdit(auth?.user ?? null) ? (
+              <Button className="gap-2" onClick={() => setNewPlaybookOpen(true)}>
+                <Plus className="size-4" />
+                Neues Playbook
+              </Button>
+            ) : undefined
+          }
+        />
 
         {/* Filters */}
         <Card className="mb-6">
@@ -85,51 +84,7 @@ export function PlaybooksPage() {
         </Card>
 
         {/* Playbooks Grid */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {filteredPlaybooks.map((playbook) => (
-            <Link key={playbook.id} to={`/playbooks/${playbook.id}`} className="block">
-            <Card className="hover:shadow-md transition-shadow h-full">
-              <CardHeader>
-                <div className="flex items-start justify-between mb-2">
-                  <BookOpen className="size-8 text-blue-600 dark:text-blue-400" />
-                  {playbook.isActive ? (
-                    <Badge className="bg-green-100 text-green-700 dark:bg-green-900/50 dark:text-green-300">Aktiv</Badge>
-                  ) : (
-                    <Badge className="bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300">
-                      <Archive className="size-3 mr-1" />
-                      Archiviert
-                    </Badge>
-                  )}
-                </div>
-                <CardTitle className="text-lg">{playbook.name}</CardTitle>
-                <CardDescription className="mt-2">
-                  {playbook.department ?? "—"} • {playbook.caseType ?? "—"}
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                <div className="space-y-3">
-                  <div className="flex items-center justify-between text-sm">
-                    <span className="text-slate-600 dark:text-slate-400">Version</span>
-                    <Badge variant="outline">{playbook.version}</Badge>
-                  </div>
-                  <div className="flex items-center justify-between text-sm">
-                    <span className="text-slate-600 dark:text-slate-400">Checks</span>
-                    <div className="flex items-center gap-1">
-                      <CheckSquare className="size-4 text-blue-600 dark:text-blue-400" />
-                      <span className="font-medium">{playbook.checks?.length ?? 0}</span>
-                    </div>
-                  </div>
-                  <div className="text-xs text-slate-500 dark:text-slate-400 pt-2 border-t border-border">
-                    Erstellt: {new Date(playbook.createdAt).toLocaleDateString("de-DE")}
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-            </Link>
-          ))}
-        </div>
-
-        {loading && (
+        {loading ? (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             {[1, 2, 3].map((i) => (
               <Card key={i}>
@@ -157,6 +112,50 @@ export function PlaybooksPage() {
               </Card>
             ))}
           </div>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            {filteredPlaybooks.map((playbook) => (
+              <Link key={playbook.id} to={`/playbooks/${playbook.id}`} className="block">
+              <Card className="hover:shadow-md transition-shadow h-full">
+                <CardHeader>
+                  <div className="flex items-start justify-between mb-2">
+                    <BookOpen className="size-8 text-blue-600 dark:text-blue-400" />
+                    {playbook.isActive ? (
+                      <Badge className="bg-green-100 text-green-700 dark:bg-green-900/50 dark:text-green-300">Aktiv</Badge>
+                    ) : (
+                      <Badge className="bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300">
+                        <Archive className="size-3 mr-1" />
+                        Archiviert
+                      </Badge>
+                    )}
+                  </div>
+                  <CardTitle className="text-lg">{playbook.name}</CardTitle>
+                  <CardDescription className="mt-2">
+                    {playbook.department ?? "—"} • {playbook.caseType ?? "—"}
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <div className="space-y-3">
+                    <div className="flex items-center justify-between text-sm">
+                      <span className="text-slate-600 dark:text-slate-400">Version</span>
+                      <Badge variant="outline">{playbook.version}</Badge>
+                    </div>
+                    <div className="flex items-center justify-between text-sm">
+                      <span className="text-slate-600 dark:text-slate-400">Checks</span>
+                      <div className="flex items-center gap-1">
+                        <CheckSquare className="size-4 text-blue-600 dark:text-blue-400" />
+                        <span className="font-medium">{playbook.checks?.length ?? 0}</span>
+                      </div>
+                    </div>
+                    <div className="text-xs text-slate-500 dark:text-slate-400 pt-2 border-t border-border">
+                      Erstellt: {new Date(playbook.createdAt).toLocaleDateString("de-DE")}
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+              </Link>
+            ))}
+          </div>
         )}
         {!loading && filteredPlaybooks.length === 0 && (
           <Card>
@@ -173,6 +172,7 @@ export function PlaybooksPage() {
         open={newPlaybookOpen}
         onOpenChange={setNewPlaybookOpen}
         onSuccess={(pb) => {
+          toast.success("Playbook wurde erfolgreich angelegt");
           loadPlaybooks();
           navigate(`/playbooks/${pb.id}`);
         }}

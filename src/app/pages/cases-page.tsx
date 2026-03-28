@@ -5,6 +5,7 @@ import { Button } from "../components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "../components/ui/tabs";
 import { Skeleton } from "../components/ui/skeleton";
 import { AppLayout } from "../components/app-layout";
+import { PageHeader } from "../components/page-header";
 import { DashboardStats } from "../components/dashboard-stats";
 import { NewCaseDialog } from "../components/new-case-dialog";
 import { CasesSearchFilter, CasesFilters } from "../components/cases-search-filter";
@@ -12,6 +13,7 @@ import { statusLabels, statusColors, priorityColors, priorityLabels } from "../l
 import { getCases, canEdit, type ApiCase } from "../lib/api";
 import { useAuthOptional } from "../contexts/AuthContext";
 import { Plus, FileText, CircleAlert, CheckCircle2, Clock, LayoutDashboard, Calendar, AlertTriangle } from "lucide-react";
+import { toast } from "sonner";
 import { useState, useMemo, useEffect } from "react";
 
 export function CasesPage() {
@@ -100,21 +102,18 @@ export function CasesPage() {
 
   return (
     <AppLayout>
-      {/* Page Header */}
-      <div className="flex items-center justify-between mb-6">
-        <div>
-          <h2 className="text-xl font-semibold text-foreground">Vorgänge</h2>
-          <p className="text-sm text-muted-foreground mt-1">
-            {filteredCases.length} {filteredCases.length === 1 ? "Vorgang" : "Vorgänge"}
-          </p>
-        </div>
-        {canEdit(auth?.user ?? null) && (
-          <Button className="gap-2" onClick={() => setIsNewCaseDialogOpen(true)}>
-            <Plus className="size-4" />
-            Neuer Vorgang
-          </Button>
-        )}
-      </div>
+      <PageHeader
+        title="Vorgänge"
+        description={`${filteredCases.length} ${filteredCases.length === 1 ? "Vorgang" : "Vorgänge"}`}
+        action={
+          canEdit(auth?.user ?? null) ? (
+            <Button className="gap-2" onClick={() => setIsNewCaseDialogOpen(true)}>
+              <Plus className="size-4" />
+              Neuer Vorgang
+            </Button>
+          ) : undefined
+        }
+      />
 
       {/* Tabs for Dashboard vs List View */}
       <Tabs defaultValue="list" className="space-y-6">
@@ -309,6 +308,7 @@ export function CasesPage() {
         onOpenChange={setIsNewCaseDialogOpen}
         onSuccess={(newCase) => {
           setIsNewCaseDialogOpen(false);
+          toast.success("Vorgang wurde erfolgreich angelegt");
           loadCases();
           navigate(`/cases/${newCase.id}`);
         }}

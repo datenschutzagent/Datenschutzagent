@@ -18,6 +18,8 @@ import {
   SelectValue,
 } from "../components/ui/select";
 import { AppLayout } from "../components/app-layout";
+import { PageHeader } from "../components/page-header";
+import { Skeleton } from "../components/ui/skeleton";
 import { statusLabels, statusColors } from "../lib/mock-data";
 import type { CaseStatus } from "../lib/mock-data";
 import {
@@ -136,28 +138,20 @@ export function VvtOverviewPage() {
 
   return (
     <AppLayout>
-        <div className="flex items-center justify-between mb-6">
-          <div>
-            <h2 className="text-xl font-semibold text-foreground">
-              VVT-Übersicht (Organisationsebene)
-            </h2>
-            <p className="text-sm text-muted-foreground mt-1">
-              Tabellarische Übersicht aller Vorgänge mit VVT-Status und Vollständigkeit
-            </p>
-          </div>
-          <Button
-            className="gap-2"
-            onClick={handleExport}
-            disabled={exportLoading}
-          >
-            {exportLoading ? (
-              <Loader2 className="size-4 animate-spin" />
-            ) : (
-              <Download className="size-4" />
-            )}
-            Als CSV exportieren
-          </Button>
-        </div>
+        <PageHeader
+          title="VVT-Übersicht (Organisationsebene)"
+          description="Tabellarische Übersicht aller Vorgänge mit VVT-Status und Vollständigkeit"
+          action={
+            <Button className="gap-2" onClick={handleExport} disabled={exportLoading}>
+              {exportLoading ? (
+                <Loader2 className="size-4 animate-spin" />
+              ) : (
+                <Download className="size-4" />
+              )}
+              Als CSV exportieren
+            </Button>
+          }
+        />
 
         {/* Stats */}
         <Card className="mb-6">
@@ -358,9 +352,15 @@ export function VvtOverviewPage() {
               </div>
             )}
             {loading ? (
-              <div className="flex items-center gap-2 text-muted-foreground py-8">
-                <Loader2 className="size-4 animate-spin" />
-                Lade Übersicht…
+              <div className="space-y-2 py-4">
+                {[1, 2, 3, 4].map((i) => (
+                  <div key={i} className="flex items-center gap-4 px-2 py-2">
+                    <Skeleton className="h-4 w-48" />
+                    <Skeleton className="h-4 w-24" />
+                    <Skeleton className="h-5 w-20" />
+                    <Skeleton className="h-4 w-16 ml-auto" />
+                  </div>
+                ))}
               </div>
             ) : items.length === 0 ? (
               <p className="text-center text-muted-foreground py-8">Keine Vorgänge gefunden.</p>

@@ -1,6 +1,7 @@
 import { Link, useNavigate } from "react-router";
 import { useState, useEffect } from "react";
 import { AppLayout } from "../components/app-layout";
+import { PageHeader } from "../components/page-header";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../components/ui/card";
 import { Button } from "../components/ui/button";
 import { Alert, AlertDescription } from "../components/ui/alert";
@@ -223,7 +224,7 @@ export function AdminPage() {
 
   return (
     <AppLayout maxWidth="max-w-4xl">
-        <h2 className="text-xl font-semibold text-slate-900 dark:text-slate-100 mb-6">Verwaltung</h2>
+        <PageHeader title="Verwaltung" />
 
         {error && (
           <p className="text-red-600 dark:text-red-400 mb-4">{error}</p>

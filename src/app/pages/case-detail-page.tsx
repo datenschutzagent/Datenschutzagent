@@ -27,10 +27,18 @@ import { DSBReportView } from "../components/dsb-report-view";
 import { AnnotatedDocumentsView } from "../components/annotated-documents-view";
 import { ActivityTimeline } from "../components/activity-timeline";
 import { AppLayout } from "../components/app-layout";
+import {
+  Breadcrumb,
+  BreadcrumbItem,
+  BreadcrumbLink,
+  BreadcrumbList,
+  BreadcrumbPage,
+  BreadcrumbSeparator,
+} from "../components/ui/breadcrumb";
 import { CaseOverviewTab } from "../components/case-detail/CaseOverviewTab";
 import { CaseDocumentsTab } from "../components/case-detail/CaseDocumentsTab";
 import { CaseFindingsTab } from "../components/case-detail/CaseFindingsTab";
-import { ArrowLeft, Download, MessageSquare, Loader2, CircleAlert, ChevronRight } from "lucide-react";
+import { ArrowLeft, Download, MessageSquare, Loader2, CircleAlert } from "lucide-react";
 import { toast } from "sonner";
 import { useState, useEffect, useMemo } from "react";
 import { useAppConfig } from "../contexts/AppConfigContext";
@@ -135,6 +143,7 @@ export function CaseDetailPage() {
         const statusRes = await getRunChecksStatus(caseId);
         if (statusRes.status === "completed") {
           setRunChecksStatus("idle");
+          toast.success("Prüfungen erfolgreich abgeschlossen");
           loadCase();
           setRunChecksOpen(false);
           setSelectedPlaybookId("");
@@ -202,18 +211,19 @@ export function CaseDetailPage() {
 
   return (
     <AppLayout>
-      {/* Breadcrumb Navigation */}
-      <nav aria-label="Breadcrumb" className="mb-4">
-        <ol className="flex items-center gap-1.5 text-sm text-slate-600 dark:text-slate-400">
-          <li>
-            <Link to="/" className="hover:text-slate-900 dark:hover:text-slate-100">Vorgänge</Link>
-          </li>
-          <li><ChevronRight className="size-3.5" /></li>
-          <li className="text-slate-900 dark:text-slate-100 font-medium truncate max-w-[300px]">
-            {caseData.title}
-          </li>
-        </ol>
-      </nav>
+      <Breadcrumb className="mb-4">
+        <BreadcrumbList>
+          <BreadcrumbItem>
+            <BreadcrumbLink asChild>
+              <Link to="/">Vorgänge</Link>
+            </BreadcrumbLink>
+          </BreadcrumbItem>
+          <BreadcrumbSeparator />
+          <BreadcrumbItem>
+            <BreadcrumbPage className="truncate max-w-[300px]">{caseData.title}</BreadcrumbPage>
+          </BreadcrumbItem>
+        </BreadcrumbList>
+      </Breadcrumb>
 
         {/* Viewer hint */}
         {auth?.user && auth.user.role === "viewer" && (
@@ -279,7 +289,7 @@ export function CaseDetailPage() {
                     const date = new Date().toISOString().slice(0, 10);
                     downloadBlob(blob, `DSB-Report-${slug}-${date}.md`);
                   } catch (e) {
-                    setError(e instanceof Error ? e.message : "DSB-Report konnte nicht geladen werden.");
+                    toast.error(e instanceof Error ? e.message : "DSB-Report konnte nicht geladen werden.");
                   } finally {
                     setDsbReportDownloading(false);
                   }

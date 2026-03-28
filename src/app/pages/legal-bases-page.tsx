@@ -1,5 +1,6 @@
 import { Link, useNavigate } from "react-router";
 import { AppLayout } from "../components/app-layout";
+import { PageHeader } from "../components/page-header";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../components/ui/card";
 import { Badge } from "../components/ui/badge";
 import { Button } from "../components/ui/button";
@@ -35,6 +36,7 @@ import {
 } from "../lib/api";
 import { useAuthOptional } from "../contexts/AuthContext";
 import { toast } from "sonner";
+import { Skeleton } from "../components/ui/skeleton";
 import { Plus, Scale, Edit, Trash2, Loader2 } from "lucide-react";
 import { useState, useEffect } from "react";
 
@@ -159,28 +161,41 @@ export function LegalBasesPage() {
 
   return (
     <AppLayout>
-        <div className="flex items-center justify-between mb-6">
-          <div>
-            <h2 className="text-xl font-semibold text-foreground">Rechtsgrundlagen</h2>
-            <p className="text-sm text-muted-foreground mt-1">
-              Gesetze und Vorgaben (DSGVO, BDSG, Klinik-Gesetz, Betriebsvereinbarungen) für die Prüfungen des Agenten
-            </p>
-          </div>
-          {canEditBases && (
-            <Button className="gap-2" onClick={openCreate}>
-              <Plus className="size-4" />
-              Neue Rechtsgrundlage
-            </Button>
-          )}
-        </div>
+        <PageHeader
+          title="Rechtsgrundlagen"
+          description="Gesetze und Vorgaben (DSGVO, BDSG, Klinik-Gesetz, Betriebsvereinbarungen) für die Prüfungen des Agenten"
+          action={
+            canEditBases ? (
+              <Button className="gap-2" onClick={openCreate}>
+                <Plus className="size-4" />
+                Neue Rechtsgrundlage
+              </Button>
+            ) : undefined
+          }
+        />
 
         {loading ? (
-          <Card>
-            <CardContent className="py-12 text-center">
-              <Loader2 className="size-8 animate-spin text-blue-600 dark:text-blue-400 mx-auto mb-2" />
-              <p className="text-muted-foreground">Rechtsgrundlagen werden geladen…</p>
-            </CardContent>
-          </Card>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            {[1, 2, 3].map((i) => (
+              <Card key={i}>
+                <CardHeader>
+                  <div className="flex items-start justify-between gap-2 mb-2">
+                    <Skeleton className="h-5 w-48" />
+                    <Skeleton className="h-5 w-16" />
+                  </div>
+                  <Skeleton className="h-4 w-24 mb-2" />
+                  <Skeleton className="h-4 w-full" />
+                  <Skeleton className="h-4 w-3/4" />
+                </CardHeader>
+                <CardContent>
+                  <div className="flex gap-2 pt-2 border-t border-border">
+                    <Skeleton className="h-8 w-20" />
+                    <Skeleton className="h-8 w-20" />
+                  </div>
+                </CardContent>
+              </Card>
+            ))}
+          </div>
         ) : bases.length === 0 ? (
           <Card>
             <CardContent className="py-12 text-center">
