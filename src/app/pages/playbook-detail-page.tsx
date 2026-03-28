@@ -369,16 +369,8 @@ export function PlaybookDetailPage() {
                   <CardTitle className="text-base">Verwendung</CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-3">
-                  <div className="flex items-center justify-between">
-                    <span className="text-sm text-slate-600 dark:text-slate-400">Aktive Vorgänge</span>
-                    <Badge variant="outline">2</Badge>
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <span className="text-sm text-slate-600 dark:text-slate-400">Abgeschlossene Vorgänge</span>
-                    <Badge variant="outline">15</Badge>
-                  </div>
-                  <div className="text-xs text-slate-500 dark:text-slate-400 pt-2 border-t border-border">
-                    Dieses Playbook wird aktiv für laufende Vorgänge verwendet.
+                  <div className="text-sm text-slate-500 dark:text-slate-400 italic">
+                    Nutzungsstatistiken sind in dieser Version noch nicht verfügbar.
                   </div>
                 </CardContent>
               </Card>
@@ -560,68 +552,30 @@ export function PlaybookDetailPage() {
             <Card>
               <CardHeader>
                 <CardTitle>Versions-Historie</CardTitle>
-                <CardDescription>Alle Änderungen an diesem Playbook</CardDescription>
+                <CardDescription>Bekannte Versionseinträge dieses Playbooks</CardDescription>
               </CardHeader>
               <CardContent>
                 <div className="space-y-4">
                   <div className="flex gap-4">
                     <div className="flex flex-col items-center">
                       <div className="size-3 rounded-full bg-green-600 dark:bg-green-500" />
-                      <div className="w-px h-full bg-slate-200 dark:bg-slate-700" />
                     </div>
-                    <div className="flex-1 pb-6">
+                    <div className="flex-1">
                       <div className="flex items-center gap-2 mb-1">
                         <Badge className="bg-green-100 text-green-700 dark:bg-green-900/50 dark:text-green-300">{playbook.version}</Badge>
                         <Badge className="bg-blue-100 text-blue-700 dark:bg-blue-900/50 dark:text-blue-300">Aktuell</Badge>
                       </div>
-                      <p className="text-sm font-medium text-slate-900 dark:text-slate-100 mb-1">
-                        Aktualisierung: AVV-Checks erweitert
-                      </p>
-                      <p className="text-xs text-slate-600 dark:text-slate-400 mb-2">
-                        {playbook.updatedAt ? new Date(playbook.updatedAt as string).toLocaleString("de-DE") : "—"}
-                      </p>
-                      <ul className="text-xs text-slate-500 dark:text-slate-400 space-y-1 ml-4 list-disc">
-                        <li>Neue Checks für Drittlandtransfer hinzugefügt</li>
-                        <li>TOMs-Anlage-Prüfung erweitert</li>
-                      </ul>
-                    </div>
-                  </div>
-                  <div className="flex gap-4">
-                    <div className="flex flex-col items-center">
-                      <div className="size-3 rounded-full bg-slate-400 dark:bg-slate-500" />
-                      <div className="w-px h-full bg-slate-200 dark:bg-slate-700" />
-                    </div>
-                    <div className="flex-1 pb-6">
-                      <div className="flex items-center gap-2 mb-1">
-                        <Badge variant="outline">v2.2.0</Badge>
-                      </div>
-                      <p className="text-sm font-medium text-slate-900 dark:text-slate-100 mb-1">
-                        DSFA-Screening-Logik verbessert
-                      </p>
-                      <p className="text-xs text-slate-600 dark:text-slate-400 mb-2">
-                        {new Date("2025-12-10").toLocaleString("de-DE")}
-                      </p>
-                      <ul className="text-xs text-slate-500 dark:text-slate-400 space-y-1 ml-4 list-disc">
-                        <li>Schwellenwert-Kriterien aktualisiert</li>
-                      </ul>
-                    </div>
-                  </div>
-                  <div className="flex gap-4">
-                    <div className="flex flex-col items-center">
-                      <div className="size-3 rounded-full bg-slate-400 dark:bg-slate-500" />
-                    </div>
-                    <div className="flex-1">
-                      <div className="flex items-center gap-2 mb-1">
-                        <Badge variant="outline">v2.0.0</Badge>
-                      </div>
-                      <p className="text-sm font-medium text-slate-900 dark:text-slate-100 mb-1">
-                        Initiale Version für {playbook.department}
-                      </p>
                       <p className="text-xs text-slate-600 dark:text-slate-400">
-                        {playbook.createdAt ? new Date(playbook.createdAt as string).toLocaleString("de-DE") : "—"}
+                        Zuletzt aktualisiert: {playbook.updatedAt ? new Date(playbook.updatedAt as string).toLocaleString("de-DE") : "—"}
+                      </p>
+                      <p className="text-xs text-slate-600 dark:text-slate-400 mt-0.5">
+                        Erstellt: {playbook.createdAt ? new Date(playbook.createdAt as string).toLocaleString("de-DE") : "—"}
                       </p>
                     </div>
                   </div>
+                  <p className="text-xs text-slate-500 dark:text-slate-400 italic pt-2 border-t border-border">
+                    Detaillierte Änderungshistorie wird in einer zukünftigen Version verfügbar sein.
+                  </p>
                 </div>
               </CardContent>
             </Card>

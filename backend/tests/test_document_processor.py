@@ -1,0 +1,130 @@
+"""Unit tests for document text extraction logic (no DB, no external services)."""
+import io
+
+import pytest
+
+from app.services.document_processor import (
+    extract_text_from_docx,
+    extract_text_from_xlsx,
+    extract_text,
+    ExtractionResult,
+    EXTRACTION_METHOD_TEXT,
+)
+
+
+def _make_docx_bytes(paragraphs: list[str], table_rows: list[list[str]] | None = None) -> bytes:
+    """Build a minimal in-memory DOCX file."""
+    import docx as python_docx
+
+    doc = python_docx.Document()
+    for para in paragraphs:
+        doc.add_paragraph(para)
+    if table_rows:
+        table = doc.add_table(rows=len(table_rows), cols=len(table_rows[0]))
+        for r_idx, row in enumerate(table_rows):
+            for c_idx, cell_text in enumerate(row):
+                table.rows[r_idx].cells[c_idx].text = cell_text
+    buf = io.BytesIO()
+    doc.save(buf)
+    return buf.getvalue()
+
+
+def _make_xlsx_bytes(sheets: dict[str, list[list]]) -> bytes:
+    """Build a minimal in-memory XLSX file."""
+    import openpyxl
+
+    wb = openpyxl.Workbook()
+    first = True
+    for sheet_name, rows in sheets.items():
+        if first:
+            ws = wb.active
+            ws.title = sheet_name
+            first = False
+        else:
+            ws = wb.create_sheet(sheet_name)
+        for row in rows:
+            ws.append(row)
+    buf = io.BytesIO()
+    wb.save(buf)
+    return buf.getvalue()
+
+
+class TestExtractTextFromDocx:
+    def test_paragraphs_extracted(self):
+        content = _make_docx_bytes(["Erster Absatz", "Zweiter Absatz"])
+        text = extract_text_from_docx(content)
+        assert "Erster Absatz" in text
+        assert "Zweiter Absatz" in text
+
+    def test_table_cells_extracted(self):
+        content = _make_docx_bytes([], table_rows=[["Name", "Wert"], ["Alice", "42"]])
+        text = extract_text_from_docx(content)
+        assert "Name" in text
+        assert "Alice" in text
+
+    def test_empty_document(self):
+        content = _make_docx_bytes([])
+        text = extract_text_from_docx(content)
+        assert isinstance(text, str)
+
+    def test_returns_string(self):
+        content = _make_docx_bytes(["Hello"])
+        result = extract_text_from_docx(content)
+        assert isinstance(result, str)
+
+
+class TestExtractTextFromXlsx:
+    def test_single_sheet_data(self):
+        content = _make_xlsx_bytes({"Sheet1": [["Datum", "Betrag"], ["2024-01-01", 100]]})
+        text = extract_text_from_xlsx(content)
+        assert "Datum" in text
+        assert "2024-01-01" in text
+
+    def test_multiple_sheets(self):
+        content = _make_xlsx_bytes({
+            "Blatt1": [["A", "B"]],
+            "Blatt2": [["C", "D"]],
+        })
+        text = extract_text_from_xlsx(content)
+        assert "Blatt1" in text
+        assert "Blatt2" in text
+        assert "A" in text
+        assert "C" in text
+
+    def test_empty_sheet(self):
+        content = _make_xlsx_bytes({"Empty": []})
+        text = extract_text_from_xlsx(content)
+        assert isinstance(text, str)
+
+
+class TestExtractTextDispatcher:
+    def test_docx_dispatch(self):
+        content = _make_docx_bytes(["Testinhalt"])
+        result = extract_text("file.docx", content)
+        assert isinstance(result, ExtractionResult)
+        assert result.extraction_method == EXTRACTION_METHOD_TEXT
+        assert "Testinhalt" in result.text
+
+    def test_xlsx_dispatch(self):
+        content = _make_xlsx_bytes({"S1": [["Zelle"]]})
+        result = extract_text("report.xlsx", content)
+        assert isinstance(result, ExtractionResult)
+        assert result.extraction_method == EXTRACTION_METHOD_TEXT
+        assert "Zelle" in result.text
+
+    def test_plain_text_fallback(self):
+        content = "Hallo Welt".encode("utf-8")
+        result = extract_text("readme.txt", content)
+        assert isinstance(result, ExtractionResult)
+        assert "Hallo Welt" in result.text
+
+    def test_binary_fallback_returns_empty(self):
+        content = b"\xff\xfe\x00\x01"  # not valid UTF-8
+        result = extract_text("unknown.bin", content)
+        assert isinstance(result, ExtractionResult)
+        assert result.text == ""
+
+    def test_docx_uppercase_extension(self):
+        content = _make_docx_bytes(["Groß"])
+        result = extract_text("DOC.DOCX", content)
+        assert "Groß" in result.text
