@@ -364,7 +364,7 @@ export function CaseDetailPage() {
 
           {/* Findings Tab */}
           <TabsContent value="findings" className="space-y-6">
-            <CaseFindingsTab caseData={caseData} onSelectFinding={setSelectedFinding} />
+            <CaseFindingsTab caseData={caseData} onSelectFinding={setSelectedFinding} onFindingsChanged={loadCase} />
           </TabsContent>
 
           {/* Audit Trail Tab */}

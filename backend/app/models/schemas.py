@@ -84,6 +84,16 @@ class FindingUpdate(BaseModel):
     status: FindingStatusEnum
 
 
+class FindingBulkUpdate(BaseModel):
+    finding_ids: list[UUID]
+    status: FindingStatusEnum
+
+
+class FindingListResponse(BaseModel):
+    items: list[FindingResponse]
+    total: int
+
+
 # --- Case ---
 class CaseCreate(BaseModel):
     title: str = Field(..., min_length=1)

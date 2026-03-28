@@ -886,6 +886,65 @@ export async function updateFindingStatus(findingId: string, status: FindingStat
   return mapFinding(f) as ApiFinding;
 }
 
+export interface FindingListParams {
+  case_id?: string;
+  severity?: string;
+  status?: string;
+  category?: string;
+  limit?: number;
+  offset?: number;
+}
+
+export interface FindingListResult {
+  items: ApiFinding[];
+  total: number;
+}
+
+export async function listFindings(params: FindingListParams): Promise<FindingListResult> {
+  const q = new URLSearchParams();
+  if (params.case_id) q.set("case_id", params.case_id);
+  if (params.severity) q.set("severity", params.severity);
+  if (params.status) q.set("status", params.status);
+  if (params.category) q.set("category", params.category);
+  if (params.limit != null) q.set("limit", String(params.limit));
+  if (params.offset != null) q.set("offset", String(params.offset));
+  const raw = await request<{ items: Record<string, unknown>[]; total: number }>(
+    "GET",
+    `/findings?${q.toString()}`
+  );
+  return {
+    items: raw.items.map((f) => mapFinding(f) as ApiFinding),
+    total: raw.total,
+  };
+}
+
+export async function bulkUpdateFindingStatus(
+  findingIds: string[],
+  status: FindingStatus
+): Promise<{ updated: number }> {
+  return request<{ updated: number }>("PATCH", "/findings/bulk-update", {
+    body: { finding_ids: findingIds, status },
+  });
+}
+
+export async function downloadFindingsExport(
+  caseId: string,
+  filters?: { severity?: string; status?: string; category?: string }
+): Promise<Blob> {
+  const q = new URLSearchParams({ case_id: caseId });
+  if (filters?.severity) q.set("severity", filters.severity);
+  if (filters?.status) q.set("status", filters.status);
+  if (filters?.category) q.set("category", filters.category);
+  const url = `${API_BASE}${API_PREFIX}/findings/export?${q.toString()}`;
+  const headers: Record<string, string> = { ...authHeaders() };
+  const res = await fetch(url, { headers });
+  if (!res.ok) {
+    const detail = await parseErrorResponse(res);
+    throw new Error(detail);
+  }
+  return res.blob();
+}
+
 // --- Departments (Fachbereiche and central institutions) ---
 export interface ApiDepartment {
   code: string;
