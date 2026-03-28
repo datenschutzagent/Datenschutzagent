@@ -157,10 +157,10 @@ export function NewPlaybookDialog({
           </div>
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
-              <Label>Fachbereich</Label>
+              <Label>Organisationseinheit</Label>
               <Select value={department} onValueChange={setDepartment}>
                 <SelectTrigger>
-                  <SelectValue placeholder="Fachbereich wählen" />
+                  <SelectValue placeholder="Einheit wählen" />
                 </SelectTrigger>
                 <SelectContent>
                   {departmentValues.map((v) => (
@@ -177,7 +177,7 @@ export function NewPlaybookDialog({
                 id="pb-case-type"
                 value={caseType}
                 onChange={(e) => setCaseType(e.target.value)}
-                placeholder="z.B. Forschungsvorhaben"
+                placeholder="z.B. Allgemein, IT-System, HR"
               />
             </div>
           </div>

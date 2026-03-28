@@ -24,3 +24,7 @@ checks:
     type: document
     category: "Speicherbegrenzung"
     mandatory: false
+
+match:
+  org_profiles:
+    - "goethe"

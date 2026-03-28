@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "./ui/dialog";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
@@ -18,6 +18,7 @@ import {
   type ApiDepartment,
   type ApiPlaybook,
 } from "../lib/api";
+import { useAppConfig } from "../contexts/AppConfigContext";
 import { documentTypeLabels, type DocumentType } from "../lib/mock-data";
 
 interface NewCaseDialogProps {
@@ -31,7 +32,7 @@ const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
 
 const PROCESSING_CONTEXT_NONE = "none";
 
-const PROCESSING_CONTEXT_OPTIONS: { value: string; label: string }[] = [
+const DEFAULT_PROCESSING_CONTEXT_OPTIONS: { value: string; label: string }[] = [
   { value: PROCESSING_CONTEXT_NONE, label: "Keiner / nicht festgelegt" },
   { value: "research", label: "Forschung" },
   { value: "hr", label: "Personal" },
@@ -42,6 +43,12 @@ const PROCESSING_CONTEXT_OPTIONS: { value: string; label: string }[] = [
 ];
 
 export function NewCaseDialog({ open, onOpenChange, onSuccess }: NewCaseDialogProps) {
+  const appConfig = useAppConfig();
+  const processingContextOptions = useMemo(
+    () => DEFAULT_PROCESSING_CONTEXT_OPTIONS,
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [appConfig.org_profile],
+  );
   const [step, setStep] = useState<1 | 2 | 3>(1);
   const [departmentsFromApi, setDepartmentsFromApi] = useState<ApiDepartment[]>([]);
   const [playbooks, setPlaybooks] = useState<ApiPlaybook[]>([]);
@@ -181,7 +188,7 @@ export function NewCaseDialog({ open, onOpenChange, onSuccess }: NewCaseDialogPr
         <DialogHeader>
           <DialogTitle>Neuen Vorgang anlegen</DialogTitle>
           <DialogDescription>
-            {step === 1 && "Geben Sie die Grundinformationen zum Forschungsvorhaben ein."}
+            {step === 1 && "Geben Sie die Grundinformationen zum Vorgang ein."}
             {step === 2 && "Wählen Sie das passende Playbook für die Vorprüfung."}
             {step === 3 && "Optional: Dokumente hinzufügen. Sie können auch später auf der Vorgangsseite hochladen."}
           </DialogDescription>
@@ -216,11 +223,11 @@ export function NewCaseDialog({ open, onOpenChange, onSuccess }: NewCaseDialogPr
             {/* Title */}
             <div className="space-y-2">
               <Label htmlFor="title">
-                Titel des Forschungsvorhabens <span className="text-red-600 dark:text-red-400">*</span>
+                Titel des Vorgangs <span className="text-red-600 dark:text-red-400">*</span>
               </Label>
               <Input
                 id="title"
-                placeholder="z.B. Longitudinalstudie zur Burnout-Prävention"
+                placeholder="z.B. Einführung CRM-System, Personalverarbeitung Q1"
                 value={formData.title}
                 onChange={(e) => setFormData({ ...formData, title: e.target.value })}
               />
@@ -229,7 +236,7 @@ export function NewCaseDialog({ open, onOpenChange, onSuccess }: NewCaseDialogPr
             {/* Department */}
             <div className="space-y-2">
               <Label htmlFor="department">
-                Fachbereich <span className="text-red-600 dark:text-red-400">*</span>
+                Organisationseinheit <span className="text-red-600 dark:text-red-400">*</span>
               </Label>
               <Select
                 value={formData.department}
@@ -238,7 +245,7 @@ export function NewCaseDialog({ open, onOpenChange, onSuccess }: NewCaseDialogPr
                 }
               >
                 <SelectTrigger id="department">
-                  <SelectValue placeholder="Fachbereich auswählen" />
+                  <SelectValue placeholder="Einheit auswählen" />
                 </SelectTrigger>
                 <SelectContent>
                   {departments.map((value) => (
@@ -262,7 +269,7 @@ export function NewCaseDialog({ open, onOpenChange, onSuccess }: NewCaseDialogPr
                   <SelectValue placeholder="Kontext wählen" />
                 </SelectTrigger>
                 <SelectContent>
-                  {PROCESSING_CONTEXT_OPTIONS.map((o) => (
+                  {processingContextOptions.map((o) => (
                     <SelectItem key={o.value} value={o.value}>
                       {o.label}
                     </SelectItem>
@@ -326,16 +333,12 @@ export function NewCaseDialog({ open, onOpenChange, onSuccess }: NewCaseDialogPr
             {/* Assignee */}
             <div className="space-y-2">
               <Label htmlFor="assignee">Zugewiesen an</Label>
-              <Select value={formData.assignee} onValueChange={(value) => setFormData({ ...formData, assignee: value })}>
-                <SelectTrigger id="assignee">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="DSB Team">DSB Team</SelectItem>
-                  <SelectItem value="Dr. Müller">Dr. Müller (DSB)</SelectItem>
-                  <SelectItem value="Lisa Schmidt">Lisa Schmidt (Reviewer)</SelectItem>
-                </SelectContent>
-              </Select>
+              <Input
+                id="assignee"
+                placeholder="z.B. DSB Team"
+                value={formData.assignee}
+                onChange={(e) => setFormData({ ...formData, assignee: e.target.value })}
+              />
             </div>
           </div>
         )}
@@ -343,7 +346,7 @@ export function NewCaseDialog({ open, onOpenChange, onSuccess }: NewCaseDialogPr
         {step === 2 && (
           <div className="space-y-4">
             <div className="p-4 bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-800 rounded-lg">
-              <h4 className="font-medium text-blue-900 dark:text-blue-100 mb-1">Fachbereich: {formData.department}</h4>
+              <h4 className="font-medium text-blue-900 dark:text-blue-100 mb-1">Einheit: {formData.department}</h4>
               <p className="text-sm text-blue-700 dark:text-blue-300">
                 {selectedPlaybooks.length} {selectedPlaybooks.length === 1 ? "aktives Playbook" : "aktive Playbooks"} verfügbar
               </p>
@@ -357,8 +360,8 @@ export function NewCaseDialog({ open, onOpenChange, onSuccess }: NewCaseDialogPr
                 {selectedPlaybooks.length === 0 && (
                   <div className="text-center py-8 text-muted-foreground">
                     <FileText className="size-12 mx-auto mb-2 text-muted-foreground/40" />
-                    <p>Keine aktiven Playbooks für diesen Fachbereich verfügbar.</p>
-                    <p className="text-sm mt-1">Bitte wählen Sie einen anderen Fachbereich.</p>
+                    <p>Keine aktiven Playbooks für diese Einheit verfügbar.</p>
+                    <p className="text-sm mt-1">Bitte wählen Sie eine andere Einheit.</p>
                   </div>
                 )}
                 {selectedPlaybooks.map((playbook) => (

@@ -1,8 +1,20 @@
 # DatenschutzAgent
 
-Assistent für den Datenschutz in Forschungsvorhaben: Vorgänge (Cases) verwalten, Dokumente hochladen, Playbook-Checks (LLM-gestützt) ausführen und Findings, DSB-Berichte sowie VVT-Normalisierung nutzen.
+Datenschutz-Compliance-Tool für Organisationen jeder Art: Vorgänge (Cases) verwalten, Dokumente hochladen, Playbook-Checks (LLM-gestützt) ausführen und Findings, DSB-Berichte sowie VVT-Normalisierung (DSGVO Art. 30) nutzen.
+
+Einsetzbar für Unternehmen, Behörden, Hochschulen, Krankenhäuser und andere Organisationen — konfigurierbar über Org-Profile ohne Code-Anpassungen.
 
 Ursprüngliches Design: [Figma – DatenschutzAgent](https://www.figma.com/design/cNgohBB9L3a2qlSZskVZuh/DatenschutzAgent).
+
+## Schnellkonfiguration für Ihre Organisation
+
+1. `.env` aus `.env.example` anlegen
+2. `ORG_PROFILE=meine-org` setzen und `backend/app/data/org_profiles/meine-org/departments.yaml` erstellen (Vorlage: `org_profiles/example/`)
+3. Optional: `ORG_NAME="Meine Organisation GmbH"` für den Frontend-Header
+4. Optional: eigene Playbooks als YAML-Dateien in ein Verzeichnis legen und `PLAYBOOKS_SEED_DIR` setzen
+5. `docker compose up -d` starten
+
+Mitgelieferte Profile: **`default`** (generisch), **`goethe`** (Goethe-Universität Frankfurt), **`example`** (Demonstrationsprofil).
 
 ## Dokumentation
 

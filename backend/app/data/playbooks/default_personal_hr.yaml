@@ -1,0 +1,50 @@
+name: "Datenschutz-Vorprüfung Personal / HR"
+version: "1.0"
+department: ""
+case_type: "HR"
+
+# Kein org_profiles-Filter → gilt für alle Organisationsprofile
+# Schwerpunkt: Personaldatenverarbeitungen
+
+match:
+  processing_contexts:
+    - "hr"
+  priority: 10
+
+checks:
+  - name: "Rechtsgrundlage für Beschäftigtendaten"
+    instruction: "Prüfe, ob die Verarbeitung von Beschäftigtendaten auf einer gültigen Rechtsgrundlage beruht (z.B. § 26 BDSG, Einwilligung, Betriebsvereinbarung, Art. 6 DSGVO). Ist die Grundlage dokumentiert?"
+    type: document
+    category: "Rechtmäßigkeit"
+    mandatory: true
+  - name: "Zweckbindung und Erforderlichkeit"
+    instruction: "Prüfe, ob die Datenverarbeitung auf den für das Beschäftigungsverhältnis erforderlichen Umfang beschränkt ist und der Zweck klar definiert ist."
+    type: document
+    category: "Datensparsamkeit"
+    mandatory: true
+  - name: "Besondere Kategorien (Art. 9 DSGVO)"
+    instruction: "Prüfe, ob Gesundheitsdaten, Gewerkschaftszugehörigkeit, biometrische Daten oder andere besondere Datenkategorien verarbeitet werden. Falls ja: Liegt eine Ausnahme nach Art. 9 Abs. 2 DSGVO oder § 26 Abs. 3 BDSG vor?"
+    type: document
+    category: "Sensible Daten"
+    mandatory: true
+  - name: "Beteiligungsrechte Betriebsrat / Personalrat"
+    instruction: "Prüfe, ob die Mitbestimmungsrechte des Betriebs- oder Personalrats (BetrVG, LPVG) beachtet wurden, sofern anwendbar."
+    type: document
+    category: "Rechenschaftspflicht"
+    mandatory: false
+  - name: "Speicherfristen und Löschkonzept"
+    instruction: "Prüfe, ob gesetzliche und interne Aufbewahrungsfristen für Personalakten und -daten dokumentiert und eingehalten werden."
+    type: document
+    category: "Datensparsamkeit"
+    mandatory: true
+  - name: "Informationspflichten gegenüber Beschäftigten"
+    instruction: "Prüfe, ob Beschäftigte gemäß Art. 13 DSGVO über die Verarbeitung ihrer Daten informiert werden (Datenschutzhinweis / Mitarbeiterinformation)."
+    type: document
+    category: "Transparenz"
+    mandatory: true
+  - name: "Vollständigkeit über alle Dokumente"
+    instruction: "Prüfe über alle vorliegenden Dokumente des Vorgangs hinweg, ob alle datenschutzrelevanten Aspekte der Personalverarbeitung abgedeckt sind und keine Widersprüche bestehen."
+    type: case
+    scope: case
+    category: "Rechenschaftspflicht"
+    mandatory: false

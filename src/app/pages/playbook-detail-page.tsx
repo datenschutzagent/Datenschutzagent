@@ -320,7 +320,7 @@ export function PlaybookDetailPage() {
                     <p className="font-medium">{playbook.version}</p>
                   </div>
                   <div>
-                    <span className="text-slate-600 dark:text-slate-400">Fachbereich:</span>
+                    <span className="text-slate-600 dark:text-slate-400">Einheit:</span>
                     <p className="font-medium">{playbook.department}</p>
                   </div>
                   <div>
@@ -378,7 +378,7 @@ export function PlaybookDetailPage() {
                     <Badge variant="outline">15</Badge>
                   </div>
                   <div className="text-xs text-slate-500 dark:text-slate-400 pt-2 border-t border-border">
-                    Dieses Playbook wird aktiv für laufende Forschungsvorhaben verwendet.
+                    Dieses Playbook wird aktiv für laufende Vorgänge verwendet.
                   </div>
                 </CardContent>
               </Card>

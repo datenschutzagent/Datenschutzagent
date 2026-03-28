@@ -33,7 +33,7 @@ import {
 import { Download, FileText, Loader2, BarChart3 } from "lucide-react";
 import { useState, useEffect } from "react";
 
-const CASE_TYPE_OPTIONS = ["Forschungsvorhaben", "Allgemein"];
+const CASE_TYPE_OPTIONS = ["Allgemein", "HR", "IT-System", "Kommunikation"];
 const HAS_VVT_OPTIONS = [
   { value: "all", label: "Alle" },
   { value: "yes", label: "Nur mit VVT" },
@@ -166,7 +166,7 @@ export function VvtOverviewPage() {
               <BarChart3 className="size-4" />
               Statistik
             </CardTitle>
-            <CardDescription>Kennzahlen und Verteilung nach Fachbereich und Vorgangstyp</CardDescription>
+            <CardDescription>Kennzahlen und Verteilung nach Organisationseinheit und Vorgangstyp</CardDescription>
           </CardHeader>
           <CardContent>
             {statsLoading ? (
@@ -202,12 +202,12 @@ export function VvtOverviewPage() {
                 </div>
                 {stats.by_department.length > 0 && (
                   <div>
-                    <h4 className="text-sm font-medium mb-2">Nach Fachbereich</h4>
+                    <h4 className="text-sm font-medium mb-2">Nach Organisationseinheit</h4>
                     <div className="overflow-x-auto">
                       <Table>
                         <TableHeader>
                           <TableRow>
-                            <TableHead>Fachbereich</TableHead>
+                            <TableHead>Einheit</TableHead>
                             <TableHead className="text-right">Gesamt</TableHead>
                             <TableHead className="text-right">Mit VVT</TableHead>
                             <TableHead className="text-right">Ohne VVT</TableHead>
@@ -274,7 +274,7 @@ export function VvtOverviewPage() {
           <CardContent className="pt-6">
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
               <div className="space-y-2">
-                <label className="text-sm font-medium">Fachbereich</label>
+                <label className="text-sm font-medium">Einheit</label>
                 <Select value={department} onValueChange={setDepartment}>
                   <SelectTrigger className="w-full">
                     <SelectValue />
@@ -411,7 +411,7 @@ export function VvtOverviewPage() {
                     <TableHeader>
                       <TableRow>
                         <TableHead>Titel</TableHead>
-                        <TableHead>Fachbereich</TableHead>
+                        <TableHead>Einheit</TableHead>
                         <TableHead>Vorgangstyp</TableHead>
                         <TableHead>Status</TableHead>
                         <TableHead>VVT vorhanden</TableHead>
