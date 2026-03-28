@@ -6,6 +6,7 @@ from typing import Any
 from sqlalchemy import Boolean, DateTime, ForeignKey, Index, Integer, String, Text
 from sqlalchemy.dialects.postgresql import ARRAY, JSONB, UUID as PG_UUID
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
+from datetime import timezone
 
 
 class Base(DeclarativeBase):
@@ -17,6 +18,11 @@ class Base(DeclarativeBase):
 
 class CaseModel(Base):
     __tablename__ = "cases"
+    __table_args__ = (
+        Index("ix_cases_status", "status"),
+        Index("ix_cases_department", "department"),
+        Index("ix_cases_updated_at", "updated_at"),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(PG_UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     title: Mapped[str] = mapped_column(String(500), nullable=False)
@@ -27,11 +33,11 @@ class CaseModel(Base):
     created_by: Mapped[str] = mapped_column(String(200), nullable=False, default="")
     assignee: Mapped[str] = mapped_column(String(200), nullable=False, default="")
     playbook_version: Mapped[str] = mapped_column(String(50), nullable=False, default="")
-    processing_context: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    processing_context: Mapped[str | None] = mapped_column(String(500), nullable=True)
     special_category_data: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     international_transfer: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
-    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
     documents: Mapped[list["DocumentModel"]] = relationship("DocumentModel", back_populates="case", cascade="all, delete-orphan")
     findings: Mapped[list["FindingModel"]] = relationship("FindingModel", back_populates="case", cascade="all, delete-orphan")
@@ -49,8 +55,8 @@ class LegalBaseModel(Base):
     department_codes: Mapped[list[str] | None] = mapped_column(ARRAY(String), nullable=True)
     case_types: Mapped[list[str] | None] = mapped_column(ARRAY(String), nullable=True)
     internal_only: Mapped[bool] = mapped_column(default=False)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
-    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
 
 class PlaybookModel(Base):
@@ -63,11 +69,15 @@ class PlaybookModel(Base):
     case_type: Mapped[str] = mapped_column(String(100), nullable=True)
     department: Mapped[str] = mapped_column(String(200), nullable=True)
     is_active: Mapped[bool] = mapped_column(default=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 
 
 class DocumentModel(Base):
     __tablename__ = "documents"
+    __table_args__ = (
+        Index("ix_documents_case_id", "case_id"),
+        Index("ix_documents_extraction_status", "extraction_status"),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(PG_UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     case_id: Mapped[uuid.UUID] = mapped_column(PG_UUID(as_uuid=True), ForeignKey("cases.id", ondelete="CASCADE"), nullable=False)
@@ -82,7 +92,7 @@ class DocumentModel(Base):
     extraction_method: Mapped[str | None] = mapped_column(String(20), nullable=True)  # "text" | "ocr"
     extraction_status: Mapped[str] = mapped_column(String(20), nullable=False, default="pending")  # pending | processing | done | failed
     extraction_error: Mapped[str | None] = mapped_column(Text, nullable=True)  # Error message when extraction_status=failed
-    uploaded_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+    uploaded_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 
     case: Mapped["CaseModel"] = relationship("CaseModel", back_populates="documents")
 
@@ -97,11 +107,16 @@ class DocumentCommentModel(Base):
     author: Mapped[str] = mapped_column(String(200), nullable=False, default="")
     user_id: Mapped[uuid.UUID | None] = mapped_column(PG_UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     text: Mapped[str] = mapped_column(Text, nullable=False)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 
 
 class FindingModel(Base):
     __tablename__ = "findings"
+    __table_args__ = (
+        Index("ix_findings_case_id", "case_id"),
+        Index("ix_findings_case_id_status", "case_id", "status"),
+        Index("ix_findings_case_id_severity", "case_id", "severity"),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(PG_UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     case_id: Mapped[uuid.UUID] = mapped_column(PG_UUID(as_uuid=True), ForeignKey("cases.id", ondelete="CASCADE"), nullable=False)
@@ -114,6 +129,8 @@ class FindingModel(Base):
     evidence: Mapped[list[str]] = mapped_column(ARRAY(Text), nullable=False, default=list)
     recommendation: Mapped[str] = mapped_column(Text, nullable=False, default="")
     source_strategy: Mapped[str | None] = mapped_column(String(20), nullable=True)  # "full_text" | "rag"
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
     case: Mapped["CaseModel"] = relationship("CaseModel", back_populates="findings")
 
@@ -128,8 +145,8 @@ class UserModel(Base):
     email: Mapped[str | None] = mapped_column(String(320), nullable=True)
     role: Mapped[str] = mapped_column(String(20), nullable=False, default="viewer")  # viewer | editor | admin
     preferences: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
-    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
 
 class PromptTemplateModel(Base):
@@ -141,7 +158,7 @@ class PromptTemplateModel(Base):
     version: Mapped[str] = mapped_column(String(50), nullable=False)
     content: Mapped[str] = mapped_column(Text, nullable=False)
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 
 
 class ActivityLogModel(Base):
@@ -153,7 +170,7 @@ class ActivityLogModel(Base):
     case_id: Mapped[uuid.UUID] = mapped_column(PG_UUID(as_uuid=True), ForeignKey("cases.id", ondelete="CASCADE"), nullable=False)
     event_type: Mapped[str] = mapped_column(String(80), nullable=False)
     payload: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 
 
 class RunChecksJobModel(Base):
@@ -164,15 +181,15 @@ class RunChecksJobModel(Base):
     id: Mapped[uuid.UUID] = mapped_column(PG_UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     case_id: Mapped[uuid.UUID] = mapped_column(PG_UUID(as_uuid=True), ForeignKey("cases.id", ondelete="CASCADE"), nullable=False)
     status: Mapped[str] = mapped_column(String(20), nullable=False)  # running | completed | failed
-    playbook_id: Mapped[uuid.UUID] = mapped_column(PG_UUID(as_uuid=True), ForeignKey("playbooks.id", ondelete="CASCADE"), nullable=False)
+    playbook_id: Mapped[uuid.UUID] = mapped_column(PG_UUID(as_uuid=True), ForeignKey("playbooks.id", ondelete="SET NULL"), nullable=True)
     playbook_name: Mapped[str] = mapped_column(String(200), nullable=False)
     strategies: Mapped[list[str]] = mapped_column(ARRAY(String), nullable=False, default=list)
     celery_task_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
     findings_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     result_payload: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
-    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
 
 class DSBReportModel(Base):
@@ -184,8 +201,8 @@ class DSBReportModel(Base):
     payload: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
     basis_document_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     basis_last_run_checks_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
-    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
 
 class DSBReportJobModel(Base):
@@ -198,8 +215,8 @@ class DSBReportJobModel(Base):
     status: Mapped[str] = mapped_column(String(20), nullable=False)  # running | completed | failed
     celery_task_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
-    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
 
 def orm_to_user_response(orm: UserModel) -> dict[str, Any]:

@@ -94,6 +94,11 @@ class FindingListResponse(BaseModel):
     total: int
 
 
+class CaseListResponse(BaseModel):
+    items: list["CaseResponse"]
+    total: int
+
+
 # --- Case ---
 class CaseCreate(BaseModel):
     title: str = Field(..., min_length=1)
@@ -102,7 +107,7 @@ class CaseCreate(BaseModel):
     language: CaseLanguageEnum = "de"
     created_by: str = Field(default="", min_length=0)
     assignee: str = Field(default="", min_length=0)
-    processing_context: str | None = Field(default=None, max_length=80)
+    processing_context: str | None = Field(default=None, max_length=500)
     special_category_data: bool = False
     international_transfer: bool = False
 
@@ -115,7 +120,7 @@ class CaseUpdate(BaseModel):
     language: CaseLanguageEnum | None = None
     assignee: str | None = None
     playbook_version: str | None = None
-    processing_context: str | None = Field(default=None, max_length=80)
+    processing_context: str | None = Field(default=None, max_length=500)
     special_category_data: bool | None = None
     international_transfer: bool | None = None
 

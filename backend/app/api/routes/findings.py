@@ -178,13 +178,15 @@ async def export_findings(
             f.source_strategy or "",
         ])
 
-    from datetime import datetime
-    date_str = datetime.utcnow().strftime("%Y-%m-%d")
+    from datetime import datetime, timezone
+    date_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
     slug = case.title.replace("/", "-").replace("\\", "-")[:50]
     filename = f"Befunde-{slug}-{date_str}.csv"
 
+    # UTF-8 BOM for Excel compatibility (consistent with VVT export)
+    body = "\ufeff" + buf.getvalue()
     return Response(
-        content=buf.getvalue(),
+        content=body.encode("utf-8"),
         media_type="text/csv; charset=utf-8",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )

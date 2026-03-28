@@ -2,7 +2,7 @@
 import asyncio
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import select, tuple_
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -83,6 +83,13 @@ async def run_checks_impl(
     rag_skipped = False
     errors: list[dict] = []
 
+    # Load existing open findings for deduplication (check_name + document_id)
+    existing_result = await db.execute(
+        select(FindingModel.check_name, FindingModel.document_id)
+        .where(FindingModel.case_id == case_id, FindingModel.status == "open")
+    )
+    existing_open: set[tuple] = {(row[0], row[1]) for row in existing_result.all()}
+
     def _parse_uuid_list(ids: list) -> set[UUID]:
         out: set[UUID] = set()
         for x in ids or []:
@@ -146,6 +153,7 @@ async def run_checks_impl(
         case_id: UUID,
         document_id: UUID | None,
         check_name: str,
+        category: str,
         severity: str,
         description: str,
         evidence: list,
@@ -153,13 +161,17 @@ async def run_checks_impl(
         source_strategy: str | None = "full_text",
     ):
         nonlocal findings_added
+        # Skip if an open finding for this check+document already exists (deduplication)
+        if (check_name, document_id) in existing_open:
+            return
+        existing_open.add((check_name, document_id))
         finding = FindingModel(
             case_id=case_id,
             document_id=document_id,
             check_name=check_name,
             severity=severity,
             status="open",
-            category=check_name,
+            category=category,
             description=description,
             evidence=evidence or [],
             recommendation=recommendation or "",
@@ -170,6 +182,7 @@ async def run_checks_impl(
 
     async def _run_doc_check_full_text(doc_id, doc_text, item):
         name = item.get("name") or item.get("check_name") or "Check"
+        category = item.get("category") or name
         instruction = _instruction_for_check(item)
         if not instruction:
             return
@@ -187,6 +200,7 @@ async def run_checks_impl(
                 case_id=case_id,
                 document_id=doc_id,
                 check_name=name,
+                category=category,
                 severity=check_result.severity,
                 description=check_result.description,
                 evidence=check_result.evidence or [],
@@ -197,6 +211,7 @@ async def run_checks_impl(
     async def _run_doc_check_rag(doc_id, item):
         nonlocal rag_skipped
         name = item.get("name") or item.get("check_name") or "Check"
+        category = item.get("category") or name
         instruction = _instruction_for_check(item)
         if not instruction:
             return
@@ -219,6 +234,7 @@ async def run_checks_impl(
                 case_id=case_id,
                 document_id=doc_id,
                 check_name=name,
+                category=category,
                 severity=rag_result.severity,
                 description=rag_result.description,
                 evidence=rag_result.evidence or [],
@@ -242,6 +258,7 @@ async def run_checks_impl(
 
         async def _run_case_check_full_text(item):
             name = item.get("name") or item.get("check_name") or "Check"
+            category = item.get("category") or name
             instruction = _instruction_for_check(item)
             if not instruction:
                 return
@@ -259,6 +276,7 @@ async def run_checks_impl(
                     case_id=case_id,
                     document_id=None,
                     check_name=name,
+                    category=category,
                     severity=check_result.severity,
                     description=check_result.description,
                     evidence=check_result.evidence or [],
@@ -269,6 +287,7 @@ async def run_checks_impl(
         async def _run_case_check_rag(item):
             nonlocal rag_skipped
             name = item.get("name") or item.get("check_name") or "Check"
+            category = item.get("category") or name
             instruction = _instruction_for_check(item)
             if not instruction:
                 return
@@ -291,6 +310,7 @@ async def run_checks_impl(
                     case_id=case_id,
                     document_id=None,
                     check_name=name,
+                    category=category,
                     severity=rag_result.severity,
                     description=rag_result.description,
                     evidence=rag_result.evidence or [],

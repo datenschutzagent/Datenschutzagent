@@ -72,7 +72,8 @@ def _extract_text_from_pdf_via_ollama(content: bytes) -> str:
                         }
                     ],
                 )
-                content_msg = (response.get("message") or {}).get("content") or ""
+                # response is a Pydantic ChatResponse model, not a dict
+                content_msg = (response.message.content or "") if hasattr(response, "message") else ""
                 page_texts.append(content_msg.strip())
             except Exception as e:
                 logger.warning("Ollama OCR failed for page %s: %s", i + 1, e)
