@@ -20,6 +20,7 @@ class AppConfigResponse(BaseModel):
     app_name: str
     org_name: str
     org_profile: str
+    processing_context_options: list[ProcessingContextOption]
 
 
 @router.get("/config", response_model=AppConfigResponse, tags=["config"])
@@ -28,8 +29,13 @@ def get_app_config() -> AppConfigResponse:
     Return public application configuration for the frontend.
     No authentication required (like /health and /auth/config).
     """
+    raw_options = get_processing_context_options(settings)
     return AppConfigResponse(
         app_name=settings.app_name,
         org_name=get_org_name(settings),
         org_profile=(settings.org_profile or "default").strip() or "default",
+        processing_context_options=[
+            ProcessingContextOption(value=o["value"], label=o["label"])
+            for o in raw_options
+        ],
     )

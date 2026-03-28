@@ -32,22 +32,19 @@ import { CaseDocumentsTab } from "../components/case-detail/CaseDocumentsTab";
 import { CaseFindingsTab } from "../components/case-detail/CaseFindingsTab";
 import { ArrowLeft, Download, MessageSquare, Loader2, CircleAlert, ChevronRight } from "lucide-react";
 import { toast } from "sonner";
-import { useState, useEffect } from "react";
-
-const PROCESSING_CONTEXT_LABELS: Record<string, string> = {
-  research: "Forschung",
-  hr: "Personal",
-  it_operations: "IT-Betrieb",
-  communications: "Öffentlichkeitsarbeit / Kommunikation",
-  procurement: "Beschaffung",
-  other: "Sonstiges",
-};
+import { useState, useEffect, useMemo } from "react";
+import { useAppConfig } from "../contexts/AppConfigContext";
 
 export function CaseDetailPage() {
   const { caseId } = useParams();
   const navigate = useNavigate();
   const auth = useAuthOptional();
   const userCanEdit = canEdit(auth?.user ?? null);
+  const appConfig = useAppConfig();
+  const processingContextLabels = useMemo<Record<string, string>>(
+    () => Object.fromEntries(appConfig.processing_context_options.map((o) => [o.value, o.label])),
+    [appConfig.processing_context_options],
+  );
   const [caseData, setCaseData] = useState<ApiCase | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -246,7 +243,7 @@ export function CaseDetailPage() {
                     <span>•</span>
                     <span>
                       Kontext:{" "}
-                      {PROCESSING_CONTEXT_LABELS[caseData.processingContext] ??
+                      {processingContextLabels[caseData.processingContext] ??
                         caseData.processingContext}
                     </span>
                   </>

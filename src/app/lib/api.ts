@@ -1116,7 +1116,7 @@ export async function getVVTExportBlob(
   return res.blob();
 }
 
-// --- VVT Overview (university-level) ---
+// --- VVT Overview (organisation-level) ---
 export interface ApiVVTOverviewItem {
   case_id: string;
   title: string;
@@ -1258,6 +1258,7 @@ export interface ApiAppConfig {
   app_name: string;
   org_name: string;
   org_profile: string;
+  processing_context_options: { value: string; label: string }[];
 }
 
 export async function getAppConfig(): Promise<ApiAppConfig> {

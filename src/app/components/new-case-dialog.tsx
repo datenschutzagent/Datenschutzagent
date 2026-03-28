@@ -32,9 +32,8 @@ const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
 
 const PROCESSING_CONTEXT_NONE = "none";
 
-const DEFAULT_PROCESSING_CONTEXT_OPTIONS: { value: string; label: string }[] = [
+const FALLBACK_PROCESSING_CONTEXT_OPTIONS: { value: string; label: string }[] = [
   { value: PROCESSING_CONTEXT_NONE, label: "Keiner / nicht festgelegt" },
-  { value: "research", label: "Forschung" },
   { value: "hr", label: "Personal" },
   { value: "it_operations", label: "IT-Betrieb" },
   { value: "communications", label: "Öffentlichkeitsarbeit / Kommunikation" },
@@ -45,9 +44,11 @@ const DEFAULT_PROCESSING_CONTEXT_OPTIONS: { value: string; label: string }[] = [
 export function NewCaseDialog({ open, onOpenChange, onSuccess }: NewCaseDialogProps) {
   const appConfig = useAppConfig();
   const processingContextOptions = useMemo(
-    () => DEFAULT_PROCESSING_CONTEXT_OPTIONS,
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [appConfig.org_profile],
+    () =>
+      appConfig.processing_context_options.length > 0
+        ? appConfig.processing_context_options
+        : FALLBACK_PROCESSING_CONTEXT_OPTIONS,
+    [appConfig.processing_context_options],
   );
   const [step, setStep] = useState<1 | 2 | 3>(1);
   const [departmentsFromApi, setDepartmentsFromApi] = useState<ApiDepartment[]>([]);

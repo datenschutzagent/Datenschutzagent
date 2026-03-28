@@ -9,6 +9,7 @@ const DEFAULT_CONFIG: ApiAppConfig = {
   app_name: "Datenschutz-Agent",
   org_name: "",
   org_profile: "default",
+  processing_context_options: [],
 };
 
 const AppConfigContext = createContext<ApiAppConfig>(DEFAULT_CONFIG);

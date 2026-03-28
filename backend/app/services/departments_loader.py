@@ -29,7 +29,7 @@ def resolve_departments_yaml_path(settings: Settings) -> Path:
     profile_path = _DATA_DIR / "org_profiles" / profile / "departments.yaml"
     if profile_path.is_file():
         return profile_path
-    return _DATA_DIR / "fachbereiche.yaml"
+    return _DATA_DIR / "org_profiles" / "default" / "departments.yaml"
 
 
 def load_departments_from_yaml(path: Path) -> list[dict[str, Any]]:
