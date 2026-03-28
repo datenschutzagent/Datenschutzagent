@@ -4,7 +4,7 @@ import csv
 import io
 import logging
 import re
-from datetime import datetime
+from datetime import datetime, timezone
 from uuid import UUID
 
 logger = logging.getLogger(__name__)
@@ -12,13 +12,13 @@ logger = logging.getLogger(__name__)
 from docx import Document as DocxDocument
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import JSONResponse, Response
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.config import settings
 from app.database import get_db
-from app.models import CaseCreate, CaseModel, CaseResponse, CaseUpdate, orm_to_case_response
+from app.models import CaseCreate, CaseListResponse, CaseModel, CaseResponse, CaseUpdate, orm_to_case_response
 from app.models.db import (
     ActivityLogModel,
     DocumentModel,
@@ -59,13 +59,16 @@ from app.core.auth import require_roles
 router = APIRouter()
 
 
-@router.get("", response_model=list[CaseResponse])
+@router.get("", response_model=CaseListResponse)
 async def list_cases(
     skip: int = 0,
     limit: int = 100,
     db: AsyncSession = Depends(get_db),
 ):
-    """List cases with optional pagination."""
+    """List cases with optional pagination. Returns items and total count."""
+    count_result = await db.execute(select(func.count()).select_from(CaseModel))
+    total = count_result.scalar_one()
+
     result = await db.execute(
         select(CaseModel)
         .options(selectinload(CaseModel.documents), selectinload(CaseModel.findings))
@@ -74,7 +77,10 @@ async def list_cases(
         .limit(limit)
     )
     cases = result.scalars().all()
-    return [CaseResponse(**orm_to_case_response(c)) for c in cases]
+    return CaseListResponse(
+        items=[CaseResponse(**orm_to_case_response(c)) for c in cases],
+        total=total,
+    )
 
 
 @router.get("/{case_id}", response_model=CaseResponse)
@@ -262,7 +268,7 @@ async def get_vvt_normalization_export(
     case_lang = getattr(case, "language", None)
     vvt_fields = get_vvt_field_names(settings)
     extraction = await normalize_vvt(raw_text, language=case_lang, field_names=vvt_fields)
-    date_str = datetime.utcnow().strftime("%Y-%m-%d")
+    date_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
 
     if (format or "csv").lower() == "docx":
         content = _build_vvt_export_docx(doc.name, extraction.source_template or "", extraction.fields)

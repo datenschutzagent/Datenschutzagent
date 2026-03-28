@@ -86,7 +86,7 @@ def _language_hint(language: str | None) -> str:
 
 def _legal_bases_section(legal_bases_context: str | None) -> str:
     """Format optional legal bases context for prompt. Returns empty string if none."""
-    if not (legal_bases_context or legal_bases_context.strip()):
+    if not legal_bases_context or not legal_bases_context.strip():
         return ""
     return "Relevant legal requirements (excerpts from referenced legal bases):\n---\n" + legal_bases_context.strip() + "\n---\n\n"
 
@@ -102,7 +102,7 @@ async def run_check(
     system_tpl = await get_active_template("check_full_text_document_system")
     system = render(system_tpl or DEFAULT_CHECK_FULL_TEXT_DOCUMENT_SYSTEM, {"language_hint": language_hint})
     user_tpl = await get_active_template("check_full_text_document_user")
-    truncated_text = document_text[:20000] if document_text else ""
+    truncated_text = document_text[:CONTEXT_CHARS_PER_DOC] if document_text else ""
     user_content = render(
         user_tpl or DEFAULT_CHECK_FULL_TEXT_DOCUMENT_USER,
         {
