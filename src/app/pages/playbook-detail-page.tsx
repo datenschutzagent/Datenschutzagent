@@ -14,6 +14,14 @@ import {
   AlertDialogTitle,
 } from "../components/ui/alert-dialog";
 import { AppLayout } from "../components/app-layout";
+import {
+  Breadcrumb,
+  BreadcrumbItem,
+  BreadcrumbLink,
+  BreadcrumbList,
+  BreadcrumbPage,
+  BreadcrumbSeparator,
+} from "../components/ui/breadcrumb";
 import { NewPlaybookDialog } from "../components/new-playbook-dialog";
 import {
   getPlaybook,
@@ -37,7 +45,6 @@ import {
   Loader2,
   Trash2,
   Scale,
-  ChevronRight,
 } from "lucide-react";
 import { toast } from "sonner";
 import { useState, useEffect } from "react";
@@ -207,18 +214,19 @@ export function PlaybookDetailPage() {
 
   return (
     <AppLayout>
-      {/* Breadcrumb Navigation */}
-      <nav aria-label="Breadcrumb" className="mb-4">
-        <ol className="flex items-center gap-1.5 text-sm text-slate-600 dark:text-slate-400">
-          <li>
-            <Link to="/playbooks" className="hover:text-slate-900 dark:hover:text-slate-100">Playbooks</Link>
-          </li>
-          <li><ChevronRight className="size-3.5" /></li>
-          <li className="text-slate-900 dark:text-slate-100 font-medium truncate max-w-[300px]">
-            {playbook.name}
-          </li>
-        </ol>
-      </nav>
+      <Breadcrumb className="mb-4">
+        <BreadcrumbList>
+          <BreadcrumbItem>
+            <BreadcrumbLink asChild>
+              <Link to="/playbooks">Playbooks</Link>
+            </BreadcrumbLink>
+          </BreadcrumbItem>
+          <BreadcrumbSeparator />
+          <BreadcrumbItem>
+            <BreadcrumbPage className="truncate max-w-[300px]">{playbook.name}</BreadcrumbPage>
+          </BreadcrumbItem>
+        </BreadcrumbList>
+      </Breadcrumb>
 
         {/* Playbook Header */}
         <div className="mb-6">
