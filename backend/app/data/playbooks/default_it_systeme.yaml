@@ -1,0 +1,45 @@
+name: "Datenschutz-Vorprüfung IT-Systeme"
+version: "1.0"
+department: ""
+case_type: "IT-System"
+
+# Kein org_profiles-Filter → gilt für alle Organisationsprofile
+# Schwerpunkt: Einführung oder Betrieb von IT-Systemen mit Personenbezug
+
+match:
+  processing_contexts:
+    - "it_operations"
+  priority: 10
+
+checks:
+  - name: "Rechtmäßigkeit und Rechtsgrundlage"
+    instruction: "Prüfe, ob für den Einsatz des IT-Systems eine Rechtsgrundlage nach Art. 6 DSGVO vorliegt und ob diese dokumentiert ist."
+    type: document
+    category: "Rechtmäßigkeit"
+    mandatory: true
+  - name: "Verarbeitungszweck und Datensparsamkeit"
+    instruction: "Prüfe, ob der Verarbeitungszweck klar definiert ist und ob das System nur die für diesen Zweck notwendigen Daten erhebt (Grundsatz der Datensparsamkeit, Art. 5 Abs. 1 lit. c DSGVO)."
+    type: document
+    category: "Datensparsamkeit"
+    mandatory: true
+  - name: "Technische Schutzmaßnahmen"
+    instruction: "Prüfe, ob technische Schutzmaßnahmen beschrieben sind: Verschlüsselung, Zugriffskontrolle, Authentifizierung, Logging/Audit-Trail, Backupkonzept."
+    type: document
+    category: "Sicherheit"
+    mandatory: true
+  - name: "Auftragsverarbeitung / Drittanbieter"
+    instruction: "Prüfe, ob externe Dienstleister oder Cloud-Anbieter personenbezogene Daten verarbeiten und ob AVVs geschlossen wurden. Bei Drittlandtransfer: Schutzgarantien vorhanden?"
+    type: document
+    category: "Rechenschaftspflicht"
+    mandatory: true
+  - name: "Lösch- und Berechtigungskonzept"
+    instruction: "Prüfe, ob Löschfristen und ein Berechtigungskonzept (Rollen, Minimalrechtsprinzip) dokumentiert sind."
+    type: document
+    category: "Datensparsamkeit"
+    mandatory: true
+  - name: "DSFA-Pflicht prüfen"
+    instruction: "Prüfe anhand der Dokumente, ob das System unter die DSFA-Pflicht nach Art. 35 DSGVO fallen könnte (z.B. systematische Überwachung, Profiling, Verarbeitung sensibler Daten im großen Umfang). Falls ja: Ist eine Datenschutz-Folgenabschätzung geplant oder vorhanden?"
+    type: case
+    scope: case
+    category: "Risikobewertung"
+    mandatory: false

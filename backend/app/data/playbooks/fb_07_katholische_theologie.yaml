@@ -19,3 +19,7 @@ checks:
     type: document
     category: "Rechenschaftspflicht"
     mandatory: false
+
+match:
+  org_profiles:
+    - "goethe"

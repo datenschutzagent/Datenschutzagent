@@ -44,7 +44,7 @@ export function PlaybooksPage() {
           <div>
             <h2 className="text-xl font-semibold text-slate-900 dark:text-slate-100">Playbooks</h2>
             <p className="text-sm text-slate-600 dark:text-slate-400 mt-1">
-              Versionierte Prüfvorlagen für verschiedene Fachbereiche und Case-Typen
+              Versionierte Prüfvorlagen für verschiedene Organisationseinheiten und Vorgangstypen
             </p>
           </div>
           {canEdit(auth?.user ?? null) && (
@@ -62,7 +62,7 @@ export function PlaybooksPage() {
               <div className="flex-1 relative">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-slate-400 dark:text-slate-500" />
                 <Input
-                  placeholder="Suche nach Name oder Fachbereich..."
+                  placeholder="Suche nach Name oder Einheit..."
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
                   className="pl-10"

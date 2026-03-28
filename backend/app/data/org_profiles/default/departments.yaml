@@ -1,0 +1,38 @@
+# Generisches Standard-Organisationsprofil.
+# Wird verwendet, wenn ORG_PROFILE=default (Standard) gesetzt ist
+# und kein expliziter DEPARTMENTS_CONFIG_PATH konfiguriert wurde.
+#
+# Passen Sie dieses Profil an Ihre Organisation an oder erstellen Sie
+# unter org_profiles/<ihr-profil>/departments.yaml ein eigenes Profil.
+
+units:
+  - code: "GF"
+    label: "Geschäftsführung"
+    type: "leitung"
+  - code: "IT"
+    label: "Informationstechnik"
+    type: "abteilung"
+  - code: "HR"
+    label: "Personal / Human Resources"
+    type: "abteilung"
+  - code: "RECHT"
+    label: "Recht / Compliance"
+    type: "abteilung"
+  - code: "FIN"
+    label: "Finanzen / Controlling"
+    type: "abteilung"
+  - code: "VERTRIEB"
+    label: "Vertrieb / Marketing"
+    type: "abteilung"
+  - code: "OPS"
+    label: "Betrieb / Operations"
+    type: "abteilung"
+  - code: "KOMM"
+    label: "Kommunikation / Öffentlichkeitsarbeit"
+    type: "abteilung"
+  - code: "EINK"
+    label: "Einkauf / Beschaffung"
+    type: "abteilung"
+  - code: "ZENTRALE"
+    label: "Zentrale Verwaltung"
+    type: "zentral"

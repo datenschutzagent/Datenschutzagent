@@ -1,0 +1,17 @@
+# Standard-Organisationsprofil-Konfiguration.
+# Überschreiben Sie org_name in .env via ORG_NAME=...
+# oder passen Sie diese Datei für Ihr Profil an.
+
+org_name: ""
+
+# Optionale Liste der VVT-Felder (DSGVO Art. 30).
+# Leer lassen, um die Standard-DSGVO-Felder zu verwenden.
+# vvt_fields:
+#   - "Zwecke der Verarbeitung"
+#   - "Rechtsgrundlage"
+#   - "Kategorien betroffener Personen"
+#   - "Kategorien personenbezogener Daten"
+#   - "Empfänger / Empfängerkategorien"
+#   - "Drittlandtransfer"
+#   - "Speicherdauer"
+#   - "Technische und organisatorische Maßnahmen (TOMs)"

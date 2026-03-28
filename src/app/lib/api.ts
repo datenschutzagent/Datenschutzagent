@@ -1252,3 +1252,17 @@ export async function getAnnotatedDocumentBlob(
   }
   return res.blob();
 }
+
+// --- App Config (public, no auth required) ---
+export interface ApiAppConfig {
+  app_name: string;
+  org_name: string;
+  org_profile: string;
+}
+
+export async function getAppConfig(): Promise<ApiAppConfig> {
+  const url = `${API_BASE}${API_PREFIX}/config`;
+  const res = await fetch(url);
+  if (!res.ok) throw new Error("Failed to load app config");
+  return res.json() as Promise<ApiAppConfig>;
+}

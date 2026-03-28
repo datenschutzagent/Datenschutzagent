@@ -1,0 +1,44 @@
+name: "Datenschutz-Vorprüfung Kommunikation / Marketing"
+version: "1.0"
+department: ""
+case_type: "Kommunikation"
+
+# Kein org_profiles-Filter → gilt für alle Organisationsprofile
+# Schwerpunkt: Öffentlichkeitsarbeit, Marketing, Newsletter, Tracking
+
+match:
+  processing_contexts:
+    - "communications"
+  priority: 10
+
+checks:
+  - name: "Einwilligung für Werbung und Newsletter"
+    instruction: "Prüfe, ob für Direktmarketing und Newsletter eine wirksame Einwilligung nach Art. 6 Abs. 1 lit. a DSGVO i.V.m. § 7 UWG eingeholt wird. Ist die Einwilligung freiwillig, informiert und dokumentiert? Gibt es ein einfaches Widerrufsverfahren?"
+    type: document
+    category: "Rechtmäßigkeit"
+    mandatory: true
+  - name: "Tracking und Cookies"
+    instruction: "Prüfe, ob Tracking-Technologien (Cookies, Pixel, Analytics) eingesetzt werden und ob ein konformes Consent-Management vorhanden ist. Wird das Opt-In-Prinzip eingehalten?"
+    type: document
+    category: "Rechtmäßigkeit"
+    mandatory: true
+  - name: "Datenschutzerklärung / Impressum"
+    instruction: "Prüfe, ob eine aktuelle, vollständige Datenschutzerklärung nach Art. 13/14 DSGVO vorhanden und leicht zugänglich ist."
+    type: document
+    category: "Transparenz"
+    mandatory: true
+  - name: "Dienstleister und Auftragsverarbeitung"
+    instruction: "Prüfe, ob Marketing-Dienstleister oder E-Mail-Anbieter als Auftragsverarbeiter agieren und ob AVVs nach Art. 28 DSGVO abgeschlossen wurden. Bei US-Anbietern: Schutzgarantien für Drittlandtransfer?"
+    type: document
+    category: "Rechenschaftspflicht"
+    mandatory: true
+  - name: "Veröffentlichung von Personendaten (Bilder, Namen)"
+    instruction: "Prüfe, ob bei der Veröffentlichung von Fotos, Namen oder sonstigen Personendaten eine Einwilligung oder ein berechtigtes Interesse vorliegt. Besteht ein Widerspruchsrecht?"
+    type: document
+    category: "Rechtmäßigkeit"
+    mandatory: false
+  - name: "Speicher- und Löschfristen für Kontaktdaten"
+    instruction: "Prüfe, ob Speicherfristen für Abonnentenlisten, Interessenten- und Kundendaten festgelegt sind und technisch durchgesetzt werden."
+    type: document
+    category: "Datensparsamkeit"
+    mandatory: true

@@ -46,6 +46,23 @@ class Settings(BaseSettings):
     # If departments_config_path is empty: use data/org_profiles/{org_profile}/departments.yaml when it exists, else data/fachbereiche.yaml
     org_profile: str = "default"
 
+    # Organisation display name shown in the frontend header.
+    # Falls back to org_profiles/{org_profile}/profile.yaml -> org_name if empty.
+    org_name: str = ""
+
+    # Default user display name (created on first startup when OIDC is disabled).
+    default_user_display_name: str = "Standardnutzer"
+
+    # Comma-separated processing context options for the new-case dialog.
+    # Each entry: "value:Label" (e.g. "research:Forschung,hr:Personal").
+    # Empty = use built-in defaults.
+    processing_context_options: str = ""
+
+    # Semicolon-separated VVT canonical field names.
+    # Overrides org_profiles/{org_profile}/profile.yaml -> vvt_fields if set.
+    # Empty = use profile.yaml or built-in DSGVO Art. 30 defaults.
+    vvt_field_names: str = ""
+
     # Ollama (extern gehostet, z. B. im lokalen Netzwerk)
     ollama_base_url: str = "http://localhost:11434"
     ollama_model: str = "llama3.2"

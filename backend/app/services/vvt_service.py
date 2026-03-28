@@ -6,6 +6,7 @@ from typing import Annotated, Literal
 from pydantic import BaseModel, BeforeValidator, Field
 
 from app.core.llm import create_agent
+from app.services.org_profile_loader import DEFAULT_VVT_FIELD_NAMES, get_vvt_field_names
 from app.services.prompt_template_service import get_active_template, render
 
 
@@ -17,17 +18,8 @@ def _coerce_canonical_value(v: str | list[str] | None) -> str | None:
         return ", ".join(str(x).strip() for x in v if x) if v else None
     return v if isinstance(v, str) else str(v)
 
-# Canonical VVT field names (DSGVO Art. 30 / common ROPA/VVT templates)
-CANONICAL_VVT_FIELD_NAMES = [
-    "Zwecke der Verarbeitung",
-    "Rechtsgrundlage",
-    "Kategorien betroffener Personen",
-    "Kategorien personenbezogener Daten",
-    "Empfänger / Empfängerkategorien",
-    "Drittlandtransfer",
-    "Speicherdauer",
-    "Technische und organisatorische Maßnahmen (TOMs)",
-]
+# Backwards-compatible alias — use get_vvt_field_names(settings) for configurable access
+CANONICAL_VVT_FIELD_NAMES = DEFAULT_VVT_FIELD_NAMES
 
 
 _CanonicalValue = Annotated[str | None, BeforeValidator(_coerce_canonical_value)]
@@ -90,18 +82,28 @@ Also set source_template to the detected template variant or 'Unbekannt'.
 """
 
 
-async def normalize_vvt(raw_text: str, language: str | None = None) -> _VVTExtractionResult:
+async def normalize_vvt(
+    raw_text: str,
+    language: str | None = None,
+    field_names: list[str] | None = None,
+) -> _VVTExtractionResult:
     """
     Map raw VVT document text to the canonical VVT model using the LLM.
     Returns structured fields (filled/missing/inconsistent) and optional template detection.
-    language: optional case language (de, en, de_en) so the LLM uses the same language for values and findings.
+
+    Args:
+        raw_text: Raw extracted text of the VVT/ROPA document.
+        language: Optional case language (de, en, de_en) for LLM output language hint.
+        field_names: Optional custom list of canonical VVT field names.
+                     Falls back to DEFAULT_VVT_FIELD_NAMES when None.
     """
+    canonical_fields = field_names if field_names else list(DEFAULT_VVT_FIELD_NAMES)
     language_hint = _vvt_language_hint(language) if language else ""
     system_tpl = await get_active_template("vvt_system")
     system = render(system_tpl or DEFAULT_VVT_SYSTEM, {"language_hint": language_hint})
     agent = create_agent(system_prompt=system)
     truncated = (raw_text or "")[:25000]
-    field_list = ", ".join(f'"{n}"' for n in CANONICAL_VVT_FIELD_NAMES)
+    field_list = ", ".join(f'"{n}"' for n in canonical_fields)
     user_tpl = await get_active_template("vvt_user")
     user_content = render(
         user_tpl or DEFAULT_VVT_USER,
@@ -112,7 +114,7 @@ async def normalize_vvt(raw_text: str, language: str | None = None) -> _VVTExtra
 
     # Ensure we have one entry per canonical field; fill missing with "missing"
     seen = {f.field_name for f in data.fields}
-    for name in CANONICAL_VVT_FIELD_NAMES:
+    for name in canonical_fields:
         if name not in seen:
             data.fields.append(
                 _VVTExtractionField(
@@ -124,6 +126,6 @@ async def normalize_vvt(raw_text: str, language: str | None = None) -> _VVTExtra
                 )
             )
     # Sort to match canonical order
-    name_to_idx = {n: i for i, n in enumerate(CANONICAL_VVT_FIELD_NAMES)}
+    name_to_idx = {n: i for i, n in enumerate(canonical_fields)}
     data.fields.sort(key=lambda f: name_to_idx.get(f.field_name, 999))
     return data

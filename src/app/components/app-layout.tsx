@@ -4,6 +4,7 @@ import { AppHeaderUser } from "./app-header-user";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "./ui/sheet";
 import { Button } from "./ui/button";
 import { useAuthOptional } from "../contexts/AuthContext";
+import { useAppConfig } from "../contexts/AppConfigContext";
 import { isAdmin } from "../lib/api";
 import { Menu } from "lucide-react";
 
@@ -35,7 +36,9 @@ interface AppLayoutProps {
 export function AppLayout({ children, maxWidth = "max-w-7xl" }: AppLayoutProps) {
   const location = useLocation();
   const auth = useAuthOptional();
+  const appConfig = useAppConfig();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const subtitle = appConfig.org_name || "Datenschutz-Compliance";
 
   const visibleNavItems = NAV_ITEMS.filter(
     (item) => !item.adminOnly || isAdmin(auth?.user ?? null)
@@ -60,7 +63,7 @@ export function AppLayout({ children, maxWidth = "max-w-7xl" }: AppLayoutProps) 
                 Datenschutz-Agent
               </h1>
               <p className="text-sm text-slate-600 dark:text-slate-400 mt-1">
-                Universität &bull; Forschungsvorhaben
+                {subtitle}
               </p>
             </div>
 

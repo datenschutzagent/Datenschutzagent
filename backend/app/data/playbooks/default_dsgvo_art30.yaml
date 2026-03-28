@@ -1,0 +1,49 @@
+name: "Datenschutz-Vorprüfung (DSGVO Art. 30)"
+version: "1.0"
+department: ""
+case_type: "Allgemein"
+
+# Kein org_profiles-Filter → gilt für alle Organisationsprofile
+
+checks:
+  - name: "Rechtmäßigkeit der Verarbeitung"
+    instruction: "Prüfe, ob eine gültige Rechtsgrundlage für die Verarbeitung personenbezogener Daten angegeben ist (z.B. Art. 6 DSGVO: Einwilligung, Vertrag, rechtliche Verpflichtung, berechtigtes Interesse). Stelle fest, ob die genannte Grundlage zum beschriebenen Verarbeitungszweck passt."
+    type: document
+    category: "Rechtmäßigkeit"
+    mandatory: true
+  - name: "Zweckbindung"
+    instruction: "Prüfe, ob der Verarbeitungszweck eindeutig und konkret beschrieben ist und ob eine zweckfremde Nutzung ausgeschlossen oder mit eigener Rechtsgrundlage versehen wurde."
+    type: document
+    category: "Zweck"
+    mandatory: true
+  - name: "Betroffenenrechte und Informationspflichten"
+    instruction: "Prüfe, ob Informationspflichten nach Art. 13/14 DSGVO erfüllt werden: Werden Betroffene über Zweck, Rechtsgrundlage, Empfänger und ihre Rechte (Auskunft, Löschung, Widerspruch) informiert?"
+    type: document
+    category: "Transparenz"
+    mandatory: true
+  - name: "Speicherdauer und Löschkonzept"
+    instruction: "Prüfe, ob Speicherfristen oder Kriterien für die Löschung personenbezogener Daten festgelegt und dokumentiert sind."
+    type: document
+    category: "Datensparsamkeit"
+    mandatory: true
+  - name: "Technische und organisatorische Maßnahmen (TOMs)"
+    instruction: "Prüfe, ob angemessene technische und organisatorische Schutzmaßnahmen (Art. 32 DSGVO) beschrieben sind, z.B. Verschlüsselung, Zugriffskontrolle, Pseudonymisierung."
+    type: document
+    category: "Sicherheit"
+    mandatory: true
+  - name: "Auftragsverarbeitung"
+    instruction: "Prüfe, ob Dritte (Dienstleister, Cloud-Anbieter) personenbezogene Daten verarbeiten und ob ein Auftragsverarbeitungsvertrag (AVV) nach Art. 28 DSGVO abgeschlossen wurde."
+    type: document
+    category: "Rechenschaftspflicht"
+    mandatory: false
+  - name: "Drittlandtransfer"
+    instruction: "Prüfe, ob personenbezogene Daten in Drittländer außerhalb der EU/des EWR übermittelt werden und ob hierfür geeignete Garantien (z.B. Standardvertragsklauseln, Angemessenheitsbeschluss) bestehen."
+    type: document
+    category: "Drittlandtransfer"
+    mandatory: false
+  - name: "Vollständigkeit des VVT-Eintrags"
+    instruction: "Prüfe über alle Dokumente des Vorgangs hinweg, ob alle Pflichtangaben nach Art. 30 DSGVO vorhanden sind: Zweck, Rechtsgrundlage, Kategorien betroffener Personen, Datenkategorien, Empfänger, Speicherdauer, TOMs."
+    type: case
+    scope: case
+    category: "Rechenschaftspflicht"
+    mandatory: true

@@ -237,7 +237,7 @@ export function LegalBasesPage() {
                   {base.applicability === "conditional" && (
                     <div className="space-y-1">
                       {base.departmentCodes?.length > 0 && (
-                        <p>Fachbereiche: {base.departmentCodes.join(", ")}</p>
+                        <p>Einheiten: {base.departmentCodes.join(", ")}</p>
                       )}
                       {base.caseTypes?.length > 0 && <p>Vorgangstypen: {base.caseTypes.join(", ")}</p>}
                       {base.internalOnly && <p className="text-amber-600 dark:text-amber-400">Nur Innenrecht</p>}
@@ -255,7 +255,7 @@ export function LegalBasesPage() {
             <DialogTitle>{editing ? "Rechtsgrundlage bearbeiten" : "Neue Rechtsgrundlage"}</DialogTitle>
             <DialogDescription>
               Titel und Inhalt werden für RAG-Abfragen bei Playbook-Checks verwendet. Bei „bedingt“ können
-              Fachbereich und Vorgangstyp eingeschränkt werden.
+              Einheit und Vorgangstyp eingeschränkt werden.
             </DialogDescription>
           </DialogHeader>
           <div className="grid gap-4 py-4">
@@ -296,19 +296,19 @@ export function LegalBasesPage() {
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="always">Immer gültig (z. B. DSGVO, BDSG)</SelectItem>
-                  <SelectItem value="conditional">Nur unter Bedingungen (Fachbereich / Vorgangstyp)</SelectItem>
+                  <SelectItem value="conditional">Nur unter Bedingungen (Einheit / Vorgangstyp)</SelectItem>
                 </SelectContent>
               </Select>
             </div>
             {applicability === "conditional" && (
               <>
                 <div className="grid gap-2">
-                  <Label htmlFor="lb-depts">Fachbereich-Codes (kommagetrennt, z. B. FB 16)</Label>
+                  <Label htmlFor="lb-depts">Einheiten-Codes (kommagetrennt, z. B. IT, HR)</Label>
                   <Input
                     id="lb-depts"
                     value={departmentCodesStr}
                     onChange={(e) => setDepartmentCodesStr(e.target.value)}
-                    placeholder="FB 16, FB 05"
+                    placeholder="IT, HR, RECHT"
                   />
                 </div>
                 <div className="grid gap-2">
@@ -317,7 +317,7 @@ export function LegalBasesPage() {
                     id="lb-ct"
                     value={caseTypesStr}
                     onChange={(e) => setCaseTypesStr(e.target.value)}
-                    placeholder="Forschungsvorhaben, Klinische Studie"
+                    placeholder="Allgemein, IT-System, HR"
                   />
                 </div>
                 <div className="flex items-center gap-2">

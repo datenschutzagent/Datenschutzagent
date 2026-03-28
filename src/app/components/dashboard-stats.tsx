@@ -109,7 +109,7 @@ export function DashboardStats({ cases: casesProp }: DashboardStatsProps = {}) {
               {playbooks.length} gesamt
             </p>
             <div className="flex items-center gap-1 mt-2">
-              <span className="text-xs text-muted-foreground">Für {playbookDepartments} Fachbereiche</span>
+              <span className="text-xs text-muted-foreground">Für {playbookDepartments} Einheiten</span>
             </div>
           </CardContent>
         </Card>
@@ -120,7 +120,7 @@ export function DashboardStats({ cases: casesProp }: DashboardStatsProps = {}) {
         <Card>
           <CardHeader>
             <CardTitle>Vorgänge nach Status</CardTitle>
-            <CardDescription>Verteilung aller Forschungsvorhaben</CardDescription>
+            <CardDescription>Verteilung aller Vorgänge</CardDescription>
           </CardHeader>
           <CardContent>
             <div className="space-y-3">
@@ -220,8 +220,8 @@ export function DashboardStats({ cases: casesProp }: DashboardStatsProps = {}) {
       {/* Department Overview */}
       <Card>
         <CardHeader>
-          <CardTitle>Vorgänge nach Fachbereich</CardTitle>
-          <CardDescription>Verteilung über alle Fachbereiche</CardDescription>
+          <CardTitle>Vorgänge nach Organisationseinheit</CardTitle>
+          <CardDescription>Verteilung über alle Einheiten</CardDescription>
         </CardHeader>
         <CardContent>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">

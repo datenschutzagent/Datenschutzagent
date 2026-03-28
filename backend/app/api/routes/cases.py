@@ -53,6 +53,7 @@ from app.services.dsb_report_service import (
 )
 from app.services.dsb_report_service import _payload_to_report
 from app.services.vvt_service import normalize_vvt
+from app.services.org_profile_loader import get_vvt_field_names
 from app.core.auth import require_roles
 
 router = APIRouter()
@@ -259,7 +260,8 @@ async def get_vvt_normalization_export(
         )
 
     case_lang = getattr(case, "language", None)
-    extraction = await normalize_vvt(raw_text, language=case_lang)
+    vvt_fields = get_vvt_field_names(settings)
+    extraction = await normalize_vvt(raw_text, language=case_lang, field_names=vvt_fields)
     date_str = datetime.utcnow().strftime("%Y-%m-%d")
 
     if (format or "csv").lower() == "docx":
@@ -342,7 +344,8 @@ async def get_vvt_normalization(
         )
 
     case_lang = getattr(case, "language", None)
-    extraction = await normalize_vvt(raw_text, language=case_lang)
+    vvt_fields = get_vvt_field_names(settings)
+    extraction = await normalize_vvt(raw_text, language=case_lang, field_names=vvt_fields)
 
     fields = [
         VVTFieldResponse(

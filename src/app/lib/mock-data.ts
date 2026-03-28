@@ -118,9 +118,9 @@ export interface Playbook {
 export const mockCases: Case[] = [
   {
     id: "case-001",
-    title: "Longitudinalstudie zur Burnout-Prävention",
-    department: "Psychologie",
-    caseType: "clinical_study",
+    title: "Einführung CRM-System",
+    department: "IT",
+    caseType: "IT-System",
     status: "in_review",
     createdAt: "2026-01-15",
     updatedAt: "2026-02-05",
@@ -286,9 +286,9 @@ export const mockCases: Case[] = [
   },
   {
     id: "case-003",
-    title: "KI-gestützte Diagnose seltener Erkrankungen",
-    department: "Medizin",
-    caseType: "medical_research",
+    title: "Personalverarbeitung Onboarding",
+    department: "HR",
+    caseType: "HR",
     status: "questions_pending",
     createdAt: "2026-01-28",
     updatedAt: "2026-02-06",
@@ -392,10 +392,10 @@ export const mockCases: Case[] = [
 export const mockPlaybooks: Playbook[] = [
   {
     id: "pb-001",
-    name: "Klinische Forschung (Psychologie)",
+    name: "IT-Systeme Prüfung",
     version: "v2.3.0",
-    department: "Psychologie",
-    caseType: "clinical_study",
+    department: "IT",
+    caseType: "IT-System",
     createdAt: "2025-09-10",
     updatedAt: "2026-01-15",
     status: "active",
@@ -467,10 +467,10 @@ export const mockPlaybooks: Playbook[] = [
   },
   {
     id: "pb-002",
-    name: "Medizinische Forschung (high-risk)",
+    name: "Personaldaten HR",
     version: "v2.3.1",
-    department: "Medizin",
-    caseType: "medical_research",
+    department: "HR",
+    caseType: "HR",
     createdAt: "2025-10-01",
     updatedAt: "2026-01-20",
     status: "active",
@@ -545,7 +545,7 @@ export const mockPlaybooks: Playbook[] = [
   },
   {
     id: "pb-004",
-    name: "Standard Forschungsvorhaben (generisch)",
+    name: "Standard Datenschutzprüfung (generisch)",
     version: "v1.8.2",
     department: "Alle",
     caseType: "general_research",
