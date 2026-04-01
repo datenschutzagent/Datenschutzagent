@@ -1,12 +1,14 @@
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../ui/card";
 import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "../ui/dialog";
 import { severityColors, priorityLabels, priorityColors } from "../../lib/mock-data";
-import type { ApiCase, ApiFinding, ApiPlaybook, RunChecksStrategy } from "../../lib/api";
+import type { ApiCase, ApiFinding, ApiPlaybook, CaseSimilarityResult, PlaybookCoverage, RunChecksStrategy } from "../../lib/api";
+import { updateCase } from "../../lib/api";
 import { useAppConfig } from "../../contexts/AppConfigContext";
 import { CircleAlert, Download, FileCheck, Loader2, Shield } from "lucide-react";
+import { toast } from "sonner";
 
 export interface CaseOverviewTabProps {
   caseData: ApiCase;
@@ -27,6 +29,9 @@ export interface CaseOverviewTabProps {
   onSelectFinding: (finding: ApiFinding) => void;
   /** When false (e.g. viewer role), hide/disable write actions like Run Checks. */
   canEdit?: boolean;
+  coveragePreview?: PlaybookCoverage | null;
+  similarCases?: CaseSimilarityResult[];
+  onCaseUpdated?: (caseData: ApiCase) => void;
 }
 
 export function CaseOverviewTab({
@@ -47,12 +52,30 @@ export function CaseOverviewTab({
   setRunChecksError,
   onSelectFinding,
   canEdit = true,
+  coveragePreview,
+  similarCases = [],
+  onCaseUpdated,
 }: CaseOverviewTabProps) {
   const appConfig = useAppConfig();
   const processingContextLabels = useMemo<Record<string, string>>(
     () => Object.fromEntries(appConfig.processing_context_options.map((o) => [o.value, o.label])),
     [appConfig.processing_context_options],
   );
+  const [deadlineValue, setDeadlineValue] = useState(caseData.deadline ?? "");
+  const [deadlineSaving, setDeadlineSaving] = useState(false);
+
+  const handleDeadlineSave = async () => {
+    setDeadlineSaving(true);
+    try {
+      const updated = await updateCase(caseData.id, { deadline: deadlineValue || null });
+      onCaseUpdated?.(updated);
+      toast.success("Frist gespeichert");
+    } catch {
+      toast.error("Frist konnte nicht gespeichert werden");
+    } finally {
+      setDeadlineSaving(false);
+    }
+  };
   return (
     <div className="space-y-6">
       <div className="grid grid-cols-3 gap-6">
@@ -109,31 +132,45 @@ export function CaseOverviewTab({
                 </div>
               </div>
             )}
-            {caseData.deadline && (
-              <div>
-                <span className="text-slate-600 dark:text-slate-400">Frist:</span>
+            <div>
+              <span className="text-slate-600 dark:text-slate-400">Frist:</span>
+              {canEdit ? (
+                <div className="flex items-center gap-2 mt-1">
+                  <input
+                    type="date"
+                    className="text-sm border border-input rounded-md px-2 py-1 bg-background"
+                    value={deadlineValue}
+                    onChange={(e) => setDeadlineValue(e.target.value)}
+                  />
+                  <Button size="sm" variant="outline" onClick={handleDeadlineSave} disabled={deadlineSaving}>
+                    {deadlineSaving ? <Loader2 className="size-3 animate-spin" /> : "Speichern"}
+                  </Button>
+                </div>
+              ) : caseData.deadline ? (
                 <p className="font-medium">{new Date(caseData.deadline).toLocaleDateString("de-DE", { day: "2-digit", month: "2-digit", year: "numeric" })}</p>
-                {(() => {
-                  const today = new Date();
-                  const deadline = new Date(caseData.deadline);
-                  const daysUntil = Math.ceil((deadline.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
-                  if (daysUntil < 0) {
-                    return (
-                      <Badge className="mt-1 bg-red-600 dark:bg-red-700 text-white">
-                        {Math.abs(daysUntil)} Tage überfällig
-                      </Badge>
-                    );
-                  } else if (daysUntil <= 3) {
-                    return (
-                      <Badge className="mt-1 bg-orange-600 dark:bg-orange-700 text-white">
-                        Noch {daysUntil} {daysUntil === 1 ? "Tag" : "Tage"}
-                      </Badge>
-                    );
-                  }
-                  return null;
-                })()}
-              </div>
-            )}
+              ) : (
+                <p className="text-slate-400 dark:text-slate-500 text-sm">Keine Frist</p>
+              )}
+              {caseData.deadline && (() => {
+                const today = new Date();
+                const deadline = new Date(caseData.deadline);
+                const daysUntil = Math.ceil((deadline.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+                if (daysUntil < 0) {
+                  return (
+                    <Badge className="mt-1 bg-red-600 dark:bg-red-700 text-white">
+                      {Math.abs(daysUntil)} Tage überfällig
+                    </Badge>
+                  );
+                } else if (daysUntil <= 3) {
+                  return (
+                    <Badge className="mt-1 bg-orange-600 dark:bg-orange-700 text-white">
+                      Noch {daysUntil} {daysUntil === 1 ? "Tag" : "Tage"}
+                    </Badge>
+                  );
+                }
+                return null;
+              })()}
+            </div>
             <div>
               <span className="text-slate-600 dark:text-slate-400">Playbook:</span>
               <p className="font-medium">{caseData.playbookVersion}</p>
@@ -223,6 +260,29 @@ export function CaseOverviewTab({
                     RAG nutzt die Vektordatenbank; „Beide“ führt Volltext- und RAG-Checks parallel aus.
                   </p>
                 </div>
+                {/* Coverage preview */}
+                {coveragePreview && coveragePreview.total_checks > 0 && (
+                  <div className="rounded-md border p-3 text-sm space-y-1">
+                    <p className="font-medium text-slate-700 dark:text-slate-300">
+                      Coverage: {coveragePreview.applicable_count} / {coveragePreview.total_checks} Checks anwendbar
+                    </p>
+                    {coveragePreview.missing_document_types.length > 0 && (
+                      <p className="text-amber-700 dark:text-amber-400 text-xs">
+                        Fehlende Dokumenttypen: {coveragePreview.missing_document_types.join(", ")}
+                      </p>
+                    )}
+                    <div className="max-h-32 overflow-y-auto space-y-0.5 mt-1">
+                      {coveragePreview.checks.map((c, i) => (
+                        <div key={i} className="flex items-center gap-1.5 text-xs">
+                          <span className={c.applicable ? "text-green-600 dark:text-green-400" : "text-slate-400 dark:text-slate-500"}>
+                            {c.applicable ? "✓" : "–"}
+                          </span>
+                          <span className={c.applicable ? "" : "text-slate-400 dark:text-slate-500"}>{c.name}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
                 {(runChecksStatus === "running" || runChecksError) && (
                   <div className="rounded-md border p-3 text-sm">
                     {runChecksStatus === "running" && (
@@ -301,6 +361,38 @@ export function CaseOverviewTab({
             ))}
         </CardContent>
       </Card>
+
+      {similarCases.length > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Ähnliche Vorgänge</CardTitle>
+            <CardDescription>Vorgänge aus derselben Abteilung und demselben Vorgangstyp mit überlappenden Findings</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            {similarCases.map((s) => (
+              <div key={String(s.case_id)} className="p-3 border border-border rounded-lg flex items-start justify-between gap-3">
+                <div className="flex-1 min-w-0">
+                  <p className="font-medium text-sm text-foreground truncate">{s.title}</p>
+                  <p className="text-xs text-muted-foreground mt-0.5">
+                    {s.department} · {s.case_type}
+                  </p>
+                  {s.shared_check_names.length > 0 && (
+                    <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 truncate">
+                      Gemeinsam: {s.shared_check_names.slice(0, 3).join(", ")}{s.shared_check_names.length > 3 ? ` +${s.shared_check_names.length - 3}` : ""}
+                    </p>
+                  )}
+                </div>
+                <div className="shrink-0 flex flex-col items-end gap-1">
+                  <Badge variant="outline" className="text-xs">
+                    {Math.round(s.overlap_score * 100)}% Überschneidung
+                  </Badge>
+                  <Badge variant="secondary" className="text-xs">{s.status}</Badge>
+                </div>
+              </div>
+            ))}
+          </CardContent>
+        </Card>
+      )}
     </div>
   );
 }

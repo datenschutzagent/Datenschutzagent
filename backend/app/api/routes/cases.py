@@ -30,6 +30,9 @@ from app.models.db import (
 from app.models.schemas import (
     ActivityResponse,
     AnnotatedDocumentListItem,
+    CaseRiskScoreHistoryItem,
+    CaseRiskScoreResponse,
+    CaseSimilarityResult,
     DSBReportResponse,
     RunChecksRequest,
     VVTFieldResponse,
@@ -167,7 +170,7 @@ async def update_case(
     ALLOWED_UPDATE_FIELDS = {
         "title", "department", "case_type", "status", "language",
         "assignee", "playbook_version", "processing_context",
-        "special_category_data", "international_transfer",
+        "special_category_data", "international_transfer", "deadline",
     }
     update_data = body.model_dump(exclude_unset=True)
     for key, value in update_data.items():
@@ -523,7 +526,7 @@ async def get_run_checks_status(
     case_id: UUID,
     db: AsyncSession = Depends(get_db),
 ):
-    """Return the latest run_checks job status for this case (for polling). Includes last_run activity for timeline."""
+    """Return the latest run_checks job status for this case (for polling). Includes last_run activity for timeline and documents_changed_since_last_run flag."""
     result = await db.execute(select(CaseModel).where(CaseModel.id == case_id))
     if result.scalar_one_or_none() is None:
         raise HTTPException(status_code=404, detail="Case not found")
@@ -542,8 +545,20 @@ async def get_run_checks_status(
     )
     last_activity = activity_result.scalar_one_or_none()
     last_run = orm_to_activity_response(last_activity) if last_activity else None
+
+    # Determine if any document was re-uploaded after the last run-checks job
+    documents_changed = False
+    if job and job.status == "completed":
+        max_reupload_result = await db.execute(
+            select(func.max(DocumentModel.uploaded_at))
+            .where(DocumentModel.case_id == case_id, DocumentModel.version > 1)
+        )
+        max_reupload = max_reupload_result.scalar_one_or_none()
+        if max_reupload and max_reupload > job.created_at:
+            documents_changed = True
+
     if not job:
-        return {"status": "never_run", "job_id": None, "playbook_name": None, "findings_count": None, "error": None, "last_run": last_run}
+        return {"status": "never_run", "job_id": None, "playbook_name": None, "findings_count": None, "error": None, "last_run": last_run, "documents_changed_since_last_run": False}
     return {
         "status": job.status,
         "job_id": str(job.id),
@@ -551,6 +566,7 @@ async def get_run_checks_status(
         "findings_count": job.findings_count,
         "error": job.error,
         "last_run": last_run,
+        "documents_changed_since_last_run": documents_changed,
     }
 
 
@@ -622,3 +638,117 @@ async def run_checks(
     )
     case = result2.scalar_one()
     return CaseResponse(**orm_to_case_response(case))
+
+
+@router.get("/{case_id}/risk-score", response_model=CaseRiskScoreResponse)
+async def get_case_risk_score(
+    case_id: UUID,
+    limit: int = Query(default=10, ge=1, le=50),
+    db: AsyncSession = Depends(get_db),
+):
+    """Return current risk score and history derived from completed run_checks jobs.
+
+    Score 0 = no open issues, 100 = maximum risk. Formula mirrors the dashboard complianceScore.
+    """
+    result = await db.execute(select(CaseModel).where(CaseModel.id == case_id))
+    if result.scalar_one_or_none() is None:
+        raise HTTPException(status_code=404, detail="Case not found")
+
+    jobs_result = await db.execute(
+        select(RunChecksJobModel)
+        .where(RunChecksJobModel.case_id == case_id, RunChecksJobModel.status == "completed")
+        .order_by(RunChecksJobModel.created_at.desc())
+        .limit(limit)
+    )
+    jobs = list(jobs_result.scalars().all())
+
+    def _score_from_payload(payload: dict | None, findings_count: int) -> tuple[int, int, int, int]:
+        """Extract (critical, high, medium, score) from result_payload or defaults."""
+        if payload:
+            critical = int(payload.get("critical_findings", 0))
+            high = int(payload.get("high_findings", 0))
+            medium = int(payload.get("medium_findings", 0))
+        else:
+            critical = high = medium = 0
+        penalty = critical * 30 + high * 15 + medium * 5
+        score = min(100, penalty)
+        return critical, high, medium, score
+
+    history: list[CaseRiskScoreHistoryItem] = []
+    for job in reversed(jobs):  # chronological order
+        critical, high, medium, score = _score_from_payload(job.result_payload, job.findings_count)
+        history.append(CaseRiskScoreHistoryItem(
+            job_id=job.id,
+            created_at=job.created_at,
+            score=score,
+            findings_count=job.findings_count,
+            critical=critical,
+            high=high,
+            medium=medium,
+        ))
+
+    current_score = history[-1].score if history else 0
+    return CaseRiskScoreResponse(case_id=case_id, score=current_score, history=history)
+
+
+@router.get("/{case_id}/similar", response_model=list[CaseSimilarityResult])
+async def get_similar_cases(
+    case_id: UUID,
+    limit: int = Query(default=5, ge=1, le=10),
+    db: AsyncSession = Depends(get_db),
+):
+    """Return cases in the same department+case_type with overlapping open findings (by check_name)."""
+    result = await db.execute(
+        select(CaseModel)
+        .where(CaseModel.id == case_id)
+        .options(selectinload(CaseModel.findings))
+    )
+    case = result.scalar_one_or_none()
+    if not case:
+        raise HTTPException(status_code=404, detail="Case not found")
+
+    # Open finding check names for the current case
+    current_check_names = {f.check_name for f in case.findings if f.status == "open"}
+    if not current_check_names:
+        return []
+
+    candidates_result = await db.execute(
+        select(CaseModel)
+        .where(
+            CaseModel.department == case.department,
+            CaseModel.case_type == case.case_type,
+            CaseModel.id != case_id,
+        )
+        .options(selectinload(CaseModel.findings))
+        .limit(50)
+    )
+    candidates = candidates_result.scalars().all()
+
+    scored: list[tuple[float, CaseModel]] = []
+    for candidate in candidates:
+        candidate_check_names = {f.check_name for f in candidate.findings}
+        shared = current_check_names & candidate_check_names
+        if not shared:
+            continue
+        overlap = len(shared) / len(current_check_names)
+        scored.append((overlap, candidate))
+
+    scored.sort(key=lambda x: x[0], reverse=True)
+    results = []
+    for overlap_score, cand in scored[:limit]:
+        resolution = {"fixed": 0, "accepted": 0, "overruled": 0}
+        shared_check_names = sorted(current_check_names & {f.check_name for f in cand.findings})
+        for f in cand.findings:
+            if f.check_name in shared_check_names and f.status in resolution:
+                resolution[f.status] += 1
+        results.append(CaseSimilarityResult(
+            case_id=cand.id,
+            title=cand.title,
+            department=cand.department,
+            case_type=cand.case_type,
+            status=cand.status,
+            overlap_score=round(overlap_score, 2),
+            shared_check_names=shared_check_names,
+            resolution_summary=resolution,
+        ))
+    return results

@@ -1,9 +1,9 @@
 """SQLAlchemy ORM models."""
 import uuid
-from datetime import datetime
+from datetime import date, datetime
 from typing import Any
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Index, Integer, String, Text
+from sqlalchemy import Boolean, Date, DateTime, ForeignKey, Index, Integer, String, Text
 from sqlalchemy.dialects.postgresql import ARRAY, JSONB, UUID as PG_UUID
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 from datetime import timezone
@@ -36,6 +36,7 @@ class CaseModel(Base):
     processing_context: Mapped[str | None] = mapped_column(String(500), nullable=True)
     special_category_data: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     international_transfer: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    deadline: Mapped[date | None] = mapped_column(Date, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
@@ -110,6 +111,19 @@ class DocumentCommentModel(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 
 
+class FindingCommentModel(Base):
+    """User comments on a finding (discussion / audit trail for status decisions)."""
+    __tablename__ = "finding_comments"
+
+    id: Mapped[uuid.UUID] = mapped_column(PG_UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    finding_id: Mapped[uuid.UUID] = mapped_column(PG_UUID(as_uuid=True), ForeignKey("findings.id", ondelete="CASCADE"), nullable=False)
+    case_id: Mapped[uuid.UUID] = mapped_column(PG_UUID(as_uuid=True), ForeignKey("cases.id", ondelete="CASCADE"), nullable=False)
+    author: Mapped[str] = mapped_column(String(200), nullable=False, default="")
+    user_id: Mapped[uuid.UUID | None] = mapped_column(PG_UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    text: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+
+
 class FindingModel(Base):
     __tablename__ = "findings"
     __table_args__ = (
@@ -130,6 +144,7 @@ class FindingModel(Base):
     evidence: Mapped[list[str]] = mapped_column(ARRAY(Text), nullable=False, default=list)
     recommendation: Mapped[str] = mapped_column(Text, nullable=False, default="")
     source_strategy: Mapped[str | None] = mapped_column(String(20), nullable=True)  # "full_text" | "rag"
+    due_date: Mapped[date | None] = mapped_column(Date, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
@@ -289,6 +304,20 @@ def orm_to_finding_response(orm: FindingModel) -> dict[str, Any]:
         "document_id": orm.document_id,
         "case_id": orm.case_id,
         "source_strategy": orm.source_strategy,
+        "due_date": orm.due_date,
+    }
+
+
+def orm_to_finding_comment_response(orm: FindingCommentModel) -> dict[str, Any]:
+    """Map FindingCommentModel to API response shape (snake_case)."""
+    return {
+        "id": orm.id,
+        "finding_id": orm.finding_id,
+        "case_id": orm.case_id,
+        "author": orm.author,
+        "user_id": orm.user_id,
+        "text": orm.text,
+        "created_at": orm.created_at,
     }
 
 
@@ -310,6 +339,7 @@ def orm_to_case_response(orm: CaseModel) -> dict[str, Any]:
         "processing_context": orm.processing_context,
         "special_category_data": orm.special_category_data,
         "international_transfer": orm.international_transfer,
+        "deadline": orm.deadline,
         "documents": [orm_to_document_response(d) for d in docs_sorted],
         "findings": [orm_to_finding_response(f) for f in orm.findings],
     }

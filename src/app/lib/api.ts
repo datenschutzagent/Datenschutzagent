@@ -46,6 +46,7 @@ function mapCase(d: Record<string, unknown>): Record<string, unknown> {
     processingContext: (d.processing_context as string) ?? null,
     specialCategoryData: Boolean(d.special_category_data),
     internationalTransfer: Boolean(d.international_transfer),
+    deadline: (d.deadline as string) ?? null,
     documents: Array.isArray(d.documents) ? (d.documents as Record<string, unknown>[]).map(mapDocument) : [],
     findings: Array.isArray(d.findings) ? (d.findings as Record<string, unknown>[]).map(mapFinding) : [],
   };
@@ -83,6 +84,7 @@ function mapFinding(d: Record<string, unknown>): Record<string, unknown> {
     documentId: d.document_id ?? undefined,
     caseId: d.case_id,
     sourceStrategy: d.source_strategy ?? undefined,
+    dueDate: (d.due_date as string) ?? null,
   };
 }
 
@@ -351,6 +353,7 @@ export interface CaseUpdateInput {
   processing_context?: string | null;
   special_category_data?: boolean;
   international_transfer?: boolean;
+  deadline?: string | null;
 }
 
 export interface ApiCase {
@@ -368,10 +371,10 @@ export interface ApiCase {
   processingContext?: string | null;
   specialCategoryData?: boolean;
   internationalTransfer?: boolean;
+  deadline?: string | null;
   documents: ApiDocument[];
   findings: ApiFinding[];
   priority?: string;
-  deadline?: string;
 }
 
 export interface ApiDocument {
@@ -408,6 +411,7 @@ export interface ApiFinding {
   documentId?: string;
   caseId?: string;
   sourceStrategy?: SourceStrategy;
+  dueDate?: string | null;
 }
 
 export interface ApiPlaybook {
@@ -500,6 +504,7 @@ export interface RunChecksStatusResponse {
   findings_count: number | null;
   error: string | null;
   last_run: { id: string; case_id: string; event_type: string; payload: Record<string, unknown>; created_at: string } | null;
+  documents_changed_since_last_run?: boolean;
 }
 
 export async function runChecks(
@@ -546,6 +551,7 @@ export async function getRunChecksStatus(caseId: string): Promise<RunChecksStatu
     findings_count: raw.findings_count,
     error: raw.error,
     last_run: raw.last_run,
+    documents_changed_since_last_run: raw.documents_changed_since_last_run ?? false,
   };
 }
 
@@ -929,12 +935,13 @@ export async function bulkUpdateFindingStatus(
 
 export async function downloadFindingsExport(
   caseId: string,
-  filters?: { severity?: string; status?: string; category?: string }
+  filters?: { severity?: string; status?: string; category?: string; format?: "csv" | "docx" }
 ): Promise<Blob> {
   const q = new URLSearchParams({ case_id: caseId });
   if (filters?.severity) q.set("severity", filters.severity);
   if (filters?.status) q.set("status", filters.status);
   if (filters?.category) q.set("category", filters.category);
+  if (filters?.format) q.set("format", filters.format);
   const url = `${API_BASE}${API_PREFIX}/findings/export?${q.toString()}`;
   const headers: Record<string, string> = { ...authHeaders() };
   const res = await fetch(url, { headers });
@@ -943,6 +950,110 @@ export async function downloadFindingsExport(
     throw new Error(detail);
   }
   return res.blob();
+}
+
+// --- Finding due date ---
+export async function updateFindingDueDate(findingId: string, status: FindingStatus, dueDate: string | null): Promise<ApiFinding> {
+  const body: Record<string, unknown> = { status };
+  if (dueDate !== undefined) body.due_date = dueDate;
+  const f = await request<Record<string, unknown>>("PATCH", `/findings/${findingId}`, { body });
+  return mapFinding(f) as ApiFinding;
+}
+
+// --- Finding comments ---
+export interface ApiFindingComment {
+  id: string;
+  finding_id: string;
+  case_id: string;
+  author: string;
+  user_id: string | null;
+  text: string;
+  created_at: string;
+}
+
+export async function getFindingComments(findingId: string): Promise<ApiFindingComment[]> {
+  const list = (await request<Record<string, unknown>[]>("GET", `/findings/${findingId}/comments`)) ?? [];
+  return list.map((c) => ({
+    id: c.id as string,
+    finding_id: c.finding_id as string,
+    case_id: c.case_id as string,
+    author: (c.author as string) ?? "",
+    user_id: (c.user_id as string) ?? null,
+    text: (c.text as string) ?? "",
+    created_at: (c.created_at as string) ?? "",
+  }));
+}
+
+export async function createFindingComment(findingId: string, text: string): Promise<ApiFindingComment> {
+  const c = await request<Record<string, unknown>>("POST", `/findings/${findingId}/comments`, { body: { text } });
+  return {
+    id: c.id as string,
+    finding_id: c.finding_id as string,
+    case_id: c.case_id as string,
+    author: (c.author as string) ?? "",
+    user_id: (c.user_id as string) ?? null,
+    text: (c.text as string) ?? "",
+    created_at: (c.created_at as string) ?? "",
+  };
+}
+
+// --- Case risk score (Verbesserung 3) ---
+export interface CaseRiskScoreHistoryItem {
+  job_id: string;
+  created_at: string;
+  score: number;
+  findings_count: number;
+  critical: number;
+  high: number;
+  medium: number;
+}
+
+export interface CaseRiskScore {
+  case_id: string;
+  score: number;
+  history: CaseRiskScoreHistoryItem[];
+}
+
+export async function getCaseRiskScore(caseId: string, limit = 10): Promise<CaseRiskScore> {
+  return request<CaseRiskScore>("GET", `/cases/${caseId}/risk-score?limit=${limit}`);
+}
+
+// --- Playbook coverage preview (Verbesserung 6) ---
+export interface PlaybookCoverageItem {
+  name: string;
+  category: string;
+  scope: string;
+  applicable: boolean;
+  reason: string;
+}
+
+export interface PlaybookCoverage {
+  playbook_id: string;
+  case_id: string;
+  total_checks: number;
+  applicable_count: number;
+  checks: PlaybookCoverageItem[];
+  missing_document_types: string[];
+}
+
+export async function getPlaybookCoveragePreview(playbookId: string, caseId: string): Promise<PlaybookCoverage> {
+  return request<PlaybookCoverage>("GET", `/playbooks/${playbookId}/coverage-preview?case_id=${caseId}`);
+}
+
+// --- Case similarity (Verbesserung 7) ---
+export interface CaseSimilarityResult {
+  case_id: string;
+  title: string;
+  department: string;
+  case_type: string;
+  status: string;
+  overlap_score: number;
+  shared_check_names: string[];
+  resolution_summary: Record<string, number>;
+}
+
+export async function getSimilarCases(caseId: string, limit = 5): Promise<CaseSimilarityResult[]> {
+  return request<CaseSimilarityResult[]>("GET", `/cases/${caseId}/similar?limit=${limit}`);
 }
 
 // --- Departments (Fachbereiche and central institutions) ---

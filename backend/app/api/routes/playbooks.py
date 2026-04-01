@@ -3,12 +3,20 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from app.config import settings
 from app.core.auth import require_roles
 from app.database import get_db
-from app.models.db import PlaybookModel, orm_to_playbook_response
-from app.models.schemas import PlaybookCreate, PlaybookMatchResult, PlaybookResponse, PlaybookUpdate
+from app.models.db import CaseModel, DocumentModel, PlaybookModel, orm_to_playbook_response
+from app.models.schemas import (
+    PlaybookCoverageItem,
+    PlaybookCoverageResponse,
+    PlaybookCreate,
+    PlaybookMatchResult,
+    PlaybookResponse,
+    PlaybookUpdate,
+)
 from app.services.playbook_matching import rank_playbooks_for_selection
 
 router = APIRouter()
@@ -120,3 +128,71 @@ async def delete_playbook(
     await db.delete(playbook)
     await db.flush()
     return None
+
+
+@router.get("/{playbook_id}/coverage-preview", response_model=PlaybookCoverageResponse)
+async def get_playbook_coverage_preview(
+    playbook_id: UUID,
+    case_id: UUID = Query(..., description="Case ID to check document availability against."),
+    db: AsyncSession = Depends(get_db),
+):
+    """Preview which checks of the playbook will apply to the given case's documents.
+
+    Returns a per-check breakdown (applicable / not applicable + reason) and a list of
+    document types that are missing but required by at least one check.
+    """
+    pb_result = await db.execute(select(PlaybookModel).where(PlaybookModel.id == playbook_id))
+    playbook = pb_result.scalar_one_or_none()
+    if not playbook:
+        raise HTTPException(status_code=404, detail="Playbook not found")
+
+    case_result = await db.execute(
+        select(CaseModel)
+        .where(CaseModel.id == case_id)
+        .options(selectinload(CaseModel.documents))
+    )
+    case = case_result.scalar_one_or_none()
+    if not case:
+        raise HTTPException(status_code=404, detail="Case not found")
+
+    present_doc_types = {d.type for d in case.documents}
+    raw_checks = playbook.content.get("checks", []) if isinstance(playbook.content, dict) else []
+
+    items: list[PlaybookCoverageItem] = []
+    missing_doc_types: set[str] = set()
+
+    for check in raw_checks:
+        name = check.get("name", "")
+        category = check.get("category", "")
+        scope = check.get("scope", "document")
+        required_types: list[str] = check.get("document_types", [])
+
+        if scope == "case" or not required_types:
+            applicable = True
+            reason = "Vorgangsbezogen" if scope == "case" else "Gilt für alle Dokumente"
+        else:
+            applicable = any(t in present_doc_types for t in required_types)
+            if applicable:
+                reason = f"Passende Dokumente vorhanden: {', '.join(required_types)}"
+            else:
+                missing = [t for t in required_types if t not in present_doc_types]
+                missing_doc_types.update(missing)
+                reason = f"Fehlende Dokumenttypen: {', '.join(missing)}"
+
+        items.append(PlaybookCoverageItem(
+            name=name,
+            category=category,
+            scope=scope,
+            applicable=applicable,
+            reason=reason,
+        ))
+
+    applicable_count = sum(1 for i in items if i.applicable)
+    return PlaybookCoverageResponse(
+        playbook_id=playbook_id,
+        case_id=case_id,
+        total_checks=len(items),
+        applicable_count=applicable_count,
+        checks=items,
+        missing_document_types=sorted(missing_doc_types),
+    )

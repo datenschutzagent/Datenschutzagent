@@ -1,5 +1,5 @@
 """Pydantic schemas for API request/response. Aligned with frontend types."""
-from datetime import datetime
+from datetime import date, datetime
 from typing import Any, Literal
 from uuid import UUID
 
@@ -76,12 +76,30 @@ class FindingResponse(BaseModel):
     document_id: UUID | None = None
     case_id: UUID
     source_strategy: SourceStrategyEnum | None = None
+    due_date: date | None = None
 
     model_config = {"from_attributes": True}
 
 
 class FindingUpdate(BaseModel):
     status: FindingStatusEnum
+    due_date: date | None = None
+
+
+class FindingCommentCreate(BaseModel):
+    text: str = Field(..., min_length=1)
+
+
+class FindingCommentResponse(BaseModel):
+    id: UUID
+    finding_id: UUID
+    case_id: UUID
+    author: str
+    user_id: UUID | None = None
+    text: str
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
 
 
 class FindingBulkUpdate(BaseModel):
@@ -110,6 +128,7 @@ class CaseCreate(BaseModel):
     processing_context: str | None = Field(default=None, max_length=500)
     special_category_data: bool = False
     international_transfer: bool = False
+    deadline: date | None = None
 
 
 class CaseUpdate(BaseModel):
@@ -123,6 +142,7 @@ class CaseUpdate(BaseModel):
     processing_context: str | None = Field(default=None, max_length=500)
     special_category_data: bool | None = None
     international_transfer: bool | None = None
+    deadline: date | None = None
 
 
 class RunChecksRequest(BaseModel):
@@ -148,6 +168,7 @@ class CaseResponse(BaseModel):
     processing_context: str | None = None
     special_category_data: bool = False
     international_transfer: bool = False
+    deadline: date | None = None
     documents: list[DocumentResponse] = []
     findings: list[FindingResponse] = []
 
@@ -404,3 +425,51 @@ class ActivityResponse(BaseModel):
     created_at: datetime
 
     model_config = {"from_attributes": True}
+
+
+# --- Risk Score (Verbesserung 3) ---
+class CaseRiskScoreHistoryItem(BaseModel):
+    job_id: UUID
+    created_at: datetime
+    score: int
+    findings_count: int
+    critical: int
+    high: int
+    medium: int
+
+
+class CaseRiskScoreResponse(BaseModel):
+    """Current risk score and history for a case (derived from run_checks_jobs)."""
+    case_id: UUID
+    score: int  # 0-100, lower = better
+    history: list[CaseRiskScoreHistoryItem] = []
+
+
+# --- Playbook Coverage Preview (Verbesserung 6) ---
+class PlaybookCoverageItem(BaseModel):
+    name: str
+    category: str
+    scope: str  # "document" | "case"
+    applicable: bool
+    reason: str
+
+
+class PlaybookCoverageResponse(BaseModel):
+    playbook_id: UUID
+    case_id: UUID
+    total_checks: int
+    applicable_count: int
+    checks: list[PlaybookCoverageItem] = []
+    missing_document_types: list[str] = []
+
+
+# --- Case Similarity (Verbesserung 7) ---
+class CaseSimilarityResult(BaseModel):
+    case_id: UUID
+    title: str
+    department: str
+    case_type: str
+    status: str
+    overlap_score: float  # 0.0 – 1.0
+    shared_check_names: list[str] = []
+    resolution_summary: dict[str, int] = Field(default_factory=dict)
