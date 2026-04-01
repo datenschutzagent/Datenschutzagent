@@ -26,7 +26,7 @@ async def _create_case(client, **overrides) -> dict:
         **overrides,
     }
     resp = await client.post("/api/v1/cases", json=payload)
-    assert resp.status_code == 200, resp.text
+    assert resp.status_code == 201, resp.text
     return resp.json()
 
 

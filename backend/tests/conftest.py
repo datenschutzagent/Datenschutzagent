@@ -6,6 +6,10 @@ from httpx import ASGITransport, AsyncClient
 
 # Disable Ollama health check in tests so /health does not require Ollama
 os.environ.setdefault("OLLAMA_ENABLED", "false")
+# Use admin role so the default test user can perform write operations (create/update/delete)
+os.environ.setdefault("RBAC_DEFAULT_ROLE", "admin")
+# Disable Celery so document extraction runs inline (Redis not available in test env)
+os.environ.setdefault("CELERY_ENABLED", "false")
 
 
 @pytest.fixture
