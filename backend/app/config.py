@@ -74,6 +74,7 @@ class Settings(BaseSettings):
     ollama_ocr_enabled: bool = True
     ocr_min_chars_per_page: int = 50  # below this avg chars/page → use OCR fallback
     ocr_dpi: int = 150  # resolution for PDF page images sent to vision model
+    ocr_max_pages: int = 200  # max pages to process with OCR (prevents memory exhaustion)
 
     # Current user (optional UUID; if unset, default user is used for GET/PATCH /me when OIDC is disabled)
     current_user_id: str | None = None

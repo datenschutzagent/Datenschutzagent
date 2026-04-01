@@ -102,7 +102,10 @@ async def run_check(
     system_tpl = await get_active_template("check_full_text_document_system")
     system = render(system_tpl or DEFAULT_CHECK_FULL_TEXT_DOCUMENT_SYSTEM, {"language_hint": language_hint})
     user_tpl = await get_active_template("check_full_text_document_user")
-    truncated_text = document_text[:CONTEXT_CHARS_PER_DOC] if document_text else ""
+    if document_text and len(document_text) > CONTEXT_CHARS_PER_DOC:
+        truncated_text = document_text[:CONTEXT_CHARS_PER_DOC] + f"\n\n[... truncated, {len(document_text)} chars total ...]"
+    else:
+        truncated_text = document_text or ""
     user_content = render(
         user_tpl or DEFAULT_CHECK_FULL_TEXT_DOCUMENT_USER,
         {
@@ -132,7 +135,11 @@ async def run_cross_document_check(
     system = render(system_tpl or DEFAULT_CHECK_FULL_TEXT_CROSS_SYSTEM, {"language_hint": language_hint})
     parts: List[str] = []
     for i, (doc_id, text) in enumerate(documents, 1):
-        truncated = (text or "")[:CONTEXT_CHARS_PER_DOC]
+        raw = text or ""
+        if len(raw) > CONTEXT_CHARS_PER_DOC:
+            truncated = raw[:CONTEXT_CHARS_PER_DOC] + f"\n[... truncated, {len(raw)} chars total ...]"
+        else:
+            truncated = raw
         parts.append(f"--- Document {i} (id: {doc_id}) ---\n{truncated}")
     combined = "\n\n".join(parts)
     user_tpl = await get_active_template("check_full_text_cross_user")

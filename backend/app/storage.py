@@ -32,7 +32,10 @@ def save_file_local(case_id: uuid.UUID, document_id: uuid.UUID, filename: str, c
 
 def get_file_local(storage_path: str) -> bytes:
     """Read file from local storage. storage_path is relative to storage_local_path."""
-    path = Path(settings.storage_local_path) / storage_path
+    root = Path(settings.storage_local_path).resolve()
+    path = (root / storage_path).resolve()
+    if not path.is_relative_to(root):
+        raise ValueError(f"Path traversal denied: {storage_path}")
     if not path.is_file():
         raise FileNotFoundError(storage_path)
     return path.read_bytes()
@@ -40,7 +43,10 @@ def get_file_local(storage_path: str) -> bytes:
 
 def delete_file_local(storage_path: str) -> None:
     """Delete file from local storage."""
-    path = Path(settings.storage_local_path) / storage_path
+    root = Path(settings.storage_local_path).resolve()
+    path = (root / storage_path).resolve()
+    if not path.is_relative_to(root):
+        raise ValueError(f"Path traversal denied: {storage_path}")
     if path.is_file():
         path.unlink()
 
