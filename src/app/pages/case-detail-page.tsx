@@ -135,9 +135,9 @@ export function CaseDetailPage() {
     }
   };
 
-  // Poll run-checks status when job was accepted (202) and dialog is open
+  // Poll run-checks status when job was accepted (202) — independent of dialog state
   useEffect(() => {
-    if (!caseId || runChecksStatus !== "running" || !runChecksOpen) return;
+    if (!caseId || runChecksStatus !== "running") return;
     const interval = setInterval(async () => {
       try {
         const statusRes = await getRunChecksStatus(caseId);
@@ -152,11 +152,11 @@ export function CaseDetailPage() {
           setRunChecksError(statusRes.error ?? "Checks fehlgeschlagen.");
         }
       } catch {
-        // keep polling
+        // keep polling on transient errors
       }
-    }, 2500);
+    }, 3000);
     return () => clearInterval(interval);
-  }, [caseId, runChecksStatus, runChecksOpen]);
+  }, [caseId, runChecksStatus]);
 
   const handleFindingStatus = async (findingId: string, status: "accepted" | "overruled" | "fixed") => {
     setFindingStatusLoading(findingId);

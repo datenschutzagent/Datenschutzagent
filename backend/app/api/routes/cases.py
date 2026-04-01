@@ -61,8 +61,8 @@ router = APIRouter()
 
 @router.get("", response_model=CaseListResponse)
 async def list_cases(
-    skip: int = 0,
-    limit: int = 100,
+    skip: int = Query(default=0, ge=0),
+    limit: int = Query(default=100, ge=1, le=500),
     db: AsyncSession = Depends(get_db),
 ):
     """List cases with optional pagination. Returns items and total count."""
@@ -164,8 +164,15 @@ async def update_case(
     case = result.scalar_one_or_none()
     if not case:
         raise HTTPException(status_code=404, detail="Case not found")
+    ALLOWED_UPDATE_FIELDS = {
+        "title", "department", "case_type", "status", "language",
+        "assignee", "playbook_version", "processing_context",
+        "special_category_data", "international_transfer",
+    }
     update_data = body.model_dump(exclude_unset=True)
     for key, value in update_data.items():
+        if key not in ALLOWED_UPDATE_FIELDS:
+            raise HTTPException(status_code=422, detail=f"Field not updatable: {key}")
         setattr(case, key, value)
     await db.flush()
     # Re-fetch with relationships loaded to avoid lazy load in async context (MissingGreenlet)

@@ -99,7 +99,7 @@ function mapPlaybook(d: Record<string, unknown>): Record<string, unknown> {
     isActive: d.is_active ?? true,
     status: d.is_active ? "active" : "archived",
     createdAt: d.created_at,
-    updatedAt: d.created_at,
+    updatedAt: d.updated_at ?? d.created_at,
     checks,
   };
 }

@@ -57,9 +57,14 @@ def _extract_text_from_pdf_via_ollama(content: bytes) -> str:
     client = ollama.Client(host=host)
     dpi = getattr(settings, "ocr_dpi", 150)
 
+    max_ocr_pages = getattr(settings, "ocr_max_pages", 200)
     with fitz.open(stream=content, filetype="pdf") as doc:
         page_texts: list[str] = []
-        for i in range(len(doc)):
+        total_pages = len(doc)
+        pages_to_process = min(total_pages, max_ocr_pages)
+        if total_pages > max_ocr_pages:
+            logger.warning("PDF has %d pages, OCR limited to first %d pages", total_pages, max_ocr_pages)
+        for i in range(pages_to_process):
             try:
                 png_bytes = _pdf_page_to_png_bytes(content, i, dpi=dpi)
                 response = client.chat(

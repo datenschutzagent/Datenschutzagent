@@ -116,6 +116,7 @@ class FindingModel(Base):
         Index("ix_findings_case_id", "case_id"),
         Index("ix_findings_case_id_status", "case_id", "status"),
         Index("ix_findings_case_id_severity", "case_id", "severity"),
+        Index("ix_findings_document_id", "document_id"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(PG_UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
