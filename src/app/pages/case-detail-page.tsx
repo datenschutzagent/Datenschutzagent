@@ -15,10 +15,17 @@ import {
   updateFindingStatus,
   getDSBReportBlob,
   downloadBlob,
+  getFindingComments,
+  createFindingComment,
+  getPlaybookCoveragePreview,
+  getSimilarCases,
   canEdit,
   type ApiCase,
   type ApiFinding,
+  type ApiFindingComment,
   type ApiPlaybook,
+  type PlaybookCoverage,
+  type CaseSimilarityResult,
   type RunChecksStrategy,
 } from "../lib/api";
 import { useAuthOptional } from "../contexts/AuthContext";
@@ -68,6 +75,15 @@ export function CaseDetailPage() {
   const [findingStatusLoading, setFindingStatusLoading] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState("overview");
   const [dsbReportDownloading, setDsbReportDownloading] = useState(false);
+  const [documentsChangedSinceLastRun, setDocumentsChangedSinceLastRun] = useState(false);
+  // Finding comment state
+  const [findingComments, setFindingComments] = useState<ApiFindingComment[]>([]);
+  const [commentText, setCommentText] = useState("");
+  const [commentLoading, setCommentLoading] = useState(false);
+  // Playbook coverage preview
+  const [coveragePreview, setCoveragePreview] = useState<PlaybookCoverage | null>(null);
+  // Similar cases
+  const [similarCases, setSimilarCases] = useState<CaseSimilarityResult[]>([]);
 
   const loadCase = () => {
     if (!caseId) return;
@@ -82,6 +98,17 @@ export function CaseDetailPage() {
   useEffect(() => {
     loadCase();
   }, [caseId]);
+
+  // Load coverage preview when a playbook is selected in the run-checks dialog
+  useEffect(() => {
+    if (!selectedPlaybookId || !caseId) {
+      setCoveragePreview(null);
+      return;
+    }
+    getPlaybookCoveragePreview(selectedPlaybookId, caseId)
+      .then(setCoveragePreview)
+      .catch(() => setCoveragePreview(null));
+  }, [selectedPlaybookId, caseId]);
 
   useEffect(() => {
     if (!runChecksOpen || !caseData) return;
@@ -135,6 +162,20 @@ export function CaseDetailPage() {
     }
   };
 
+  // Load documents_changed_since_last_run flag on mount
+  useEffect(() => {
+    if (!caseId) return;
+    getRunChecksStatus(caseId)
+      .then((s) => setDocumentsChangedSinceLastRun(s.documents_changed_since_last_run ?? false))
+      .catch(() => {});
+  }, [caseId]);
+
+  // Load similar cases on mount (background, best-effort)
+  useEffect(() => {
+    if (!caseId) return;
+    getSimilarCases(caseId).then(setSimilarCases).catch(() => {});
+  }, [caseId]);
+
   // Poll run-checks status when job was accepted (202) — independent of dialog state
   useEffect(() => {
     if (!caseId || runChecksStatus !== "running") return;
@@ -157,6 +198,27 @@ export function CaseDetailPage() {
     }, 3000);
     return () => clearInterval(interval);
   }, [caseId, runChecksStatus]);
+
+  const handleSelectFinding = (finding: ApiFinding) => {
+    setSelectedFinding(finding);
+    setFindingComments([]);
+    setCommentText("");
+    getFindingComments(finding.id).then(setFindingComments).catch(() => {});
+  };
+
+  const handleAddComment = async () => {
+    if (!selectedFinding || !commentText.trim()) return;
+    setCommentLoading(true);
+    try {
+      const c = await createFindingComment(selectedFinding.id, commentText.trim());
+      setFindingComments((prev) => [...prev, c]);
+      setCommentText("");
+    } catch {
+      toast.error("Kommentar konnte nicht gespeichert werden");
+    } finally {
+      setCommentLoading(false);
+    }
+  };
 
   const handleFindingStatus = async (findingId: string, status: "accepted" | "overruled" | "fixed") => {
     setFindingStatusLoading(findingId);
@@ -356,8 +418,11 @@ export function CaseDetailPage() {
               runChecksStatus={runChecksStatus}
               runChecksError={runChecksError}
               setRunChecksError={setRunChecksError}
-              onSelectFinding={setSelectedFinding}
+              onSelectFinding={handleSelectFinding}
               canEdit={userCanEdit}
+              coveragePreview={coveragePreview}
+              similarCases={similarCases}
+              onCaseUpdated={(updated) => setCaseData(updated)}
             />
           </TabsContent>
 
@@ -374,7 +439,19 @@ export function CaseDetailPage() {
 
           {/* Findings Tab */}
           <TabsContent value="findings" className="space-y-6">
-            <CaseFindingsTab caseData={caseData} onSelectFinding={setSelectedFinding} onFindingsChanged={loadCase} />
+            {documentsChangedSinceLastRun && (
+              <Alert className="border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-900/30">
+                <AlertDescription className="text-amber-800 dark:text-amber-200 flex items-center justify-between gap-4">
+                  <span>Dokumente wurden seit der letzten Prüfung aktualisiert. Die Findings könnten veraltet sein.</span>
+                  {userCanEdit && (
+                    <Button size="sm" variant="outline" onClick={() => setRunChecksOpen(true)}>
+                      Jetzt prüfen
+                    </Button>
+                  )}
+                </AlertDescription>
+              </Alert>
+            )}
+            <CaseFindingsTab caseData={caseData} onSelectFinding={handleSelectFinding} onFindingsChanged={loadCase} />
           </TabsContent>
 
           {/* Audit Trail Tab */}
@@ -446,8 +523,41 @@ export function CaseDetailPage() {
                   ))}
                 </ul>
               </div>
+              {/* Finding comments */}
+              <div className="border-t pt-4">
+                <h4 className="text-sm font-medium text-slate-900 dark:text-slate-100 mb-2">Kommentare</h4>
+                {findingComments.length === 0 && (
+                  <p className="text-xs text-slate-400 dark:text-slate-500 mb-2">Noch keine Kommentare.</p>
+                )}
+                <div className="space-y-2 mb-3 max-h-48 overflow-y-auto">
+                  {findingComments.map((c) => (
+                    <div key={c.id} className="text-sm bg-muted/50 rounded-md p-2">
+                      <span className="font-medium text-slate-700 dark:text-slate-300">{c.author}</span>
+                      <span className="text-xs text-slate-400 dark:text-slate-500 ml-2">
+                        {new Date(c.created_at).toLocaleString("de-DE", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" })}
+                      </span>
+                      <p className="text-slate-600 dark:text-slate-400 mt-1">{c.text}</p>
+                    </div>
+                  ))}
+                </div>
+                {userCanEdit && (
+                  <div className="flex gap-2">
+                    <input
+                      className="flex-1 text-sm border border-input rounded-md px-3 py-1.5 bg-background"
+                      placeholder="Kommentar hinzufügen…"
+                      value={commentText}
+                      onChange={(e) => setCommentText(e.target.value)}
+                      onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleAddComment(); } }}
+                    />
+                    <Button size="sm" onClick={handleAddComment} disabled={commentLoading || !commentText.trim()}>
+                      {commentLoading ? <Loader2 className="size-3 animate-spin" /> : "Senden"}
+                    </Button>
+                  </div>
+                )}
+              </div>
+
               {userCanEdit && (
-                <div className="flex gap-2 pt-4">
+                <div className="flex gap-2 pt-2">
                   <Button
                     variant="outline"
                     className="flex-1"

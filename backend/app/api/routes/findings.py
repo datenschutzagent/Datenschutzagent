@@ -1,9 +1,11 @@
-"""Findings API: list, update, bulk-update, CSV export."""
+"""Findings API: list, update, bulk-update, CSV export, DOCX export, comments."""
 import csv
 import io
+from datetime import datetime, timezone
 from typing import Annotated
 from uuid import UUID
 
+from docx import Document as DocxDocument
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import Response
 from sqlalchemy import func, select
@@ -12,9 +14,20 @@ from sqlalchemy.orm import selectinload
 
 from app.core.auth import require_roles
 from app.database import get_db
-from app.models.db import ActivityLogModel, CaseModel, DocumentModel, FindingModel, orm_to_finding_response
+from app.models.db import (
+    ActivityLogModel,
+    CaseModel,
+    DocumentModel,
+    FindingCommentModel,
+    FindingModel,
+    UserModel,
+    orm_to_finding_comment_response,
+    orm_to_finding_response,
+)
 from app.models.schemas import (
     FindingBulkUpdate,
+    FindingCommentCreate,
+    FindingCommentResponse,
     FindingListResponse,
     FindingResponse,
     FindingUpdate,
@@ -98,16 +111,79 @@ async def bulk_update_findings(
     return {"updated": updated}
 
 
+def _build_findings_docx(case_title: str, findings: list, docs_by_id: dict) -> bytes:
+    """Build DOCX with structured findings report: title page, summary table, per-finding sections."""
+    severity_labels = {
+        "critical": "Kritisch", "high": "Hoch", "medium": "Mittel", "low": "Niedrig", "info": "Info",
+    }
+    status_labels = {
+        "open": "Offen", "accepted": "Akzeptiert", "overruled": "Überfahren", "fixed": "Behoben",
+    }
+
+    doc = DocxDocument()
+    doc.add_heading("Befunde-Bericht", 0)
+    doc.add_paragraph(f"Vorgang: {case_title}")
+    doc.add_paragraph(f"Erstellt: {datetime.now(timezone.utc).strftime('%d.%m.%Y')}")
+    doc.add_paragraph()
+
+    # Summary table
+    severity_counts = {s: sum(1 for f in findings if f.severity == s) for s in severity_labels}
+    status_counts = {s: sum(1 for f in findings if f.status == s) for s in status_labels}
+    doc.add_heading("Zusammenfassung", level=1)
+    summary_table = doc.add_table(rows=1 + len(severity_labels), cols=2)
+    summary_table.style = "Table Grid"
+    summary_table.rows[0].cells[0].text = "Schweregrad"
+    summary_table.rows[0].cells[1].text = "Anzahl"
+    for i, (sev, label) in enumerate(severity_labels.items()):
+        row = summary_table.rows[i + 1]
+        row.cells[0].text = label
+        row.cells[1].text = str(severity_counts.get(sev, 0))
+    doc.add_paragraph()
+
+    # Per-finding sections
+    doc.add_heading("Einzelbefunde", level=1)
+    for f in findings:
+        doc.add_heading(f.check_name, level=2)
+        info_table = doc.add_table(rows=5, cols=2)
+        info_table.style = "Table Grid"
+        labels_rows = [
+            ("Schweregrad", severity_labels.get(f.severity, f.severity)),
+            ("Status", status_labels.get(f.status, f.status)),
+            ("Kategorie", f.category),
+            ("Dokument", docs_by_id.get(f.document_id, "Vorgangsbezogen") if f.document_id else "Vorgangsbezogen"),
+            ("Strategie", f.source_strategy or ""),
+        ]
+        for i, (label, value) in enumerate(labels_rows):
+            info_table.rows[i].cells[0].text = label
+            info_table.rows[i].cells[1].text = value
+        doc.add_paragraph()
+        doc.add_paragraph("Beschreibung:").bold = True
+        doc.add_paragraph(f.description)
+        if f.evidence:
+            doc.add_paragraph("Nachweise:").bold = True
+            for ev in f.evidence:
+                doc.add_paragraph(f"• {ev}")
+        if f.recommendation:
+            doc.add_paragraph("Empfehlung:").bold = True
+            doc.add_paragraph(f.recommendation)
+        doc.add_paragraph()
+
+    buf = io.BytesIO()
+    doc.save(buf)
+    return buf.getvalue()
+
+
 @router.get("/export", response_class=Response)
 async def export_findings(
     case_id: Annotated[UUID, Query()],
     severity: Annotated[str | None, Query()] = None,
     status: Annotated[str | None, Query()] = None,
     category: Annotated[str | None, Query()] = None,
+    format: Annotated[str, Query()] = "csv",
     db: AsyncSession = Depends(get_db),
     _user=require_roles("viewer", "editor", "admin"),
 ):
-    """Export findings for a case as CSV."""
+    """Export findings for a case as CSV (default) or DOCX (format=docx)."""
     q = (
         select(FindingModel)
         .where(FindingModel.case_id == case_id)
@@ -135,6 +211,18 @@ async def export_findings(
             select(DocumentModel).where(DocumentModel.id.in_(doc_ids))
         )
         docs_by_id = {d.id: d.name for d in docs_result.scalars().all()}
+
+    date_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    slug = case.title.replace("/", "-").replace("\\", "-")[:50]
+
+    if format.lower() == "docx":
+        content_bytes = _build_findings_docx(case.title, findings, docs_by_id)
+        filename = f"Befunde-{slug}-{date_str}.docx"
+        return Response(
+            content=content_bytes,
+            media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        )
 
     severity_labels = {
         "critical": "Kritisch",
@@ -178,9 +266,6 @@ async def export_findings(
             f.source_strategy or "",
         ])
 
-    from datetime import datetime, timezone
-    date_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-    slug = case.title.replace("/", "-").replace("\\", "-")[:50]
     filename = f"Befunde-{slug}-{date_str}.csv"
 
     # UTF-8 BOM for Excel compatibility (consistent with VVT export)
@@ -199,13 +284,15 @@ async def update_finding(
     db: AsyncSession = Depends(get_db),
     _user=require_roles("editor", "admin"),
 ):
-    """Update a finding (e.g. status: open, accepted, overruled, fixed)."""
+    """Update a finding (status and/or due_date)."""
     result = await db.execute(select(FindingModel).where(FindingModel.id == finding_id))
     finding = result.scalar_one_or_none()
     if not finding:
         raise HTTPException(status_code=404, detail="Finding not found")
     old_status = finding.status
     finding.status = body.status
+    if body.due_date is not None or "due_date" in body.model_fields_set:
+        finding.due_date = body.due_date
     await db.flush()
     if old_status != body.status:
         activity = ActivityLogModel(
@@ -220,3 +307,61 @@ async def update_finding(
         db.add(activity)
     await db.refresh(finding)
     return FindingResponse(**orm_to_finding_response(finding))
+
+
+# --- Finding Comments ---
+
+@router.get("/{finding_id}/comments", response_model=list[FindingCommentResponse])
+async def list_finding_comments(
+    finding_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    _user=require_roles("viewer", "editor", "admin"),
+):
+    """List comments for a finding, sorted oldest-first."""
+    result = await db.execute(select(FindingModel).where(FindingModel.id == finding_id))
+    if result.scalar_one_or_none() is None:
+        raise HTTPException(status_code=404, detail="Finding not found")
+    comments_result = await db.execute(
+        select(FindingCommentModel)
+        .where(FindingCommentModel.finding_id == finding_id)
+        .order_by(FindingCommentModel.created_at.asc())
+    )
+    return [FindingCommentResponse(**orm_to_finding_comment_response(c)) for c in comments_result.scalars().all()]
+
+
+@router.post("/{finding_id}/comments", response_model=FindingCommentResponse, status_code=201)
+async def create_finding_comment(
+    finding_id: UUID,
+    body: FindingCommentCreate,
+    db: AsyncSession = Depends(get_db),
+    _user=require_roles("editor", "admin"),
+):
+    """Add a comment to a finding (audit trail for status decisions)."""
+    result = await db.execute(select(FindingModel).where(FindingModel.id == finding_id))
+    finding = result.scalar_one_or_none()
+    if not finding:
+        raise HTTPException(status_code=404, detail="Finding not found")
+
+    display_name = "System"
+    user_id = None
+    if isinstance(_user, UserModel):
+        display_name = _user.display_name or "System"
+        user_id = _user.id
+
+    comment = FindingCommentModel(
+        finding_id=finding_id,
+        case_id=finding.case_id,
+        author=display_name,
+        user_id=user_id,
+        text=body.text,
+    )
+    db.add(comment)
+    activity = ActivityLogModel(
+        case_id=finding.case_id,
+        event_type="comment_added",
+        payload={"finding_id": str(finding_id), "author": display_name},
+    )
+    db.add(activity)
+    await db.flush()
+    await db.refresh(comment)
+    return FindingCommentResponse(**orm_to_finding_comment_response(comment))

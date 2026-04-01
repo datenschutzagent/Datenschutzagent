@@ -87,16 +87,17 @@ export function CaseFindingsTab({ caseData, onSelectFinding, onFindingsChanged }
     }
   };
 
-  const handleExport = async () => {
+  const handleExport = async (format: "csv" | "docx" = "csv") => {
     setExportLoading(true);
     try {
       const blob = await downloadFindingsExport(caseData.id, {
         severity: severityFilter !== "all" ? severityFilter : undefined,
         status: statusFilter !== "all" ? statusFilter : undefined,
+        format,
       });
       const date = new Date().toISOString().slice(0, 10);
       const slug = caseData.title.replace(/[^\w\s-]/g, "").slice(0, 40).trim().replace(/[-\s]+/g, "-") || "Befunde";
-      downloadBlob(blob, `Befunde-${slug}-${date}.csv`);
+      downloadBlob(blob, `Befunde-${slug}-${date}.${format}`);
     } catch {
       toast.error("Export fehlgeschlagen");
     } finally {
@@ -142,10 +143,14 @@ export function CaseFindingsTab({ caseData, onSelectFinding, onFindingsChanged }
                 <SelectItem value="fixed">Behoben</SelectItem>
               </SelectContent>
             </Select>
-            {/* Export button */}
-            <Button variant="outline" size="sm" className="gap-1.5" onClick={handleExport} disabled={exportLoading || caseData.findings.length === 0}>
+            {/* Export buttons */}
+            <Button variant="outline" size="sm" className="gap-1.5" onClick={() => handleExport("csv")} disabled={exportLoading || caseData.findings.length === 0}>
               {exportLoading ? <Loader2 className="size-4 animate-spin" /> : <Download className="size-4" />}
-              CSV Export
+              CSV
+            </Button>
+            <Button variant="outline" size="sm" className="gap-1.5" onClick={() => handleExport("docx")} disabled={exportLoading || caseData.findings.length === 0}>
+              <Download className="size-4" />
+              DOCX
             </Button>
           </div>
         </div>
