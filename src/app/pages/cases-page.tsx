@@ -10,7 +10,7 @@ import { DashboardStats } from "../components/dashboard-stats";
 import { NewCaseDialog } from "../components/new-case-dialog";
 import { CasesSearchFilter, CasesFilters } from "../components/cases-search-filter";
 import { statusLabels, statusColors, priorityColors, priorityLabels } from "../lib/mock-data";
-import { getCases, canEdit, type ApiCase } from "../lib/api";
+import { getCases, archiveCase, unarchiveCase, canEdit, type ApiCase, type CasesFilter } from "../lib/api";
 import { useAuthOptional } from "../contexts/AuthContext";
 import { Plus, FileText, CircleAlert, CheckCircle2, Clock, LayoutDashboard, Calendar, AlertTriangle } from "lucide-react";
 import { toast } from "sonner";
@@ -32,11 +32,18 @@ export function CasesPage() {
     tags: [],
   });
 
-  const loadCases = async () => {
+  const loadCases = async (activeFilters?: CasesFilters) => {
     setLoading(true);
     setError(null);
     try {
-      const list = await getCases();
+      const f = activeFilters ?? filters;
+      const apiFilter: CasesFilter = {};
+      if (f.searchQuery) apiFilter.q = f.searchQuery;
+      if (f.status !== "all") apiFilter.status = f.status;
+      if (f.department !== "all") apiFilter.department = f.department;
+      if (f.hasDeadline === false) apiFilter.deadline_overdue = false;
+      else if (f.hasDeadline === true) apiFilter.deadline_overdue = true;
+      const list = await getCases(0, 500, apiFilter);
       setCases(list);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Fehler beim Laden");
@@ -59,22 +66,16 @@ export function CasesPage() {
     []
   );
 
+  // Server-side filters handle q, status, department, deadline. Priority is client-only (no backend field yet).
   const filteredCases = useMemo(() => {
-    return cases.filter((c) => {
-      if (filters.searchQuery) {
-        const query = filters.searchQuery.toLowerCase();
-        const matchesSearch =
-          c.title.toLowerCase().includes(query) ||
-          c.department.toLowerCase().includes(query) ||
-          c.createdBy.toLowerCase().includes(query) ||
-          c.id.toLowerCase().includes(query);
-        if (!matchesSearch) return false;
-      }
-      if (filters.status !== "all" && c.status !== filters.status) return false;
-      if (filters.department !== "all" && c.department !== filters.department) return false;
-      return true;
-    });
-  }, [cases, filters]);
+    if (filters.priority === "all") return cases;
+    return cases.filter((c) => (c.priority ?? null) === filters.priority);
+  }, [cases, filters.priority]);
+
+  const handleFiltersChange = (newFilters: CasesFilters) => {
+    setFilters(newFilters);
+    loadCases(newFilters);
+  };
 
   const getStatsForCase = (caseItem: ApiCase) => {
     const critical = caseItem.findings.filter(f => f.severity === "critical" && f.status === "open").length;
@@ -115,8 +116,15 @@ export function CasesPage() {
         }
       />
 
-      {/* Tabs for Dashboard vs List View */}
-      <Tabs defaultValue="list" className="space-y-6">
+      {/* Tabs for Dashboard vs List View vs Archiv */}
+      <Tabs defaultValue="list" className="space-y-6" onValueChange={(val) => {
+        if (val === "archived") {
+          setLoading(true);
+          getCases(0, 500, {}, true).then(setCases).catch(() => setCases([])).finally(() => setLoading(false));
+        } else if (val === "list") {
+          loadCases();
+        }
+      }}>
         <TabsList>
           <TabsTrigger value="list" className="gap-2">
             <FileText className="size-4" />
@@ -125,6 +133,10 @@ export function CasesPage() {
           <TabsTrigger value="dashboard" className="gap-2">
             <LayoutDashboard className="size-4" />
             Dashboard
+          </TabsTrigger>
+          <TabsTrigger value="archived" className="gap-2">
+            <Clock className="size-4" />
+            Archiviert
           </TabsTrigger>
         </TabsList>
 
@@ -135,7 +147,7 @@ export function CasesPage() {
             <CardContent className="pt-6">
               <CasesSearchFilter
                 filters={filters}
-                onFiltersChange={setFilters}
+                onFiltersChange={handleFiltersChange}
                 availableDepartments={availableDepartments}
                 availableTags={availableTags}
               />
@@ -300,6 +312,58 @@ export function CasesPage() {
 
         <TabsContent value="dashboard">
           <DashboardStats cases={cases} />
+        </TabsContent>
+
+        <TabsContent value="archived" className="space-y-4">
+          {loading ? (
+            <div className="space-y-4">
+              {[1, 2, 3].map((i) => <Skeleton key={i} className="h-32 w-full" />)}
+            </div>
+          ) : cases.filter((c) => c.archivedAt).length === 0 ? (
+            <Card>
+              <CardContent className="py-12 text-center">
+                <Clock className="size-12 text-muted-foreground/30 mx-auto mb-4" />
+                <p className="text-muted-foreground">Keine archivierten Vorgänge</p>
+              </CardContent>
+            </Card>
+          ) : (
+            <div className="space-y-4">
+              {cases.filter((c) => c.archivedAt).map((c) => (
+                <Card key={c.id} className="opacity-75">
+                  <CardHeader>
+                    <div className="flex items-start justify-between gap-4">
+                      <div>
+                        <CardTitle className="text-base">{c.title}</CardTitle>
+                        <CardDescription>{c.department} · {c.caseType}</CardDescription>
+                      </div>
+                      <div className="flex items-center gap-2 shrink-0">
+                        <Badge variant="secondary" className="text-xs">
+                          Archiviert {c.archivedAt ? new Date(c.archivedAt).toLocaleDateString("de-DE") : ""}
+                        </Badge>
+                        {canEdit(auth?.user ?? null) && (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={async () => {
+                              try {
+                                await unarchiveCase(c.id);
+                                toast.success("Vorgang wiederhergestellt");
+                                loadCases();
+                              } catch (e) {
+                                toast.error(e instanceof Error ? e.message : "Fehler");
+                              }
+                            }}
+                          >
+                            Wiederherstellen
+                          </Button>
+                        )}
+                      </div>
+                    </div>
+                  </CardHeader>
+                </Card>
+              ))}
+            </div>
+          )}
         </TabsContent>
       </Tabs>
 

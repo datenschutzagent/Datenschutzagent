@@ -37,6 +37,8 @@ class CaseModel(Base):
     special_category_data: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     international_transfer: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     deadline: Mapped[date | None] = mapped_column(Date, nullable=True)
+    archived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, default=None)
+    retention_months: Mapped[int | None] = mapped_column(Integer, nullable=True, default=None)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
@@ -340,6 +342,8 @@ def orm_to_case_response(orm: CaseModel) -> dict[str, Any]:
         "special_category_data": orm.special_category_data,
         "international_transfer": orm.international_transfer,
         "deadline": orm.deadline,
+        "archived_at": orm.archived_at,
+        "retention_months": orm.retention_months,
         "documents": [orm_to_document_response(d) for d in docs_sorted],
         "findings": [orm_to_finding_response(f) for f in orm.findings],
     }

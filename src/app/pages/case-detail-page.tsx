@@ -13,12 +13,13 @@ import {
   runChecks,
   getRunChecksStatus,
   updateFindingStatus,
-  getDSBReportBlob,
-  downloadBlob,
   getFindingComments,
   createFindingComment,
   getPlaybookCoveragePreview,
   getSimilarCases,
+  getCaseRiskScore,
+  archiveCase,
+  unarchiveCase,
   canEdit,
   type ApiCase,
   type ApiFinding,
@@ -26,6 +27,7 @@ import {
   type ApiPlaybook,
   type PlaybookCoverage,
   type CaseSimilarityResult,
+  type CaseRiskScore,
   type RunChecksStrategy,
 } from "../lib/api";
 import { useAuthOptional } from "../contexts/AuthContext";
@@ -74,7 +76,6 @@ export function CaseDetailPage() {
   const [runChecksError, setRunChecksError] = useState<string | null>(null);
   const [findingStatusLoading, setFindingStatusLoading] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState("overview");
-  const [dsbReportDownloading, setDsbReportDownloading] = useState(false);
   const [documentsChangedSinceLastRun, setDocumentsChangedSinceLastRun] = useState(false);
   // Finding comment state
   const [findingComments, setFindingComments] = useState<ApiFindingComment[]>([]);
@@ -84,6 +85,8 @@ export function CaseDetailPage() {
   const [coveragePreview, setCoveragePreview] = useState<PlaybookCoverage | null>(null);
   // Similar cases
   const [similarCases, setSimilarCases] = useState<CaseSimilarityResult[]>([]);
+  // Risk score
+  const [riskScore, setRiskScore] = useState<CaseRiskScore | null>(null);
 
   const loadCase = () => {
     if (!caseId) return;
@@ -152,6 +155,7 @@ export function CaseDetailPage() {
         setRunChecksStatus("running");
       } else {
         setCaseData(result as ApiCase);
+        loadRiskScore();
         setRunChecksOpen(false);
         setSelectedPlaybookId("");
       }
@@ -176,6 +180,15 @@ export function CaseDetailPage() {
     getSimilarCases(caseId).then(setSimilarCases).catch(() => {});
   }, [caseId]);
 
+  // Load risk score on mount and after run-checks
+  const loadRiskScore = () => {
+    if (!caseId) return;
+    getCaseRiskScore(caseId).then(setRiskScore).catch(() => {});
+  };
+  useEffect(() => {
+    loadRiskScore();
+  }, [caseId]);
+
   // Poll run-checks status when job was accepted (202) — independent of dialog state
   useEffect(() => {
     if (!caseId || runChecksStatus !== "running") return;
@@ -186,6 +199,7 @@ export function CaseDetailPage() {
           setRunChecksStatus("idle");
           toast.success("Prüfungen erfolgreich abgeschlossen");
           loadCase();
+          loadRiskScore();
           setRunChecksOpen(false);
           setSelectedPlaybookId("");
         } else if (statusRes.status === "failed") {
@@ -287,6 +301,15 @@ export function CaseDetailPage() {
         </BreadcrumbList>
       </Breadcrumb>
 
+        {/* Archived banner */}
+        {caseData.archivedAt && (
+          <Alert className="mb-4 border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-900/30">
+            <AlertDescription className="text-amber-800 dark:text-amber-200">
+              Dieser Vorgang ist archiviert (seit {new Date(caseData.archivedAt).toLocaleDateString("de-DE")}) und schreibgeschützt.
+            </AlertDescription>
+          </Alert>
+        )}
+
         {/* Viewer hint */}
         {auth?.user && auth.user.role === "viewer" && (
           <Alert className="mb-4 border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-900/30">
@@ -341,23 +364,9 @@ export function CaseDetailPage() {
               <Button
                 variant="outline"
                 className="gap-2"
-                disabled={dsbReportDownloading}
-                onClick={async () => {
-                  if (!caseId) return;
-                  setDsbReportDownloading(true);
-                  try {
-                    const blob = await getDSBReportBlob(caseId, "markdown");
-                    const slug = caseData.title.replace(/[^\w\s-]/g, "").slice(0, 50).trim().replace(/[-\s]+/g, "-") || "Report";
-                    const date = new Date().toISOString().slice(0, 10);
-                    downloadBlob(blob, `DSB-Report-${slug}-${date}.md`);
-                  } catch (e) {
-                    toast.error(e instanceof Error ? e.message : "DSB-Report konnte nicht geladen werden.");
-                  } finally {
-                    setDsbReportDownloading(false);
-                  }
-                }}
+                onClick={() => setActiveTab("report")}
               >
-                {dsbReportDownloading ? <Loader2 className="size-4 animate-spin" /> : <Download className="size-4" />}
+                <Download className="size-4" />
                 DSB-Report
               </Button>
               <Button
@@ -368,6 +377,42 @@ export function CaseDetailPage() {
                 <MessageSquare className="size-4" />
                 Kommentierte Dokumente
               </Button>
+              {userCanEdit && !caseData.archivedAt && (
+                <Button
+                  variant="outline"
+                  className="gap-2 text-amber-700 border-amber-300 hover:bg-amber-50 dark:text-amber-400 dark:border-amber-700 dark:hover:bg-amber-900/30"
+                  onClick={async () => {
+                    if (!caseId || !confirm("Vorgang archivieren? Archivierte Vorgänge sind schreibgeschützt.")) return;
+                    try {
+                      const updated = await archiveCase(caseId);
+                      setCaseData(updated);
+                      toast.success("Vorgang archiviert");
+                    } catch (e) {
+                      toast.error(e instanceof Error ? e.message : "Fehler beim Archivieren");
+                    }
+                  }}
+                >
+                  Archivieren
+                </Button>
+              )}
+              {userCanEdit && caseData.archivedAt && (
+                <Button
+                  variant="outline"
+                  className="gap-2"
+                  onClick={async () => {
+                    if (!caseId) return;
+                    try {
+                      const updated = await unarchiveCase(caseId);
+                      setCaseData(updated);
+                      toast.success("Vorgang wiederhergestellt");
+                    } catch (e) {
+                      toast.error(e instanceof Error ? e.message : "Fehler beim Wiederherstellen");
+                    }
+                  }}
+                >
+                  Wiederherstellen
+                </Button>
+              )}
             </div>
           </div>
 
@@ -422,6 +467,7 @@ export function CaseDetailPage() {
               canEdit={userCanEdit}
               coveragePreview={coveragePreview}
               similarCases={similarCases}
+              riskScore={riskScore}
               onCaseUpdated={(updated) => setCaseData(updated)}
             />
           </TabsContent>

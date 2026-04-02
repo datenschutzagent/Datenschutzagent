@@ -175,7 +175,7 @@ def _build_findings_docx(case_title: str, findings: list, docs_by_id: dict) -> b
 
 @router.get("/export", response_class=Response)
 async def export_findings(
-    case_id: Annotated[UUID, Query()],
+    case_id: Annotated[UUID | None, Query()] = None,
     severity: Annotated[str | None, Query()] = None,
     status: Annotated[str | None, Query()] = None,
     category: Annotated[str | None, Query()] = None,
@@ -183,12 +183,10 @@ async def export_findings(
     db: AsyncSession = Depends(get_db),
     _user=require_roles("viewer", "editor", "admin"),
 ):
-    """Export findings for a case as CSV (default) or DOCX (format=docx)."""
-    q = (
-        select(FindingModel)
-        .where(FindingModel.case_id == case_id)
-        .limit(EXPORT_MAX)
-    )
+    """Export findings as CSV (default) or DOCX. If case_id is omitted, exports all findings (org-wide)."""
+    q = select(FindingModel).limit(EXPORT_MAX)
+    if case_id is not None:
+        q = q.where(FindingModel.case_id == case_id)
     if severity is not None:
         q = q.where(FindingModel.severity == severity)
     if status is not None:
@@ -199,10 +197,13 @@ async def export_findings(
     findings_result = await db.execute(q)
     findings = findings_result.scalars().all()
 
-    case_result = await db.execute(select(CaseModel).where(CaseModel.id == case_id))
-    case = case_result.scalar_one_or_none()
-    if case is None:
-        raise HTTPException(status_code=404, detail="Case not found")
+    case_title = "Alle Vorgänge"
+    if case_id is not None:
+        case_result = await db.execute(select(CaseModel).where(CaseModel.id == case_id))
+        case = case_result.scalar_one_or_none()
+        if case is None:
+            raise HTTPException(status_code=404, detail="Case not found")
+        case_title = case.title
 
     doc_ids = {f.document_id for f in findings if f.document_id is not None}
     docs_by_id: dict[UUID, str] = {}
@@ -212,11 +213,18 @@ async def export_findings(
         )
         docs_by_id = {d.id: d.name for d in docs_result.scalars().all()}
 
+    # Build case title map for CSV (when exporting org-wide)
+    case_ids = {f.case_id for f in findings}
+    cases_by_id: dict[UUID, str] = {}
+    if case_ids:
+        cases_result = await db.execute(select(CaseModel).where(CaseModel.id.in_(case_ids)))
+        cases_by_id = {c.id: c.title for c in cases_result.scalars().all()}
+
     date_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-    slug = case.title.replace("/", "-").replace("\\", "-")[:50]
+    slug = case_title.replace("/", "-").replace("\\", "-")[:50]
 
     if format.lower() == "docx":
-        content_bytes = _build_findings_docx(case.title, findings, docs_by_id)
+        content_bytes = _build_findings_docx(case_title, findings, docs_by_id)
         filename = f"Befunde-{slug}-{date_str}.docx"
         return Response(
             content=content_bytes,
@@ -255,7 +263,7 @@ async def export_findings(
     for f in findings:
         writer.writerow([
             str(f.id),
-            case.title,
+            cases_by_id.get(f.case_id, str(f.case_id)),
             f.check_name,
             f.category,
             severity_labels.get(f.severity, f.severity),
