@@ -2,6 +2,7 @@ import { createBrowserRouter, Navigate, useLocation } from "react-router";
 import { CasesPage } from "./pages/cases-page";
 import { CaseDetailPage } from "./pages/case-detail-page";
 import { VvtOverviewPage } from "./pages/vvt-overview-page";
+import { ComplianceOverviewPage } from "./pages/compliance-overview-page";
 import { PlaybooksPage } from "./pages/playbooks-page";
 import { PlaybookDetailPage } from "./pages/playbook-detail-page";
 import { LegalBasesPage } from "./pages/legal-bases-page";
@@ -59,6 +60,14 @@ export const router = createBrowserRouter([
     element: (
       <AuthGuard>
         <VvtOverviewPage />
+      </AuthGuard>
+    ),
+  },
+  {
+    path: "/compliance",
+    element: (
+      <AuthGuard>
+        <ComplianceOverviewPage />
       </AuthGuard>
     ),
   },

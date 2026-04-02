@@ -169,6 +169,8 @@ class CaseResponse(BaseModel):
     special_category_data: bool = False
     international_transfer: bool = False
     deadline: date | None = None
+    archived_at: datetime | None = None
+    retention_months: int | None = None
     documents: list[DocumentResponse] = []
     findings: list[FindingResponse] = []
 

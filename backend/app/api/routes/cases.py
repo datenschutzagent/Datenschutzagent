@@ -66,14 +66,49 @@ router = APIRouter()
 async def list_cases(
     skip: int = Query(default=0, ge=0),
     limit: int = Query(default=100, ge=1, le=500),
+    q: str | None = Query(default=None, description="Volltext-Suche in Titel, Abteilung, Vorgangstyp, Ersteller, Zugewiesenem"),
+    status: str | None = Query(default=None, description="Filtert nach Case-Status (z. B. intake, in_review, completed)"),
+    department: str | None = Query(default=None, description="Filtert nach Abteilung (exakter Name)"),
+    assignee: str | None = Query(default=None, description="Filtert nach Zugewiesenem (enthält)"),
+    deadline_overdue: bool | None = Query(default=None, description="True = nur überfällige Vorgänge (Frist < heute, Status nicht completed)"),
+    include_archived: bool = Query(default=False, description="True = auch archivierte Vorgänge zurückgeben (Standard: nur nicht-archivierte)"),
     db: AsyncSession = Depends(get_db),
 ):
-    """List cases with optional pagination. Returns items and total count."""
-    count_result = await db.execute(select(func.count()).select_from(CaseModel))
+    """List cases with optional pagination and server-side filtering. Returns items and total count."""
+    from datetime import date as date_type
+    base_q = select(CaseModel)
+    if q:
+        like = f"%{q}%"
+        from sqlalchemy import or_
+        base_q = base_q.where(
+            or_(
+                CaseModel.title.ilike(like),
+                CaseModel.department.ilike(like),
+                CaseModel.case_type.ilike(like),
+                CaseModel.created_by.ilike(like),
+                CaseModel.assignee.ilike(like),
+            )
+        )
+    if status:
+        base_q = base_q.where(CaseModel.status == status)
+    if department:
+        base_q = base_q.where(CaseModel.department == department)
+    if assignee:
+        base_q = base_q.where(CaseModel.assignee.ilike(f"%{assignee}%"))
+    if deadline_overdue is True:
+        today = date_type.today()
+        base_q = base_q.where(CaseModel.deadline < today, CaseModel.status != "completed")
+    elif deadline_overdue is False:
+        today = date_type.today()
+        base_q = base_q.where((CaseModel.deadline >= today) | (CaseModel.deadline == None))  # noqa: E711
+    if not include_archived:
+        base_q = base_q.where(CaseModel.archived_at == None)  # noqa: E711
+
+    count_result = await db.execute(select(func.count()).select_from(base_q.subquery()))
     total = count_result.scalar_one()
 
     result = await db.execute(
-        select(CaseModel)
+        base_q
         .options(selectinload(CaseModel.documents), selectinload(CaseModel.findings))
         .order_by(CaseModel.updated_at.desc())
         .offset(skip)
@@ -162,11 +197,13 @@ async def update_case(
     db: AsyncSession = Depends(get_db),
     _user=require_roles("editor", "admin"),
 ):
-    """Update a case (partial update)."""
+    """Update a case (partial update). Returns 403 if case is archived."""
     result = await db.execute(select(CaseModel).where(CaseModel.id == case_id))
     case = result.scalar_one_or_none()
     if not case:
         raise HTTPException(status_code=404, detail="Case not found")
+    if case.archived_at is not None:
+        raise HTTPException(status_code=403, detail="Archived cases are read-only. Unarchive first.")
     ALLOWED_UPDATE_FIELDS = {
         "title", "department", "case_type", "status", "language",
         "assignee", "playbook_version", "processing_context",
@@ -203,6 +240,52 @@ async def delete_case(
     await db.delete(case)
     await db.flush()
     return None
+
+
+@router.post("/{case_id}/archive", response_model=CaseResponse)
+async def archive_case(
+    case_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    _user=require_roles("editor", "admin"),
+):
+    """Archive a case. Archived cases are read-only and hidden from the default list view."""
+    result = await db.execute(
+        select(CaseModel)
+        .where(CaseModel.id == case_id)
+        .options(selectinload(CaseModel.documents), selectinload(CaseModel.findings))
+    )
+    case = result.scalar_one_or_none()
+    if not case:
+        raise HTTPException(status_code=404, detail="Case not found")
+    if case.archived_at is not None:
+        raise HTTPException(status_code=409, detail="Case is already archived")
+    case.archived_at = datetime.now(timezone.utc)
+    await db.flush()
+    await db.refresh(case)
+    return CaseResponse(**orm_to_case_response(case))
+
+
+@router.post("/{case_id}/unarchive", response_model=CaseResponse)
+async def unarchive_case(
+    case_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    _user=require_roles("editor", "admin"),
+):
+    """Unarchive a previously archived case."""
+    result = await db.execute(
+        select(CaseModel)
+        .where(CaseModel.id == case_id)
+        .options(selectinload(CaseModel.documents), selectinload(CaseModel.findings))
+    )
+    case = result.scalar_one_or_none()
+    if not case:
+        raise HTTPException(status_code=404, detail="Case not found")
+    if case.archived_at is None:
+        raise HTTPException(status_code=409, detail="Case is not archived")
+    case.archived_at = None
+    await db.flush()
+    await db.refresh(case)
+    return CaseResponse(**orm_to_case_response(case))
 
 
 def _build_vvt_export_docx(doc_name: str, source_template: str, fields: list) -> bytes:

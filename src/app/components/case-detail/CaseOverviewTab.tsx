@@ -3,8 +3,9 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../ui
 import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "../ui/dialog";
+import { LineChart, Line, Tooltip, ResponsiveContainer } from "recharts";
 import { severityColors, priorityLabels, priorityColors } from "../../lib/mock-data";
-import type { ApiCase, ApiFinding, ApiPlaybook, CaseSimilarityResult, PlaybookCoverage, RunChecksStrategy } from "../../lib/api";
+import type { ApiCase, ApiFinding, ApiPlaybook, CaseSimilarityResult, CaseRiskScore, PlaybookCoverage, RunChecksStrategy } from "../../lib/api";
 import { updateCase } from "../../lib/api";
 import { useAppConfig } from "../../contexts/AppConfigContext";
 import { CircleAlert, Download, FileCheck, Loader2, Shield } from "lucide-react";
@@ -31,6 +32,7 @@ export interface CaseOverviewTabProps {
   canEdit?: boolean;
   coveragePreview?: PlaybookCoverage | null;
   similarCases?: CaseSimilarityResult[];
+  riskScore?: CaseRiskScore | null;
   onCaseUpdated?: (caseData: ApiCase) => void;
 }
 
@@ -54,6 +56,7 @@ export function CaseOverviewTab({
   canEdit = true,
   coveragePreview,
   similarCases = [],
+  riskScore,
   onCaseUpdated,
 }: CaseOverviewTabProps) {
   const appConfig = useAppConfig();
@@ -323,6 +326,78 @@ export function CaseOverviewTab({
           </CardContent>
         </Card>
       </div>
+
+      {riskScore && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base flex items-center gap-2">
+              Risiko-Score
+              {riskScore.history.length > 0 && (
+                <span className="text-xs font-normal text-muted-foreground">({riskScore.history.length} Prüfläufe)</span>
+              )}
+            </CardTitle>
+            <CardDescription>Aktueller Risikowert des Vorgangs (0 = kein Risiko, 100 = maximales Risiko)</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="flex items-center gap-6">
+              <div className="shrink-0 text-center">
+                <span
+                  className={`text-4xl font-bold ${
+                    riskScore.score === 0
+                      ? "text-green-600 dark:text-green-400"
+                      : riskScore.score < 30
+                      ? "text-yellow-600 dark:text-yellow-400"
+                      : riskScore.score < 60
+                      ? "text-orange-600 dark:text-orange-400"
+                      : "text-red-600 dark:text-red-400"
+                  }`}
+                >
+                  {riskScore.score}
+                </span>
+                <p className="text-xs text-muted-foreground mt-1">/ 100</p>
+              </div>
+              <div className="flex-1 min-w-0">
+                <div className="w-full bg-slate-200 dark:bg-slate-700 rounded-full h-3 mb-3">
+                  <div
+                    className={`h-3 rounded-full transition-all ${
+                      riskScore.score === 0
+                        ? "bg-green-500"
+                        : riskScore.score < 30
+                        ? "bg-yellow-500"
+                        : riskScore.score < 60
+                        ? "bg-orange-500"
+                        : "bg-red-500"
+                    }`}
+                    style={{ width: `${riskScore.score}%` }}
+                  />
+                </div>
+                {riskScore.history.length >= 2 && (
+                  <ResponsiveContainer width="100%" height={48}>
+                    <LineChart data={riskScore.history.map((h) => ({ score: h.score, at: new Date(h.created_at).toLocaleDateString("de-DE") }))}>
+                      <Line type="monotone" dataKey="score" stroke="#3b82f6" strokeWidth={2} dot={false} />
+                      <Tooltip
+                        formatter={(v: number) => [`Score: ${v}`, ""]}
+                        labelFormatter={(l) => l}
+                        contentStyle={{ fontSize: "11px" }}
+                      />
+                    </LineChart>
+                  </ResponsiveContainer>
+                )}
+              </div>
+              {riskScore.history.length > 0 && (() => {
+                const last = riskScore.history[riskScore.history.length - 1];
+                return (
+                  <div className="shrink-0 text-xs text-muted-foreground space-y-1 text-right">
+                    <div>Kritisch: <span className="font-medium text-red-600 dark:text-red-400">{last.critical}</span></div>
+                    <div>Hoch: <span className="font-medium text-orange-600 dark:text-orange-400">{last.high}</span></div>
+                    <div>Mittel: <span className="font-medium text-yellow-600 dark:text-yellow-400">{last.medium}</span></div>
+                  </div>
+                );
+              })()}
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       <Card>
         <CardHeader>

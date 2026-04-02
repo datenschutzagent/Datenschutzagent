@@ -6,9 +6,13 @@ import {
   CircleAlert,
   CheckCircle2,
   Users,
-  BookOpen
+  BookOpen,
+  Calendar,
+  AlertTriangle,
+  Clock,
 } from "lucide-react";
 import { useState, useEffect, useMemo } from "react";
+import { Link } from "react-router";
 import { mockCases } from "../lib/mock-data";
 import { getPlaybooks, type ApiCase, type ApiPlaybook } from "../lib/api";
 
@@ -86,6 +90,23 @@ export function DashboardStats({ cases: casesProp }: DashboardStatsProps = {}) {
         )
       ),
     }));
+  }, [cases]);
+
+  // Deadline analysis
+  const deadlineStats = useMemo(() => {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const in7Days = new Date(today);
+    in7Days.setDate(today.getDate() + 7);
+    const activeCaseList = cases.filter((c) => c.status !== "completed");
+    const overdue = activeCaseList.filter((c) => c.deadline && new Date(c.deadline) < today);
+    const dueThisWeek = activeCaseList.filter((c) => {
+      if (!c.deadline) return false;
+      const d = new Date(c.deadline);
+      return d >= today && d <= in7Days;
+    });
+    const noDeadline = activeCaseList.filter((c) => !c.deadline);
+    return { overdue, dueThisWeek, noDeadline };
   }, [cases]);
 
   // Compliance-Score pro Abteilung
@@ -167,6 +188,78 @@ export function DashboardStats({ cases: casesProp }: DashboardStatsProps = {}) {
           </CardContent>
         </Card>
       </div>
+
+      {/* Deadline overview */}
+      {(deadlineStats.overdue.length > 0 || deadlineStats.dueThisWeek.length > 0) && (
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <Card className={deadlineStats.overdue.length > 0 ? "border-red-300 dark:border-red-700" : ""}>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <CardTitle className="text-sm font-medium text-red-700 dark:text-red-400">Überfällig</CardTitle>
+              <AlertTriangle className="size-4 text-red-600 dark:text-red-400" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-semibold text-red-600 dark:text-red-400">{deadlineStats.overdue.length}</div>
+              <p className="text-xs text-muted-foreground mt-1">aktive Vorgänge</p>
+              {deadlineStats.overdue.length > 0 && (
+                <ul className="mt-2 space-y-1">
+                  {deadlineStats.overdue.slice(0, 3).map((c) => (
+                    <li key={c.id} className="text-xs">
+                      <Link to={`/cases/${c.id}`} className="text-red-700 dark:text-red-400 hover:underline truncate block">
+                        {c.title}
+                      </Link>
+                      <span className="text-muted-foreground">
+                        {new Date(c.deadline!).toLocaleDateString("de-DE")}
+                      </span>
+                    </li>
+                  ))}
+                  {deadlineStats.overdue.length > 3 && (
+                    <li className="text-xs text-muted-foreground">+{deadlineStats.overdue.length - 3} weitere</li>
+                  )}
+                </ul>
+              )}
+            </CardContent>
+          </Card>
+
+          <Card className={deadlineStats.dueThisWeek.length > 0 ? "border-amber-300 dark:border-amber-700" : ""}>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <CardTitle className="text-sm font-medium text-amber-700 dark:text-amber-400">Diese Woche fällig</CardTitle>
+              <Clock className="size-4 text-amber-600 dark:text-amber-400" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-semibold text-amber-600 dark:text-amber-400">{deadlineStats.dueThisWeek.length}</div>
+              <p className="text-xs text-muted-foreground mt-1">in den nächsten 7 Tagen</p>
+              {deadlineStats.dueThisWeek.length > 0 && (
+                <ul className="mt-2 space-y-1">
+                  {deadlineStats.dueThisWeek.slice(0, 3).map((c) => (
+                    <li key={c.id} className="text-xs">
+                      <Link to={`/cases/${c.id}`} className="text-amber-700 dark:text-amber-400 hover:underline truncate block">
+                        {c.title}
+                      </Link>
+                      <span className="text-muted-foreground">
+                        {new Date(c.deadline!).toLocaleDateString("de-DE")}
+                      </span>
+                    </li>
+                  ))}
+                  {deadlineStats.dueThisWeek.length > 3 && (
+                    <li className="text-xs text-muted-foreground">+{deadlineStats.dueThisWeek.length - 3} weitere</li>
+                  )}
+                </ul>
+              )}
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <CardTitle className="text-sm font-medium">Ohne Frist</CardTitle>
+              <Calendar className="size-4 text-muted-foreground" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-semibold">{deadlineStats.noDeadline.length}</div>
+              <p className="text-xs text-muted-foreground mt-1">aktive Vorgänge ohne Fristangabe</p>
+            </CardContent>
+          </Card>
+        </div>
+      )}
 
       {/* Status Overview */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">

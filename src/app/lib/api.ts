@@ -47,6 +47,8 @@ function mapCase(d: Record<string, unknown>): Record<string, unknown> {
     specialCategoryData: Boolean(d.special_category_data),
     internationalTransfer: Boolean(d.international_transfer),
     deadline: (d.deadline as string) ?? null,
+    archivedAt: (d.archived_at as string) ?? null,
+    retentionMonths: (d.retention_months as number) ?? null,
     documents: Array.isArray(d.documents) ? (d.documents as Record<string, unknown>[]).map(mapDocument) : [],
     findings: Array.isArray(d.findings) ? (d.findings as Record<string, unknown>[]).map(mapFinding) : [],
   };
@@ -372,6 +374,8 @@ export interface ApiCase {
   specialCategoryData?: boolean;
   internationalTransfer?: boolean;
   deadline?: string | null;
+  archivedAt?: string | null;
+  retentionMonths?: number | null;
   documents: ApiDocument[];
   findings: ApiFinding[];
   priority?: string;
@@ -463,8 +467,24 @@ export interface ApiDSBReport {
 }
 
 // --- Cases ---
-export async function getCases(skip = 0, limit = 100): Promise<ApiCase[]> {
-  const list = (await request<Record<string, unknown>[]>("GET", `/cases?skip=${skip}&limit=${limit}`)) ?? [];
+export interface CasesFilter {
+  q?: string;
+  status?: string;
+  department?: string;
+  assignee?: string;
+  deadline_overdue?: boolean;
+}
+
+export async function getCases(skip = 0, limit = 100, filter?: CasesFilter, includeArchived = false): Promise<ApiCase[]> {
+  const params = new URLSearchParams({ skip: String(skip), limit: String(limit) });
+  if (filter?.q) params.set("q", filter.q);
+  if (filter?.status) params.set("status", filter.status);
+  if (filter?.department) params.set("department", filter.department);
+  if (filter?.assignee) params.set("assignee", filter.assignee);
+  if (filter?.deadline_overdue !== undefined) params.set("deadline_overdue", String(filter.deadline_overdue));
+  if (includeArchived) params.set("include_archived", "true");
+  const data = await request<{ items?: Record<string, unknown>[]; total?: number } | Record<string, unknown>[]>("GET", `/cases?${params.toString()}`);
+  const list: Record<string, unknown>[] = Array.isArray(data) ? data : ((data as { items?: Record<string, unknown>[] }).items ?? []);
   return list.map((c) => mapCase(c) as ApiCase);
 }
 
@@ -475,6 +495,16 @@ export async function getCase(id: string): Promise<ApiCase> {
 
 export async function createCase(body: CaseCreateInput): Promise<ApiCase> {
   const c = await request<Record<string, unknown>>("POST", "/cases", { body });
+  return mapCase(c) as ApiCase;
+}
+
+export async function archiveCase(id: string): Promise<ApiCase> {
+  const c = await request<Record<string, unknown>>("POST", `/cases/${id}/archive`);
+  return mapCase(c) as ApiCase;
+}
+
+export async function unarchiveCase(id: string): Promise<ApiCase> {
+  const c = await request<Record<string, unknown>>("POST", `/cases/${id}/unarchive`);
   return mapCase(c) as ApiCase;
 }
 
@@ -938,6 +968,24 @@ export async function downloadFindingsExport(
   filters?: { severity?: string; status?: string; category?: string; format?: "csv" | "docx" }
 ): Promise<Blob> {
   const q = new URLSearchParams({ case_id: caseId });
+  if (filters?.severity) q.set("severity", filters.severity);
+  if (filters?.status) q.set("status", filters.status);
+  if (filters?.category) q.set("category", filters.category);
+  if (filters?.format) q.set("format", filters.format);
+  const url = `${API_BASE}${API_PREFIX}/findings/export?${q.toString()}`;
+  const headers: Record<string, string> = { ...authHeaders() };
+  const res = await fetch(url, { headers });
+  if (!res.ok) {
+    const detail = await parseErrorResponse(res);
+    throw new Error(detail);
+  }
+  return res.blob();
+}
+
+export async function downloadAllFindingsExport(
+  filters?: { severity?: string; status?: string; category?: string; format?: "csv" | "docx" }
+): Promise<Blob> {
+  const q = new URLSearchParams();
   if (filters?.severity) q.set("severity", filters.severity);
   if (filters?.status) q.set("status", filters.status);
   if (filters?.category) q.set("category", filters.category);
