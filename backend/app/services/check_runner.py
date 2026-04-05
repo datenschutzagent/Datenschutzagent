@@ -1,3 +1,5 @@
+import asyncio
+import logging
 import uuid
 from typing import List
 from uuid import UUID
@@ -8,6 +10,33 @@ from app.config import settings
 from app.core.llm import create_agent
 from app.models.schemas import FindingSeverityEnum
 from app.services.prompt_template_service import get_active_template, render
+
+logger = logging.getLogger(__name__)
+
+_LLM_RETRY_ATTEMPTS = 3
+_LLM_RETRY_DELAYS = [2, 4, 8]  # seconds
+
+
+async def _run_with_retry(agent, user_content: str, result_type):
+    """Run an LLM agent call with exponential backoff retry on transient errors."""
+    last_exc: Exception | None = None
+    for attempt, delay in enumerate(
+        [0] + _LLM_RETRY_DELAYS[: _LLM_RETRY_ATTEMPTS - 1], start=1
+    ):
+        if delay:
+            await asyncio.sleep(delay)
+        try:
+            result = await agent.run(user_content, result_type=result_type)
+            return result
+        except Exception as exc:
+            last_exc = exc
+            logger.warning(
+                "LLM call failed (attempt %d/%d): %s",
+                attempt,
+                _LLM_RETRY_ATTEMPTS,
+                exc,
+            )
+    raise last_exc
 
 # Per-document character limit for LLM context (single-doc and cross-doc)
 CONTEXT_CHARS_PER_DOC = 15000
@@ -115,7 +144,7 @@ async def run_check(
         },
     )
     agent = create_agent(system_prompt=system)
-    result = await agent.run(user_content, result_type=CheckResult)
+    result = await _run_with_retry(agent, user_content, CheckResult)
     return result.data
 
 
@@ -152,7 +181,7 @@ async def run_cross_document_check(
         },
     )
     agent = create_agent(system_prompt=system)
-    result = await agent.run(user_content, result_type=CheckResult)
+    result = await _run_with_retry(agent, user_content, CheckResult)
     return result.data
 
 
@@ -188,7 +217,7 @@ async def run_check_rag(
         },
     )
     agent = create_agent(system_prompt=system)
-    result = await agent.run(user_content, result_type=CheckResult)
+    result = await _run_with_retry(agent, user_content, CheckResult)
     return result.data
 
 
@@ -225,5 +254,5 @@ async def run_cross_document_check_rag(
         },
     )
     agent = create_agent(system_prompt=system)
-    result = await agent.run(user_content, result_type=CheckResult)
+    result = await _run_with_retry(agent, user_content, CheckResult)
     return result.data

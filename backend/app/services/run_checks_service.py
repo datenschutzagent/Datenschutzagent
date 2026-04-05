@@ -14,6 +14,9 @@ from app.services.check_runner import (
     run_cross_document_check,
     run_cross_document_check_rag,
 )
+import logging
+
+logger = logging.getLogger(__name__)
 from app.services.weaviate_service import get_relevant_legal_base_chunks
 
 
@@ -165,6 +168,14 @@ async def run_checks_impl(
         if (check_name, document_id) in existing_open:
             return
         existing_open.add((check_name, document_id))
+        # Deduplicate evidence items while preserving order
+        seen_evidence: set[str] = set()
+        deduped_evidence: list[str] = []
+        for item in (evidence or []):
+            normalized = item.strip()
+            if normalized and normalized not in seen_evidence:
+                seen_evidence.add(normalized)
+                deduped_evidence.append(normalized)
         finding = FindingModel(
             case_id=case_id,
             document_id=document_id,
@@ -173,7 +184,7 @@ async def run_checks_impl(
             status="open",
             category=category,
             description=description,
-            evidence=evidence or [],
+            evidence=deduped_evidence,
             recommendation=recommendation or "",
             source_strategy=source_strategy,
         )
@@ -217,6 +228,7 @@ async def run_checks_impl(
             return
         lb_ids = _legal_base_ids_for_check(item)
         legal_ctx = _legal_bases_context_for_instruction(instruction, lb_ids)
+        rag_result = None
         try:
             rag_result = await run_check_rag(
                 doc_id, case_id, instruction, language=case_language, legal_bases_context=legal_ctx or None
@@ -224,10 +236,30 @@ async def run_checks_impl(
         except Exception as e:
             errors.append({"check": name, "scope": "document", "document_id": str(doc_id), "strategy": "rag", "error": str(e)})
             rag_skipped = True
-            return
         if rag_result is None:
+            # Fallback to full_text when RAG is unavailable
             rag_skipped = True
-            errors.append({"check": name, "scope": "document", "document_id": str(doc_id), "strategy": "rag", "error": "Weaviate/chunks unavailable"})
+            if "Weaviate/chunks unavailable" not in str(errors[-1].get("error", "") if errors else ""):
+                errors.append({"check": name, "scope": "document", "document_id": str(doc_id), "strategy": "rag", "error": "Weaviate/chunks unavailable – falling back to full_text"})
+            doc_text = next((d.content or "" for d in case.documents if d.id == doc_id), "")
+            try:
+                fallback_result = await run_check(
+                    doc_text, instruction, language=case_language, legal_bases_context=legal_ctx or None
+                )
+                if not fallback_result.is_compliant:
+                    _add_finding(
+                        case_id=case_id,
+                        document_id=doc_id,
+                        check_name=name,
+                        category=category,
+                        severity=fallback_result.severity,
+                        description=fallback_result.description,
+                        evidence=fallback_result.evidence or [],
+                        recommendation=fallback_result.recommendation or "",
+                        source_strategy="full_text",
+                    )
+            except Exception as e2:
+                errors.append({"check": name, "scope": "document", "document_id": str(doc_id), "strategy": "rag_fallback_full_text", "error": str(e2)})
             return
         if not rag_result.is_compliant:
             _add_finding(
@@ -293,6 +325,7 @@ async def run_checks_impl(
                 return
             lb_ids = _legal_base_ids_for_check(item)
             legal_ctx = _legal_bases_context_for_instruction(instruction, lb_ids)
+            rag_result = None
             try:
                 rag_result = await run_cross_document_check_rag(
                     case_id, instruction, language=case_language, legal_bases_context=legal_ctx or None
@@ -300,10 +333,28 @@ async def run_checks_impl(
             except Exception as e:
                 errors.append({"check": name, "scope": "case", "document_id": None, "strategy": "rag", "error": str(e)})
                 rag_skipped = True
-                return
             if rag_result is None:
+                # Fallback to full_text when RAG is unavailable
                 rag_skipped = True
-                errors.append({"check": name, "scope": "case", "document_id": None, "strategy": "rag", "error": "Weaviate/chunks unavailable"})
+                errors.append({"check": name, "scope": "case", "document_id": None, "strategy": "rag", "error": "Weaviate/chunks unavailable – falling back to full_text"})
+                try:
+                    fallback_result = await run_cross_document_check(
+                        doc_list, instruction, language=case_language, legal_bases_context=legal_ctx or None
+                    )
+                    if not fallback_result.is_compliant:
+                        _add_finding(
+                            case_id=case_id,
+                            document_id=None,
+                            check_name=name,
+                            category=category,
+                            severity=fallback_result.severity,
+                            description=fallback_result.description,
+                            evidence=fallback_result.evidence or [],
+                            recommendation=fallback_result.recommendation or "",
+                            source_strategy="full_text",
+                        )
+                except Exception as e2:
+                    errors.append({"check": name, "scope": "case", "document_id": None, "strategy": "rag_fallback_full_text", "error": str(e2)})
                 return
             if not rag_result.is_compliant:
                 _add_finding(
