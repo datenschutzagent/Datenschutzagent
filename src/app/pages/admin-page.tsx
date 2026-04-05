@@ -13,11 +13,15 @@ import {
   getAdminPromptTemplateVersions,
   createAdminPromptTemplate,
   setActivePromptTemplate,
+  listAdminUsers,
+  updateAdminUserRole,
   isAdmin,
   type ApiAdminSettings,
   type ApiConnectionsStatus,
   type ApiPromptTemplate,
   type ApiPromptTemplateKeyMeta,
+  type ApiUser,
+  type UserRole,
 } from "../lib/api";
 import { useAuthOptional } from "../contexts/AuthContext";
 import { CheckCircle2, XCircle, HelpCircle, Loader2, CircleAlert, Pencil, History } from "lucide-react";
@@ -96,6 +100,10 @@ export function AdminPage() {
   const [versionsKey, setVersionsKey] = useState<string | null>(null);
   const [versionsList, setVersionsList] = useState<ApiPromptTemplate[]>([]);
   const [loadingVersions, setLoadingVersions] = useState(false);
+
+  const [users, setUsers] = useState<ApiUser[]>([]);
+  const [loadingUsers, setLoadingUsers] = useState(false);
+  const [savingRoleId, setSavingRoleId] = useState<string | null>(null);
 
   if (auth?.user && !isAdmin(auth.user)) {
     return (
@@ -220,6 +228,36 @@ export function AdminPage() {
     }
   };
 
+  const loadUsers = async () => {
+    setLoadingUsers(true);
+    try {
+      const list = await listAdminUsers();
+      setUsers(list);
+    } catch {
+      // Silently fail – non-critical
+    } finally {
+      setLoadingUsers(false);
+    }
+  };
+
+  useEffect(() => {
+    if (auth?.user && isAdmin(auth.user)) {
+      loadUsers();
+    }
+  }, [auth?.user]);
+
+  const handleRoleChange = async (userId: string, role: UserRole) => {
+    setSavingRoleId(userId);
+    try {
+      const updated = await updateAdminUserRole(userId, role);
+      setUsers((prev) => prev.map((u) => (u.id === updated.id ? updated : u)));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setSavingRoleId(null);
+    }
+  };
+
   const activeByKey = new Map(promptTemplates.filter((t) => t.is_active).map((t) => [t.key, t]));
 
   return (
@@ -295,6 +333,12 @@ export function AdminPage() {
                   <dt className="font-medium text-slate-600 dark:text-slate-400 w-48">Redis-Broker</dt>
                   <dd>{settings.celery_broker_configured ? "Konfiguriert" : "Nicht konfiguriert"}</dd>
                 </div>
+                {settings.max_context_chars_per_doc != null && (
+                  <div className="flex gap-2">
+                    <dt className="font-medium text-slate-600 dark:text-slate-400 w-48">Kontext-Limit / Dok.</dt>
+                    <dd className="text-slate-900 dark:text-slate-100">{settings.max_context_chars_per_doc.toLocaleString()} Zeichen</dd>
+                  </div>
+                )}
               </dl>
             ) : null}
           </CardContent>
@@ -351,6 +395,60 @@ export function AdminPage() {
                     </div>
                   );
                 })}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* User management */}
+        <Card className="mb-8 dark:bg-slate-900 dark:border-slate-800">
+          <CardHeader>
+            <CardTitle className="dark:text-slate-100">Benutzerverwaltung</CardTitle>
+            <CardDescription className="dark:text-slate-400">
+              Rollen der registrierten Nutzer anpassen (viewer, editor, admin).
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            {loadingUsers ? (
+              <p className="text-slate-600 dark:text-slate-400">Lade Nutzer…</p>
+            ) : users.length === 0 ? (
+              <p className="text-slate-500 dark:text-slate-400 text-sm">Keine Nutzer gefunden.</p>
+            ) : (
+              <div className="space-y-2">
+                {users.map((u) => (
+                  <div
+                    key={u.id}
+                    className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-slate-200 dark:border-slate-700 p-3"
+                  >
+                    <div className="min-w-0 flex-1">
+                      <p className="font-medium text-slate-900 dark:text-slate-100 truncate">
+                        {u.display_name || "—"}
+                      </p>
+                      <p className="text-xs text-slate-500 dark:text-slate-400 truncate">
+                        {u.email ?? "Keine E-Mail"} · ID: {u.id.slice(0, 8)}…
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      {savingRoleId === u.id ? (
+                        <Loader2 className="size-4 animate-spin text-slate-500" />
+                      ) : (
+                        <Select
+                          value={u.role ?? "viewer"}
+                          onValueChange={(value) => handleRoleChange(u.id, value as UserRole)}
+                        >
+                          <SelectTrigger className="w-32">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="viewer">Viewer</SelectItem>
+                            <SelectItem value="editor">Editor</SelectItem>
+                            <SelectItem value="admin">Admin</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      )}
+                    </div>
+                  </div>
+                ))}
               </div>
             )}
           </CardContent>

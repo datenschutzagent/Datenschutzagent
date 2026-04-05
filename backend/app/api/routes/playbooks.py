@@ -8,7 +8,15 @@ from sqlalchemy.orm import selectinload
 from app.config import settings
 from app.core.auth import require_roles
 from app.database import get_db
-from app.models.db import CaseModel, DocumentModel, PlaybookModel, orm_to_playbook_response
+from app.models.db import (
+    CaseModel,
+    DocumentModel,
+    PlaybookModel,
+    PlaybookRevisionModel,
+    UserModel,
+    orm_to_playbook_response,
+    orm_to_playbook_revision_response,
+)
 from app.models.schemas import (
     PlaybookCoverageItem,
     PlaybookCoverageResponse,
@@ -101,14 +109,87 @@ async def update_playbook(
     db: AsyncSession = Depends(get_db),
     _user=require_roles("editor", "admin"),
 ):
-    """Update a playbook (partial)."""
+    """Update a playbook (partial). Saves a revision snapshot before applying changes."""
     result = await db.execute(select(PlaybookModel).where(PlaybookModel.id == playbook_id))
     playbook = result.scalar_one_or_none()
     if not playbook:
         raise HTTPException(status_code=404, detail="Playbook not found")
+
+    # Snapshot current state as a revision before overwriting
+    changed_by = _user.display_name if isinstance(_user, UserModel) else "System"
+    revision = PlaybookRevisionModel(
+        playbook_id=playbook.id,
+        version=playbook.version,
+        content=playbook.content,
+        changed_by=changed_by,
+    )
+    db.add(revision)
+
     update_data = body.model_dump(exclude_unset=True)
     for key, value in update_data.items():
         setattr(playbook, key, value)
+    await db.flush()
+    await db.refresh(playbook)
+    return PlaybookResponse(**orm_to_playbook_response(playbook))
+
+
+@router.get("/{playbook_id}/revisions")
+async def list_playbook_revisions(
+    playbook_id: UUID,
+    limit: int = Query(default=20, ge=1, le=100),
+    db: AsyncSession = Depends(get_db),
+    _user=require_roles("viewer", "editor", "admin"),
+):
+    """List version history snapshots for a playbook (newest first)."""
+    pb_result = await db.execute(select(PlaybookModel).where(PlaybookModel.id == playbook_id))
+    if not pb_result.scalar_one_or_none():
+        raise HTTPException(status_code=404, detail="Playbook not found")
+
+    rev_result = await db.execute(
+        select(PlaybookRevisionModel)
+        .where(PlaybookRevisionModel.playbook_id == playbook_id)
+        .order_by(PlaybookRevisionModel.created_at.desc())
+        .limit(limit)
+    )
+    revisions = rev_result.scalars().all()
+    return [orm_to_playbook_revision_response(r) for r in revisions]
+
+
+@router.post("/{playbook_id}/revisions/{revision_id}/restore", response_model=PlaybookResponse)
+async def restore_playbook_revision(
+    playbook_id: UUID,
+    revision_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    _user=require_roles("editor", "admin"),
+):
+    """Restore a playbook to a previous revision snapshot."""
+    pb_result = await db.execute(select(PlaybookModel).where(PlaybookModel.id == playbook_id))
+    playbook = pb_result.scalar_one_or_none()
+    if not playbook:
+        raise HTTPException(status_code=404, detail="Playbook not found")
+
+    rev_result = await db.execute(
+        select(PlaybookRevisionModel).where(
+            PlaybookRevisionModel.id == revision_id,
+            PlaybookRevisionModel.playbook_id == playbook_id,
+        )
+    )
+    revision = rev_result.scalar_one_or_none()
+    if not revision:
+        raise HTTPException(status_code=404, detail="Revision not found")
+
+    # Save current state as a new revision before restoring
+    changed_by = _user.display_name if isinstance(_user, UserModel) else "System"
+    snapshot = PlaybookRevisionModel(
+        playbook_id=playbook.id,
+        version=playbook.version,
+        content=playbook.content,
+        changed_by=f"{changed_by} (vor Wiederherstellung)",
+    )
+    db.add(snapshot)
+
+    playbook.version = revision.version
+    playbook.content = revision.content
     await db.flush()
     await db.refresh(playbook)
     return PlaybookResponse(**orm_to_playbook_response(playbook))

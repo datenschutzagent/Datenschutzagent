@@ -63,6 +63,10 @@ class Settings(BaseSettings):
     # Empty = use profile.yaml or built-in DSGVO Art. 30 defaults.
     vvt_field_names: str = ""
 
+    # LLM context limits (chars per document; lower = faster/cheaper, higher = more context)
+    max_context_chars_per_doc: int = 15000  # single-doc full-text context window limit
+    max_context_chars_rag: int = 20000       # assembled RAG context limit
+
     # Ollama (extern gehostet, z. B. im lokalen Netzwerk)
     ollama_base_url: str = "http://localhost:11434"
     ollama_model: str = "llama3.2"

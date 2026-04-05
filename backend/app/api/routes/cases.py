@@ -71,12 +71,15 @@ async def list_cases(
     status: str | None = Query(default=None, description="Filtert nach Case-Status (z. B. intake, in_review, completed)"),
     department: str | None = Query(default=None, description="Filtert nach Abteilung (exakter Name)"),
     assignee: str | None = Query(default=None, description="Filtert nach Zugewiesenem (enthält)"),
+    created_by: str | None = Query(default=None, description="Filtert nach Ersteller (enthält)"),
+    has_open_findings: bool | None = Query(default=None, description="True = nur Vorgänge mit mindestens einem offenen Befund"),
     deadline_overdue: bool | None = Query(default=None, description="True = nur überfällige Vorgänge (Frist < heute, Status nicht completed)"),
     include_archived: bool = Query(default=False, description="True = auch archivierte Vorgänge zurückgeben (Standard: nur nicht-archivierte)"),
     db: AsyncSession = Depends(get_db),
 ):
     """List cases with optional pagination and server-side filtering. Returns items and total count."""
     from datetime import date as date_type
+    from sqlalchemy import exists
     base_q = select(CaseModel)
     if q:
         like = f"%{q}%"
@@ -96,6 +99,24 @@ async def list_cases(
         base_q = base_q.where(CaseModel.department == department)
     if assignee:
         base_q = base_q.where(CaseModel.assignee.ilike(f"%{assignee}%"))
+    if created_by:
+        base_q = base_q.where(CaseModel.created_by.ilike(f"%{created_by}%"))
+    if has_open_findings is True:
+        from app.models.db import FindingModel
+        base_q = base_q.where(
+            exists(select(FindingModel.id).where(
+                FindingModel.case_id == CaseModel.id,
+                FindingModel.status == "open",
+            ))
+        )
+    elif has_open_findings is False:
+        from app.models.db import FindingModel
+        base_q = base_q.where(
+            ~exists(select(FindingModel.id).where(
+                FindingModel.case_id == CaseModel.id,
+                FindingModel.status == "open",
+            ))
+        )
     if deadline_overdue is True:
         today = date_type.today()
         base_q = base_q.where(CaseModel.deadline < today, CaseModel.status != "completed")
@@ -119,6 +140,135 @@ async def list_cases(
     return CaseListResponse(
         items=[CaseResponse(**orm_to_case_response(c)) for c in cases],
         total=total,
+    )
+
+
+@router.patch("/bulk-update")
+async def bulk_update_cases(
+    body: dict,
+    db: AsyncSession = Depends(get_db),
+    _user=require_roles("editor", "admin"),
+):
+    """Bulk update cases: set status or archive/unarchive multiple cases at once.
+    Body: { case_ids: [uuid], status?: string, archive?: bool }
+    """
+    case_ids = body.get("case_ids", [])
+    new_status = body.get("status")
+    archive = body.get("archive")
+
+    if not case_ids:
+        return {"updated": 0}
+
+    from pydantic import TypeAdapter
+    case_id_uuids = TypeAdapter(list[UUID]).validate_python(case_ids)
+
+    result = await db.execute(
+        select(CaseModel)
+        .where(CaseModel.id.in_(case_id_uuids))
+        .options(selectinload(CaseModel.documents), selectinload(CaseModel.findings))
+    )
+    cases = result.scalars().all()
+
+    actor = _user.display_name if isinstance(_user, UserModel) else "System"
+    updated = 0
+    for case in cases:
+        changed = {}
+        if new_status and case.status != new_status:
+            changed["status"] = {"old": case.status, "new": new_status}
+            case.status = new_status
+        if archive is True and case.archived_at is None:
+            case.archived_at = datetime.now(timezone.utc)
+            changed["archived"] = True
+        elif archive is False and case.archived_at is not None:
+            case.archived_at = None
+            changed["unarchived"] = True
+        if changed:
+            db.add(ActivityLogModel(
+                case_id=case.id,
+                event_type="case_updated",
+                payload={"actor": actor, "changes": changed, "bulk": True},
+            ))
+            updated += 1
+
+    await db.flush()
+    return {"updated": updated}
+
+
+@router.get("/export")
+async def export_cases(
+    q: str | None = Query(default=None),
+    status: str | None = Query(default=None),
+    department: str | None = Query(default=None),
+    assignee: str | None = Query(default=None),
+    created_by: str | None = Query(default=None),
+    has_open_findings: bool | None = Query(default=None),
+    include_archived: bool = Query(default=False),
+    format: str = Query(default="csv"),
+    db: AsyncSession = Depends(get_db),
+    _user=require_roles("viewer", "editor", "admin"),
+):
+    """Export cases list as CSV. Applies same filters as GET /cases."""
+    from datetime import date as date_type
+    from sqlalchemy import exists as sql_exists
+
+    base_q = select(CaseModel).options(selectinload(CaseModel.findings))
+    if q:
+        like = f"%{q}%"
+        from sqlalchemy import or_
+        base_q = base_q.where(
+            or_(
+                CaseModel.title.ilike(like),
+                CaseModel.department.ilike(like),
+                CaseModel.case_type.ilike(like),
+                CaseModel.created_by.ilike(like),
+                CaseModel.assignee.ilike(like),
+            )
+        )
+    if status:
+        base_q = base_q.where(CaseModel.status == status)
+    if department:
+        base_q = base_q.where(CaseModel.department == department)
+    if assignee:
+        base_q = base_q.where(CaseModel.assignee.ilike(f"%{assignee}%"))
+    if created_by:
+        base_q = base_q.where(CaseModel.created_by.ilike(f"%{created_by}%"))
+    if has_open_findings is True:
+        base_q = base_q.where(
+            sql_exists(select(DocumentModel.id).where(
+                DocumentModel.case_id == CaseModel.id,
+            ))
+        )
+    if not include_archived:
+        base_q = base_q.where(CaseModel.archived_at == None)  # noqa: E711
+
+    result = await db.execute(base_q.order_by(CaseModel.updated_at.desc()).limit(5000))
+    cases = result.scalars().all()
+
+    buf = io.StringIO()
+    writer = csv.writer(buf)
+    writer.writerow([
+        "ID", "Titel", "Abteilung", "Vorgangstyp", "Status", "Ersteller",
+        "Zugewiesener", "Frist", "Erstellt am", "Aktualisiert am",
+        "Offene Befunde", "Archiviert",
+    ])
+    for c in cases:
+        open_findings = sum(1 for f in c.findings if f.status == "open")
+        writer.writerow([
+            str(c.id), c.title, c.department, c.case_type, c.status,
+            c.created_by, c.assignee,
+            c.deadline.isoformat() if c.deadline else "",
+            c.created_at.strftime("%Y-%m-%d"),
+            c.updated_at.strftime("%Y-%m-%d"),
+            open_findings,
+            "Ja" if c.archived_at else "Nein",
+        ])
+
+    date_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    body_content = "\ufeff" + buf.getvalue()
+    return Response(
+        content=body_content.encode("utf-8"),
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="Vorgaenge-{date_str}.csv"'},
     )
 
 
