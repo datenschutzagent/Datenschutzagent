@@ -25,6 +25,7 @@ from app.models.db import (
     DSBReportJobModel,
     PlaybookModel,
     RunChecksJobModel,
+    UserModel,
     orm_to_activity_response,
 )
 from app.models.schemas import (
@@ -210,11 +211,23 @@ async def update_case(
         "special_category_data", "international_transfer", "deadline",
     }
     update_data = body.model_dump(exclude_unset=True)
+    changed: dict = {}
     for key, value in update_data.items():
         if key not in ALLOWED_UPDATE_FIELDS:
             raise HTTPException(status_code=422, detail=f"Field not updatable: {key}")
+        old_value = getattr(case, key, None)
+        if old_value != value:
+            changed[key] = {"old": str(old_value) if old_value is not None else None, "new": str(value) if value is not None else None}
         setattr(case, key, value)
     await db.flush()
+    if changed:
+        actor = _user.display_name if isinstance(_user, UserModel) else "System"
+        activity = ActivityLogModel(
+            case_id=case_id,
+            event_type="case_updated",
+            payload={"actor": actor, "changes": changed},
+        )
+        db.add(activity)
     # Re-fetch with relationships loaded to avoid lazy load in async context (MissingGreenlet)
     result = await db.execute(
         select(CaseModel)
@@ -682,6 +695,20 @@ async def run_checks(
 
     strategies = body.strategies or ["full_text"]
     use_async = settings.celery_enabled and bool((settings.celery_broker_url or "").strip())
+
+    # Prevent duplicate concurrent runs: return 409 if a job is already running
+    running_job_result = await db.execute(
+        select(RunChecksJobModel).where(
+            RunChecksJobModel.case_id == case_id,
+            RunChecksJobModel.playbook_id == body.playbook_id,
+            RunChecksJobModel.status == "running",
+        )
+    )
+    if running_job_result.scalar_one_or_none() is not None:
+        raise HTTPException(
+            status_code=409,
+            detail="A check run for this case and playbook is already in progress. Please wait for it to finish.",
+        )
 
     if use_async:
         job = RunChecksJobModel(

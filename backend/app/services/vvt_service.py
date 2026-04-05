@@ -1,6 +1,8 @@
 """VVT normalization: map raw document text to canonical VVT model using LLM."""
 from __future__ import annotations
 
+import difflib
+import logging
 from typing import Annotated, Literal
 
 from pydantic import BaseModel, BeforeValidator, Field
@@ -8,6 +10,22 @@ from pydantic import BaseModel, BeforeValidator, Field
 from app.core.llm import create_agent
 from app.services.org_profile_loader import DEFAULT_VVT_FIELD_NAMES, get_vvt_field_names
 from app.services.prompt_template_service import get_active_template, render
+
+logger = logging.getLogger(__name__)
+
+
+def _normalize_field_name(name: str, canonical_fields: list[str], cutoff: float = 0.8) -> str:
+    """Return the closest canonical field name for `name` using fuzzy matching.
+
+    Falls back to the original name if no close match is found (cutoff ≥ 0.8 by default).
+    """
+    if name in canonical_fields:
+        return name
+    matches = difflib.get_close_matches(name, canonical_fields, n=1, cutoff=cutoff)
+    if matches:
+        logger.debug("VVT fuzzy-match: '%s' → '%s'", name, matches[0])
+        return matches[0]
+    return name
 
 
 def _coerce_canonical_value(v: str | list[str] | None) -> str | None:
@@ -111,6 +129,10 @@ async def normalize_vvt(
     )
     result = await agent.run(user_content, result_type=_VVTExtractionResult)
     data = result.data
+
+    # Normalize LLM-returned field names to canonical names via fuzzy matching
+    for f in data.fields:
+        f.field_name = _normalize_field_name(f.field_name, canonical_fields)
 
     # Ensure we have one entry per canonical field; fill missing with "missing"
     seen = {f.field_name for f in data.fields}

@@ -184,7 +184,7 @@ async def export_findings(
     _user=require_roles("viewer", "editor", "admin"),
 ):
     """Export findings as CSV (default) or DOCX. If case_id is omitted, exports all findings (org-wide)."""
-    q = select(FindingModel).limit(EXPORT_MAX)
+    q = select(FindingModel)
     if case_id is not None:
         q = q.where(FindingModel.case_id == case_id)
     if severity is not None:
@@ -194,8 +194,13 @@ async def export_findings(
     if category is not None:
         q = q.where(FindingModel.category == category)
 
-    findings_result = await db.execute(q)
+    # Count total before applying limit so we can signal truncation
+    count_result = await db.execute(select(func.count()).select_from(q.subquery()))
+    total_count = count_result.scalar_one()
+
+    findings_result = await db.execute(q.limit(EXPORT_MAX))
     findings = findings_result.scalars().all()
+    is_truncated = total_count > EXPORT_MAX
 
     case_title = "Alle Vorgänge"
     if case_id is not None:
@@ -223,13 +228,18 @@ async def export_findings(
     date_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
     slug = case_title.replace("/", "-").replace("\\", "-")[:50]
 
+    export_headers = {
+        "X-Total-Count": str(total_count),
+        "X-Truncated": str(is_truncated).lower(),
+    }
+
     if format.lower() == "docx":
         content_bytes = _build_findings_docx(case_title, findings, docs_by_id)
         filename = f"Befunde-{slug}-{date_str}.docx"
         return Response(
             content=content_bytes,
             media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-            headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+            headers={"Content-Disposition": f'attachment; filename="{filename}"', **export_headers},
         )
 
     severity_labels = {
@@ -281,7 +291,7 @@ async def export_findings(
     return Response(
         content=body.encode("utf-8"),
         media_type="text/csv; charset=utf-8",
-        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        headers={"Content-Disposition": f'attachment; filename="{filename}"', **export_headers},
     )
 
 
@@ -303,13 +313,16 @@ async def update_finding(
         finding.due_date = body.due_date
     await db.flush()
     if old_status != body.status:
+        actor = _user.display_name if isinstance(_user, UserModel) else "System"
         activity = ActivityLogModel(
             case_id=finding.case_id,
             event_type="finding_status_updated",
             payload={
                 "finding_id": str(finding_id),
+                "check_name": finding.check_name,
                 "old_status": old_status,
                 "new_status": body.status,
+                "actor": actor,
             },
         )
         db.add(activity)

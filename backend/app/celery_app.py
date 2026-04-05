@@ -90,7 +90,12 @@ def extract_document_text(self, document_id: str) -> dict:
         row.extraction_error = None
         session.commit()
         if getattr(settings, "weaviate_indexing_enabled", False) and result.text:
-            index_document_chunks(row.id, row.case_id, result.text)
+            indexed = index_document_chunks(row.id, row.case_id, result.text)
+            if not indexed:
+                logger.warning(
+                    "Weaviate indexing skipped or failed for document %s – RAG checks will fall back to full_text",
+                    document_id,
+                )
         logger.info("extract_document_text done", extra={"document_id": document_id})
         return {"ok": True, "document_id": document_id}
     except FileNotFoundError:
