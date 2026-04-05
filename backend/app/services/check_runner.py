@@ -17,6 +17,16 @@ _LLM_RETRY_ATTEMPTS = 3
 _LLM_RETRY_DELAYS = [2, 4, 8]  # seconds
 
 
+def _context_chars_per_doc() -> int:
+    """Return configured per-document character limit for LLM context."""
+    return getattr(settings, "max_context_chars_per_doc", 15000)
+
+
+def _rag_context_chars() -> int:
+    """Return configured RAG context character limit."""
+    return getattr(settings, "max_context_chars_rag", 20000)
+
+
 async def _run_with_retry(agent, user_content: str, result_type):
     """Run an LLM agent call with exponential backoff retry on transient errors."""
     last_exc: Exception | None = None
@@ -39,8 +49,9 @@ async def _run_with_retry(agent, user_content: str, result_type):
     raise last_exc
 
 # Per-document character limit for LLM context (single-doc and cross-doc)
+# These are module-level defaults; use _context_chars_per_doc() / _rag_context_chars() at call time
+# to respect runtime configuration from settings.
 CONTEXT_CHARS_PER_DOC = 15000
-# Max context size for RAG-assembled chunks (single document check)
 RAG_CONTEXT_CHARS = 20000
 
 # Built-in defaults when no DB template is active (use same placeholder names as configurable templates)
@@ -131,8 +142,10 @@ async def run_check(
     system_tpl = await get_active_template("check_full_text_document_system")
     system = render(system_tpl or DEFAULT_CHECK_FULL_TEXT_DOCUMENT_SYSTEM, {"language_hint": language_hint})
     user_tpl = await get_active_template("check_full_text_document_user")
-    if document_text and len(document_text) > CONTEXT_CHARS_PER_DOC:
-        truncated_text = document_text[:CONTEXT_CHARS_PER_DOC] + f"\n\n[... truncated, {len(document_text)} chars total ...]"
+    limit = _context_chars_per_doc()
+    if document_text and len(document_text) > limit:
+        logger.info("Document text truncated: %d → %d chars for check '%s'", len(document_text), limit, check_instruction[:80])
+        truncated_text = document_text[:limit] + f"\n\n[... truncated, {len(document_text)} chars total ...]"
     else:
         truncated_text = document_text or ""
     user_content = render(
@@ -162,11 +175,13 @@ async def run_cross_document_check(
     language_hint = _language_hint(language) if language else ""
     system_tpl = await get_active_template("check_full_text_cross_system")
     system = render(system_tpl or DEFAULT_CHECK_FULL_TEXT_CROSS_SYSTEM, {"language_hint": language_hint})
+    limit = _context_chars_per_doc()
     parts: List[str] = []
     for i, (doc_id, text) in enumerate(documents, 1):
         raw = text or ""
-        if len(raw) > CONTEXT_CHARS_PER_DOC:
-            truncated = raw[:CONTEXT_CHARS_PER_DOC] + f"\n[... truncated, {len(raw)} chars total ...]"
+        if len(raw) > limit:
+            logger.info("Cross-doc text truncated: %d → %d chars (doc %s)", len(raw), limit, doc_id)
+            truncated = raw[:limit] + f"\n[... truncated, {len(raw)} chars total ...]"
         else:
             truncated = raw
         parts.append(f"--- Document {i} (id: {doc_id}) ---\n{truncated}")
@@ -202,8 +217,9 @@ async def run_check_rag(
     if not chunks:
         return None
     combined = "\n\n---\n\n".join(chunks)
-    if len(combined) > RAG_CONTEXT_CHARS:
-        combined = combined[:RAG_CONTEXT_CHARS] + "\n\n[... truncated ...]"
+    rag_limit = _rag_context_chars()
+    if len(combined) > rag_limit:
+        combined = combined[:rag_limit] + "\n\n[... truncated ...]"
     language_hint = _language_hint(language) if language else ""
     system_tpl = await get_active_template("check_rag_document_system")
     system = render(system_tpl or DEFAULT_CHECK_RAG_DOCUMENT_SYSTEM, {"language_hint": language_hint})
@@ -239,8 +255,9 @@ async def run_cross_document_check_rag(
     if not chunks:
         return None
     combined = "\n\n---\n\n".join(chunks)
-    if len(combined) > CONTEXT_CHARS_PER_DOC * 3:
-        combined = combined[: CONTEXT_CHARS_PER_DOC * 3] + "\n\n[... truncated ...]"
+    cross_rag_limit = _rag_context_chars()
+    if len(combined) > cross_rag_limit:
+        combined = combined[:cross_rag_limit] + "\n\n[... truncated ...]"
     language_hint = _language_hint(language) if language else ""
     system_tpl = await get_active_template("check_rag_cross_system")
     system = render(system_tpl or DEFAULT_CHECK_RAG_CROSS_SYSTEM, {"language_hint": language_hint})

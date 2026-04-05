@@ -74,6 +74,25 @@ class PlaybookModel(Base):
     is_active: Mapped[bool] = mapped_column(default=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 
+    revisions: Mapped[list["PlaybookRevisionModel"]] = relationship(
+        "PlaybookRevisionModel", back_populates="playbook", cascade="all, delete-orphan", order_by="PlaybookRevisionModel.created_at.desc()"
+    )
+
+
+class PlaybookRevisionModel(Base):
+    """Snapshot of playbook content on each PATCH; enables version history and rollback."""
+    __tablename__ = "playbook_revisions"
+    __table_args__ = (Index("ix_playbook_revisions_playbook_id_created_at", "playbook_id", "created_at"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(PG_UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    playbook_id: Mapped[uuid.UUID] = mapped_column(PG_UUID(as_uuid=True), ForeignKey("playbooks.id", ondelete="CASCADE"), nullable=False)
+    version: Mapped[str] = mapped_column(String(50), nullable=False)
+    content: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
+    changed_by: Mapped[str] = mapped_column(String(200), nullable=False, default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+
+    playbook: Mapped["PlaybookModel"] = relationship("PlaybookModel", back_populates="revisions")
+
 
 class DocumentModel(Base):
     __tablename__ = "documents"
@@ -362,6 +381,18 @@ def orm_to_legal_base_response(orm: LegalBaseModel) -> dict[str, Any]:
         "internal_only": orm.internal_only,
         "created_at": orm.created_at,
         "updated_at": orm.updated_at,
+    }
+
+
+def orm_to_playbook_revision_response(orm: "PlaybookRevisionModel") -> dict[str, Any]:
+    """Map PlaybookRevisionModel to API response."""
+    return {
+        "id": orm.id,
+        "playbook_id": orm.playbook_id,
+        "version": orm.version,
+        "content": orm.content,
+        "changed_by": orm.changed_by,
+        "created_at": orm.created_at,
     }
 
 

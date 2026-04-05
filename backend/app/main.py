@@ -72,16 +72,37 @@ app.include_router(app_config_routes.router, prefix=settings.api_v1_prefix, tags
 
 
 @app.get("/health")
-def health():
-    """Health check for load balancers and Docker. If Ollama is enabled, checks reachability."""
-    if not settings.ollama_enabled:
-        return {"status": "ok"}
-    base = settings.ollama_base_url.rstrip("/")
-    try:
-        req = urllib.request.Request(f"{base}/api/tags", method="GET")
-        with urllib.request.urlopen(req, timeout=2) as resp:
-            if resp.status == 200:
-                return {"status": "ok"}
-    except Exception:
-        return {"status": "degraded", "ollama": "unreachable"}
-    return {"status": "degraded", "ollama": "unreachable"}
+async def health():
+    """Health check for load balancers and Docker.
+    Checks Ollama (if enabled), Postgres, and Redis. Returns degraded if any are unreachable.
+    """
+    from app.services.connection_checks import check_ollama, check_postgres, check_redis
+    import asyncio
+
+    ollama_res, pg_res, redis_res = await asyncio.gather(
+        check_ollama(),
+        check_postgres(),
+        check_redis(),
+        return_exceptions=True,
+    )
+
+    def _status(res) -> str:
+        if isinstance(res, Exception):
+            return "unreachable"
+        return res.get("status", "unknown")
+
+    ollama_status = _status(ollama_res)
+    pg_status = _status(pg_res)
+    redis_status = _status(redis_res)
+
+    degraded = (
+        (settings.ollama_enabled and ollama_status not in ("ok", "disabled"))
+        or pg_status != "ok"
+    )
+
+    return {
+        "status": "degraded" if degraded else "ok",
+        "ollama": ollama_status,
+        "postgres": pg_status,
+        "redis": redis_status,
+    }

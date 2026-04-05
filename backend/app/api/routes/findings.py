@@ -44,6 +44,8 @@ async def list_findings(
     severity: Annotated[str | None, Query()] = None,
     status: Annotated[str | None, Query()] = None,
     category: Annotated[str | None, Query()] = None,
+    source_strategy: Annotated[str | None, Query(description="Filter by check source: full_text or rag")] = None,
+    has_due_date: Annotated[bool | None, Query(description="True = only findings with a due date set")] = None,
     limit: Annotated[int, Query(ge=1, le=500)] = 100,
     offset: Annotated[int, Query(ge=0)] = 0,
     db: AsyncSession = Depends(get_db),
@@ -59,6 +61,12 @@ async def list_findings(
         q = q.where(FindingModel.status == status)
     if category is not None:
         q = q.where(FindingModel.category == category)
+    if source_strategy is not None:
+        q = q.where(FindingModel.source_strategy == source_strategy)
+    if has_due_date is True:
+        q = q.where(FindingModel.due_date != None)  # noqa: E711
+    elif has_due_date is False:
+        q = q.where(FindingModel.due_date == None)  # noqa: E711
 
     count_q = select(func.count()).select_from(q.subquery())
     total_result = await db.execute(count_q)

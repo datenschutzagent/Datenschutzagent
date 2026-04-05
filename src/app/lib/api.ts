@@ -226,6 +226,7 @@ export interface ApiAdminSettings {
   s3_bucket: string | null;
   celery_enabled: boolean;
   celery_broker_configured: boolean;
+  max_context_chars_per_doc?: number;
 }
 
 export interface ApiConnectionStatus {
@@ -291,6 +292,15 @@ export async function setActivePromptTemplate(id: string, isActive: boolean): Pr
   return request<ApiPromptTemplate>("PATCH", `/admin/prompt-templates/${id}`, {
     body: { is_active: isActive },
   });
+}
+
+// --- Admin: User management ---
+export async function listAdminUsers(): Promise<ApiUser[]> {
+  return request<ApiUser[]>("GET", "/admin/users");
+}
+
+export async function updateAdminUserRole(userId: string, role: UserRole): Promise<ApiUser> {
+  return request<ApiUser>("PATCH", `/admin/users/${userId}/role`, { body: { role } });
 }
 
 // --- Types (aligned with backend and mock-data) ---
@@ -472,6 +482,8 @@ export interface CasesFilter {
   status?: string;
   department?: string;
   assignee?: string;
+  created_by?: string;
+  has_open_findings?: boolean;
   deadline_overdue?: boolean;
 }
 
@@ -481,11 +493,29 @@ export async function getCases(skip = 0, limit = 100, filter?: CasesFilter, incl
   if (filter?.status) params.set("status", filter.status);
   if (filter?.department) params.set("department", filter.department);
   if (filter?.assignee) params.set("assignee", filter.assignee);
+  if (filter?.created_by) params.set("created_by", filter.created_by);
+  if (filter?.has_open_findings !== undefined) params.set("has_open_findings", String(filter.has_open_findings));
   if (filter?.deadline_overdue !== undefined) params.set("deadline_overdue", String(filter.deadline_overdue));
   if (includeArchived) params.set("include_archived", "true");
   const data = await request<{ items?: Record<string, unknown>[]; total?: number } | Record<string, unknown>[]>("GET", `/cases?${params.toString()}`);
   const list: Record<string, unknown>[] = Array.isArray(data) ? data : ((data as { items?: Record<string, unknown>[] }).items ?? []);
   return list.map((c) => mapCase(c) as ApiCase);
+}
+
+export async function bulkUpdateCases(body: { case_ids: string[]; status?: string; archive?: boolean }): Promise<{ updated: number }> {
+  return request<{ updated: number }>("PATCH", "/cases/bulk-update", { body });
+}
+
+export function getCasesExportUrl(filter?: CasesFilter, includeArchived = false, format: "csv" = "csv"): string {
+  const params = new URLSearchParams({ format });
+  if (filter?.q) params.set("q", filter.q);
+  if (filter?.status) params.set("status", filter.status);
+  if (filter?.department) params.set("department", filter.department);
+  if (filter?.assignee) params.set("assignee", filter.assignee);
+  if (filter?.created_by) params.set("created_by", filter.created_by);
+  if (filter?.has_open_findings !== undefined) params.set("has_open_findings", String(filter.has_open_findings));
+  if (includeArchived) params.set("include_archived", "true");
+  return `${API_BASE}${API_PREFIX}/cases/export?${params.toString()}`;
 }
 
 export async function getCase(id: string): Promise<ApiCase> {
