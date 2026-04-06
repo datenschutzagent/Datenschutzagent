@@ -37,6 +37,7 @@ class CaseModel(Base):
     special_category_data: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     international_transfer: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     deadline: Mapped[date | None] = mapped_column(Date, nullable=True)
+    auto_run_checks: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     archived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, default=None)
     retention_months: Mapped[int | None] = mapped_column(Integer, nullable=True, default=None)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
@@ -224,6 +225,8 @@ class RunChecksJobModel(Base):
     celery_task_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
     findings_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    checks_total: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    checks_done: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     result_payload: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
@@ -361,6 +364,7 @@ def orm_to_case_response(orm: CaseModel) -> dict[str, Any]:
         "special_category_data": orm.special_category_data,
         "international_transfer": orm.international_transfer,
         "deadline": orm.deadline,
+        "auto_run_checks": orm.auto_run_checks,
         "archived_at": orm.archived_at,
         "retention_months": orm.retention_months,
         "documents": [orm_to_document_response(d) for d in docs_sorted],

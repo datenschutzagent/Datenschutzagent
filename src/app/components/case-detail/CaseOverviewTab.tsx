@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo, useState, useCallback } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../ui/card";
 import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
@@ -8,7 +8,7 @@ import { severityColors, priorityLabels, priorityColors } from "../../lib/mock-d
 import type { ApiCase, ApiFinding, ApiPlaybook, CaseSimilarityResult, CaseRiskScore, PlaybookCoverage, RunChecksStrategy } from "../../lib/api";
 import { updateCase } from "../../lib/api";
 import { useAppConfig } from "../../contexts/AppConfigContext";
-import { CircleAlert, Download, FileCheck, Loader2, Shield } from "lucide-react";
+import { CircleAlert, Download, FileCheck, Loader2, Shield, Zap } from "lucide-react";
 import { toast } from "sonner";
 
 export interface CaseOverviewTabProps {
@@ -27,6 +27,7 @@ export interface CaseOverviewTabProps {
   runChecksStatus: "idle" | "running" | "completed" | "failed";
   runChecksError: string | null;
   setRunChecksError: (err: string | null) => void;
+  runChecksProgress?: { done: number; total: number };
   onSelectFinding: (finding: ApiFinding) => void;
   /** When false (e.g. viewer role), hide/disable write actions like Run Checks. */
   canEdit?: boolean;
@@ -52,6 +53,7 @@ export function CaseOverviewTab({
   runChecksStatus,
   runChecksError,
   setRunChecksError,
+  runChecksProgress = { done: 0, total: 0 },
   onSelectFinding,
   canEdit = true,
   coveragePreview,
@@ -66,6 +68,8 @@ export function CaseOverviewTab({
   );
   const [deadlineValue, setDeadlineValue] = useState(caseData.deadline ?? "");
   const [deadlineSaving, setDeadlineSaving] = useState(false);
+  const [autoRunChecks, setAutoRunChecks] = useState(caseData.autoRunChecks ?? false);
+  const [autoRunSaving, setAutoRunSaving] = useState(false);
 
   const handleDeadlineSave = async () => {
     setDeadlineSaving(true);
@@ -79,6 +83,22 @@ export function CaseOverviewTab({
       setDeadlineSaving(false);
     }
   };
+
+  const handleAutoRunChecksToggle = useCallback(async (checked: boolean) => {
+    setAutoRunChecks(checked);
+    setAutoRunSaving(true);
+    try {
+      const updated = await updateCase(caseData.id, { auto_run_checks: checked });
+      onCaseUpdated?.(updated);
+      toast.success(checked ? "Auto-Checks aktiviert" : "Auto-Checks deaktiviert");
+    } catch {
+      setAutoRunChecks(!checked); // revert on error
+      toast.error("Einstellung konnte nicht gespeichert werden");
+    } finally {
+      setAutoRunSaving(false);
+    }
+  }, [caseData.id, onCaseUpdated]);
+
   return (
     <div className="space-y-6">
       <div className="grid grid-cols-3 gap-6">
@@ -289,9 +309,26 @@ export function CaseOverviewTab({
                 {(runChecksStatus === "running" || runChecksError) && (
                   <div className="rounded-md border p-3 text-sm">
                     {runChecksStatus === "running" && (
-                      <div className="flex items-center gap-2 text-slate-600 dark:text-slate-400">
-                        <Loader2 className="size-4 animate-spin" />
-                        Playbook-Checks werden ausgeführt… Bitte kurz warten.
+                      <div className="space-y-2 text-slate-600 dark:text-slate-400">
+                        <div className="flex items-center gap-2">
+                          <Loader2 className="size-4 animate-spin shrink-0" />
+                          <span>
+                            Playbook-Checks werden ausgeführt…
+                            {runChecksProgress.total > 0 && (
+                              <span className="ml-1 font-medium">
+                                {runChecksProgress.done} / {runChecksProgress.total}
+                              </span>
+                            )}
+                          </span>
+                        </div>
+                        {runChecksProgress.total > 0 && (
+                          <div className="w-full bg-slate-200 dark:bg-slate-700 rounded-full h-2 overflow-hidden">
+                            <div
+                              className="bg-primary h-2 rounded-full transition-all duration-500"
+                              style={{ width: `${Math.min(100, Math.round((runChecksProgress.done / runChecksProgress.total) * 100))}%` }}
+                            />
+                          </div>
+                        )}
                       </div>
                     )}
                     {runChecksError && (
@@ -323,6 +360,26 @@ export function CaseOverviewTab({
               <Download className="size-4" />
               Alle Artefakte exportieren
             </Button>
+            {canEdit && (
+              <div className="flex items-center justify-between pt-2 border-t">
+                <div className="flex items-center gap-2 text-sm">
+                  <Zap className="size-4 text-muted-foreground" />
+                  <span>Checks nach Upload</span>
+                </div>
+                <button
+                  role="switch"
+                  aria-checked={autoRunChecks}
+                  aria-label="Automatische Checks nach Dokument-Upload aktivieren"
+                  disabled={autoRunSaving}
+                  onClick={() => handleAutoRunChecksToggle(!autoRunChecks)}
+                  className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 ${autoRunChecks ? "bg-primary" : "bg-input"}`}
+                >
+                  <span
+                    className={`pointer-events-none block h-4 w-4 rounded-full bg-background shadow-lg ring-0 transition-transform ${autoRunChecks ? "translate-x-4" : "translate-x-0"}`}
+                  />
+                </button>
+              </div>
+            )}
           </CardContent>
         </Card>
       </div>
