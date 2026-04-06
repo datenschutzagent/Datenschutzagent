@@ -10,7 +10,7 @@ from uuid import UUID
 logger = logging.getLogger(__name__)
 
 from docx import Document as DocxDocument
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import JSONResponse, Response
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -59,6 +59,7 @@ from app.services.dsb_report_service import _payload_to_report
 from app.services.vvt_service import normalize_vvt
 from app.services.org_profile_loader import get_vvt_field_names
 from app.core.auth import require_roles
+from app.core.rate_limit import limiter
 
 router = APIRouter()
 
@@ -821,7 +822,9 @@ async def get_run_checks_status(
 
 
 @router.post("/{case_id}/run-checks")
+@limiter.limit("10/minute")
 async def run_checks(
+    request: Request,
     case_id: UUID,
     body: RunChecksRequest,
     db: AsyncSession = Depends(get_db),

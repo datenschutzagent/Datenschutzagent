@@ -29,84 +29,66 @@ function formatBytes(n: number): string {
   return `${(n / (1024 * 1024)).toFixed(1)} MB`;
 }
 
-/** Map API snake_case to frontend camelCase. */
-function mapCase(d: Record<string, unknown>): Record<string, unknown> {
-  return {
-    id: d.id,
-    title: d.title,
-    department: d.department,
-    caseType: d.case_type,
-    status: d.status,
-    language: d.language,
-    createdAt: d.created_at,
-    updatedAt: d.updated_at,
-    createdBy: d.created_by,
-    assignee: d.assignee,
-    playbookVersion: d.playbook_version ?? "",
-    processingContext: (d.processing_context as string) ?? null,
-    specialCategoryData: Boolean(d.special_category_data),
-    internationalTransfer: Boolean(d.international_transfer),
-    autoRunChecks: Boolean(d.auto_run_checks),
-    deadline: (d.deadline as string) ?? null,
-    archivedAt: (d.archived_at as string) ?? null,
-    retentionMonths: (d.retention_months as number) ?? null,
-    documents: Array.isArray(d.documents) ? (d.documents as Record<string, unknown>[]).map(mapDocument) : [],
-    findings: Array.isArray(d.findings) ? (d.findings as Record<string, unknown>[]).map(mapFinding) : [],
-  };
+// ---------------------------------------------------------------------------
+// Generic snake_case → camelCase transformer
+// Replaces per-entity manual map functions for all straightforward fields.
+// Entities with custom logic (size formatting, derived fields) add overrides.
+// ---------------------------------------------------------------------------
+
+/** Convert a single snake_case key to camelCase. */
+function snakeToCamel(key: string): string {
+  return key.replace(/_([a-z])/g, (_, c: string) => c.toUpperCase());
 }
 
-function mapDocument(d: Record<string, unknown>): Record<string, unknown> {
-  const sizeBytes = d.size_bytes as number | undefined;
-  return {
-    id: d.id,
-    name: d.name,
-    type: d.type,
-    version: d.version,
-    uploadedAt: d.uploaded_at,
-    uploadedBy: d.uploaded_by,
-    size: sizeBytes != null ? formatBytes(sizeBytes) : "",
-    sizeBytes: sizeBytes,
-    format: d.format,
-    caseId: d.case_id,
-    extractionMethod: d.extraction_method ?? undefined,
-    extractionStatus: (d.extraction_status as "pending" | "processing" | "done" | "failed") ?? undefined,
-    extractionError: (d.extraction_error as string) ?? undefined,
-  };
+/** Recursively transform all object keys from snake_case to camelCase. */
+function deepSnakeToCamel(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(deepSnakeToCamel);
+  if (value !== null && typeof value === "object") {
+    return Object.fromEntries(
+      Object.entries(value as Record<string, unknown>).map(([k, v]) => [
+        snakeToCamel(k),
+        deepSnakeToCamel(v),
+      ])
+    );
+  }
+  return value;
 }
 
 function mapFinding(d: Record<string, unknown>): Record<string, unknown> {
-  return {
-    id: d.id,
-    checkName: d.check_name,
-    severity: d.severity,
-    status: d.status,
-    category: d.category,
-    description: d.description,
-    evidence: d.evidence ?? [],
-    recommendation: d.recommendation ?? "",
-    documentId: d.document_id ?? undefined,
-    caseId: d.case_id,
-    sourceStrategy: d.source_strategy ?? undefined,
-    dueDate: (d.due_date as string) ?? null,
-  };
+  return deepSnakeToCamel(d) as Record<string, unknown>;
+}
+
+function mapDocument(d: Record<string, unknown>): Record<string, unknown> {
+  const base = deepSnakeToCamel(d) as Record<string, unknown>;
+  const sizeBytes = d.size_bytes as number | undefined;
+  base.size = sizeBytes != null ? formatBytes(sizeBytes) : "";
+  return base;
+}
+
+function mapCase(d: Record<string, unknown>): Record<string, unknown> {
+  const base = deepSnakeToCamel(d) as Record<string, unknown>;
+  // Ensure boolean coercions for fields that may arrive as null/undefined
+  base.specialCategoryData = Boolean(d.special_category_data);
+  base.internationalTransfer = Boolean(d.international_transfer);
+  base.autoRunChecks = Boolean(d.auto_run_checks);
+  base.playbookVersion = (d.playbook_version as string) ?? "";
+  // Nested arrays already transformed by deepSnakeToCamel; re-apply typed mappers
+  // for any entity-specific overrides (e.g. size formatting on documents).
+  if (Array.isArray(d.documents)) {
+    base.documents = (d.documents as Record<string, unknown>[]).map(mapDocument);
+  }
+  if (Array.isArray(d.findings)) {
+    base.findings = (d.findings as Record<string, unknown>[]).map(mapFinding);
+  }
+  return base;
 }
 
 function mapPlaybook(d: Record<string, unknown>): Record<string, unknown> {
+  const base = deepSnakeToCamel(d) as Record<string, unknown>;
   const content = d.content as Record<string, unknown> | undefined;
-  const checks = content && Array.isArray(content.checks) ? content.checks : [];
-  return {
-    id: d.id,
-    name: d.name,
-    version: d.version,
-    content: d.content,
-    caseType: d.case_type ?? null,
-    department: d.department ?? null,
-    isActive: d.is_active ?? true,
-    status: d.is_active ? "active" : "archived",
-    createdAt: d.created_at,
-    updatedAt: d.updated_at ?? d.created_at,
-    checks,
-  };
+  base.checks = content && Array.isArray(content.checks) ? content.checks : [];
+  base.status = d.is_active ? "active" : "archived";
+  return base;
 }
 
 /** Parse error message from a non-ok Response (JSON detail or body text). */

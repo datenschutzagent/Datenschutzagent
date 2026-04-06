@@ -94,6 +94,10 @@ class Settings(BaseSettings):
     # RBAC: default role for new users (viewer, editor, admin). Existing users updated by migration.
     rbac_default_role: str = "viewer"
 
+    # LLM response cache (Redis; avoids re-running identical checks on unchanged documents)
+    llm_cache_enabled: bool = False  # set True to activate; requires Redis (celery_broker_url)
+    llm_cache_ttl: int = 86400       # seconds (default: 24 h)
+
     # Weaviate (optional; RAG document checks)
     weaviate_url: str = "http://localhost:8080"
     weaviate_indexing_enabled: bool = False
