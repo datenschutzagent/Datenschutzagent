@@ -1,5 +1,6 @@
 """Weaviate integration: chunk documents, embed via Ollama, index and query for RAG checks."""
 import logging
+import re
 from urllib.parse import urlparse
 from uuid import UUID
 
@@ -10,6 +11,16 @@ logger = logging.getLogger(__name__)
 COLLECTION_NAME = "DocumentChunk"
 LEGAL_BASE_CHUNK_COLLECTION = "LegalBaseChunk"
 
+# Sentence boundary: ends with . ! ? followed by whitespace or end-of-string,
+# or a blank line (paragraph boundary).
+_SENTENCE_BOUNDARY = re.compile(r"(?<=[.!?])\s+|(?:\n\s*\n)")
+
+
+def _split_sentences(text: str) -> list[str]:
+    """Split text into sentence-level fragments preserving paragraph structure."""
+    parts = _SENTENCE_BOUNDARY.split(text)
+    return [p.strip() for p in parts if p and p.strip()]
+
 
 def chunk_text(
     text: str,
@@ -17,24 +28,65 @@ def chunk_text(
     chunk_size: int | None = None,
     overlap: int | None = None,
 ) -> list[str]:
-    """Split text into overlapping chunks. Returns list of chunk strings."""
+    """Split text into sentence-aware overlapping chunks.
+
+    Unlike naive character-based chunking, this respects sentence and paragraph
+    boundaries so LLM context windows receive complete thoughts rather than
+    mid-sentence fragments.  When a single sentence exceeds ``chunk_size``, it
+    is included as its own chunk.
+
+    Args:
+        text: Source text to chunk.
+        chunk_size: Target maximum characters per chunk (defaults to
+            ``settings.weaviate_chunk_size_chars``).
+        overlap: Number of *trailing characters* from the previous chunk to
+            prepend to the next (defaults to
+            ``settings.weaviate_chunk_overlap_chars``).
+    """
     size = chunk_size or settings.weaviate_chunk_size_chars
     overlap_chars = overlap or settings.weaviate_chunk_overlap_chars
     if not text or size <= 0:
         return []
+
+    sentences = _split_sentences(text)
+    if not sentences:
+        return []
+
     chunks: list[str] = []
-    start = 0
-    while start < len(text):
-        end = start + size
-        chunk = text[start:end]
-        if not chunk.strip():
-            start = end - overlap_chars
-            continue
-        chunks.append(chunk)
-        start = end - overlap_chars
-        if start >= len(text):
-            break
-    return chunks
+    current_parts: list[str] = []
+    current_len = 0
+
+    for sentence in sentences:
+        sentence_len = len(sentence)
+
+        # Sentence fits in current chunk
+        if current_len + (1 if current_parts else 0) + sentence_len <= size:
+            current_parts.append(sentence)
+            current_len += (1 if len(current_parts) > 1 else 0) + sentence_len
+        else:
+            # Flush current chunk
+            if current_parts:
+                chunks.append(" ".join(current_parts))
+
+            # Start next chunk: prepend overlap tail from previous chunk
+            if chunks and overlap_chars > 0:
+                overlap_text = chunks[-1][-overlap_chars:]
+                current_parts = [overlap_text, sentence]
+                current_len = len(overlap_text) + 1 + sentence_len
+            else:
+                current_parts = [sentence]
+                current_len = sentence_len
+
+            # If single sentence still exceeds chunk_size, emit it as-is
+            if sentence_len > size:
+                chunks.append(" ".join(current_parts))
+                current_parts = []
+                current_len = 0
+
+    if current_parts:
+        chunks.append(" ".join(current_parts))
+
+    return [c for c in chunks if c.strip()]
 
 
 def get_embedding(text: str) -> list[float]:

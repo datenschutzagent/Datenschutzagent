@@ -19,15 +19,18 @@ from app.services.weaviate_service import delete_legal_base_chunks, index_legal_
 router = APIRouter()
 
 
-@router.get("", response_model=list[LegalBaseResponse])
+@router.get("", response_model=list[LegalBaseResponse], summary="Rechtsgrundlagen auflisten")
 async def list_legal_bases(
     db: AsyncSession = Depends(get_db),
     applicability: ApplicabilityEnum | None = Query(None, description="Filter by applicability"),
+    skip: int = Query(default=0, ge=0, description="Anzahl übersprungener Einträge (Pagination)"),
+    limit: int = Query(default=500, ge=1, le=1000, description="Maximale Anzahl zurückgegebener Einträge"),
 ):
-    """List all legal bases, optionally filtered by applicability."""
+    """List legal bases with optional filtering by applicability and pagination."""
     q = select(LegalBaseModel).order_by(LegalBaseModel.title)
     if applicability is not None:
         q = q.where(LegalBaseModel.applicability == applicability)
+    q = q.offset(skip).limit(limit)
     result = await db.execute(q)
     bases = result.scalars().all()
     return [LegalBaseResponse(**orm_to_legal_base_response(b)) for b in bases]

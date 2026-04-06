@@ -1,6 +1,7 @@
 import httpx
 from pydantic_ai import Agent
 from pydantic_ai.models.openai import OpenAIModel
+from pydantic_ai.providers.openai import OpenAIProvider
 
 from app.config import settings
 
@@ -15,16 +16,13 @@ def get_ollama_model() -> OpenAIModel:
     """Get configured Ollama model (OpenAI-compatible API) via Pydantic AI OpenAIModel."""
     timeout = settings.ollama_timeout_seconds
     http_client = httpx.AsyncClient(timeout=httpx.Timeout(timeout, connect=10.0))
-    return OpenAIModel(
-        settings.ollama_model,
-        base_url=_ollama_base_url(),
-        http_client=http_client,
-    )
+    provider = OpenAIProvider(base_url=_ollama_base_url(), http_client=http_client)
+    return OpenAIModel(settings.ollama_model, provider=provider)
 
 
 def create_agent(system_prompt: str) -> Agent:
     """Create a new PydanticAI agent with the given system prompt."""
     return Agent(
         model=get_ollama_model(),
-        system_prompt=system_prompt
+        system_prompt=system_prompt,
     )

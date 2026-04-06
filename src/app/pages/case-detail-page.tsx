@@ -1,4 +1,5 @@
 import { useParams, Link, useNavigate } from "react-router";
+import { ErrorBoundary } from "../components/ErrorBoundary";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../components/ui/card";
 import { Badge } from "../components/ui/badge";
 import { Button } from "../components/ui/button";
@@ -453,86 +454,100 @@ export function CaseDetailPage() {
 
           {/* Overview Tab */}
           <TabsContent value="overview" className="space-y-6">
-            <CaseOverviewTab
-              caseData={caseData}
-              criticalFindings={criticalFindings}
-              highFindings={highFindings}
-              runChecksOpen={runChecksOpen}
-              setRunChecksOpen={setRunChecksOpen}
-              playbooks={playbooks}
-              selectedPlaybookId={selectedPlaybookId}
-              setSelectedPlaybookId={setSelectedPlaybookId}
-              runChecksStrategy={runChecksStrategy}
-              setRunChecksStrategy={setRunChecksStrategy}
-              onRunChecks={handleRunChecks}
-              runChecksLoading={runChecksLoading}
-              runChecksStatus={runChecksStatus}
-              runChecksError={runChecksError}
-              setRunChecksError={setRunChecksError}
-              runChecksProgress={runChecksProgress}
-              onSelectFinding={handleSelectFinding}
-              canEdit={userCanEdit}
-              coveragePreview={coveragePreview}
-              similarCases={similarCases}
-              riskScore={riskScore}
-              onCaseUpdated={(updated) => setCaseData(updated)}
-            />
+            <ErrorBoundary>
+              <CaseOverviewTab
+                caseData={caseData}
+                criticalFindings={criticalFindings}
+                highFindings={highFindings}
+                runChecksOpen={runChecksOpen}
+                setRunChecksOpen={setRunChecksOpen}
+                playbooks={playbooks}
+                selectedPlaybookId={selectedPlaybookId}
+                setSelectedPlaybookId={setSelectedPlaybookId}
+                runChecksStrategy={runChecksStrategy}
+                setRunChecksStrategy={setRunChecksStrategy}
+                onRunChecks={handleRunChecks}
+                runChecksLoading={runChecksLoading}
+                runChecksStatus={runChecksStatus}
+                runChecksError={runChecksError}
+                setRunChecksError={setRunChecksError}
+                runChecksProgress={runChecksProgress}
+                onSelectFinding={handleSelectFinding}
+                canEdit={userCanEdit}
+                coveragePreview={coveragePreview}
+                similarCases={similarCases}
+                riskScore={riskScore}
+                onCaseUpdated={(updated) => setCaseData(updated)}
+              />
+            </ErrorBoundary>
           </TabsContent>
 
           {/* Documents Tab */}
           <TabsContent value="documents" className="space-y-6">
-            <CaseDocumentsTab
-              caseData={caseData}
-              isUploadDialogOpen={isUploadDialogOpen}
-              setIsUploadDialogOpen={setIsUploadDialogOpen}
-              onUploadComplete={loadCase}
-              canEdit={userCanEdit}
-            />
+            <ErrorBoundary>
+              <CaseDocumentsTab
+                caseData={caseData}
+                isUploadDialogOpen={isUploadDialogOpen}
+                setIsUploadDialogOpen={setIsUploadDialogOpen}
+                onUploadComplete={loadCase}
+                canEdit={userCanEdit}
+              />
+            </ErrorBoundary>
           </TabsContent>
 
           {/* Findings Tab */}
           <TabsContent value="findings" className="space-y-6">
-            {documentsChangedSinceLastRun && (
-              <Alert className="border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-900/30">
-                <AlertDescription className="text-amber-800 dark:text-amber-200 flex items-center justify-between gap-4">
-                  <span>Dokumente wurden seit der letzten Prüfung aktualisiert. Die Findings könnten veraltet sein.</span>
-                  {userCanEdit && (
-                    <Button size="sm" variant="outline" onClick={() => setRunChecksOpen(true)}>
-                      Jetzt prüfen
-                    </Button>
-                  )}
-                </AlertDescription>
-              </Alert>
-            )}
-            <CaseFindingsTab caseData={caseData} onSelectFinding={handleSelectFinding} onFindingsChanged={loadCase} />
+            <ErrorBoundary>
+              {documentsChangedSinceLastRun && (
+                <Alert className="border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-900/30">
+                  <AlertDescription className="text-amber-800 dark:text-amber-200 flex items-center justify-between gap-4">
+                    <span>Dokumente wurden seit der letzten Prüfung aktualisiert. Die Findings könnten veraltet sein.</span>
+                    {userCanEdit && (
+                      <Button size="sm" variant="outline" onClick={() => setRunChecksOpen(true)}>
+                        Jetzt prüfen
+                      </Button>
+                    )}
+                  </AlertDescription>
+                </Alert>
+              )}
+              <CaseFindingsTab caseData={caseData} onSelectFinding={handleSelectFinding} onFindingsChanged={loadCase} />
+            </ErrorBoundary>
           </TabsContent>
 
           {/* Audit Trail Tab */}
           <TabsContent value="audit" className="space-y-6">
-            <Card>
-              <CardHeader>
-                <CardTitle>Audit Trail</CardTitle>
-                <CardDescription>Nachvollziehbare Historie aller Änderungen</CardDescription>
-              </CardHeader>
-              <CardContent>
-                <ActivityTimeline caseId={caseData.id} />
-              </CardContent>
-            </Card>
+            <ErrorBoundary>
+              <Card>
+                <CardHeader>
+                  <CardTitle>Audit Trail</CardTitle>
+                  <CardDescription>Nachvollziehbare Historie aller Änderungen</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <ActivityTimeline caseId={caseData.id} />
+                </CardContent>
+              </Card>
+            </ErrorBoundary>
           </TabsContent>
 
           {/* VVT Normalization Tab */}
           <TabsContent value="vvt">
-            <VVTNormalizationView caseId={caseData.id} active={activeTab === "vvt"} />
+            <ErrorBoundary>
+              <VVTNormalizationView caseId={caseData.id} active={activeTab === "vvt"} />
+            </ErrorBoundary>
           </TabsContent>
 
           {/* DSB Report Tab */}
           <TabsContent value="report">
-            <DSBReportView caseId={caseData.id} />
+            <ErrorBoundary>
+              <DSBReportView caseId={caseData.id} />
+            </ErrorBoundary>
           </TabsContent>
 
           {/* Annotated Documents Tab */}
           <TabsContent value="annotated">
-            <AnnotatedDocumentsView caseId={caseData.id} />
+            <ErrorBoundary>
+              <AnnotatedDocumentsView caseId={caseData.id} />
+            </ErrorBoundary>
           </TabsContent>
         </Tabs>
 

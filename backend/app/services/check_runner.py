@@ -1,4 +1,6 @@
 import asyncio
+import hashlib
+import json
 import logging
 import uuid
 from typing import List
@@ -8,10 +10,57 @@ from pydantic import BaseModel, Field
 
 from app.config import settings
 from app.core.llm import create_agent
+from app.core.request_id import get_request_id
 from app.models.schemas import FindingSeverityEnum
 from app.services.prompt_template_service import get_active_template, render
 
 logger = logging.getLogger(__name__)
+
+
+def _log_extra() -> dict:
+    """Return a dict with the current request_id for structured log records."""
+    return {"request_id": get_request_id()}
+
+
+# ---------------------------------------------------------------------------
+# LLM response cache (optional Redis-backed)
+# ---------------------------------------------------------------------------
+
+def _cache_key(system_prompt: str, user_content: str) -> str:
+    """SHA-256 hash of system+user prompt as a Redis key."""
+    raw = f"{system_prompt}\x00{user_content}"
+    digest = hashlib.sha256(raw.encode("utf-8")).hexdigest()
+    return f"llm_cache:{digest}"
+
+
+async def _cache_get(key: str) -> CheckResult | None:
+    """Return a cached CheckResult or None if cache is disabled / miss."""
+    if not settings.llm_cache_enabled:
+        return None
+    try:
+        import redis.asyncio as aioredis  # type: ignore
+        r = aioredis.from_url(settings.celery_broker_url, decode_responses=True)
+        async with r:
+            raw = await r.get(key)
+        if raw is None:
+            return None
+        return CheckResult.model_validate_json(raw)
+    except Exception as exc:
+        logger.debug("LLM cache GET failed (ignored): %s", exc)
+        return None
+
+
+async def _cache_set(key: str, result: CheckResult) -> None:
+    """Store a CheckResult in Redis with the configured TTL."""
+    if not settings.llm_cache_enabled:
+        return
+    try:
+        import redis.asyncio as aioredis  # type: ignore
+        r = aioredis.from_url(settings.celery_broker_url, decode_responses=True)
+        async with r:
+            await r.setex(key, settings.llm_cache_ttl, result.model_dump_json())
+    except Exception as exc:
+        logger.debug("LLM cache SET failed (ignored): %s", exc)
 
 _LLM_RETRY_ATTEMPTS = 3
 _LLM_RETRY_DELAYS = [2, 4, 8]  # seconds
@@ -27,7 +76,7 @@ def _rag_context_chars() -> int:
     return getattr(settings, "max_context_chars_rag", 20000)
 
 
-async def _run_with_retry(agent, user_content: str, result_type):
+async def _run_with_retry(agent, user_content: str, output_type):
     """Run an LLM agent call with exponential backoff retry on transient errors."""
     last_exc: Exception | None = None
     for attempt, delay in enumerate(
@@ -36,15 +85,16 @@ async def _run_with_retry(agent, user_content: str, result_type):
         if delay:
             await asyncio.sleep(delay)
         try:
-            result = await agent.run(user_content, result_type=result_type)
+            result = await agent.run(user_content, output_type=output_type)
             return result
         except Exception as exc:
             last_exc = exc
             logger.warning(
-                "LLM call failed (attempt %d/%d): %s",
+                "LLM call failed (attempt %d/%d): %s  [request_id=%s]",
                 attempt,
                 _LLM_RETRY_ATTEMPTS,
                 exc,
+                get_request_id(),
             )
     raise last_exc
 
@@ -144,7 +194,7 @@ async def run_check(
     user_tpl = await get_active_template("check_full_text_document_user")
     limit = _context_chars_per_doc()
     if document_text and len(document_text) > limit:
-        logger.info("Document text truncated: %d → %d chars for check '%s'", len(document_text), limit, check_instruction[:80])
+        logger.info("Document text truncated: %d → %d chars for check '%s'  [request_id=%s]", len(document_text), limit, check_instruction[:80], get_request_id())
         truncated_text = document_text[:limit] + f"\n\n[... truncated, {len(document_text)} chars total ...]"
     else:
         truncated_text = document_text or ""
@@ -157,8 +207,14 @@ async def run_check(
         },
     )
     agent = create_agent(system_prompt=system)
-    result = await _run_with_retry(agent, user_content, CheckResult)
-    return result.data
+    cache_key = _cache_key(system, user_content)
+    cached = await _cache_get(cache_key)
+    if cached is not None:
+        logger.debug("LLM cache hit for check '%s'  [request_id=%s]", check_instruction[:60], get_request_id())
+        return cached
+    result = await _run_with_retry(agent, user_content, output_type=CheckResult)
+    await _cache_set(cache_key, result.output)
+    return result.output
 
 
 async def run_cross_document_check(
@@ -196,8 +252,14 @@ async def run_cross_document_check(
         },
     )
     agent = create_agent(system_prompt=system)
-    result = await _run_with_retry(agent, user_content, CheckResult)
-    return result.data
+    cache_key = _cache_key(system, user_content)
+    cached = await _cache_get(cache_key)
+    if cached is not None:
+        logger.debug("LLM cache hit for cross-doc check '%s'  [request_id=%s]", check_instruction[:60], get_request_id())
+        return cached
+    result = await _run_with_retry(agent, user_content, output_type=CheckResult)
+    await _cache_set(cache_key, result.output)
+    return result.output
 
 
 async def run_check_rag(
@@ -233,8 +295,14 @@ async def run_check_rag(
         },
     )
     agent = create_agent(system_prompt=system)
-    result = await _run_with_retry(agent, user_content, CheckResult)
-    return result.data
+    cache_key = _cache_key(system, user_content)
+    cached = await _cache_get(cache_key)
+    if cached is not None:
+        logger.debug("LLM cache hit for RAG check '%s'  [request_id=%s]", check_instruction[:60], get_request_id())
+        return cached
+    result = await _run_with_retry(agent, user_content, output_type=CheckResult)
+    await _cache_set(cache_key, result.output)
+    return result.output
 
 
 async def run_cross_document_check_rag(
@@ -271,5 +339,11 @@ async def run_cross_document_check_rag(
         },
     )
     agent = create_agent(system_prompt=system)
-    result = await _run_with_retry(agent, user_content, CheckResult)
-    return result.data
+    cache_key = _cache_key(system, user_content)
+    cached = await _cache_get(cache_key)
+    if cached is not None:
+        logger.debug("LLM cache hit for cross-RAG check '%s'  [request_id=%s]", check_instruction[:60], get_request_id())
+        return cached
+    result = await _run_with_retry(agent, user_content, output_type=CheckResult)
+    await _cache_set(cache_key, result.output)
+    return result.output

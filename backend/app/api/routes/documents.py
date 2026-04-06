@@ -2,12 +2,13 @@
 import asyncio
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import StreamingResponse
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.auth import require_roles
+from app.core.rate_limit import limiter
 from app.models.db import UserModel
 from app.celery_app import extract_document_text
 from app.config import settings
@@ -246,8 +247,10 @@ async def update_document(
     return DocumentResponse(**orm_to_document_response(doc))
 
 
-@router.post("", response_model=DocumentResponse, status_code=201)
+@router.post("", response_model=DocumentResponse, status_code=201, summary="Dokument hochladen")
+@limiter.limit("30/minute")
 async def upload_document(
+    request: Request,
     _user=require_roles("editor", "admin"),
     case_id: UUID = Form(...),
     file: UploadFile = File(...),
@@ -271,7 +274,9 @@ async def upload_document(
 
 
 @router.post("/bulk", response_model=list[DocumentResponse], status_code=201)
+@limiter.limit("10/minute")
 async def upload_documents_bulk(
+    request: Request,
     case_id: UUID = Form(...),
     files: list[UploadFile] = File(...),
     document_type: str = Form("other"),

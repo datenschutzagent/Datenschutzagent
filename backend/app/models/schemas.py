@@ -1,9 +1,20 @@
 """Pydantic schemas for API request/response. Aligned with frontend types."""
 from datetime import date, datetime
-from typing import Any, Literal
+from typing import Any, Generic, Literal, TypeVar
 from uuid import UUID
 
 from pydantic import BaseModel, Field
+
+T = TypeVar("T")
+
+
+class PaginatedResponse(BaseModel, Generic[T]):
+    """Generic paginated list response used across list endpoints."""
+
+    items: list[T]
+    total: int
+    skip: int = 0
+    limit: int = 100
 
 CaseStatusEnum = Literal[
     "intake", "in_review", "questions_pending", "revision", "ready_for_decision", "completed"

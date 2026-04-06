@@ -127,8 +127,8 @@ async def normalize_vvt(
         user_tpl or DEFAULT_VVT_USER,
         {"field_list": field_list, "document_text": truncated},
     )
-    result = await agent.run(user_content, result_type=_VVTExtractionResult)
-    data = result.data
+    result = await agent.run(user_content, output_type=_VVTExtractionResult)
+    data = result.output
 
     # Normalize LLM-returned field names to canonical names via fuzzy matching
     for f in data.fields:

@@ -61,12 +61,19 @@ async def list_playbooks_for_selection(
     ]
 
 
-@router.get("", response_model=list[PlaybookResponse])
+@router.get("", response_model=list[PlaybookResponse], summary="Playbooks auflisten")
 async def list_playbooks(
+    skip: int = Query(default=0, ge=0, description="Anzahl übersprungener Einträge (Pagination)"),
+    limit: int = Query(default=200, ge=1, le=500, description="Maximale Anzahl zurückgegebener Einträge"),
+    is_active: bool | None = Query(default=None, description="Filtert nach Aktiv-Status (true/false)"),
     db: AsyncSession = Depends(get_db),
 ):
-    """List all playbooks."""
-    result = await db.execute(select(PlaybookModel).order_by(PlaybookModel.created_at.desc()))
+    """List playbooks with optional filtering by active state and pagination."""
+    q = select(PlaybookModel).order_by(PlaybookModel.created_at.desc())
+    if is_active is not None:
+        q = q.where(PlaybookModel.is_active == is_active)
+    q = q.offset(skip).limit(limit)
+    result = await db.execute(q)
     playbooks = result.scalars().all()
     return [PlaybookResponse(**orm_to_playbook_response(p)) for p in playbooks]
 
