@@ -76,7 +76,7 @@ def _rag_context_chars() -> int:
     return getattr(settings, "max_context_chars_rag", 20000)
 
 
-async def _run_with_retry(agent, user_content: str, result_type):
+async def _run_with_retry(agent, user_content: str, output_type):
     """Run an LLM agent call with exponential backoff retry on transient errors."""
     last_exc: Exception | None = None
     for attempt, delay in enumerate(
@@ -85,7 +85,7 @@ async def _run_with_retry(agent, user_content: str, result_type):
         if delay:
             await asyncio.sleep(delay)
         try:
-            result = await agent.run(user_content, result_type=result_type)
+            result = await agent.run(user_content, output_type=output_type)
             return result
         except Exception as exc:
             last_exc = exc
@@ -212,9 +212,9 @@ async def run_check(
     if cached is not None:
         logger.debug("LLM cache hit for check '%s'  [request_id=%s]", check_instruction[:60], get_request_id())
         return cached
-    result = await _run_with_retry(agent, user_content, CheckResult)
-    await _cache_set(cache_key, result.data)
-    return result.data
+    result = await _run_with_retry(agent, user_content, output_type=CheckResult)
+    await _cache_set(cache_key, result.output)
+    return result.output
 
 
 async def run_cross_document_check(
@@ -257,9 +257,9 @@ async def run_cross_document_check(
     if cached is not None:
         logger.debug("LLM cache hit for cross-doc check '%s'  [request_id=%s]", check_instruction[:60], get_request_id())
         return cached
-    result = await _run_with_retry(agent, user_content, CheckResult)
-    await _cache_set(cache_key, result.data)
-    return result.data
+    result = await _run_with_retry(agent, user_content, output_type=CheckResult)
+    await _cache_set(cache_key, result.output)
+    return result.output
 
 
 async def run_check_rag(
@@ -300,9 +300,9 @@ async def run_check_rag(
     if cached is not None:
         logger.debug("LLM cache hit for RAG check '%s'  [request_id=%s]", check_instruction[:60], get_request_id())
         return cached
-    result = await _run_with_retry(agent, user_content, CheckResult)
-    await _cache_set(cache_key, result.data)
-    return result.data
+    result = await _run_with_retry(agent, user_content, output_type=CheckResult)
+    await _cache_set(cache_key, result.output)
+    return result.output
 
 
 async def run_cross_document_check_rag(
@@ -344,6 +344,6 @@ async def run_cross_document_check_rag(
     if cached is not None:
         logger.debug("LLM cache hit for cross-RAG check '%s'  [request_id=%s]", check_instruction[:60], get_request_id())
         return cached
-    result = await _run_with_retry(agent, user_content, CheckResult)
-    await _cache_set(cache_key, result.data)
-    return result.data
+    result = await _run_with_retry(agent, user_content, output_type=CheckResult)
+    await _cache_set(cache_key, result.output)
+    return result.output
