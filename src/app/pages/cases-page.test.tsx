@@ -11,6 +11,7 @@ vi.mock("../lib/api", () => ({
   archiveCase: vi.fn(),
   unarchiveCase: vi.fn(),
   canEdit: vi.fn(() => true),
+  isAdmin: vi.fn(() => false),
 }));
 
 vi.mock("../contexts/AuthContext", () => ({

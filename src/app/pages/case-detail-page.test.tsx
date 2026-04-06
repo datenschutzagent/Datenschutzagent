@@ -33,6 +33,7 @@ vi.mock("../lib/api", () => ({
   archiveCase: vi.fn(),
   unarchiveCase: vi.fn(),
   canEdit: vi.fn(() => false),
+  isAdmin: vi.fn(() => false),
 }));
 
 vi.mock("../contexts/AuthContext", () => ({
