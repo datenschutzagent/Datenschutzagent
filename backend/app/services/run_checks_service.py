@@ -1,5 +1,7 @@
 """Run playbook checks against case documents; used by API (sync fallback) and Celery task."""
 import asyncio
+from collections.abc import Awaitable, Callable
+from typing import Optional
 from uuid import UUID
 
 from sqlalchemy import select, tuple_
@@ -44,10 +46,12 @@ async def run_checks_impl(
     case_id: UUID,
     playbook_id: UUID,
     strategies: list[str],
+    on_check_done: Optional[Callable[[], Awaitable[None]]] = None,
 ) -> tuple[int, list[dict], dict]:
     """
     Run all playbook checks (document- and case-scoped, full_text/rag).
     Writes findings to db; does not write ActivityLog or RunChecksJob.
+    on_check_done: optional async callback invoked after each individual check completes.
     Returns (findings_added, errors, activity_payload).
     """
     result = await db.execute(
@@ -218,6 +222,8 @@ async def run_checks_impl(
                 recommendation=check_result.recommendation or "",
                 source_strategy="full_text",
             )
+        if on_check_done:
+            await on_check_done()
 
     async def _run_doc_check_rag(doc_id, item):
         nonlocal rag_skipped
@@ -260,6 +266,8 @@ async def run_checks_impl(
                     )
             except Exception as e2:
                 errors.append({"check": name, "scope": "document", "document_id": str(doc_id), "strategy": "rag_fallback_full_text", "error": str(e2)})
+            if on_check_done:
+                await on_check_done()
             return
         if not rag_result.is_compliant:
             _add_finding(
@@ -273,6 +281,8 @@ async def run_checks_impl(
                 recommendation=rag_result.recommendation or "",
                 source_strategy="rag",
             )
+        if on_check_done:
+            await on_check_done()
 
     doc_coros = []
     for doc in case.documents:
@@ -315,6 +325,8 @@ async def run_checks_impl(
                     recommendation=check_result.recommendation or "",
                     source_strategy="full_text",
                 )
+            if on_check_done:
+                await on_check_done()
 
         async def _run_case_check_rag(item):
             nonlocal rag_skipped
@@ -355,6 +367,8 @@ async def run_checks_impl(
                         )
                 except Exception as e2:
                     errors.append({"check": name, "scope": "case", "document_id": None, "strategy": "rag_fallback_full_text", "error": str(e2)})
+                if on_check_done:
+                    await on_check_done()
                 return
             if not rag_result.is_compliant:
                 _add_finding(
@@ -368,6 +382,8 @@ async def run_checks_impl(
                     recommendation=rag_result.recommendation or "",
                     source_strategy="rag",
                 )
+            if on_check_done:
+                await on_check_done()
 
         case_coros = []
         for item in case_checks:

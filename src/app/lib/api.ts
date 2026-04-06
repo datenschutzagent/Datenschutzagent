@@ -46,6 +46,7 @@ function mapCase(d: Record<string, unknown>): Record<string, unknown> {
     processingContext: (d.processing_context as string) ?? null,
     specialCategoryData: Boolean(d.special_category_data),
     internationalTransfer: Boolean(d.international_transfer),
+    autoRunChecks: Boolean(d.auto_run_checks),
     deadline: (d.deadline as string) ?? null,
     archivedAt: (d.archived_at as string) ?? null,
     retentionMonths: (d.retention_months as number) ?? null,
@@ -366,6 +367,7 @@ export interface CaseUpdateInput {
   special_category_data?: boolean;
   international_transfer?: boolean;
   deadline?: string | null;
+  auto_run_checks?: boolean;
 }
 
 export interface ApiCase {
@@ -383,6 +385,7 @@ export interface ApiCase {
   processingContext?: string | null;
   specialCategoryData?: boolean;
   internationalTransfer?: boolean;
+  autoRunChecks?: boolean;
   deadline?: string | null;
   archivedAt?: string | null;
   retentionMonths?: number | null;
@@ -565,6 +568,8 @@ export interface RunChecksStatusResponse {
   error: string | null;
   last_run: { id: string; case_id: string; event_type: string; payload: Record<string, unknown>; created_at: string } | null;
   documents_changed_since_last_run?: boolean;
+  checks_total: number;
+  checks_done: number;
 }
 
 export async function runChecks(
@@ -603,6 +608,9 @@ export async function getRunChecksStatus(caseId: string): Promise<RunChecksStatu
     findings_count: number | null;
     error: string | null;
     last_run: RunChecksStatusResponse["last_run"];
+    documents_changed_since_last_run?: boolean;
+    checks_total?: number;
+    checks_done?: number;
   }>("GET", `/cases/${caseId}/run-checks/status`);
   return {
     status: raw.status as RunChecksStatusResponse["status"],
@@ -612,6 +620,8 @@ export async function getRunChecksStatus(caseId: string): Promise<RunChecksStatu
     error: raw.error,
     last_run: raw.last_run,
     documents_changed_since_last_run: raw.documents_changed_since_last_run ?? false,
+    checks_total: raw.checks_total ?? 0,
+    checks_done: raw.checks_done ?? 0,
   };
 }
 

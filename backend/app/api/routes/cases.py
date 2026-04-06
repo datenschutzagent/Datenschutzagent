@@ -328,6 +328,7 @@ async def create_case(
         processing_context=body.processing_context,
         special_category_data=body.special_category_data,
         international_transfer=body.international_transfer,
+        auto_run_checks=body.auto_run_checks,
     )
     db.add(case)
     await db.flush()
@@ -359,6 +360,7 @@ async def update_case(
         "title", "department", "case_type", "status", "language",
         "assignee", "playbook_version", "processing_context",
         "special_category_data", "international_transfer", "deadline",
+        "auto_run_checks",
     }
     update_data = body.model_dump(exclude_unset=True)
     changed: dict = {}
@@ -804,7 +806,7 @@ async def get_run_checks_status(
             documents_changed = True
 
     if not job:
-        return {"status": "never_run", "job_id": None, "playbook_name": None, "findings_count": None, "error": None, "last_run": last_run, "documents_changed_since_last_run": False}
+        return {"status": "never_run", "job_id": None, "playbook_name": None, "findings_count": None, "error": None, "last_run": last_run, "documents_changed_since_last_run": False, "checks_total": 0, "checks_done": 0}
     return {
         "status": job.status,
         "job_id": str(job.id),
@@ -813,6 +815,8 @@ async def get_run_checks_status(
         "error": job.error,
         "last_run": last_run,
         "documents_changed_since_last_run": documents_changed,
+        "checks_total": job.checks_total,
+        "checks_done": job.checks_done,
     }
 
 

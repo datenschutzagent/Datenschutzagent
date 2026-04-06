@@ -1,19 +1,21 @@
 """Celery app and tasks for async jobs (document extraction, run_checks)."""
 import asyncio
 import logging
+import uuid
 from uuid import UUID
 
 from celery import Celery
-from sqlalchemy import create_engine, select
+from sqlalchemy import create_engine, select, update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.config import settings
-from app.models.db import ActivityLogModel, DocumentModel, DSBReportJobModel, RunChecksJobModel
+from app.models.db import ActivityLogModel, CaseModel, DocumentModel, DSBReportJobModel, PlaybookModel, RunChecksJobModel
 from app.services.run_checks_service import run_checks_impl
 from app.services.dsb_report_service import build_dsb_report, save_report
 from app.storage import get_file
 from app.services.document_processor import extract_text
+from app.services.playbook_matching import rank_playbooks_for_selection
 from app.services.weaviate_service import index_document_chunks
 
 logger = logging.getLogger(__name__)
@@ -54,6 +56,42 @@ def _set_extraction_failed(session: Session, document_id: UUID, error_message: s
     except Exception:
         session.rollback()
         raise
+
+
+def _maybe_auto_run_checks(session: Session, case_id: uuid.UUID) -> None:
+    """If the case has auto_run_checks=True, find the best matching playbook and queue a run_checks job."""
+    try:
+        case = session.execute(select(CaseModel).where(CaseModel.id == case_id)).scalar_one_or_none()
+        if not case or not getattr(case, "auto_run_checks", False):
+            return
+        playbooks = session.execute(select(PlaybookModel).where(PlaybookModel.is_active == True)).scalars().all()  # noqa: E712
+        if not playbooks:
+            logger.info("auto_run_checks: no active playbooks for case %s", case_id)
+            return
+        ranked = rank_playbooks_for_selection(
+            playbooks,
+            department=case.department or "",
+            processing_context=case.processing_context,
+            case_type=case.case_type,
+            org_profile=settings.org_profile,
+            strict_case_type=False,
+        )
+        best_playbook = ranked[0][0] if ranked else playbooks[0]
+        job_id = uuid.uuid4()
+        job = RunChecksJobModel(
+            id=job_id,
+            case_id=case_id,
+            status="running",
+            playbook_id=best_playbook.id,
+            playbook_name=best_playbook.name,
+            strategies=["full_text"],
+        )
+        session.add(job)
+        session.commit()
+        run_playbook_checks.delay(str(job_id))
+        logger.info("auto_run_checks queued job %s for case %s (playbook: %s)", job_id, case_id, best_playbook.name)
+    except Exception as exc:
+        logger.warning("auto_run_checks failed to queue job for case %s: %s", case_id, exc)
 
 
 @celery_app.task(name="app.celery_app.extract_document_text", bind=True)
@@ -97,6 +135,10 @@ def extract_document_text(self, document_id: str) -> dict:
                     document_id,
                 )
         logger.info("extract_document_text done", extra={"document_id": document_id})
+
+        # Auto-run checks if the case has auto_run_checks=True
+        _maybe_auto_run_checks(session, row.case_id)
+
         return {"ok": True, "document_id": document_id}
     except FileNotFoundError:
         _set_extraction_failed(session, uid, "file_not_found")
@@ -117,6 +159,21 @@ def extract_document_text(self, document_id: str) -> dict:
         session.close()
 
 
+def _count_checks_total(playbook_content: dict, doc_count: int, strategies: list[str]) -> int:
+    """Calculate total number of individual check invocations for progress tracking."""
+    raw_checks = playbook_content.get("checks") if isinstance(playbook_content, dict) else []
+    if not raw_checks:
+        return 0
+    doc_checks = sum(
+        1 for item in raw_checks
+        if isinstance(item, dict)
+        and (item.get("scope") or item.get("type") or "document").lower() not in ("case", "cross_document")
+    )
+    case_checks = len(raw_checks) - doc_checks
+    n_strategies = len(strategies) if strategies else 1
+    return (doc_checks * max(doc_count, 1) + case_checks) * n_strategies
+
+
 async def _run_checks_async(job_id: str) -> None:
     """Load job, run run_checks_impl, write activity log and update job. Uses own async engine/session."""
     engine = create_async_engine(settings.database_url, pool_pre_ping=True)
@@ -127,8 +184,32 @@ async def _run_checks_async(job_id: str) -> None:
         autocommit=False,
         autoflush=False,
     )
+    # Progress callback uses a separate session to avoid interfering with the main transaction
+    progress_engine = create_async_engine(settings.database_url, pool_pre_ping=True)
+    progress_session_factory = async_sessionmaker(
+        progress_engine,
+        class_=AsyncSession,
+        expire_on_commit=False,
+        autocommit=False,
+        autoflush=False,
+    )
+    job_uuid = UUID(job_id)
+
+    async def _on_check_done() -> None:
+        """Atomically increment checks_done on the job row."""
+        try:
+            async with progress_session_factory() as psession:
+                await psession.execute(
+                    update(RunChecksJobModel)
+                    .where(RunChecksJobModel.id == job_uuid)
+                    .values(checks_done=RunChecksJobModel.checks_done + 1)
+                )
+                await psession.commit()
+        except Exception as exc:
+            logger.debug("Progress update failed (non-critical): %s", exc)
+
     async with async_session_factory() as session:
-        result = await session.execute(select(RunChecksJobModel).where(RunChecksJobModel.id == UUID(job_id)))
+        result = await session.execute(select(RunChecksJobModel).where(RunChecksJobModel.id == job_uuid))
         job = result.scalar_one_or_none()
         if not job:
             raise ValueError("run_checks job not found")
@@ -137,7 +218,24 @@ async def _run_checks_async(job_id: str) -> None:
         case_id = job.case_id
         playbook_id = job.playbook_id
         strategies = list(job.strategies) if job.strategies else ["full_text"]
-        findings_added, errors, activity_payload = await run_checks_impl(session, case_id, playbook_id, strategies)
+
+        # Load playbook to calculate checks_total; set it before running
+        from app.models.db import PlaybookModel, DocumentModel as DocModel
+        from sqlalchemy.orm import selectinload
+        pb_result = await session.execute(select(PlaybookModel).where(PlaybookModel.id == playbook_id))
+        playbook = pb_result.scalar_one_or_none()
+        doc_result = await session.execute(
+            select(DocModel).where(DocModel.case_id == case_id)
+        )
+        doc_count = len(doc_result.scalars().all())
+        if playbook:
+            checks_total = _count_checks_total(playbook.content, doc_count, strategies)
+            job.checks_total = checks_total
+            await session.flush()
+
+        findings_added, errors, activity_payload = await run_checks_impl(
+            session, case_id, playbook_id, strategies, on_check_done=_on_check_done
+        )
         activity = ActivityLogModel(
             case_id=case_id,
             event_type="run_checks",
@@ -146,10 +244,12 @@ async def _run_checks_async(job_id: str) -> None:
         session.add(activity)
         job.status = "completed"
         job.findings_count = findings_added
+        job.checks_done = job.checks_total  # ensure 100% at completion
         job.result_payload = activity_payload
         job.error = None
         await session.commit()
     await engine.dispose()
+    await progress_engine.dispose()
 
 
 @celery_app.task(name="app.celery_app.run_playbook_checks", bind=True)

@@ -74,6 +74,7 @@ export function CaseDetailPage() {
   const [runChecksLoading, setRunChecksLoading] = useState(false);
   const [runChecksStatus, setRunChecksStatus] = useState<"idle" | "running" | "completed" | "failed">("idle");
   const [runChecksError, setRunChecksError] = useState<string | null>(null);
+  const [runChecksProgress, setRunChecksProgress] = useState<{ done: number; total: number }>({ done: 0, total: 0 });
   const [findingStatusLoading, setFindingStatusLoading] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState("overview");
   const [documentsChangedSinceLastRun, setDocumentsChangedSinceLastRun] = useState(false);
@@ -195,8 +196,12 @@ export function CaseDetailPage() {
     const interval = setInterval(async () => {
       try {
         const statusRes = await getRunChecksStatus(caseId);
+        if (statusRes.checks_total > 0) {
+          setRunChecksProgress({ done: statusRes.checks_done, total: statusRes.checks_total });
+        }
         if (statusRes.status === "completed") {
           setRunChecksStatus("idle");
+          setRunChecksProgress({ done: 0, total: 0 });
           toast.success("Prüfungen erfolgreich abgeschlossen");
           loadCase();
           loadRiskScore();
@@ -204,6 +209,7 @@ export function CaseDetailPage() {
           setSelectedPlaybookId("");
         } else if (statusRes.status === "failed") {
           setRunChecksStatus("failed");
+          setRunChecksProgress({ done: 0, total: 0 });
           setRunChecksError(statusRes.error ?? "Checks fehlgeschlagen.");
         }
       } catch {
@@ -463,6 +469,7 @@ export function CaseDetailPage() {
               runChecksStatus={runChecksStatus}
               runChecksError={runChecksError}
               setRunChecksError={setRunChecksError}
+              runChecksProgress={runChecksProgress}
               onSelectFinding={handleSelectFinding}
               canEdit={userCanEdit}
               coveragePreview={coveragePreview}

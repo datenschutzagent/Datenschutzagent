@@ -129,6 +129,7 @@ class CaseCreate(BaseModel):
     special_category_data: bool = False
     international_transfer: bool = False
     deadline: date | None = None
+    auto_run_checks: bool = False
 
 
 class CaseUpdate(BaseModel):
@@ -143,6 +144,7 @@ class CaseUpdate(BaseModel):
     special_category_data: bool | None = None
     international_transfer: bool | None = None
     deadline: date | None = None
+    auto_run_checks: bool | None = None
 
 
 class RunChecksRequest(BaseModel):
@@ -169,6 +171,7 @@ class CaseResponse(BaseModel):
     special_category_data: bool = False
     international_transfer: bool = False
     deadline: date | None = None
+    auto_run_checks: bool = False
     archived_at: datetime | None = None
     retention_months: int | None = None
     documents: list[DocumentResponse] = []
