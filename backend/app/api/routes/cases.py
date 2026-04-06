@@ -10,8 +10,11 @@ from uuid import UUID
 logger = logging.getLogger(__name__)
 
 from docx import Document as DocxDocument
+import asyncio
+import json as _json
+
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
-from fastapi.responses import JSONResponse, Response
+from fastapi.responses import JSONResponse, Response, StreamingResponse
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -64,7 +67,7 @@ from app.core.rate_limit import limiter
 router = APIRouter()
 
 
-@router.get("", response_model=CaseListResponse)
+@router.get("", response_model=CaseListResponse, summary="Vorgänge auflisten")
 async def list_cases(
     skip: int = Query(default=0, ge=0),
     limit: int = Query(default=100, ge=1, le=500),
@@ -273,7 +276,7 @@ async def export_cases(
     )
 
 
-@router.get("/{case_id}", response_model=CaseResponse)
+@router.get("/{case_id}", response_model=CaseResponse, summary="Vorgang abrufen")
 async def get_case(
     case_id: UUID,
     db: AsyncSession = Depends(get_db),
@@ -310,7 +313,7 @@ async def get_case_activities(
     return [ActivityResponse(**orm_to_activity_response(a)) for a in activities]
 
 
-@router.post("", response_model=CaseResponse, status_code=201)
+@router.post("", response_model=CaseResponse, status_code=201, summary="Vorgang erstellen")
 async def create_case(
     body: CaseCreate,
     db: AsyncSession = Depends(get_db),
@@ -343,7 +346,7 @@ async def create_case(
     return CaseResponse(**orm_to_case_response(case))
 
 
-@router.patch("/{case_id}", response_model=CaseResponse)
+@router.patch("/{case_id}", response_model=CaseResponse, summary="Vorgang aktualisieren")
 async def update_case(
     case_id: UUID,
     body: CaseUpdate,
@@ -821,7 +824,83 @@ async def get_run_checks_status(
     }
 
 
-@router.post("/{case_id}/run-checks")
+@router.get("/{case_id}/run-checks/stream", summary="Run-Checks-Status als SSE-Stream")
+async def stream_run_checks_status(
+    case_id: UUID,
+    db: AsyncSession = Depends(get_db),
+):
+    """Server-Sent Events stream for run-checks job progress.
+
+    Emits ``data: <json>`` events every 2 s while a job is running.
+    Sends a final ``event: done`` when the job reaches completed/failed/never_run,
+    then closes the stream.  The client can use ``EventSource`` instead of polling.
+
+    Event payload matches GET /{case_id}/run-checks/status.
+    """
+    result = await db.execute(select(CaseModel).where(CaseModel.id == case_id))
+    if result.scalar_one_or_none() is None:
+        raise HTTPException(status_code=404, detail="Case not found")
+
+    async def _event_generator():
+        poll_interval = 2  # seconds between DB polls
+        max_polls = 300    # ~10 min max stream duration
+        for _ in range(max_polls):
+            # Fresh session per poll to avoid stale reads
+            from app.database import async_session_factory
+            async with async_session_factory() as poll_db:
+                job_result = await poll_db.execute(
+                    select(RunChecksJobModel)
+                    .where(RunChecksJobModel.case_id == case_id)
+                    .order_by(RunChecksJobModel.created_at.desc())
+                    .limit(1)
+                )
+                job = job_result.scalar_one_or_none()
+                activity_result = await poll_db.execute(
+                    select(ActivityLogModel)
+                    .where(ActivityLogModel.case_id == case_id, ActivityLogModel.event_type == "run_checks")
+                    .order_by(ActivityLogModel.created_at.desc())
+                    .limit(1)
+                )
+                last_activity = activity_result.scalar_one_or_none()
+                last_run = orm_to_activity_response(last_activity) if last_activity else None
+
+                if not job:
+                    payload = {"status": "never_run", "job_id": None, "playbook_name": None,
+                               "findings_count": None, "error": None, "last_run": last_run,
+                               "checks_total": 0, "checks_done": 0}
+                else:
+                    payload = {
+                        "status": job.status,
+                        "job_id": str(job.id),
+                        "playbook_name": job.playbook_name,
+                        "findings_count": job.findings_count,
+                        "error": job.error,
+                        "last_run": last_run,
+                        "checks_total": job.checks_total,
+                        "checks_done": job.checks_done,
+                    }
+
+                is_terminal = not job or job.status in ("completed", "failed", "never_run")
+                event_type = "done" if is_terminal else "progress"
+                yield f"event: {event_type}\ndata: {_json.dumps(payload, default=str)}\n\n"
+
+            if is_terminal:
+                return
+            await asyncio.sleep(poll_interval)
+        # Timeout: send done with last known state
+        yield "event: done\ndata: {}\n\n"
+
+    return StreamingResponse(
+        _event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",  # nginx: disable proxy buffering
+        },
+    )
+
+
+@router.post("/{case_id}/run-checks", summary="Playbook-Prüfungen starten")
 @limiter.limit("10/minute")
 async def run_checks(
     request: Request,

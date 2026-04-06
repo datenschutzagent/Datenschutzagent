@@ -44,6 +44,9 @@ cryptography==44.0.0
 # Rate limiting
 slowapi==0.1.9
 
+# Structured JSON logging
+python-json-logger==3.3.0
+
 # Dev & testing
 python-dotenv==1.0.1
 pytest==8.3.4

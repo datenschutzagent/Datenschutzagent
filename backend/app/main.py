@@ -1,4 +1,6 @@
 """FastAPI application entry point."""
+import logging
+import logging.config
 import urllib.request
 import uuid
 from pathlib import Path
@@ -10,6 +12,46 @@ from fastapi.responses import JSONResponse
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from sqlalchemy import select
+
+
+def _configure_logging() -> None:
+    """Configure JSON structured logging for production; plain text when DEBUG=true."""
+    try:
+        from pythonjsonlogger.json import JsonFormatter  # type: ignore[import-untyped]
+        json_available = True
+    except ImportError:
+        json_available = False
+
+    fmt = "%(asctime)s %(levelname)s %(name)s %(message)s"
+    handler = logging.StreamHandler()
+
+    if json_available:
+        handler.setFormatter(
+            JsonFormatter(
+                fmt="%(asctime)s %(levelname)s %(name)s %(message)s %(request_id)s",
+                rename_fields={"levelname": "level", "asctime": "timestamp", "name": "logger"},
+                defaults={"request_id": "-"},
+            )
+        )
+    else:
+        handler.setFormatter(logging.Formatter(fmt))
+
+    logging.basicConfig(
+        level=logging.DEBUG if _settings_debug() else logging.INFO,
+        handlers=[handler],
+        force=True,
+    )
+    # Silence noisy third-party loggers
+    for noisy in ("uvicorn.access", "sqlalchemy.engine", "httpx"):
+        logging.getLogger(noisy).setLevel(logging.WARNING)
+
+
+def _settings_debug() -> bool:
+    """Read DEBUG from env without importing settings (avoids circular import)."""
+    import os
+    return os.environ.get("DEBUG", "").lower() in ("1", "true", "yes")
+
+_configure_logging()
 
 from app.config import settings
 from app.core.rate_limit import limiter
@@ -55,11 +97,31 @@ async def lifespan(app: FastAPI):
     # Teardown if needed (e.g. close DB pool)
 
 
+_OPENAPI_TAGS = [
+    {"name": "cases", "description": "Datenschutz-Vorgänge verwalten (erstellen, bearbeiten, archivieren, Prüfungen ausführen)."},
+    {"name": "documents", "description": "Dokumente hochladen, herunterladen und Textextraktion verwalten."},
+    {"name": "findings", "description": "Prüfergebnisse (Findings) einsehen, bewerten und kommentieren."},
+    {"name": "playbooks", "description": "Prüfkataloge (Playbooks) erstellen, versionieren und aktivieren."},
+    {"name": "legal-bases", "description": "Rechtsgrundlagen-Bibliothek (DSGVO, BDSG, sektoral) verwalten."},
+    {"name": "admin", "description": "Systemkonfiguration und Nutzer­verwaltung (nur Admins)."},
+    {"name": "me", "description": "Eigenes Nutzerprofil und Präferenzen."},
+    {"name": "auth", "description": "OIDC-Konfiguration für das Frontend (öffentlich)."},
+    {"name": "config", "description": "Öffentliche App-Konfiguration (Organisationsname, Optionen)."},
+    {"name": "departments", "description": "Abteilungsliste der Organisation."},
+    {"name": "vvt-overview", "description": "VVT-Gesamtübersicht auf Organisationsebene (Art. 30 DSGVO)."},
+]
+
 app = FastAPI(
     title=settings.app_name,
+    description=(
+        "KI-gestützte Datenschutz-Compliance-Plattform. "
+        "Verwaltet Vorgänge, Dokumente und automatisierte Playbook-Prüfungen gemäß DSGVO."
+    ),
+    version="1.0.0",
     lifespan=lifespan,
     docs_url="/docs",
     redoc_url="/redoc",
+    openapi_tags=_OPENAPI_TAGS,
 )
 
 # Rate limiter state & 429 handler

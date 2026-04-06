@@ -38,7 +38,7 @@ router = APIRouter()
 EXPORT_MAX = 5000
 
 
-@router.get("", response_model=FindingListResponse)
+@router.get("", response_model=FindingListResponse, summary="Findings auflisten")
 async def list_findings(
     case_id: Annotated[UUID | None, Query()] = None,
     severity: Annotated[str | None, Query()] = None,

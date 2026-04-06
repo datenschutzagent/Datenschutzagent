@@ -247,7 +247,7 @@ async def update_document(
     return DocumentResponse(**orm_to_document_response(doc))
 
 
-@router.post("", response_model=DocumentResponse, status_code=201)
+@router.post("", response_model=DocumentResponse, status_code=201, summary="Dokument hochladen")
 @limiter.limit("30/minute")
 async def upload_document(
     request: Request,
