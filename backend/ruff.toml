@@ -1,0 +1,24 @@
+# Ruff-Konfiguration für das Backend (Python 3.12)
+target-version = "py312"
+line-length = 100
+
+[lint]
+select = [
+    "E",   # pycodestyle errors
+    "W",   # pycodestyle warnings
+    "F",   # pyflakes
+    "I",   # isort
+    "UP",  # pyupgrade
+    "B",   # flake8-bugbear
+    "SIM", # flake8-simplify
+    "C4",  # flake8-comprehensions
+    "RET", # flake8-return
+]
+ignore = [
+    "E501",  # line too long (Black handles this)
+    "B008",  # do not perform function calls in default args (FastAPI Depends pattern)
+    "RET504", # unnecessary variable assignment before return
+]
+
+[lint.per-file-ignores]
+"tests/*" = ["S101", "S105"]  # assert and hardcoded passwords in tests are fine

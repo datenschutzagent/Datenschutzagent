@@ -228,7 +228,6 @@ async def _run_checks_async(job_id: str) -> None:
 
         # Load playbook to calculate checks_total; set it before running
         from app.models.db import PlaybookModel, DocumentModel as DocModel
-        from sqlalchemy.orm import selectinload
         pb_result = await session.execute(select(PlaybookModel).where(PlaybookModel.id == playbook_id))
         playbook = pb_result.scalar_one_or_none()
         doc_result = await session.execute(
