@@ -1,8 +1,9 @@
 """Public app configuration endpoint — no authentication required."""
-from fastapi import APIRouter
+from fastapi import APIRouter, Request
 from pydantic import BaseModel
 
 from app.config import settings
+from app.core.rate_limit import limiter
 from app.services.org_profile_loader import (
     get_org_name,
     get_processing_context_options,
@@ -24,7 +25,8 @@ class AppConfigResponse(BaseModel):
 
 
 @router.get("/config", response_model=AppConfigResponse, tags=["config"])
-def get_app_config() -> AppConfigResponse:
+@limiter.limit("60/minute")
+def get_app_config(request: Request) -> AppConfigResponse:
     """
     Return public application configuration for the frontend.
     No authentication required (like /health and /auth/config).
