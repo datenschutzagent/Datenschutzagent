@@ -67,7 +67,7 @@ def _load_jwks(jwks_uri: str) -> dict[str, Any]:
 
 
 def _get_signing_key(token: str):
-    """Resolve signing key for token from JWKS (cache by kid)."""
+    """Resolve signing key for token from JWKS (cache by kid and jwks_uri)."""
     global _jwks_cache, _jwks_uri_cached
     try:
         unverified = jwt.get_unverified_header(token)
@@ -77,7 +77,8 @@ def _get_signing_key(token: str):
     if not kid:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Token missing kid")
     if kid not in _jwks_cache:
-        jwks_uri = _get_jwks_uri()
+        # Re-use cached jwks_uri to avoid fetching OIDC discovery on every cache miss
+        jwks_uri = _jwks_uri_cached or _get_jwks_uri()
         if not jwks_uri:
             raise HTTPException(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -86,10 +87,16 @@ def _get_signing_key(token: str):
         _jwks_uri_cached = jwks_uri
         _jwks_cache = _load_jwks(jwks_uri)
         if kid not in _jwks_cache:
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Signing key not found",
-            )
+            # kid truly unknown even after refresh – key may have rotated; try fresh discovery
+            fresh_uri = _get_jwks_uri()
+            if fresh_uri and fresh_uri != jwks_uri:
+                _jwks_uri_cached = fresh_uri
+                _jwks_cache = _load_jwks(fresh_uri)
+            if kid not in _jwks_cache:
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail="Signing key not found",
+                )
     return _jwks_cache[kid]
 
 

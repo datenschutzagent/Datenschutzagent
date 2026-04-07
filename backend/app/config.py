@@ -1,5 +1,5 @@
 """Application configuration."""
-from pydantic import field_validator
+from pydantic import field_validator, model_validator
 from pydantic_settings import BaseSettings
 
 
@@ -114,6 +114,22 @@ class Settings(BaseSettings):
     weaviate_top_k: int = 5
     weaviate_legal_bases_top_k: int = 8
     ollama_embedding_model: str = "nomic-embed-text"
+
+    @model_validator(mode="after")
+    def validate_storage_and_oidc(self) -> "Settings":
+        """Fail fast at startup when required settings are missing for selected backends."""
+        if self.storage_backend == "minio":
+            missing = [f for f in ("s3_endpoint_url", "s3_access_key", "s3_secret_key") if not getattr(self, f)]
+            if missing:
+                raise ValueError(
+                    f"storage_backend=minio requires these env vars to be set: {', '.join(m.upper() for m in missing)}"
+                )
+        if self.oidc_enabled:
+            if not self.oidc_issuer_url:
+                raise ValueError("OIDC_ENABLED=true requires OIDC_ISSUER_URL to be set")
+            if not self.oidc_client_id:
+                raise ValueError("OIDC_ENABLED=true requires OIDC_CLIENT_ID to be set")
+        return self
 
     @property
     def database_sync_url(self) -> str:

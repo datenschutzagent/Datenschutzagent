@@ -2,16 +2,16 @@
 import asyncio
 import csv
 import io
+import json as _json
 import logging
 import re
 from datetime import datetime, timezone
+from typing import Literal
 from uuid import UUID
 
-logger = logging.getLogger(__name__)
-
 from docx import Document as DocxDocument
-import asyncio
-import json as _json
+
+logger = logging.getLogger(__name__)
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import JSONResponse, Response, StreamingResponse
@@ -207,7 +207,7 @@ async def export_cases(
     created_by: str | None = Query(default=None),
     has_open_findings: bool | None = Query(default=None),
     include_archived: bool = Query(default=False),
-    format: str = Query(default="csv"),
+    format: Literal["csv"] = Query(default="csv"),
     db: AsyncSession = Depends(get_db),
     _user=require_roles("viewer", "editor", "admin"),
 ):
@@ -489,7 +489,7 @@ def _build_vvt_export_docx(doc_name: str, source_template: str, fields: list) ->
 async def get_vvt_normalization_export(
     case_id: UUID,
     document_id: UUID | None = Query(None, alias="document_id"),
-    format: str = Query("csv", alias="format"),
+    format: Literal["csv", "docx"] = Query("csv", alias="format"),
     db: AsyncSession = Depends(get_db),
 ):
     """
@@ -638,7 +638,7 @@ async def get_vvt_normalization(
 @router.get("/{case_id}/dsb-report")
 async def get_dsb_report(
     case_id: UUID,
-    format: str = Query("markdown", alias="format"),
+    format: Literal["json", "markdown"] = Query("markdown", alias="format"),
     db: AsyncSession = Depends(get_db),
 ):
     """
@@ -753,7 +753,7 @@ async def list_annotated_documents(
 async def get_annotated_document(
     case_id: UUID,
     document_id: UUID,
-    format: str = Query("docx", alias="format"),
+    format: Literal["docx", "pdf"] = Query("docx", alias="format"),
     db: AsyncSession = Depends(get_db),
 ):
     """Download annotated document (content + findings). Query: format=docx (default) or format=pdf."""

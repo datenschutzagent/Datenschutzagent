@@ -3,11 +3,12 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../ui
 import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "../ui/dialog";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "../ui/tooltip";
 import { documentTypeLabels } from "../../lib/mock-data";
 import { getDocumentDownloadBlob, downloadBlob, type ApiCase, type ApiDocument } from "../../lib/api";
 import { DocumentUploadZone } from "../document-upload-zone";
 import { DocumentViewDialog } from "./DocumentViewDialog";
-import { Download, FileText, Loader2, Upload } from "lucide-react";
+import { AlertCircle, Clock, Download, FileText, Loader2, Upload } from "lucide-react";
 
 export interface CaseDocumentsTabProps {
   caseData: ApiCase;
@@ -27,6 +28,35 @@ export function CaseDocumentsTab({
 }: CaseDocumentsTabProps) {
   const [downloadingId, setDownloadingId] = useState<string | null>(null);
   const [viewDocument, setViewDocument] = useState<ApiDocument | null>(null);
+
+  function ExtractionStatusBadge({ doc }: { doc: ApiDocument }) {
+    if (doc.extractionStatus === "failed") {
+      return (
+        <TooltipProvider>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Badge variant="destructive" className="gap-1 text-xs cursor-default">
+                <AlertCircle className="size-3" />
+                Extraktion fehlgeschlagen
+              </Badge>
+            </TooltipTrigger>
+            <TooltipContent>
+              <p className="max-w-xs">{doc.extractionError ?? "Textextraktion ist fehlgeschlagen. Prüfungen sind möglicherweise eingeschränkt."}</p>
+            </TooltipContent>
+          </Tooltip>
+        </TooltipProvider>
+      );
+    }
+    if (doc.extractionStatus === "pending" || doc.extractionStatus === "processing") {
+      return (
+        <Badge variant="secondary" className="gap-1 text-xs">
+          <Clock className="size-3" />
+          {doc.extractionStatus === "processing" ? "Wird extrahiert …" : "Extraktion ausstehend"}
+        </Badge>
+      );
+    }
+    return null;
+  }
 
   async function handleDownload(doc: { id: string; name: string }) {
     setDownloadingId(doc.id);
@@ -89,6 +119,7 @@ export function CaseDocumentsTab({
                       {doc.extractionMethod === "ocr" && (
                         <Badge variant="secondary" className="text-xs">Text per OCR extrahiert</Badge>
                       )}
+                      <ExtractionStatusBadge doc={doc} />
                     </div>
                     <div className="flex items-center gap-3 text-sm text-slate-600 dark:text-slate-400">
                       <span>{doc.format.toUpperCase()}</span>

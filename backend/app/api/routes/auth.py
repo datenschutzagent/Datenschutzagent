@@ -2,15 +2,17 @@
 import json
 import urllib.request
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Request
 
 from app.config import settings
+from app.core.rate_limit import limiter
 
 router = APIRouter()
 
 
 @router.get("/config")
-def get_auth_config():
+@limiter.limit("30/minute")
+def get_auth_config(request: Request):
     """
     Return OIDC configuration for the frontend (login URL, client id, scopes).
     No authentication required. When OIDC is disabled, frontend may skip login.

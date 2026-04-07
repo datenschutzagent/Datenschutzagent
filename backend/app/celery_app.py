@@ -36,6 +36,11 @@ celery_app.conf.update(
 _engine = None
 _session_factory = None
 
+# Shared async engine/session factory for run_checks tasks.
+# Created once per worker process to avoid per-task connection pool exhaustion.
+_async_engine = None
+_async_session_factory = None
+
 
 def _get_session_factory():
     global _engine, _session_factory
@@ -43,6 +48,20 @@ def _get_session_factory():
         _engine = create_engine(settings.database_sync_url, pool_pre_ping=True)
         _session_factory = sessionmaker(bind=_engine, autocommit=False, autoflush=False)
     return _session_factory
+
+
+def _get_async_session_factory():
+    global _async_engine, _async_session_factory
+    if _async_session_factory is None:
+        _async_engine = create_async_engine(settings.database_url, pool_pre_ping=True)
+        _async_session_factory = async_sessionmaker(
+            _async_engine,
+            class_=AsyncSession,
+            expire_on_commit=False,
+            autocommit=False,
+            autoflush=False,
+        )
+    return _async_session_factory
 
 
 def _set_extraction_failed(session: Session, document_id: UUID, error_message: str) -> None:
@@ -175,30 +194,18 @@ def _count_checks_total(playbook_content: dict, doc_count: int, strategies: list
 
 
 async def _run_checks_async(job_id: str) -> None:
-    """Load job, run run_checks_impl, write activity log and update job. Uses own async engine/session."""
-    engine = create_async_engine(settings.database_url, pool_pre_ping=True)
-    async_session_factory = async_sessionmaker(
-        engine,
-        class_=AsyncSession,
-        expire_on_commit=False,
-        autocommit=False,
-        autoflush=False,
-    )
-    # Progress callback uses a separate session to avoid interfering with the main transaction
-    progress_engine = create_async_engine(settings.database_url, pool_pre_ping=True)
-    progress_session_factory = async_sessionmaker(
-        progress_engine,
-        class_=AsyncSession,
-        expire_on_commit=False,
-        autocommit=False,
-        autoflush=False,
-    )
+    """Load job, run run_checks_impl, write activity log and update job.
+
+    Uses the module-level shared async engine to avoid creating a new connection
+    pool per task invocation (which would exhaust database connections under load).
+    """
+    session_factory = _get_async_session_factory()
     job_uuid = UUID(job_id)
 
     async def _on_check_done() -> None:
-        """Atomically increment checks_done on the job row."""
+        """Atomically increment checks_done on the job row using a short-lived session."""
         try:
-            async with progress_session_factory() as psession:
+            async with session_factory() as psession:
                 await psession.execute(
                     update(RunChecksJobModel)
                     .where(RunChecksJobModel.id == job_uuid)
@@ -208,7 +215,7 @@ async def _run_checks_async(job_id: str) -> None:
         except Exception as exc:
             logger.debug("Progress update failed (non-critical): %s", exc)
 
-    async with async_session_factory() as session:
+    async with session_factory() as session:
         result = await session.execute(select(RunChecksJobModel).where(RunChecksJobModel.id == job_uuid))
         job = result.scalar_one_or_none()
         if not job:
@@ -221,7 +228,6 @@ async def _run_checks_async(job_id: str) -> None:
 
         # Load playbook to calculate checks_total; set it before running
         from app.models.db import PlaybookModel, DocumentModel as DocModel
-        from sqlalchemy.orm import selectinload
         pb_result = await session.execute(select(PlaybookModel).where(PlaybookModel.id == playbook_id))
         playbook = pb_result.scalar_one_or_none()
         doc_result = await session.execute(
@@ -248,8 +254,6 @@ async def _run_checks_async(job_id: str) -> None:
         job.result_payload = activity_payload
         job.error = None
         await session.commit()
-    await engine.dispose()
-    await progress_engine.dispose()
 
 
 @celery_app.task(name="app.celery_app.run_playbook_checks", bind=True)
@@ -287,16 +291,12 @@ def _set_run_checks_job_failed(job_id: str, error_message: str) -> None:
 
 
 async def _build_dsb_report_async(job_id: str) -> None:
-    """Load DSB report job, run build_dsb_report, save report and update job. Uses own async engine/session."""
-    engine = create_async_engine(settings.database_url, pool_pre_ping=True)
-    async_session_factory = async_sessionmaker(
-        engine,
-        class_=AsyncSession,
-        expire_on_commit=False,
-        autocommit=False,
-        autoflush=False,
-    )
-    async with async_session_factory() as session:
+    """Load DSB report job, run build_dsb_report, save report and update job.
+
+    Uses the module-level shared async engine (same pool as _run_checks_async).
+    """
+    session_factory = _get_async_session_factory()
+    async with session_factory() as session:
         result = await session.execute(select(DSBReportJobModel).where(DSBReportJobModel.id == UUID(job_id)))
         job = result.scalar_one_or_none()
         if not job:
@@ -309,7 +309,6 @@ async def _build_dsb_report_async(job_id: str) -> None:
         job.status = "completed"
         job.error = None
         await session.commit()
-    await engine.dispose()
 
 
 @celery_app.task(name="app.celery_app.build_dsb_report_task", bind=True)
