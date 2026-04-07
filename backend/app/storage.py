@@ -1,5 +1,7 @@
 """File storage abstraction (local filesystem or S3/MinIO)."""
 import io
+import logging
+import mimetypes
 import uuid
 from pathlib import Path
 
@@ -7,6 +9,8 @@ from minio import Minio
 from minio.error import S3Error
 
 from app.config import settings
+
+logger = logging.getLogger(__name__)
 
 
 # --- Local Storage ---
@@ -88,12 +92,13 @@ def save_file_minio(case_id: uuid.UUID, document_id: uuid.UUID, filename: str, c
     ext = Path(filename).suffix or ""
     object_name = f"cases/{case_id}/{document_id}{ext}"
     
+    content_type, _ = mimetypes.guess_type(filename)
     client.put_object(
         bucket,
         object_name,
         io.BytesIO(content),
         len(content),
-        content_type="application/octet-stream" # Could infer type
+        content_type=content_type or "application/octet-stream",
     )
     return object_name
 
@@ -122,8 +127,9 @@ def delete_file_minio(storage_path: str) -> None:
     bucket = settings.s3_bucket
     try:
         client.remove_object(bucket, storage_path)
-    except S3Error:
-        pass
+    except S3Error as e:
+        if e.code != "NoSuchKey":
+            logger.warning("MinIO delete failed for %s: %s", storage_path, e)
 
 
 # --- Public Interface ---
