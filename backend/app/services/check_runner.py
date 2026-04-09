@@ -33,6 +33,14 @@ def _cache_key(system_prompt: str, user_content: str) -> str:
     return f"llm_cache:{digest}"
 
 
+class CheckResult(BaseModel):
+    is_compliant: bool = Field(description="True if the check passed, False otherwise.")
+    severity: FindingSeverityEnum = Field(description="Severity of the finding if not compliant.")
+    description: str = Field(description="Explanation of the finding.")
+    evidence: List[str] = Field(description="Quotes from the text supporting the finding.")
+    recommendation: str = Field(description="Recommendation to fix the issue.")
+
+
 async def _cache_get(key: str) -> CheckResult | None:
     """Return a cached CheckResult or None if cache is disabled / miss."""
     if not settings.llm_cache_enabled:
@@ -155,14 +163,6 @@ Relevant excerpts from case documents:
 
 Evaluate whether the set of documents (based on these excerpts) meets the requirement.
 """
-
-
-class CheckResult(BaseModel):
-    is_compliant: bool = Field(description="True if the check passed, False otherwise.")
-    severity: FindingSeverityEnum = Field(description="Severity of the finding if not compliant.")
-    description: str = Field(description="Explanation of the finding.")
-    evidence: List[str] = Field(description="Quotes from the text supporting the finding.")
-    recommendation: str = Field(description="Recommendation to fix the issue.")
 
 
 def _language_hint(language: str | None) -> str:
