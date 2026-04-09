@@ -24,9 +24,7 @@ services:
     environment:
       MINIO_ROOT_USER: "${MINIO_ROOT_USER:?MINIO_ROOT_USER must be set in .env}"
       MINIO_ROOT_PASSWORD: "${MINIO_ROOT_PASSWORD:?MINIO_ROOT_PASSWORD must be set in .env}"
-    ports:
-      - "9000:9000"
-      - "9001:9001"
+    # Kein ports: nur im Docker-Netz für Backend erreichbar (minio:9000)
     volumes:
       - minio_data:/data
     healthcheck:
@@ -37,8 +35,7 @@ services:
 
   redis:
     image: redis:7-alpine
-    ports:
-      - "6379:6379"
+    # Kein ports: nur im Docker-Netz für Backend/Celery erreichbar (redis:6379)
     volumes:
       - redis_data:/data
     healthcheck:
@@ -49,9 +46,7 @@ services:
 
   weaviate:
     image: cr.weaviate.io/semitechnologies/weaviate:1.27.4
-    ports:
-      - "8080:8080"
-      - "50051:50051"
+    # Kein ports: nur im Docker-Netz für Backend erreichbar (weaviate:8080)
     environment:
       DEFAULT_VECTORIZER_MODULE: "none"
       AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED: "true"
