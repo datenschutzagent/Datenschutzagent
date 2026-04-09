@@ -1,6 +1,6 @@
 # FastAPI & server (pinned for reproducibility)
-fastapi==0.115.6
-uvicorn[standard]==0.32.1
+fastapi>=0.116.0
+uvicorn[standard]>=0.32.1
 
 # Database
 sqlalchemy==2.0.36
@@ -29,7 +29,7 @@ openpyxl==3.1.5
 # AI / LLM
 pydantic-ai==1.77.0
 openai>=1.61.0
-ollama==0.4.1
+ollama>=0.4.1
 
 # Vector DB (Weaviate, optional for RAG checks)
 weaviate-client==4.9.2
@@ -51,5 +51,4 @@ python-json-logger==3.3.0
 python-dotenv==1.0.1
 pytest==8.3.4
 pytest-asyncio==0.24.0
-# Pin auf 0.27.x: ollama 0.4.1 benötigt httpx<0.28.0
-httpx>=0.27.0,<0.28.0
+httpx>=0.27.0
