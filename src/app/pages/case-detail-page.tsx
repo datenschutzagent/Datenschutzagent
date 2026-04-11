@@ -23,6 +23,8 @@ import {
   unarchiveCase,
   canEdit,
   getAuditTrailExportBlob,
+  downloadAuditPackage,
+  getDsfaScreening,
   downloadBlob,
   type ApiCase,
   type ApiFinding,
@@ -32,6 +34,7 @@ import {
   type CaseSimilarityResult,
   type CaseRiskScore,
   type RunChecksStrategy,
+  type DsfaScreeningResult,
 } from "../lib/api";
 import { useAuthOptional } from "../contexts/AuthContext";
 import { VVTNormalizationView } from "../components/vvt-normalization-view";
@@ -525,21 +528,39 @@ export function CaseDetailPage() {
                     <CardTitle>Audit Trail</CardTitle>
                     <CardDescription>Nachvollziehbare Historie aller Änderungen</CardDescription>
                   </div>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={async () => {
-                      try {
-                        const blob = await getAuditTrailExportBlob(caseData.id);
-                        downloadBlob(blob, `audit-trail-${caseData.id}.csv`);
-                        toast.success("Audit Trail exportiert.");
-                      } catch {
-                        toast.error("Export fehlgeschlagen.");
-                      }
-                    }}
-                  >
-                    <Download className="size-4 mr-1" /> CSV exportieren
-                  </Button>
+                  <div className="flex gap-2">
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={async () => {
+                        try {
+                          const blob = await getAuditTrailExportBlob(caseData.id);
+                          downloadBlob(blob, `audit-trail-${caseData.id}.csv`);
+                          toast.success("Audit Trail exportiert.");
+                        } catch {
+                          toast.error("Export fehlgeschlagen.");
+                        }
+                      }}
+                    >
+                      <Download className="size-4 mr-1" /> CSV exportieren
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      title="Vollständiges Audit-Paket als ZIP (Befunde, Dokumente, Activity-Log, SHA-256-Manifest)"
+                      onClick={async () => {
+                        try {
+                          const blob = await downloadAuditPackage(caseData.id);
+                          downloadBlob(blob, `audit-paket-${caseData.id.slice(0, 8)}.zip`);
+                          toast.success("Audit-Paket exportiert.");
+                        } catch {
+                          toast.error("Audit-Export fehlgeschlagen.");
+                        }
+                      }}
+                    >
+                      <Download className="size-4 mr-1" /> Audit-Paket (ZIP)
+                    </Button>
+                  </div>
                 </CardHeader>
                 <CardContent>
                   <ActivityTimeline caseId={caseData.id} />
@@ -559,6 +580,9 @@ export function CaseDetailPage() {
           <TabsContent value="report">
             <ErrorBoundary>
               <DSBReportView caseId={caseData.id} />
+            </ErrorBoundary>
+            <ErrorBoundary>
+              <DsfaScreeningCard caseId={caseData.id} />
             </ErrorBoundary>
           </TabsContent>
 
@@ -675,5 +699,100 @@ export function CaseDetailPage() {
         </DialogContent>
       </Dialog>
     </AppLayout>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// DSFA-Screening-Karte (eingebettet im DSB-Report-Tab)
+// ---------------------------------------------------------------------------
+
+function DsfaScreeningCard({ caseId }: { caseId: string }) {
+  const [result, setResult] = useState<DsfaScreeningResult | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function runScreening() {
+    setLoading(true);
+    setError(null);
+    try {
+      const data = await getDsfaScreening(caseId);
+      setResult(data);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  const riskLevelColors: Record<string, string> = {
+    low: "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300",
+    medium: "bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-300",
+    high: "bg-orange-100 text-orange-800 dark:bg-orange-900/30 dark:text-orange-300",
+    critical: "bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300",
+  };
+
+  return (
+    <Card className="mt-6">
+      <CardHeader className="flex flex-row items-start justify-between gap-4 pb-3">
+        <div>
+          <CardTitle className="text-base">DSFA-Screening (Art. 35 DSGVO)</CardTitle>
+          <CardDescription>
+            Automatische Prüfung ob eine Datenschutz-Folgenabschätzung erforderlich ist (EDSA 9-Faktoren-Test)
+          </CardDescription>
+        </div>
+        <Button size="sm" variant="outline" onClick={runScreening} disabled={loading}>
+          {loading ? <Loader2 className="size-4 animate-spin mr-1" /> : null}
+          {loading ? "Prüfe…" : result ? "Neu prüfen" : "Screening starten"}
+        </Button>
+      </CardHeader>
+      <CardContent>
+        {error && (
+          <Alert variant="destructive" className="mb-4">
+            <AlertDescription>{error}</AlertDescription>
+          </Alert>
+        )}
+        {!result && !loading && (
+          <p className="text-sm text-muted-foreground">
+            Das Screening analysiert 9 Risikofaktoren und gibt eine Empfehlung ohne LLM-Kosten.
+          </p>
+        )}
+        {result && (
+          <div className="space-y-4">
+            <div className="flex items-center gap-3">
+              <Badge className={result.required ? riskLevelColors.high : riskLevelColors.low}>
+                {result.required ? "DSFA erforderlich" : "DSFA nicht verpflichtend"}
+              </Badge>
+              <span className="text-sm text-muted-foreground">
+                Score: {result.score}/{result.factors.length} Faktoren zutreffend
+                (Schwelle: {result.threshold})
+              </span>
+            </div>
+            <p className="text-sm">{result.recommendation}</p>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+              {result.factors.map((f) => (
+                <div
+                  key={f.id}
+                  className={`flex items-start gap-2 p-2 rounded text-xs border ${
+                    f.met
+                      ? "border-orange-200 bg-orange-50 dark:border-orange-800 dark:bg-orange-900/20"
+                      : "border-slate-200 bg-slate-50 dark:border-slate-700 dark:bg-slate-800/30"
+                  }`}
+                >
+                  <span className={`mt-0.5 shrink-0 ${f.met ? "text-orange-600" : "text-slate-400"}`}>
+                    {f.met ? "●" : "○"}
+                  </span>
+                  <div>
+                    <p className={`font-medium ${f.met ? "text-orange-800 dark:text-orange-300" : "text-slate-600 dark:text-slate-400"}`}>
+                      {f.label}
+                    </p>
+                    <p className="text-slate-500 dark:text-slate-500">{f.description}</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </CardContent>
+    </Card>
   );
 }

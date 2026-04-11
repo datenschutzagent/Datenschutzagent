@@ -1868,3 +1868,160 @@ export async function getAuditTrailExportBlob(caseId: string): Promise<Blob> {
   }
   return res.blob();
 }
+
+// --- Audit-Paket-Export (ZIP) ---
+export async function downloadAuditPackage(caseId: string): Promise<Blob> {
+  const url = `${API_BASE}${API_PREFIX}/cases/${caseId}/audit-export`;
+  const res = await fetch(url, { method: "POST", headers: authHeaders() });
+  if (!res.ok) {
+    const detail = await parseErrorResponse(res);
+    throw new Error(detail);
+  }
+  return res.blob();
+}
+
+// --- DSFA-Screening ---
+export interface DsfaScreeningFactor {
+  id: string;
+  label: string;
+  description: string;
+  met: boolean;
+}
+
+export interface DsfaScreeningResult {
+  case_id: string;
+  required: boolean;
+  score: number;
+  threshold: number;
+  factors: DsfaScreeningFactor[];
+  recommendation: string;
+}
+
+export async function getDsfaScreening(caseId: string): Promise<DsfaScreeningResult> {
+  return request<DsfaScreeningResult>("GET", `/cases/${caseId}/dsfa/screening`);
+}
+
+// --- Datenschutzerklärung ---
+export interface ApiPrivacyPolicy {
+  id: string;
+  title: string;
+  content_markdown: string;
+  version_note: string | null;
+  org_name: string | null;
+  department: string | null;
+  generated_at: string;
+  created_by: string;
+}
+
+export async function listPrivacyPolicies(): Promise<ApiPrivacyPolicy[]> {
+  return request<ApiPrivacyPolicy[]>("GET", "/privacy-policies");
+}
+
+export async function generatePrivacyPolicy(body: {
+  org_name?: string;
+  department?: string;
+  contact?: string;
+  notes?: string;
+}): Promise<ApiPrivacyPolicy> {
+  return request<ApiPrivacyPolicy>("POST", "/privacy-policies/generate", { body });
+}
+
+export async function getPrivacyPolicy(id: string): Promise<ApiPrivacyPolicy> {
+  return request<ApiPrivacyPolicy>("GET", `/privacy-policies/${id}`);
+}
+
+export async function updatePrivacyPolicy(
+  id: string,
+  body: { title?: string; content_markdown?: string; version_note?: string }
+): Promise<ApiPrivacyPolicy> {
+  return request<ApiPrivacyPolicy>("PATCH", `/privacy-policies/${id}`, { body });
+}
+
+export async function deletePrivacyPolicy(id: string): Promise<void> {
+  await request<void>("DELETE", `/privacy-policies/${id}`);
+}
+
+// --- AVV-Risikobewertung ---
+export interface AvvRiskDimension {
+  name: string;
+  score: number;
+  rationale: string;
+}
+
+export interface AvvRiskAssessment {
+  contract_id: string;
+  partner_name: string;
+  risk_score: number;
+  risk_level: "low" | "medium" | "high" | "critical";
+  assessment: {
+    dimensions: AvvRiskDimension[];
+    main_risks: string[];
+    recommended_measures: string[];
+    summary: string;
+    avg_dimension_score: number;
+  };
+  assessed_at: string;
+}
+
+export async function assessAvvRisk(contractId: string): Promise<AvvRiskAssessment> {
+  return request<AvvRiskAssessment>("POST", `/avv/${contractId}/risk-assessment`);
+}
+
+// --- Webhooks ---
+export interface ApiWebhook {
+  id: string;
+  name: string;
+  url: string;
+  hasSecret: boolean;
+  events: string[];
+  isActive: boolean;
+  createdBy: string;
+}
+
+export interface ApiWebhookDelivery {
+  id: string;
+  webhookId: string;
+  eventType: string;
+  status: string;
+  httpStatus: number | null;
+  error: string | null;
+  attempts: number;
+  deliveredAt: string | null;
+}
+
+function mapWebhook(d: Record<string, unknown>): ApiWebhook {
+  return deepSnakeToCamel(d) as unknown as ApiWebhook;
+}
+
+export async function listWebhooks(): Promise<ApiWebhook[]> {
+  const list = await request<Record<string, unknown>[]>("GET", "/admin/webhooks");
+  return list.map(mapWebhook);
+}
+
+export async function createWebhook(body: {
+  name: string;
+  url: string;
+  secret?: string;
+  events?: string[];
+}): Promise<ApiWebhook> {
+  return mapWebhook(await request<Record<string, unknown>>("POST", "/admin/webhooks", { body }));
+}
+
+export async function updateWebhook(
+  id: string,
+  body: { name?: string; url?: string; secret?: string; events?: string[]; is_active?: boolean }
+): Promise<ApiWebhook> {
+  return mapWebhook(await request<Record<string, unknown>>("PATCH", `/admin/webhooks/${id}`, { body }));
+}
+
+export async function deleteWebhook(id: string): Promise<void> {
+  await request<void>("DELETE", `/admin/webhooks/${id}`);
+}
+
+export async function testWebhook(id: string): Promise<{ success: boolean; http_status: number | null; error: string | null }> {
+  return request("POST", `/admin/webhooks/${id}/test`);
+}
+
+export async function getWebhookEvents(): Promise<string[]> {
+  return request<string[]>("GET", "/admin/webhooks/events");
+}

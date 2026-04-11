@@ -40,6 +40,8 @@ class CaseModel(Base):
     auto_run_checks: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     archived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, default=None)
     retention_months: Mapped[int | None] = mapped_column(Integer, nullable=True, default=None)
+    recheck_interval_days: Mapped[int | None] = mapped_column(Integer, nullable=True, default=None)  # Automatischer Re-Check alle X Tage
+    last_rechecked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, default=None)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
@@ -412,6 +414,11 @@ class AVVContractModel(Base):
     document_name: Mapped[str | None] = mapped_column(String(500), nullable=True)
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
     check_result: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
+    # Supplier-Risikobewertung (Feature: AVV-Risikoscoring)
+    risk_score: Mapped[int | None] = mapped_column(Integer, nullable=True)           # 0-100
+    risk_level: Mapped[str | None] = mapped_column(String(20), nullable=True)        # low | medium | high | critical
+    risk_assessment: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)  # detaillierte Bewertung
+    risk_assessed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
@@ -437,6 +444,61 @@ class TOMModel(Base):
     department_codes: Mapped[list[str] | None] = mapped_column(ARRAY(String), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+
+
+class PrivacyPolicyModel(Base):
+    """Generierte Datenschutzerklärungen (Art. 13/14 DSGVO)."""
+    __tablename__ = "privacy_policies"
+
+    id: Mapped[uuid.UUID] = mapped_column(PG_UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    title: Mapped[str] = mapped_column(String(500), nullable=False, default="Datenschutzerklärung")
+    content_markdown: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    version_note: Mapped[str | None] = mapped_column(Text, nullable=True)
+    org_name: Mapped[str | None] = mapped_column(String(300), nullable=True)
+    department: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    payload: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
+    generated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    created_by: Mapped[str] = mapped_column(String(200), nullable=False, default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+
+
+class WebhookConfigModel(Base):
+    """Ausgehende Webhook-Konfigurationen für Event-Benachrichtigungen."""
+    __tablename__ = "webhook_configs"
+
+    id: Mapped[uuid.UUID] = mapped_column(PG_UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    name: Mapped[str] = mapped_column(String(200), nullable=False)
+    url: Mapped[str] = mapped_column(String(2000), nullable=False)
+    secret: Mapped[str | None] = mapped_column(String(500), nullable=True)  # HMAC-Secret für Signatur
+    events: Mapped[list[str]] = mapped_column(ARRAY(String), nullable=False, default=list)
+    # Events: case_status_changed, finding_created, finding_status_changed, data_breach_created, dsr_created
+    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    created_by: Mapped[str] = mapped_column(String(200), nullable=False, default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+
+    deliveries: Mapped[list["WebhookDeliveryLogModel"]] = relationship(
+        "WebhookDeliveryLogModel", back_populates="webhook", cascade="all, delete-orphan"
+    )
+
+
+class WebhookDeliveryLogModel(Base):
+    """Protokoll aller ausgehenden Webhook-Zustellversuche."""
+    __tablename__ = "webhook_delivery_logs"
+    __table_args__ = (Index("ix_webhook_delivery_logs_webhook_id", "webhook_id"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(PG_UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    webhook_id: Mapped[uuid.UUID] = mapped_column(PG_UUID(as_uuid=True), ForeignKey("webhook_configs.id", ondelete="CASCADE"), nullable=False)
+    event_type: Mapped[str] = mapped_column(String(80), nullable=False)
+    payload: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="pending")  # pending | success | failed
+    http_status: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    delivered_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    webhook: Mapped["WebhookConfigModel"] = relationship("WebhookConfigModel", back_populates="deliveries")
 
 
 class CaseTemplateModel(Base):

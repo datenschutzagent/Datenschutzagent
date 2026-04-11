@@ -25,6 +25,7 @@ class UserRoleUpdate(BaseModel):
 @router.get("/settings")
 def get_admin_settings(_user=require_roles("admin")):
     """Return read-only view of app settings (no secrets)."""
+    from app.core.llm import get_llm_provider_info
     return {
         "app_name": settings.app_name,
         "ollama_base_url": settings.ollama_base_url,
@@ -39,6 +40,12 @@ def get_admin_settings(_user=require_roles("admin")):
         "celery_enabled": settings.celery_enabled,
         "celery_broker_configured": bool((settings.celery_broker_url or "").strip()),
         "max_context_chars_per_doc": settings.max_context_chars_per_doc,
+        "llm_provider": get_llm_provider_info(),
+        "smtp_enabled": settings.smtp_enabled,
+        "smtp_host": settings.smtp_host if settings.smtp_enabled else None,
+        "notification_deadline_warning_days": settings.notification_deadline_warning_days,
+        "notification_breach_warning_hours": settings.notification_breach_warning_hours,
+        "notification_avv_expiry_warning_days": settings.notification_avv_expiry_warning_days,
     }
 
 

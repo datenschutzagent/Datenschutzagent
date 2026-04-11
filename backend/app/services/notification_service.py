@@ -2,14 +2,14 @@
 import logging
 import smtplib
 import ssl
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta, timezone
 from email.message import EmailMessage
 
 from sqlalchemy import and_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
-from app.models.db import ActivityLogModel, CaseModel, FindingModel, UserModel
+from app.models.db import ActivityLogModel, AVVContractModel, CaseModel, DataBreachModel, DSRRequestModel, UserModel
 
 logger = logging.getLogger(__name__)
 
@@ -157,6 +157,159 @@ async def scan_and_notify_deadlines(db: AsyncSession) -> dict:
             sent_count += 1
         except Exception as exc:
             logger.warning("Failed to send overdue notification for case %s: %s", case.id, exc)
+
+    # -------------------------------------------------------
+    # Datenpannen: 72-Stunden-Meldepflicht (Art. 33 DSGVO)
+    # -------------------------------------------------------
+    now = datetime.now(timezone.utc)
+    breach_warning_dt = now + timedelta(hours=settings.notification_breach_warning_hours)
+
+    breaches_result = await db.execute(
+        select(DataBreachModel).where(
+            and_(
+                DataBreachModel.status.in_(["discovered", "assessed"]),
+                DataBreachModel.notification_deadline != None,  # noqa: E711
+                DataBreachModel.notification_deadline <= breach_warning_dt,
+                DataBreachModel.notification_deadline >= now,
+            )
+        )
+    )
+    for breach in breaches_result.scalars().all():
+        if not breach.assignee:
+            continue
+        assignee_user = users_by_name.get(breach.assignee.lower())
+        if not assignee_user or not assignee_user.email:
+            continue
+        hours_left = max(0, int((breach.notification_deadline - now).total_seconds() / 3600))
+        subject = f"[Datenschutzagent] ⚠️ Datenpanne – Meldepflicht in {hours_left}h: {breach.title}"
+        body = (
+            f"Guten Tag {assignee_user.display_name},\n\n"
+            f"die 72-Stunden-Meldepflicht (Art. 33 DSGVO) für folgende Datenpanne läuft ab:\n\n"
+            f"  Titel: {breach.title}\n"
+            f"  Meldepflicht bis: {breach.notification_deadline.strftime('%d.%m.%Y %H:%M')} UTC\n"
+            f"  Verbleibende Zeit: ca. {hours_left} Stunde(n)\n\n"
+            f"Bitte prüfen Sie den Meldestand umgehend.\n\n"
+            f"-- Datenschutzagent"
+        )
+        try:
+            _send_email(assignee_user.email, subject, body)
+            sent_count += 1
+        except Exception as exc:
+            logger.warning("Failed to send breach notification for breach %s: %s", breach.id, exc)
+
+    # Überfällige Datenpannen (Meldepflicht abgelaufen, noch nicht abgeschlossen)
+    overdue_breaches_result = await db.execute(
+        select(DataBreachModel).where(
+            and_(
+                DataBreachModel.status.in_(["discovered", "assessed"]),
+                DataBreachModel.notification_deadline < now,
+            )
+        )
+    )
+    for breach in overdue_breaches_result.scalars().all():
+        if not breach.assignee:
+            continue
+        assignee_user = users_by_name.get(breach.assignee.lower())
+        if not assignee_user or not assignee_user.email:
+            continue
+        hours_overdue = max(0, int((now - breach.notification_deadline).total_seconds() / 3600))
+        subject = f"[Datenschutzagent] 🚨 ÜBERFÄLLIG – Datenpanne nicht gemeldet ({hours_overdue}h): {breach.title}"
+        body = (
+            f"Guten Tag {assignee_user.display_name},\n\n"
+            f"die 72-Stunden-Meldepflicht für folgende Datenpanne ist ÜBERSCHRITTEN:\n\n"
+            f"  Titel: {breach.title}\n"
+            f"  Meldepflicht war: {breach.notification_deadline.strftime('%d.%m.%Y %H:%M')} UTC\n"
+            f"  Überfällig seit: ca. {hours_overdue} Stunde(n)\n\n"
+            f"Bitte handeln Sie sofort und dokumentieren Sie den Vorgang.\n\n"
+            f"-- Datenschutzagent"
+        )
+        try:
+            _send_email(assignee_user.email, subject, body)
+            sent_count += 1
+        except Exception as exc:
+            logger.warning("Failed to send overdue breach notification for breach %s: %s", breach.id, exc)
+
+    # -------------------------------------------------------
+    # DSR-Anfragen: 30-Tage-Antwortpflicht (Art. 12 DSGVO)
+    # -------------------------------------------------------
+    dsr_warning_date = today + timedelta(days=settings.notification_dsr_warning_days)
+
+    dsr_result = await db.execute(
+        select(DSRRequestModel).where(
+            and_(
+                DSRRequestModel.status.in_(["received", "in_progress"]),
+                DSRRequestModel.response_deadline != None,  # noqa: E711
+                DSRRequestModel.response_deadline <= dsr_warning_date,
+                DSRRequestModel.response_deadline >= today,
+            )
+        )
+    )
+    for dsr in dsr_result.scalars().all():
+        if not dsr.assignee:
+            continue
+        assignee_user = users_by_name.get(dsr.assignee.lower())
+        if not assignee_user or not assignee_user.email:
+            continue
+        days_left = (dsr.response_deadline - today).days
+        req_type_labels = {
+            "access": "Auskunft", "rectification": "Berichtigung",
+            "erasure": "Löschung", "portability": "Datenübertragbarkeit",
+            "restriction": "Einschränkung", "objection": "Widerspruch",
+        }
+        req_label = req_type_labels.get(dsr.request_type, dsr.request_type)
+        subject = f"[Datenschutzagent] DSR-Anfrage ({req_label}) – Antwortfrist in {days_left} Tag(en)"
+        body = (
+            f"Guten Tag {assignee_user.display_name},\n\n"
+            f"folgende Betroffenenrechts-Anfrage (Art. 12 DSGVO) muss beantwortet werden:\n\n"
+            f"  Anfrageart: {req_label}\n"
+            f"  Antragsteller: {dsr.requestor_name or '(unbekannt)'}\n"
+            f"  Antwortpflicht bis: {dsr.response_deadline.strftime('%d.%m.%Y')} (in {days_left} Tag(en))\n\n"
+            f"Bitte bearbeiten Sie die Anfrage zeitnah.\n\n"
+            f"-- Datenschutzagent"
+        )
+        try:
+            _send_email(assignee_user.email, subject, body)
+            sent_count += 1
+        except Exception as exc:
+            logger.warning("Failed to send DSR notification for DSR %s: %s", dsr.id, exc)
+
+    # -------------------------------------------------------
+    # AVV-Verträge: Ablaufwarnung
+    # -------------------------------------------------------
+    avv_warning_date = today + timedelta(days=settings.notification_avv_expiry_warning_days)
+
+    avv_result = await db.execute(
+        select(AVVContractModel).where(
+            and_(
+                AVVContractModel.status == "signed",
+                AVVContractModel.expiry_date != None,  # noqa: E711
+                AVVContractModel.expiry_date <= avv_warning_date,
+                AVVContractModel.expiry_date >= today,
+            )
+        )
+    )
+    for avv in avv_result.scalars().all():
+        if not avv.assignee:
+            continue
+        assignee_user = users_by_name.get(avv.assignee.lower())
+        if not assignee_user or not assignee_user.email:
+            continue
+        days_left = (avv.expiry_date - today).days
+        subject = f"[Datenschutzagent] AVV läuft ab in {days_left} Tag(en): {avv.partner_name}"
+        body = (
+            f"Guten Tag {assignee_user.display_name},\n\n"
+            f"folgender Auftragsverarbeitungsvertrag (Art. 28 DSGVO) läuft demnächst ab:\n\n"
+            f"  Partner: {avv.partner_name}\n"
+            f"  Vertragsart: {'Auftragsverarbeiter' if avv.partner_type == 'processor' else 'Unter-AV'}\n"
+            f"  Ablaufdatum: {avv.expiry_date.strftime('%d.%m.%Y')} (in {days_left} Tag(en))\n\n"
+            f"Bitte erneuern oder kündigen Sie den Vertrag rechtzeitig.\n\n"
+            f"-- Datenschutzagent"
+        )
+        try:
+            _send_email(assignee_user.email, subject, body)
+            sent_count += 1
+        except Exception as exc:
+            logger.warning("Failed to send AVV expiry notification for AVV %s: %s", avv.id, exc)
 
     if sent_count > 0:
         await db.flush()
