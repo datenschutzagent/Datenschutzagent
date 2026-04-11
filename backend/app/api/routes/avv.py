@@ -114,6 +114,32 @@ async def update_avv_contract(
     return AVVContractResponse(**orm_to_avv_response(contract))
 
 
+@router.post("/{contract_id}/risk-assessment", summary="Supplier-Risikobewertung durchführen")
+async def assess_avv_risk(
+    contract_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    _user=require_roles("editor", "admin"),
+):
+    """Führt eine LLM-gestützte Datenschutz-Risikobewertung für den Auftragsverarbeiter durch.
+
+    Bewertet 5 Risikodimensionen und gibt Risikoscore (0-100), Risikolevel
+    (low/medium/high/critical) sowie Maßnahmenempfehlungen zurück.
+    Das Ergebnis wird im AVV-Datensatz gespeichert.
+    """
+    from app.services.avv_risk_service import assess_avv_risk as _assess
+    result = await db.execute(select(AVVContractModel).where(AVVContractModel.id == contract_id))
+    if result.scalar_one_or_none() is None:
+        raise HTTPException(status_code=404, detail="AVV nicht gefunden")
+    try:
+        assessment = await _assess(contract_id, db)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    except Exception as exc:
+        logger.error("AVV risk assessment failed for %s: %s", contract_id, exc)
+        raise HTTPException(status_code=500, detail=f"Risikobewertung fehlgeschlagen: {exc}")
+    return assessment
+
+
 @router.delete("/{contract_id}", status_code=204, summary="AVV löschen")
 async def delete_avv_contract(
     contract_id: UUID,

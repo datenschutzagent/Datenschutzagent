@@ -139,6 +139,152 @@ async def generate_dsfa(case_id: UUID, db: AsyncSession) -> dict[str, Any]:
     return payload
 
 
+_DSFA_SCREENING_FACTORS = [
+    {
+        "id": "profiling",
+        "label": "Profiling oder automatisierte Entscheidung",
+        "description": "Systematische und umfassende Bewertung persönlicher Aspekte durch automatisierte Verarbeitung (Art. 35 Abs. 3 lit. a).",
+        "check_fn": lambda case, findings: (
+            any(f in (case.processing_context or "").lower() for f in ["profil", "scoring", "automat", "entscheid"])
+            or any(f in (case.title or "").lower() for f in ["profil", "scoring"])
+        ),
+    },
+    {
+        "id": "special_categories",
+        "label": "Besondere Kategorien personenbezogener Daten (Art. 9)",
+        "description": "Verarbeitung von Gesundheitsdaten, biometrischen Daten, Daten zur Herkunft etc.",
+        "check_fn": lambda case, findings: case.special_category_data,
+    },
+    {
+        "id": "large_scale",
+        "label": "Umfangreiche Verarbeitung",
+        "description": "Verarbeitung personenbezogener Daten in großem Umfang (viele Betroffene oder große Datenmenge).",
+        "check_fn": lambda case, findings: any(
+            f in (case.processing_context or "").lower()
+            for f in ["massendaten", "großmaßst", "umfangreich", "viele betroffene", "large scale"]
+        ),
+    },
+    {
+        "id": "international_transfer",
+        "label": "Internationaler Datentransfer",
+        "description": "Übermittlung in Drittländer ohne angemessenes Schutzniveau.",
+        "check_fn": lambda case, findings: case.international_transfer,
+    },
+    {
+        "id": "vulnerable_subjects",
+        "label": "Schutzbedürftige Betroffene",
+        "description": "Kinder, Patienten, Mitarbeiter oder andere schutzbedürftige Personengruppen.",
+        "check_fn": lambda case, findings: any(
+            f in (case.processing_context or "").lower()
+            for f in ["kind", "patient", "mitarbeiter", "employee", "schüler", "student", "vulnerable"]
+        ),
+    },
+    {
+        "id": "systematic_monitoring",
+        "label": "Systematische Überwachung",
+        "description": "Überwachung öffentlich zugänglicher Bereiche oder systematische Beobachtung.",
+        "check_fn": lambda case, findings: any(
+            f in (case.processing_context or "").lower()
+            for f in ["überwach", "kamera", "tracking", "monitoring", "standort", "location"]
+        ),
+    },
+    {
+        "id": "critical_findings",
+        "label": "Kritische Compliance-Befunde",
+        "description": "Offene kritische oder hochschwere Befunde aus Playbook-Prüfungen.",
+        "check_fn": lambda case, findings: any(f.severity in ("critical", "high") and f.status == "open" for f in findings),
+    },
+    {
+        "id": "sensitive_purpose",
+        "label": "Sensibler Verarbeitungszweck",
+        "description": "Verarbeitung für Strafverfolgung, Finanzdienstleistungen, Sozialhilfe oder ähnliches.",
+        "check_fn": lambda case, findings: any(
+            f in (case.processing_context or "").lower()
+            for f in ["straf", "justiz", "finan", "kredit", "sozial", "versicher", "gesundheit"]
+        ),
+    },
+    {
+        "id": "innovative_technology",
+        "label": "Neue oder innovative Technologie",
+        "description": "Einsatz neuer Technologien (KI, Biometrie, IoT) mit unbekannten Risiken.",
+        "check_fn": lambda case, findings: any(
+            f in (case.processing_context or "").lower()
+            for f in ["ki ", "künstliche intel", "biometrie", "iot", "internet of things", "blockchain", "neu"]
+        ),
+    },
+]
+
+_DSFA_REQUIRED_THRESHOLD = 2  # Mindestanzahl Faktoren für DSFA-Pflicht (EDSA-Leitlinien)
+
+
+async def screen_dsfa_requirement(case_id: UUID, db: AsyncSession) -> dict[str, Any]:
+    """Prüft ob eine DSFA gemäß Art. 35 DSGVO erforderlich ist (EDSA-9-Faktoren-Test).
+
+    Returns dict with:
+      - required: bool (True wenn ≥2 Risikofaktoren)
+      - score: int (Anzahl zutreffender Faktoren)
+      - factors: list of dicts with id, label, met
+      - recommendation: str
+    """
+    case_result = await db.execute(select(CaseModel).where(CaseModel.id == case_id))
+    case = case_result.scalar_one_or_none()
+    if not case:
+        raise ValueError(f"Case {case_id} not found")
+
+    findings_result = await db.execute(
+        select(FindingModel).where(
+            FindingModel.case_id == case_id,
+            FindingModel.status == "open",
+        )
+    )
+    findings = findings_result.scalars().all()
+
+    factor_results = []
+    score = 0
+    for factor in _DSFA_SCREENING_FACTORS:
+        try:
+            met = bool(factor["check_fn"](case, findings))
+        except Exception:
+            met = False
+        if met:
+            score += 1
+        factor_results.append({
+            "id": factor["id"],
+            "label": factor["label"],
+            "description": factor["description"],
+            "met": met,
+        })
+
+    required = score >= _DSFA_REQUIRED_THRESHOLD
+
+    if score == 0:
+        recommendation = "Keine Risikofaktoren identifiziert. DSFA aktuell nicht erforderlich."
+    elif score == 1:
+        recommendation = (
+            f"1 Risikofaktor identifiziert. DSFA empfohlen, aber gemäß EDSA-Leitlinien "
+            f"erst ab ≥2 Faktoren verpflichtend. Bitte regelmäßig neu bewerten."
+        )
+    elif score < 4:
+        recommendation = (
+            f"{score} Risikofaktoren identifiziert. DSFA ist verpflichtend (Art. 35 DSGVO). "
+            f"Bitte umgehend durchführen."
+        )
+    else:
+        recommendation = (
+            f"{score} Risikofaktoren identifiziert – hohes Datenschutzrisiko. "
+            f"DSFA ist dringend erforderlich und sollte vor Beginn der Verarbeitung abgeschlossen sein."
+        )
+
+    return {
+        "case_id": str(case_id),
+        "required": required,
+        "score": score,
+        "threshold": _DSFA_REQUIRED_THRESHOLD,
+        "factors": factor_results,
+        "recommendation": recommendation,
+    }
+
+
 async def save_dsfa(case_id: UUID, payload: dict[str, Any], db: AsyncSession) -> DSFAAssessmentModel:
     """Persistiert die DSFA. Überschreibt vorhandene."""
     model = DSFAAssessmentModel(

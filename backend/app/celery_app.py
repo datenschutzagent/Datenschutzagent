@@ -40,6 +40,10 @@ celery_app.conf.update(
             "task": "app.celery_app.deadline_notifications_task",
             "schedule": crontab(hour=7, minute=0),  # täglich um 07:00 Uhr
         },
+        "periodic-recheck-daily": {
+            "task": "app.celery_app.periodic_recheck_task",
+            "schedule": crontab(hour=3, minute=0),  # täglich um 03:00 Uhr
+        },
     },
 )
 
@@ -458,3 +462,97 @@ async def _deadline_notifications_async() -> dict:
         result = await scan_and_notify_deadlines(session)
         await session.commit()
         return result
+
+
+# ---------------------------------------------------------------------------
+# Periodische Re-Check-Task (Celery Beat, täglich)
+# ---------------------------------------------------------------------------
+
+@celery_app.task(name="app.celery_app.periodic_recheck_task", bind=True)
+def periodic_recheck_task(self) -> dict:
+    """Führt automatische Re-Checks für Vorgänge durch, deren recheck_interval_days abgelaufen ist."""
+    logger.info("periodic_recheck_task started")
+    try:
+        result = asyncio.run(_periodic_recheck_async())
+        logger.info("periodic_recheck_task done", extra={"queued": result.get("queued", 0)})
+        return {"ok": True, **result}
+    except Exception as e:
+        err_msg = str(e)
+        logger.error("periodic_recheck_task failed", extra={"error": err_msg})
+        return {"ok": False, "error": err_msg}
+
+
+async def _periodic_recheck_async() -> dict:
+    """Findet Vorgänge, bei denen recheck_interval_days seit dem letzten Check abgelaufen ist,
+    und stellt automatisch neue run_checks-Jobs ein."""
+    from datetime import datetime, timezone, timedelta
+    from sqlalchemy import and_
+
+    session_factory = _get_async_session_factory()
+    queued_count = 0
+
+    async with session_factory() as session:
+        now = datetime.now(timezone.utc)
+        # Vorgänge mit konfiguriertem Recheck-Intervall laden
+        result = await session.execute(
+            select(CaseModel).where(
+                and_(
+                    CaseModel.recheck_interval_days != None,  # noqa: E711
+                    CaseModel.recheck_interval_days > 0,
+                    CaseModel.archived_at == None,  # noqa: E711
+                    CaseModel.status != "completed",
+                )
+            )
+        )
+        cases = result.scalars().all()
+
+        for case in cases:
+            # Prüfen ob Interval abgelaufen
+            last_check = case.last_rechecked_at or case.created_at
+            interval = timedelta(days=case.recheck_interval_days)
+            if (now - last_check) < interval:
+                continue
+
+            # Bestes aktives Playbook finden
+            playbooks = await session.execute(
+                select(PlaybookModel).where(PlaybookModel.is_active == True)  # noqa: E712
+            )
+            active_playbooks = playbooks.scalars().all()
+            if not active_playbooks:
+                continue
+
+            ranked = rank_playbooks_for_selection(
+                active_playbooks,
+                department=case.department or "",
+                processing_context=case.processing_context,
+                case_type=case.case_type,
+                org_profile=settings.org_profile,
+                strict_case_type=False,
+            )
+            best_playbook = ranked[0][0] if ranked else active_playbooks[0]
+
+            job_id = uuid.uuid4()
+            job = RunChecksJobModel(
+                id=job_id,
+                case_id=case.id,
+                status="running",
+                playbook_id=best_playbook.id,
+                playbook_name=best_playbook.name,
+                strategies=["full_text"],
+            )
+            session.add(job)
+
+            # last_rechecked_at aktualisieren
+            case.last_rechecked_at = now
+
+            await session.flush()
+            run_playbook_checks.delay(str(job_id))
+            queued_count += 1
+            logger.info(
+                "periodic_recheck queued job %s for case %s (interval: %dd)",
+                job_id, case.id, case.recheck_interval_days
+            )
+
+        await session.commit()
+
+    return {"queued": queued_count}

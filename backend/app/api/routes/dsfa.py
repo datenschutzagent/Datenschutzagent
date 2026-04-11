@@ -28,6 +28,23 @@ router = APIRouter()
 logger = logging.getLogger(__name__)
 
 
+@router.get("/{case_id}/dsfa/screening", summary="DSFA-Screening (Prüft ob DSFA erforderlich)")
+async def screen_dsfa(
+    case_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    _user=require_roles("viewer", "editor", "admin"),
+):
+    """Prüft anhand der EDSA-Leitlinien (9-Faktoren-Test), ob eine DSFA gemäß Art. 35 DSGVO
+    erforderlich ist. Gibt score, Faktoren und Empfehlung zurück (keine LLM-Kosten).
+    """
+    from app.services.dsfa_service import screen_dsfa_requirement
+    case_result = await db.execute(select(CaseModel).where(CaseModel.id == case_id))
+    if case_result.scalar_one_or_none() is None:
+        raise HTTPException(status_code=404, detail="Vorgang nicht gefunden")
+    result = await screen_dsfa_requirement(case_id, db)
+    return result
+
+
 @router.get("/{case_id}/dsfa", response_model=DSFAResponse, summary="DSFA abrufen")
 async def get_dsfa(
     case_id: UUID,

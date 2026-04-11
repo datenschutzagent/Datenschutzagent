@@ -16,12 +16,14 @@ import {
   createAVVContract,
   updateAVVContract,
   deleteAVVContract,
+  assessAvvRisk,
   type ApiAVVContract,
   type AVVCreate,
   type AVVUpdate,
+  type AvvRiskAssessment,
 } from "../lib/api";
 import { toast } from "sonner";
-import { Plus, FileText, Loader2, Trash2, AlertTriangle, Clock } from "lucide-react";
+import { Plus, FileText, Loader2, Trash2, AlertTriangle, Clock, ShieldAlert } from "lucide-react";
 
 const STATUS_LABELS: Record<string, string> = {
   pending: "Ausstehend",
@@ -93,6 +95,8 @@ export function AVVPage() {
 
   const [selected, setSelected] = useState<ApiAVVContract | null>(null);
   const [updatingStatus, setUpdatingStatus] = useState(false);
+  const [riskAssessment, setRiskAssessment] = useState<AvvRiskAssessment | null>(null);
+  const [assessingRisk, setAssessingRisk] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -151,6 +155,21 @@ export function AVVPage() {
       toast.error("Fehler beim Aktualisieren.");
     } finally {
       setUpdatingStatus(false);
+    }
+  }
+
+  async function handleRiskAssessment() {
+    if (!selected) return;
+    setAssessingRisk(true);
+    setRiskAssessment(null);
+    try {
+      const result = await assessAvvRisk(selected.id);
+      setRiskAssessment(result);
+      toast.success("Risikobewertung abgeschlossen.");
+    } catch (err) {
+      toast.error(`Risikobewertung fehlgeschlagen: ${err instanceof Error ? err.message : String(err)}`);
+    } finally {
+      setAssessingRisk(false);
     }
   }
 

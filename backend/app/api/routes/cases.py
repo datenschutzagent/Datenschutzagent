@@ -424,6 +424,22 @@ async def update_case(
             payload={"actor": actor, "changes": changed},
         )
         db.add(activity)
+        # Webhook-Event feuern wenn Status geändert
+        if "status" in changed:
+            try:
+                from app.services.webhook_service import fire_event
+                await fire_event(
+                    "case_status_changed",
+                    {
+                        "case_id": str(case_id),
+                        "old_status": changed["status"]["old"],
+                        "new_status": changed["status"]["new"],
+                        "actor": actor,
+                    },
+                    db,
+                )
+            except Exception as exc:
+                logger.warning("Webhook fire_event failed (non-critical): %s", exc)
     # Re-fetch with relationships loaded to avoid lazy load in async context (MissingGreenlet)
     result = await db.execute(
         select(CaseModel)
@@ -449,6 +465,32 @@ async def delete_case(
     await db.delete(case)
     await db.flush()
     return None
+
+
+@router.post("/{case_id}/audit-export", summary="Audit-Paket exportieren (ZIP)")
+async def export_audit_package(
+    case_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    _user=require_roles("viewer", "editor", "admin"),
+):
+    """Erstellt ein ZIP-Audit-Paket mit Befunden, Dokumentliste, Activity-Log und SHA-256-Manifest.
+
+    Geeignet für externe Prüfer und Aufsichtsbehörden. Kein Ursprungsdokument-Inhalt –
+    nur strukturierte Metadaten und Prüfergebnisse.
+    """
+    from app.services.audit_export_service import build_audit_export
+    try:
+        zip_bytes, filename = await build_audit_export(case_id, db)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    except Exception as exc:
+        logger.error("Audit export failed for case %s: %s", case_id, exc)
+        raise HTTPException(status_code=500, detail=f"Export fehlgeschlagen: {exc}")
+    return Response(
+        content=zip_bytes,
+        media_type="application/zip",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
 @router.post("/{case_id}/clone", response_model=CaseResponse, status_code=201, summary="Vorgang duplizieren")

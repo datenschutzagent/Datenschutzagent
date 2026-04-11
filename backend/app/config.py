@@ -106,7 +106,22 @@ class Settings(BaseSettings):
     smtp_password: str = ""
     smtp_from_address: str = "datenschutzagent@example.org"
     smtp_tls: bool = True
-    notification_deadline_warning_days: int = 7  # Warnung X Tage vor Fristablauf
+    notification_deadline_warning_days: int = 7        # Warnung X Tage vor Vorgangs-Fristablauf
+    notification_breach_warning_hours: int = 12        # Warnung X Stunden vor Datenpannen-Meldepflicht
+    notification_dsr_warning_days: int = 5             # Warnung X Tage vor DSR-Antwortpflicht
+    notification_avv_expiry_warning_days: int = 90     # Warnung X Tage vor AVV-Ablauf
+
+    # LLM-Provider (ollama | openai | anthropic)
+    # Ollama-Konfiguration bleibt unverändert (ollama_base_url, ollama_model, etc.)
+    llm_provider: str = "ollama"      # Aktiver Provider: "ollama", "openai" oder "anthropic"
+    openai_api_key: str = ""          # OpenAI API-Key (wenn llm_provider=openai)
+    openai_model: str = "gpt-4o-mini" # OpenAI-Modell
+    anthropic_api_key: str = ""       # Anthropic API-Key (wenn llm_provider=anthropic)
+    anthropic_model: str = "claude-3-5-haiku-latest"  # Anthropic-Modell
+
+    # Webhook-Benachrichtigungen (ausgehend)
+    webhook_max_retries: int = 3          # Anzahl Wiederholungsversuche bei Fehler
+    webhook_timeout_seconds: float = 10.0 # HTTP-Timeout pro Versuch
 
     # Weaviate (optional; RAG document checks)
     weaviate_url: str = "http://localhost:8080"

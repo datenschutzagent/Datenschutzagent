@@ -20,6 +20,7 @@ const NAV_ITEMS: NavItem[] = [
   { to: "/data-breaches", label: "Datenpannen" },
   { to: "/avv", label: "AVV" },
   { to: "/tom", label: "TOMs" },
+  { to: "/privacy-policy", label: "Datenschutzerklärung" },
   { to: "/vvt-overview", label: "VVT-Übersicht" },
   { to: "/playbooks", label: "Playbooks" },
   { to: "/legal-bases", label: "Rechtsgrundlagen" },

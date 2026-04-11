@@ -62,6 +62,14 @@ _SCHEMA_MIGRATIONS = [
     "ALTER TABLE tom_measures ADD COLUMN IF NOT EXISTS evidence TEXT",
     # Vorgangs-Vorlagen
     "ALTER TABLE case_templates ADD COLUMN IF NOT EXISTS is_builtin BOOLEAN NOT NULL DEFAULT false",
+    # AVV-Risikobewertung (Supplier Risk Scoring)
+    "ALTER TABLE avv_contracts ADD COLUMN IF NOT EXISTS risk_score INTEGER",
+    "ALTER TABLE avv_contracts ADD COLUMN IF NOT EXISTS risk_level VARCHAR(20)",
+    "ALTER TABLE avv_contracts ADD COLUMN IF NOT EXISTS risk_assessment JSONB",
+    "ALTER TABLE avv_contracts ADD COLUMN IF NOT EXISTS risk_assessed_at TIMESTAMPTZ",
+    # Periodische Re-Checks (CaseModel)
+    "ALTER TABLE cases ADD COLUMN IF NOT EXISTS recheck_interval_days INTEGER",
+    "ALTER TABLE cases ADD COLUMN IF NOT EXISTS last_rechecked_at TIMESTAMPTZ",
 ]
 
 
