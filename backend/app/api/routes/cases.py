@@ -34,6 +34,7 @@ from app.models.db import (
 from app.models.schemas import (
     ActivityResponse,
     AnnotatedDocumentListItem,
+    CaseCloneRequest,
     CaseRiskScoreHistoryItem,
     CaseRiskScoreResponse,
     CaseSimilarityResult,
@@ -409,6 +410,64 @@ async def delete_case(
     await db.delete(case)
     await db.flush()
     return None
+
+
+@router.post("/{case_id}/clone", response_model=CaseResponse, status_code=201, summary="Vorgang duplizieren")
+async def clone_case(
+    case_id: UUID,
+    body: CaseCloneRequest,
+    db: AsyncSession = Depends(get_db),
+    _user=require_roles("editor", "admin"),
+):
+    """Dupliziert einen Vorgang: kopiert Metadaten, erstellt keinen neuen Dokument-Upload.
+    Optional: LLM passt Verarbeitungskontext auf neuen Titel/Abteilung an."""
+    result = await db.execute(select(CaseModel).where(CaseModel.id == case_id))
+    source = result.scalar_one_or_none()
+    if not source:
+        raise HTTPException(status_code=404, detail="Case not found")
+
+    new_department = body.new_department or source.department
+    new_case = CaseModel(
+        title=body.new_title,
+        department=new_department,
+        case_type=source.case_type,
+        language=source.language,
+        created_by=_user.display_name if isinstance(_user, UserModel) else "",
+        assignee=source.assignee,
+        status="intake",
+        playbook_version=source.playbook_version,
+        processing_context=source.processing_context,
+        special_category_data=source.special_category_data,
+        international_transfer=source.international_transfer,
+        auto_run_checks=source.auto_run_checks,
+        retention_months=source.retention_months,
+    )
+    db.add(new_case)
+    await db.flush()
+
+    # Aktivitätslog auf beiden Vorgängen
+    activity_source = ActivityLogModel(
+        case_id=case_id,
+        event_type="case_cloned",
+        payload={"new_case_id": str(new_case.id), "new_title": body.new_title},
+    )
+    activity_new = ActivityLogModel(
+        case_id=new_case.id,
+        event_type="case_cloned_from",
+        payload={"source_case_id": str(case_id), "source_title": source.title},
+    )
+    db.add(activity_source)
+    db.add(activity_new)
+    await db.flush()
+
+    # Re-fetch mit Relationships
+    new_result = await db.execute(
+        select(CaseModel)
+        .where(CaseModel.id == new_case.id)
+        .options(selectinload(CaseModel.documents), selectinload(CaseModel.findings))
+    )
+    new_case = new_result.scalar_one()
+    return CaseResponse(**orm_to_case_response(new_case))
 
 
 @router.post("/{case_id}/archive", response_model=CaseResponse)

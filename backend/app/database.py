@@ -46,6 +46,13 @@ _SCHEMA_MIGRATIONS = [
     "ALTER TABLE cases ADD COLUMN IF NOT EXISTS processing_context VARCHAR(80) NULL",
     "ALTER TABLE cases ADD COLUMN IF NOT EXISTS special_category_data BOOLEAN NOT NULL DEFAULT false",
     "ALTER TABLE cases ADD COLUMN IF NOT EXISTS international_transfer BOOLEAN NOT NULL DEFAULT false",
+    # Neue Spalten für vorhandene Installationen
+    "ALTER TABLE dsr_requests ADD COLUMN IF NOT EXISTS draft_response TEXT",
+    "CREATE INDEX IF NOT EXISTS ix_finding_chat_messages_finding_id ON finding_chat_messages (finding_id)",
+    "CREATE INDEX IF NOT EXISTS ix_dsfa_jobs_case_id ON dsfa_jobs (case_id)",
+    "CREATE INDEX IF NOT EXISTS ix_dsr_requests_status ON dsr_requests (status)",
+    "CREATE INDEX IF NOT EXISTS ix_dsr_requests_response_deadline ON dsr_requests (response_deadline)",
+    "CREATE INDEX IF NOT EXISTS ix_dsr_activity_log_request_id ON dsr_activity_log (request_id)",
 ]
 
 
