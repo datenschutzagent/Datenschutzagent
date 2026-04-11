@@ -341,6 +341,123 @@ class DSRActivityLogModel(Base):
     request: Mapped["DSRRequestModel"] = relationship("DSRRequestModel", back_populates="activity_logs")
 
 
+class DataBreachModel(Base):
+    """Datenschutzverletzungen (Art. 33/34 DSGVO) – 72-Stunden-Meldepflicht."""
+    __tablename__ = "data_breaches"
+    __table_args__ = (
+        Index("ix_data_breaches_status", "status"),
+        Index("ix_data_breaches_discovered_at", "discovered_at"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(PG_UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    title: Mapped[str] = mapped_column(String(500), nullable=False)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    discovered_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    # 72h-Frist für Behördenmeldung (Art. 33 Abs. 1)
+    notification_deadline: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    breach_type: Mapped[str] = mapped_column(String(100), nullable=False)  # confidentiality|integrity|availability
+    affected_data_categories: Mapped[list[str] | None] = mapped_column(ARRAY(String), nullable=True)
+    affected_persons_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    department: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    assignee: Mapped[str] = mapped_column(String(200), nullable=False, default="")
+    status: Mapped[str] = mapped_column(String(30), nullable=False, default="discovered")
+    # discovered | assessed | reported_to_authority | reported_to_subjects | closed | no_notification_required
+    risk_level: Mapped[str | None] = mapped_column(String(20), nullable=True)  # low|medium|high|critical
+    authority_notified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    subjects_notified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    authority_reference: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    measures_taken: Mapped[str | None] = mapped_column(Text, nullable=True)
+    draft_notification: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+
+    activity_logs: Mapped[list["DataBreachActivityLogModel"]] = relationship(
+        "DataBreachActivityLogModel", back_populates="breach", cascade="all, delete-orphan"
+    )
+
+
+class DataBreachActivityLogModel(Base):
+    """Aktivitätsprotokoll für Datenpannen."""
+    __tablename__ = "data_breach_activity_log"
+    __table_args__ = (Index("ix_data_breach_activity_log_breach_id", "breach_id"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(PG_UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    breach_id: Mapped[uuid.UUID] = mapped_column(PG_UUID(as_uuid=True), ForeignKey("data_breaches.id", ondelete="CASCADE"), nullable=False)
+    event_type: Mapped[str] = mapped_column(String(80), nullable=False)
+    payload: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+
+    breach: Mapped["DataBreachModel"] = relationship("DataBreachModel", back_populates="activity_logs")
+
+
+class AVVContractModel(Base):
+    """Auftragsverarbeitungsverträge (Art. 28 DSGVO)."""
+    __tablename__ = "avv_contracts"
+    __table_args__ = (
+        Index("ix_avv_contracts_status", "status"),
+        Index("ix_avv_contracts_partner_name", "partner_name"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(PG_UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    partner_name: Mapped[str] = mapped_column(String(500), nullable=False)
+    partner_type: Mapped[str] = mapped_column(String(50), nullable=False, default="processor")  # processor|sub_processor
+    subject_matter: Mapped[str | None] = mapped_column(Text, nullable=True)
+    department: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    status: Mapped[str] = mapped_column(String(30), nullable=False, default="pending")
+    # pending | under_review | signed | expired | terminated
+    contract_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    expiry_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    assignee: Mapped[str] = mapped_column(String(200), nullable=False, default="")
+    storage_path: Mapped[str | None] = mapped_column(String(1000), nullable=True)
+    document_name: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    check_result: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+
+
+class TOMModel(Base):
+    """Technisch-Organisatorische Maßnahmen (Art. 32 DSGVO)."""
+    __tablename__ = "tom_measures"
+    __table_args__ = (
+        Index("ix_tom_measures_category", "category"),
+        Index("ix_tom_measures_status", "implementation_status"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(PG_UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    title: Mapped[str] = mapped_column(String(500), nullable=False)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    category: Mapped[str] = mapped_column(String(100), nullable=False)
+    # access_control|encryption|pseudonymization|availability|integrity|confidentiality|resilience|testing|incident_response|other
+    implementation_status: Mapped[str] = mapped_column(String(30), nullable=False, default="planned")
+    # planned | in_progress | implemented | not_applicable
+    responsible: Mapped[str] = mapped_column(String(200), nullable=False, default="")
+    review_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    evidence: Mapped[str | None] = mapped_column(Text, nullable=True)
+    department_codes: Mapped[list[str] | None] = mapped_column(ARRAY(String), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+
+
+class CaseTemplateModel(Base):
+    """Vorgangs-Vorlagen für häufig wiederkehrende Verarbeitungstätigkeiten."""
+    __tablename__ = "case_templates"
+
+    id: Mapped[uuid.UUID] = mapped_column(PG_UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    name: Mapped[str] = mapped_column(String(200), nullable=False)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    case_type: Mapped[str] = mapped_column(String(100), nullable=False)
+    department: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    language: Mapped[str] = mapped_column(String(20), nullable=False, default="de")
+    processing_context: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    special_category_data: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    international_transfer: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    is_builtin: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    created_by: Mapped[str] = mapped_column(String(200), nullable=False, default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+
+
 def orm_to_user_response(orm: UserModel) -> dict[str, Any]:
     """Map UserModel to API response shape."""
     return {
@@ -563,4 +680,96 @@ def orm_to_dsr_activity_response(orm: DSRActivityLogModel) -> dict[str, Any]:
         "event_type": orm.event_type,
         "payload": orm.payload or {},
         "created_at": orm.created_at,
+    }
+
+
+def orm_to_data_breach_response(orm: DataBreachModel) -> dict[str, Any]:
+    """Map DataBreachModel to API response shape."""
+    return {
+        "id": orm.id,
+        "title": orm.title,
+        "description": orm.description,
+        "discovered_at": orm.discovered_at,
+        "notification_deadline": orm.notification_deadline,
+        "breach_type": orm.breach_type,
+        "affected_data_categories": orm.affected_data_categories or [],
+        "affected_persons_count": orm.affected_persons_count,
+        "department": orm.department,
+        "assignee": orm.assignee,
+        "status": orm.status,
+        "risk_level": orm.risk_level,
+        "authority_notified_at": orm.authority_notified_at,
+        "subjects_notified_at": orm.subjects_notified_at,
+        "authority_reference": orm.authority_reference,
+        "measures_taken": orm.measures_taken,
+        "draft_notification": orm.draft_notification,
+        "created_at": orm.created_at,
+        "updated_at": orm.updated_at,
+    }
+
+
+def orm_to_data_breach_activity_response(orm: DataBreachActivityLogModel) -> dict[str, Any]:
+    """Map DataBreachActivityLogModel to API response shape."""
+    return {
+        "id": orm.id,
+        "breach_id": orm.breach_id,
+        "event_type": orm.event_type,
+        "payload": orm.payload or {},
+        "created_at": orm.created_at,
+    }
+
+
+def orm_to_avv_response(orm: AVVContractModel) -> dict[str, Any]:
+    """Map AVVContractModel to API response shape."""
+    return {
+        "id": orm.id,
+        "partner_name": orm.partner_name,
+        "partner_type": orm.partner_type,
+        "subject_matter": orm.subject_matter,
+        "department": orm.department,
+        "status": orm.status,
+        "contract_date": orm.contract_date,
+        "expiry_date": orm.expiry_date,
+        "assignee": orm.assignee,
+        "document_name": orm.document_name,
+        "notes": orm.notes,
+        "check_result": orm.check_result,
+        "created_at": orm.created_at,
+        "updated_at": orm.updated_at,
+    }
+
+
+def orm_to_tom_response(orm: TOMModel) -> dict[str, Any]:
+    """Map TOMModel to API response shape."""
+    return {
+        "id": orm.id,
+        "title": orm.title,
+        "description": orm.description,
+        "category": orm.category,
+        "implementation_status": orm.implementation_status,
+        "responsible": orm.responsible,
+        "review_date": orm.review_date,
+        "evidence": orm.evidence,
+        "department_codes": orm.department_codes or [],
+        "created_at": orm.created_at,
+        "updated_at": orm.updated_at,
+    }
+
+
+def orm_to_case_template_response(orm: CaseTemplateModel) -> dict[str, Any]:
+    """Map CaseTemplateModel to API response shape."""
+    return {
+        "id": orm.id,
+        "name": orm.name,
+        "description": orm.description,
+        "case_type": orm.case_type,
+        "department": orm.department,
+        "language": orm.language,
+        "processing_context": orm.processing_context,
+        "special_category_data": orm.special_category_data,
+        "international_transfer": orm.international_transfer,
+        "is_builtin": orm.is_builtin,
+        "created_by": orm.created_by,
+        "created_at": orm.created_at,
+        "updated_at": orm.updated_at,
     }

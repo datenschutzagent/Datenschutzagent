@@ -314,6 +314,45 @@ async def get_case_activities(
     return [ActivityResponse(**orm_to_activity_response(a)) for a in activities]
 
 
+@router.get("/{case_id}/activities/export", summary="Audit-Trail als CSV exportieren")
+async def export_case_activities_csv(
+    case_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    _user=require_roles("viewer", "editor", "admin"),
+):
+    """Exportiert den vollständigen Audit-Trail eines Vorgangs als CSV (für Behördennachweise)."""
+    result = await db.execute(select(CaseModel).where(CaseModel.id == case_id))
+    case = result.scalar_one_or_none()
+    if not case:
+        raise HTTPException(status_code=404, detail="Vorgang nicht gefunden")
+
+    activities_result = await db.execute(
+        select(ActivityLogModel)
+        .where(ActivityLogModel.case_id == case_id)
+        .order_by(ActivityLogModel.created_at.asc())
+    )
+    activities = activities_result.scalars().all()
+
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow(["ID", "Ereignis", "Zeitstempel", "Details"])
+    for a in activities:
+        payload_str = "; ".join(f"{k}={v}" for k, v in (a.payload or {}).items())
+        writer.writerow([
+            str(a.id),
+            a.event_type,
+            a.created_at.strftime("%Y-%m-%d %H:%M:%S UTC"),
+            payload_str,
+        ])
+
+    filename = f"audit-trail-{case_id}.csv"
+    return StreamingResponse(
+        iter([output.getvalue()]),
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": f"attachment; filename={filename}"},
+    )
+
+
 @router.post("", response_model=CaseResponse, status_code=201, summary="Vorgang erstellen")
 async def create_case(
     body: CaseCreate,

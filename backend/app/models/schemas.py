@@ -680,3 +680,227 @@ class NotificationTestResponse(BaseModel):
     smtp_enabled: bool
     status: str
     detail: str | None = None
+
+
+# --- Datenpannen-Management (Art. 33/34 DSGVO) ---
+DataBreachTypeEnum = Literal["confidentiality", "integrity", "availability"]
+DataBreachStatusEnum = Literal[
+    "discovered", "assessed", "reported_to_authority", "reported_to_subjects",
+    "closed", "no_notification_required"
+]
+RiskLevelEnum = Literal["low", "medium", "high", "critical"]
+
+
+class DataBreachCreate(BaseModel):
+    title: str = Field(..., min_length=1, max_length=500)
+    description: str | None = None
+    discovered_at: datetime
+    breach_type: DataBreachTypeEnum
+    affected_data_categories: list[str] | None = None
+    affected_persons_count: int | None = Field(default=None, ge=0)
+    department: str | None = Field(default=None, max_length=200)
+    assignee: str = Field(default="", max_length=200)
+    risk_level: RiskLevelEnum | None = None
+    measures_taken: str | None = None
+
+
+class DataBreachUpdate(BaseModel):
+    title: str | None = Field(default=None, min_length=1, max_length=500)
+    description: str | None = None
+    status: DataBreachStatusEnum | None = None
+    breach_type: DataBreachTypeEnum | None = None
+    affected_data_categories: list[str] | None = None
+    affected_persons_count: int | None = Field(default=None, ge=0)
+    department: str | None = Field(default=None, max_length=200)
+    assignee: str | None = Field(default=None, max_length=200)
+    risk_level: RiskLevelEnum | None = None
+    authority_notified_at: datetime | None = None
+    subjects_notified_at: datetime | None = None
+    authority_reference: str | None = Field(default=None, max_length=200)
+    measures_taken: str | None = None
+
+
+class DataBreachResponse(BaseModel):
+    id: UUID
+    title: str
+    description: str | None = None
+    discovered_at: datetime
+    notification_deadline: datetime
+    breach_type: DataBreachTypeEnum
+    affected_data_categories: list[str] = Field(default_factory=list)
+    affected_persons_count: int | None = None
+    department: str | None = None
+    assignee: str
+    status: DataBreachStatusEnum
+    risk_level: RiskLevelEnum | None = None
+    authority_notified_at: datetime | None = None
+    subjects_notified_at: datetime | None = None
+    authority_reference: str | None = None
+    measures_taken: str | None = None
+    draft_notification: str | None = None
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class DataBreachListResponse(BaseModel):
+    items: list[DataBreachResponse]
+    total: int
+
+
+class DataBreachActivityResponse(BaseModel):
+    id: UUID
+    breach_id: UUID
+    event_type: str
+    payload: dict[str, Any] = Field(default_factory=dict)
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+# --- AVV-Management (Art. 28 DSGVO) ---
+AVVPartnerTypeEnum = Literal["processor", "sub_processor"]
+AVVStatusEnum = Literal["pending", "under_review", "signed", "expired", "terminated"]
+
+
+class AVVContractCreate(BaseModel):
+    partner_name: str = Field(..., min_length=1, max_length=500)
+    partner_type: AVVPartnerTypeEnum = "processor"
+    subject_matter: str | None = None
+    department: str | None = Field(default=None, max_length=200)
+    assignee: str = Field(default="", max_length=200)
+    contract_date: date | None = None
+    expiry_date: date | None = None
+    notes: str | None = None
+
+
+class AVVContractUpdate(BaseModel):
+    partner_name: str | None = Field(default=None, min_length=1, max_length=500)
+    partner_type: AVVPartnerTypeEnum | None = None
+    subject_matter: str | None = None
+    department: str | None = Field(default=None, max_length=200)
+    status: AVVStatusEnum | None = None
+    assignee: str | None = Field(default=None, max_length=200)
+    contract_date: date | None = None
+    expiry_date: date | None = None
+    notes: str | None = None
+
+
+class AVVContractResponse(BaseModel):
+    id: UUID
+    partner_name: str
+    partner_type: AVVPartnerTypeEnum
+    subject_matter: str | None = None
+    department: str | None = None
+    status: AVVStatusEnum
+    contract_date: date | None = None
+    expiry_date: date | None = None
+    assignee: str
+    document_name: str | None = None
+    notes: str | None = None
+    check_result: dict[str, Any] | None = None
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class AVVListResponse(BaseModel):
+    items: list[AVVContractResponse]
+    total: int
+
+
+# --- TOM-Katalog (Art. 32 DSGVO) ---
+TOMCategoryEnum = Literal[
+    "access_control", "encryption", "pseudonymization", "availability",
+    "integrity", "confidentiality", "resilience", "testing", "incident_response", "other"
+]
+TOMStatusEnum = Literal["planned", "in_progress", "implemented", "not_applicable"]
+
+
+class TOMCreate(BaseModel):
+    title: str = Field(..., min_length=1, max_length=500)
+    description: str | None = None
+    category: TOMCategoryEnum
+    implementation_status: TOMStatusEnum = "planned"
+    responsible: str = Field(default="", max_length=200)
+    review_date: date | None = None
+    evidence: str | None = None
+    department_codes: list[str] | None = None
+
+
+class TOMUpdate(BaseModel):
+    title: str | None = Field(default=None, min_length=1, max_length=500)
+    description: str | None = None
+    category: TOMCategoryEnum | None = None
+    implementation_status: TOMStatusEnum | None = None
+    responsible: str | None = Field(default=None, max_length=200)
+    review_date: date | None = None
+    evidence: str | None = None
+    department_codes: list[str] | None = None
+
+
+class TOMResponse(BaseModel):
+    id: UUID
+    title: str
+    description: str | None = None
+    category: TOMCategoryEnum
+    implementation_status: TOMStatusEnum
+    responsible: str
+    review_date: date | None = None
+    evidence: str | None = None
+    department_codes: list[str] = Field(default_factory=list)
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class TOMListResponse(BaseModel):
+    items: list[TOMResponse]
+    total: int
+
+
+class TOMStatsResponse(BaseModel):
+    total: int
+    by_status: dict[str, int] = Field(default_factory=dict)
+    by_category: dict[str, int] = Field(default_factory=dict)
+    implementation_rate: float = 0.0
+
+
+# --- Vorgangs-Vorlagen ---
+class CaseTemplateCreate(BaseModel):
+    name: str = Field(..., min_length=1, max_length=200)
+    description: str | None = None
+    case_type: str = Field(..., min_length=1, max_length=100)
+    department: str | None = Field(default=None, max_length=200)
+    language: CaseLanguageEnum = "de"
+    processing_context: str | None = Field(default=None, max_length=500)
+    special_category_data: bool = False
+    international_transfer: bool = False
+
+
+class CaseTemplateResponse(BaseModel):
+    id: UUID
+    name: str
+    description: str | None = None
+    case_type: str
+    department: str | None = None
+    language: CaseLanguageEnum
+    processing_context: str | None = None
+    special_category_data: bool
+    international_transfer: bool
+    is_builtin: bool
+    created_by: str
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class CaseTemplateApplyRequest(BaseModel):
+    template_id: UUID
+    title: str = Field(..., min_length=1, max_length=500)
+    assignee: str = Field(default="", max_length=200)
+    deadline: date | None = None

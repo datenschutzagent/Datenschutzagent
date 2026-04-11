@@ -111,6 +111,10 @@ _OPENAPI_TAGS = [
     {"name": "vvt-overview", "description": "VVT-Gesamtübersicht auf Organisationsebene (Art. 30 DSGVO)."},
     {"name": "dsfa", "description": "Datenschutz-Folgenabschätzung (Art. 35 DSGVO) generieren und verwalten."},
     {"name": "dsr", "description": "Betroffenenrechts-Anfragen (Art. 15–22 DSGVO) erfassen und bearbeiten."},
+    {"name": "data-breaches", "description": "Datenpannen-Management (Art. 33/34 DSGVO) – 72-Stunden-Meldepflicht."},
+    {"name": "avv", "description": "Auftragsverarbeitungsverträge (Art. 28 DSGVO) verwalten."},
+    {"name": "tom", "description": "Technisch-Organisatorische Maßnahmen (Art. 32 DSGVO) – Katalog und Implementierungsstatus."},
+    {"name": "case-templates", "description": "Vorgangs-Vorlagen für häufig wiederkehrende Verarbeitungstätigkeiten."},
 ]
 
 app = FastAPI(

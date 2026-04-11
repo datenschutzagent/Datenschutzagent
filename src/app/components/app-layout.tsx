@@ -17,6 +17,9 @@ interface NavItem {
 const NAV_ITEMS: NavItem[] = [
   { to: "/", label: "Vorgänge" },
   { to: "/compliance", label: "Compliance" },
+  { to: "/data-breaches", label: "Datenpannen" },
+  { to: "/avv", label: "AVV" },
+  { to: "/tom", label: "TOMs" },
   { to: "/vvt-overview", label: "VVT-Übersicht" },
   { to: "/playbooks", label: "Playbooks" },
   { to: "/legal-bases", label: "Rechtsgrundlagen" },

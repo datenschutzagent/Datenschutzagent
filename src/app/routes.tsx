@@ -9,6 +9,9 @@ import { LegalBasesPage } from "./pages/legal-bases-page";
 import { ProfilePage } from "./pages/profile-page";
 import { AdminPage } from "./pages/admin-page";
 import { AuthCallbackPage } from "./pages/auth-callback-page";
+import { DataBreachesPage } from "./pages/data-breaches-page";
+import { AVVPage } from "./pages/avv-page";
+import { TOMPage } from "./pages/tom-page";
 import { useAuthOptional } from "./contexts/AuthContext";
 
 function AuthGuard({ children }: { children: React.ReactNode }) {
@@ -108,6 +111,30 @@ export const router = createBrowserRouter([
     element: (
       <AuthGuard>
         <AdminPage />
+      </AuthGuard>
+    ),
+  },
+  {
+    path: "/data-breaches",
+    element: (
+      <AuthGuard>
+        <DataBreachesPage />
+      </AuthGuard>
+    ),
+  },
+  {
+    path: "/avv",
+    element: (
+      <AuthGuard>
+        <AVVPage />
+      </AuthGuard>
+    ),
+  },
+  {
+    path: "/tom",
+    element: (
+      <AuthGuard>
+        <TOMPage />
       </AuthGuard>
     ),
   },

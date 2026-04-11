@@ -6,7 +6,7 @@ import { Label } from "./ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./ui/select";
 import { Textarea } from "./ui/textarea";
 import { Badge } from "./ui/badge";
-import { FileText, CheckCircle2, Upload, X } from "lucide-react";
+import { FileText, CheckCircle2, Upload, X, LayoutTemplate } from "lucide-react";
 import { toast } from "sonner";
 import {
   getDepartments,
@@ -14,9 +14,11 @@ import {
   getPlaybooksForSelection,
   createCase,
   uploadDocumentsBulk,
+  listCaseTemplates,
   type ApiCase,
   type ApiDepartment,
   type ApiPlaybook,
+  type ApiCaseTemplate,
 } from "../lib/api";
 import { useAppConfig } from "../contexts/AppConfigContext";
 import { documentTypeLabels, type DocumentType } from "../lib/mock-data";
@@ -54,6 +56,8 @@ export function NewCaseDialog({ open, onOpenChange, onSuccess }: NewCaseDialogPr
   const [departmentsFromApi, setDepartmentsFromApi] = useState<ApiDepartment[]>([]);
   const [playbooks, setPlaybooks] = useState<ApiPlaybook[]>([]);
   const [playbooksForStep2, setPlaybooksForStep2] = useState<ApiPlaybook[]>([]);
+  const [templates, setTemplates] = useState<ApiCaseTemplate[]>([]);
+  const [showTemplates, setShowTemplates] = useState(false);
   const [loading, setLoading] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [pendingFiles, setPendingFiles] = useState<File[]>([]);
@@ -76,7 +80,22 @@ export function NewCaseDialog({ open, onOpenChange, onSuccess }: NewCaseDialogPr
       .then(setDepartmentsFromApi)
       .catch(() => setDepartmentsFromApi([]));
     getPlaybooks().then(setPlaybooks).catch(() => setPlaybooks([]));
+    listCaseTemplates().then(setTemplates).catch(() => setTemplates([]));
   }, [open]);
+
+  function applyTemplate(t: ApiCaseTemplate) {
+    setFormData((f) => ({
+      ...f,
+      department: t.department ?? f.department,
+      caseType: t.caseType,
+      language: (t.language as "de" | "en" | "de_en") ?? f.language,
+      processingContext: t.processingContext ?? PROCESSING_CONTEXT_NONE,
+      specialCategoryData: t.specialCategoryData,
+      internationalTransfer: t.internationalTransfer,
+    }));
+    setShowTemplates(false);
+    toast.success(`Vorlage „${t.name}" angewendet`);
+  }
 
   useEffect(() => {
     if (!open || step !== 2 || !formData.department) {
@@ -221,6 +240,41 @@ export function NewCaseDialog({ open, onOpenChange, onSuccess }: NewCaseDialogPr
 
         {step === 1 && (
           <div className="space-y-4">
+            {/* Template quick-fill */}
+            {templates.length > 0 && (
+              <div className="rounded-md border border-dashed border-border p-3">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-sm font-medium flex items-center gap-1.5">
+                    <LayoutTemplate className="size-4 text-muted-foreground" />
+                    Vorlage verwenden
+                  </span>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => setShowTemplates((v) => !v)}
+                  >
+                    {showTemplates ? "Ausblenden" : `${templates.length} Vorlagen`}
+                  </Button>
+                </div>
+                {showTemplates && (
+                  <div className="space-y-1.5 max-h-40 overflow-y-auto">
+                    {templates.map((t) => (
+                      <button
+                        key={t.id}
+                        type="button"
+                        className="w-full text-left rounded-md px-3 py-2 text-sm hover:bg-muted transition-colors flex items-center justify-between gap-2"
+                        onClick={() => applyTemplate(t)}
+                      >
+                        <span className="font-medium truncate">{t.name}</span>
+                        <span className="text-xs text-muted-foreground shrink-0">{t.caseType}</span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+
             {/* Title */}
             <div className="space-y-2">
               <Label htmlFor="title">

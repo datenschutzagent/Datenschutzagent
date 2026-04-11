@@ -1507,3 +1507,364 @@ export async function getAppConfig(): Promise<ApiAppConfig> {
   if (!res.ok) throw new Error("Failed to load app config");
   return res.json() as Promise<ApiAppConfig>;
 }
+
+// ---------------------------------------------------------------------------
+// Datenpannen-Management (Art. 33/34 DSGVO)
+// ---------------------------------------------------------------------------
+
+export interface ApiDataBreach {
+  id: string;
+  title: string;
+  description: string | null;
+  discoveredAt: string;
+  notificationDeadline: string;
+  breachType: "confidentiality" | "integrity" | "availability";
+  affectedDataCategories: string[];
+  affectedPersonsCount: number | null;
+  department: string | null;
+  assignee: string;
+  status: "discovered" | "assessed" | "reported_to_authority" | "reported_to_subjects" | "closed" | "no_notification_required";
+  riskLevel: "low" | "medium" | "high" | "critical" | null;
+  authorityNotifiedAt: string | null;
+  subjectsNotifiedAt: string | null;
+  authorityReference: string | null;
+  measuresTaken: string | null;
+  draftNotification: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ApiDataBreachActivity {
+  id: string;
+  breachId: string;
+  eventType: string;
+  payload: Record<string, unknown>;
+  createdAt: string;
+}
+
+export interface DataBreachCreate {
+  title: string;
+  description?: string;
+  discovered_at: string;
+  breach_type: "confidentiality" | "integrity" | "availability";
+  affected_data_categories?: string[];
+  affected_persons_count?: number;
+  department?: string;
+  assignee?: string;
+  risk_level?: "low" | "medium" | "high" | "critical";
+  measures_taken?: string;
+}
+
+export interface DataBreachUpdate {
+  title?: string;
+  description?: string;
+  status?: string;
+  breach_type?: string;
+  affected_data_categories?: string[];
+  affected_persons_count?: number;
+  department?: string;
+  assignee?: string;
+  risk_level?: string;
+  authority_notified_at?: string;
+  subjects_notified_at?: string;
+  authority_reference?: string;
+  measures_taken?: string;
+}
+
+function mapDataBreach(d: Record<string, unknown>): ApiDataBreach {
+  return deepSnakeToCamel(d) as unknown as ApiDataBreach;
+}
+
+export async function listDataBreaches(params: {
+  status?: string;
+  riskLevel?: string;
+  department?: string;
+  overdueOnly?: boolean;
+  skip?: number;
+  limit?: number;
+} = {}): Promise<{ items: ApiDataBreach[]; total: number }> {
+  const q = new URLSearchParams();
+  if (params.status) q.set("status", params.status);
+  if (params.riskLevel) q.set("risk_level", params.riskLevel);
+  if (params.department) q.set("department", params.department);
+  if (params.overdueOnly) q.set("overdue_only", "true");
+  if (params.skip != null) q.set("skip", String(params.skip));
+  if (params.limit != null) q.set("limit", String(params.limit));
+  const qs = q.toString();
+  const r = await request<Record<string, unknown>>("GET", `/data-breaches${qs ? "?" + qs : ""}`);
+  const items = ((r.items as Record<string, unknown>[]) ?? []).map(mapDataBreach);
+  return { items, total: Number(r.total ?? 0) };
+}
+
+export async function createDataBreach(body: DataBreachCreate): Promise<ApiDataBreach> {
+  return mapDataBreach(
+    await request<Record<string, unknown>>("POST", "/data-breaches", body)
+  );
+}
+
+export async function getDataBreach(id: string): Promise<ApiDataBreach> {
+  return mapDataBreach(await request<Record<string, unknown>>("GET", `/data-breaches/${id}`));
+}
+
+export async function updateDataBreach(id: string, body: DataBreachUpdate): Promise<ApiDataBreach> {
+  return mapDataBreach(
+    await request<Record<string, unknown>>("PATCH", `/data-breaches/${id}`, body)
+  );
+}
+
+export async function deleteDataBreach(id: string): Promise<void> {
+  await request<void>("DELETE", `/data-breaches/${id}`);
+}
+
+export async function generateBreachNotification(id: string): Promise<ApiDataBreach> {
+  return mapDataBreach(
+    await request<Record<string, unknown>>("POST", `/data-breaches/${id}/generate-notification`)
+  );
+}
+
+export async function getDataBreachActivity(id: string): Promise<ApiDataBreachActivity[]> {
+  const list = (await request<Record<string, unknown>[]>("GET", `/data-breaches/${id}/activity`)) ?? [];
+  return list.map((a) => deepSnakeToCamel(a) as unknown as ApiDataBreachActivity);
+}
+
+// ---------------------------------------------------------------------------
+// AVV-Management (Art. 28 DSGVO)
+// ---------------------------------------------------------------------------
+
+export interface ApiAVVContract {
+  id: string;
+  partnerName: string;
+  partnerType: "processor" | "sub_processor";
+  subjectMatter: string | null;
+  department: string | null;
+  status: "pending" | "under_review" | "signed" | "expired" | "terminated";
+  contractDate: string | null;
+  expiryDate: string | null;
+  assignee: string;
+  documentName: string | null;
+  notes: string | null;
+  checkResult: Record<string, unknown> | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface AVVCreate {
+  partner_name: string;
+  partner_type?: "processor" | "sub_processor";
+  subject_matter?: string;
+  department?: string;
+  assignee?: string;
+  contract_date?: string;
+  expiry_date?: string;
+  notes?: string;
+}
+
+export interface AVVUpdate {
+  partner_name?: string;
+  partner_type?: string;
+  subject_matter?: string;
+  department?: string;
+  status?: string;
+  assignee?: string;
+  contract_date?: string;
+  expiry_date?: string;
+  notes?: string;
+}
+
+function mapAVV(d: Record<string, unknown>): ApiAVVContract {
+  return deepSnakeToCamel(d) as unknown as ApiAVVContract;
+}
+
+export async function listAVVContracts(params: {
+  status?: string;
+  department?: string;
+  partnerType?: string;
+  expiringSoon?: boolean;
+} = {}): Promise<{ items: ApiAVVContract[]; total: number }> {
+  const q = new URLSearchParams();
+  if (params.status) q.set("status", params.status);
+  if (params.department) q.set("department", params.department);
+  if (params.partnerType) q.set("partner_type", params.partnerType);
+  if (params.expiringSoon) q.set("expiring_soon", "true");
+  const qs = q.toString();
+  const r = await request<Record<string, unknown>>("GET", `/avv${qs ? "?" + qs : ""}`);
+  const items = ((r.items as Record<string, unknown>[]) ?? []).map(mapAVV);
+  return { items, total: Number(r.total ?? 0) };
+}
+
+export async function createAVVContract(body: AVVCreate): Promise<ApiAVVContract> {
+  return mapAVV(await request<Record<string, unknown>>("POST", "/avv", body));
+}
+
+export async function updateAVVContract(id: string, body: AVVUpdate): Promise<ApiAVVContract> {
+  return mapAVV(await request<Record<string, unknown>>("PATCH", `/avv/${id}`, body));
+}
+
+export async function deleteAVVContract(id: string): Promise<void> {
+  await request<void>("DELETE", `/avv/${id}`);
+}
+
+// ---------------------------------------------------------------------------
+// TOM-Katalog (Art. 32 DSGVO)
+// ---------------------------------------------------------------------------
+
+export type TOMCategory =
+  | "access_control" | "encryption" | "pseudonymization" | "availability"
+  | "integrity" | "confidentiality" | "resilience" | "testing" | "incident_response" | "other";
+export type TOMStatus = "planned" | "in_progress" | "implemented" | "not_applicable";
+
+export interface ApiTOM {
+  id: string;
+  title: string;
+  description: string | null;
+  category: TOMCategory;
+  implementationStatus: TOMStatus;
+  responsible: string;
+  reviewDate: string | null;
+  evidence: string | null;
+  departmentCodes: string[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ApiTOMStats {
+  total: number;
+  byStatus: Record<string, number>;
+  byCategory: Record<string, number>;
+  implementationRate: number;
+}
+
+export interface TOMCreate {
+  title: string;
+  description?: string;
+  category: TOMCategory;
+  implementation_status?: TOMStatus;
+  responsible?: string;
+  review_date?: string;
+  evidence?: string;
+  department_codes?: string[];
+}
+
+export interface TOMUpdate {
+  title?: string;
+  description?: string;
+  category?: TOMCategory;
+  implementation_status?: TOMStatus;
+  responsible?: string;
+  review_date?: string;
+  evidence?: string;
+  department_codes?: string[];
+}
+
+function mapTOM(d: Record<string, unknown>): ApiTOM {
+  return deepSnakeToCamel(d) as unknown as ApiTOM;
+}
+
+export async function listTOMs(params: {
+  category?: string;
+  implementationStatus?: string;
+  departmentCode?: string;
+} = {}): Promise<{ items: ApiTOM[]; total: number }> {
+  const q = new URLSearchParams();
+  if (params.category) q.set("category", params.category);
+  if (params.implementationStatus) q.set("implementation_status", params.implementationStatus);
+  if (params.departmentCode) q.set("department_code", params.departmentCode);
+  const qs = q.toString();
+  const r = await request<Record<string, unknown>>("GET", `/tom${qs ? "?" + qs : ""}`);
+  const items = ((r.items as Record<string, unknown>[]) ?? []).map(mapTOM);
+  return { items, total: Number(r.total ?? 0) };
+}
+
+export async function getTOMStats(): Promise<ApiTOMStats> {
+  const r = await request<Record<string, unknown>>("GET", "/tom/stats");
+  return deepSnakeToCamel(r) as unknown as ApiTOMStats;
+}
+
+export async function createTOM(body: TOMCreate): Promise<ApiTOM> {
+  return mapTOM(await request<Record<string, unknown>>("POST", "/tom", body));
+}
+
+export async function updateTOM(id: string, body: TOMUpdate): Promise<ApiTOM> {
+  return mapTOM(await request<Record<string, unknown>>("PATCH", `/tom/${id}`, body));
+}
+
+export async function deleteTOM(id: string): Promise<void> {
+  await request<void>("DELETE", `/tom/${id}`);
+}
+
+// ---------------------------------------------------------------------------
+// Vorgangs-Vorlagen (Case Templates)
+// ---------------------------------------------------------------------------
+
+export interface ApiCaseTemplate {
+  id: string;
+  name: string;
+  description: string | null;
+  caseType: string;
+  department: string | null;
+  language: string;
+  processingContext: string | null;
+  specialCategoryData: boolean;
+  internationalTransfer: boolean;
+  isBuiltin: boolean;
+  createdBy: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CaseTemplateCreate {
+  name: string;
+  description?: string;
+  case_type: string;
+  department?: string;
+  language?: string;
+  processing_context?: string;
+  special_category_data?: boolean;
+  international_transfer?: boolean;
+}
+
+export interface CaseTemplateApply {
+  template_id: string;
+  title: string;
+  assignee?: string;
+  deadline?: string;
+}
+
+function mapCaseTemplate(d: Record<string, unknown>): ApiCaseTemplate {
+  return deepSnakeToCamel(d) as unknown as ApiCaseTemplate;
+}
+
+export async function listCaseTemplates(params: {
+  caseType?: string;
+  department?: string;
+} = {}): Promise<ApiCaseTemplate[]> {
+  const q = new URLSearchParams();
+  if (params.caseType) q.set("case_type", params.caseType);
+  if (params.department) q.set("department", params.department);
+  const qs = q.toString();
+  const list = (await request<Record<string, unknown>[]>("GET", `/case-templates${qs ? "?" + qs : ""}`)) ?? [];
+  return list.map(mapCaseTemplate);
+}
+
+export async function createCaseTemplate(body: CaseTemplateCreate): Promise<ApiCaseTemplate> {
+  return mapCaseTemplate(await request<Record<string, unknown>>("POST", "/case-templates", body));
+}
+
+export async function deleteCaseTemplate(id: string): Promise<void> {
+  await request<void>("DELETE", `/case-templates/${id}`);
+}
+
+export async function applyCaseTemplate(body: CaseTemplateApply): Promise<ApiCase> {
+  return mapCase(await request<Record<string, unknown>>("POST", "/case-templates/apply", body));
+}
+
+// --- Audit Trail Export ---
+export async function getAuditTrailExportBlob(caseId: string): Promise<Blob> {
+  const url = `${API_BASE}${API_PREFIX}/cases/${caseId}/activities/export`;
+  const res = await fetch(url, { headers: authHeaders() });
+  if (!res.ok) {
+    const detail = await parseErrorResponse(res);
+    throw new Error(detail);
+  }
+  return res.blob();
+}
