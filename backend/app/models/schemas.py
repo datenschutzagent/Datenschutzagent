@@ -489,3 +489,194 @@ class CaseSimilarityResult(BaseModel):
     overlap_score: float  # 0.0 – 1.0
     shared_check_names: list[str] = []
     resolution_summary: dict[str, int] = Field(default_factory=dict)
+
+
+# --- Case Clone ---
+class CaseCloneRequest(BaseModel):
+    new_title: str = Field(..., min_length=1, max_length=500)
+    new_department: str | None = None
+    adapt_with_llm: bool = False
+
+
+class CaseCloneResponse(BaseModel):
+    case: "CaseResponse"
+    adaptations: dict[str, str] | None = None
+
+
+# --- Findings Stats ---
+class FindingTrendItem(BaseModel):
+    month: str  # ISO format YYYY-MM
+    critical: int = 0
+    high: int = 0
+    medium: int = 0
+    low: int = 0
+    info: int = 0
+
+
+class FindingsByDepartment(BaseModel):
+    department: str
+    critical: int = 0
+    high: int = 0
+    medium: int = 0
+    low: int = 0
+    info: int = 0
+    total: int = 0
+
+
+class TopFailingCheck(BaseModel):
+    check_name: str
+    category: str
+    count: int
+    severity_breakdown: dict[str, int] = Field(default_factory=dict)
+
+
+class FindingStatsResponse(BaseModel):
+    by_severity: dict[str, int] = Field(default_factory=dict)
+    by_category: dict[str, int] = Field(default_factory=dict)
+    by_department: list[FindingsByDepartment] = []
+    top_failing_checks: list[TopFailingCheck] = []
+    trend: list[FindingTrendItem] = []
+
+
+# --- DSFA (Art. 35 DSGVO) ---
+class DSFARisk(BaseModel):
+    description: str
+    likelihood: Literal["low", "medium", "high"]
+    severity: Literal["low", "medium", "high"]
+    mitigation: str
+
+
+class DSFAAssessmentPayload(BaseModel):
+    necessity_assessment: str
+    proportionality_assessment: str
+    risks: list[DSFARisk] = []
+    residual_risk: Literal["low", "medium", "high"]
+    dpo_consultation_required: bool
+    measures: list[str] = []
+
+
+class DSFAResponse(BaseModel):
+    case_id: UUID
+    status: str  # draft | finalized
+    payload: dict[str, Any]
+    generated_at: datetime
+    finalized_at: datetime | None = None
+    finalized_by: str | None = None
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class DSFAJobStatusResponse(BaseModel):
+    job_id: UUID
+    case_id: UUID
+    status: str
+    error: str | None = None
+    created_at: datetime
+    updated_at: datetime
+
+
+class DSFAFinalizeRequest(BaseModel):
+    finalized_by: str = Field(..., min_length=1)
+
+
+# --- Finding Chat ---
+class FindingChatMessageResponse(BaseModel):
+    id: UUID
+    finding_id: UUID
+    case_id: UUID
+    role: str  # user | assistant
+    content: str
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class FindingChatMessageCreate(BaseModel):
+    content: str = Field(..., min_length=1)
+
+
+# --- DSR (Betroffenenrechte Art. 15–22 DSGVO) ---
+DSRRequestTypeEnum = Literal["access", "rectification", "erasure", "portability", "restriction", "objection"]
+DSRStatusEnum = Literal["received", "in_progress", "response_sent", "closed", "denied"]
+
+
+class DSRRequestCreate(BaseModel):
+    request_type: DSRRequestTypeEnum
+    requestor_name: str | None = Field(default=None, max_length=500)
+    requestor_email: str | None = Field(default=None, max_length=320)
+    description: str | None = None
+    department: str | None = Field(default=None, max_length=200)
+    assignee: str = Field(default="", max_length=200)
+    received_at: date
+    deadline_extension_days: int = Field(default=0, ge=0, le=60)
+
+
+class DSRRequestUpdate(BaseModel):
+    status: DSRStatusEnum | None = None
+    assignee: str | None = Field(default=None, max_length=200)
+    response_summary: str | None = None
+    responded_at: date | None = None
+    department: str | None = Field(default=None, max_length=200)
+
+
+class DSRRequestResponse(BaseModel):
+    id: UUID
+    request_type: DSRRequestTypeEnum
+    requestor_name: str | None = None
+    requestor_email: str | None = None
+    description: str | None = None
+    department: str | None = None
+    status: DSRStatusEnum
+    assignee: str
+    received_at: date
+    response_deadline: date
+    responded_at: date | None = None
+    response_summary: str | None = None
+    draft_response: str | None = None
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class DSRActivityResponse(BaseModel):
+    id: UUID
+    request_id: UUID
+    event_type: str
+    payload: dict[str, Any] = Field(default_factory=dict)
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class DSRListResponse(BaseModel):
+    items: list[DSRRequestResponse]
+    total: int
+
+
+# --- Retention ---
+class RetentionPreviewItem(BaseModel):
+    case_id: UUID
+    title: str
+    department: str
+    retention_months: int
+    updated_at: datetime | None = None
+
+
+class RetentionScanResponse(BaseModel):
+    archived_count: int
+    archived: list[RetentionPreviewItem] = []
+
+
+class RetentionPreviewResponse(BaseModel):
+    would_archive_count: int
+    items: list[RetentionPreviewItem] = []
+
+
+# --- Notifications ---
+class NotificationTestResponse(BaseModel):
+    smtp_enabled: bool
+    status: str
+    detail: str | None = None

@@ -10,6 +10,7 @@ from app.config import settings
 from app.core.auth import require_roles
 from app.database import get_db
 from app.models.db import UserModel, orm_to_user_response
+from app.models.schemas import NotificationTestResponse, RetentionPreviewResponse, RetentionScanResponse
 from app.services.connection_checks import check_all_connections
 
 router = APIRouter()
@@ -76,3 +77,78 @@ async def update_user_role(
     await db.flush()
     await db.refresh(user)
     return orm_to_user_response(user)
+
+
+# --- Retention Management ---
+
+@router.get("/retention/preview", response_model=RetentionPreviewResponse, summary="Retention-Vorschau (Dry-Run)")
+async def retention_preview(
+    db: AsyncSession = Depends(get_db),
+    _user=require_roles("admin"),
+):
+    """Zeigt Vorgänge, die beim nächsten Retention-Scan archiviert würden (Dry-Run, keine Änderungen)."""
+    from app.services.retention_service import scan_cases_for_retention
+    from uuid import UUID as _UUID
+    items_raw = await scan_cases_for_retention(db, dry_run=True)
+    from app.models.schemas import RetentionPreviewItem
+    items = [
+        RetentionPreviewItem(
+            case_id=_UUID(i["case_id"]),
+            title=i["title"],
+            department=i["department"],
+            retention_months=i["retention_months"],
+            updated_at=i["updated_at"],
+        )
+        for i in items_raw
+    ]
+    return RetentionPreviewResponse(would_archive_count=len(items), items=items)
+
+
+@router.post("/retention/scan", response_model=RetentionScanResponse, summary="Retention-Scan auslösen")
+async def trigger_retention_scan(
+    db: AsyncSession = Depends(get_db),
+    _user=require_roles("admin"),
+):
+    """Führt sofort einen Retention-Scan durch und archiviert fällige Vorgänge."""
+    from app.services.retention_service import scan_cases_for_retention
+    from uuid import UUID as _UUID
+    items_raw = await scan_cases_for_retention(db, dry_run=False)
+    from app.models.schemas import RetentionPreviewItem
+    items = [
+        RetentionPreviewItem(
+            case_id=_UUID(i["case_id"]),
+            title=i["title"],
+            department=i["department"],
+            retention_months=i["retention_months"],
+            updated_at=i["updated_at"],
+        )
+        for i in items_raw
+    ]
+    return RetentionScanResponse(archived_count=len(items), archived=items)
+
+
+# --- Benachrichtigungs-Test ---
+
+@router.get("/notifications/test-smtp", response_model=NotificationTestResponse, summary="SMTP-Verbindung testen")
+def test_smtp(
+    _user=require_roles("admin"),
+):
+    """Testet die SMTP-Verbindung für E-Mail-Benachrichtigungen."""
+    from app.services.notification_service import test_smtp_connection
+    result = test_smtp_connection()
+    return NotificationTestResponse(
+        smtp_enabled=settings.smtp_enabled,
+        status=result["status"],
+        detail=result.get("detail"),
+    )
+
+
+@router.post("/notifications/scan-deadlines", summary="Frist-Benachrichtigungen sofort versenden")
+async def trigger_deadline_notifications(
+    db: AsyncSession = Depends(get_db),
+    _user=require_roles("admin"),
+):
+    """Scannt Fristen und sendet E-Mail-Benachrichtigungen sofort (ohne auf den Celery-Beat-Job zu warten)."""
+    from app.services.notification_service import scan_and_notify_deadlines
+    result = await scan_and_notify_deadlines(db)
+    return result

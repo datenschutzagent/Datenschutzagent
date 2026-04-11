@@ -98,6 +98,16 @@ class Settings(BaseSettings):
     llm_cache_enabled: bool = False  # set True to activate; requires Redis (celery_broker_url)
     llm_cache_ttl: int = 86400       # seconds (default: 24 h)
 
+    # SMTP / E-Mail-Benachrichtigungen (optional)
+    smtp_enabled: bool = False
+    smtp_host: str = "localhost"
+    smtp_port: int = 587
+    smtp_username: str = ""
+    smtp_password: str = ""
+    smtp_from_address: str = "datenschutzagent@example.org"
+    smtp_tls: bool = True
+    notification_deadline_warning_days: int = 7  # Warnung X Tage vor Fristablauf
+
     # Weaviate (optional; RAG document checks)
     weaviate_url: str = "http://localhost:8080"
     weaviate_indexing_enabled: bool = False

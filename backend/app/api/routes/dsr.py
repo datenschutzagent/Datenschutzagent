@@ -1,0 +1,208 @@
+"""DSR API: Betroffenenrechts-Anfragen (Art. 15–22 DSGVO) verwalten."""
+import logging
+from datetime import date, timedelta
+from uuid import UUID
+
+from fastapi import APIRouter, Depends, HTTPException, Query
+from sqlalchemy import func, select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.core.auth import require_roles
+from app.database import get_db
+from app.models.db import (
+    DSRActivityLogModel,
+    DSRRequestModel,
+    UserModel,
+    orm_to_dsr_activity_response,
+    orm_to_dsr_request_response,
+)
+from app.models.schemas import (
+    DSRActivityResponse,
+    DSRListResponse,
+    DSRRequestCreate,
+    DSRRequestResponse,
+    DSRRequestUpdate,
+)
+
+router = APIRouter()
+logger = logging.getLogger(__name__)
+
+_DEFAULT_DEADLINE_DAYS = 30  # Art. 12 Abs. 3 DSGVO
+
+
+@router.get("", response_model=DSRListResponse, summary="DSR-Anfragen auflisten")
+async def list_dsr_requests(
+    status: str | None = Query(default=None),
+    request_type: str | None = Query(default=None),
+    assignee: str | None = Query(default=None),
+    overdue_only: bool = Query(default=False, description="Nur überfällige Anfragen"),
+    skip: int = Query(default=0, ge=0),
+    limit: int = Query(default=100, ge=1, le=500),
+    db: AsyncSession = Depends(get_db),
+    _user=require_roles("viewer", "editor", "admin"),
+):
+    """Listet DSR-Anfragen mit optionalen Filtern."""
+    q = select(DSRRequestModel)
+    if status:
+        q = q.where(DSRRequestModel.status == status)
+    if request_type:
+        q = q.where(DSRRequestModel.request_type == request_type)
+    if assignee:
+        q = q.where(DSRRequestModel.assignee.ilike(f"%{assignee}%"))
+    if overdue_only:
+        today = date.today()
+        q = q.where(
+            DSRRequestModel.response_deadline < today,
+            DSRRequestModel.status.notin_(["closed", "response_sent", "denied"]),
+        )
+
+    count_q = select(func.count()).select_from(q.subquery())
+    total = (await db.execute(count_q)).scalar_one()
+
+    q = q.order_by(DSRRequestModel.response_deadline.asc()).offset(skip).limit(limit)
+    result = await db.execute(q)
+    items = [DSRRequestResponse(**orm_to_dsr_request_response(r)) for r in result.scalars().all()]
+
+    return DSRListResponse(items=items, total=total)
+
+
+@router.post("", response_model=DSRRequestResponse, status_code=201, summary="DSR-Anfrage erstellen")
+async def create_dsr_request(
+    body: DSRRequestCreate,
+    db: AsyncSession = Depends(get_db),
+    _user=require_roles("editor", "admin"),
+):
+    """Erstellt eine neue Betroffenenrechts-Anfrage."""
+    deadline_days = _DEFAULT_DEADLINE_DAYS + body.deadline_extension_days
+    response_deadline = body.received_at + timedelta(days=deadline_days)
+
+    request = DSRRequestModel(
+        request_type=body.request_type,
+        requestor_name=body.requestor_name,
+        requestor_email=body.requestor_email,
+        description=body.description,
+        department=body.department,
+        assignee=body.assignee,
+        received_at=body.received_at,
+        response_deadline=response_deadline,
+    )
+    db.add(request)
+    await db.flush()
+
+    activity = DSRActivityLogModel(
+        request_id=request.id,
+        event_type="created",
+        payload={"request_type": body.request_type, "deadline": response_deadline.isoformat()},
+    )
+    db.add(activity)
+    await db.flush()
+    await db.refresh(request)
+    return DSRRequestResponse(**orm_to_dsr_request_response(request))
+
+
+@router.get("/{request_id}", response_model=DSRRequestResponse, summary="DSR-Anfrage abrufen")
+async def get_dsr_request(
+    request_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    _user=require_roles("viewer", "editor", "admin"),
+):
+    result = await db.execute(select(DSRRequestModel).where(DSRRequestModel.id == request_id))
+    request = result.scalar_one_or_none()
+    if not request:
+        raise HTTPException(status_code=404, detail="DSR-Anfrage nicht gefunden")
+    return DSRRequestResponse(**orm_to_dsr_request_response(request))
+
+
+@router.patch("/{request_id}", response_model=DSRRequestResponse, summary="DSR-Anfrage aktualisieren")
+async def update_dsr_request(
+    request_id: UUID,
+    body: DSRRequestUpdate,
+    db: AsyncSession = Depends(get_db),
+    _user=require_roles("editor", "admin"),
+):
+    """Aktualisiert Status, Zugewiesenen oder Antwort einer DSR-Anfrage."""
+    result = await db.execute(select(DSRRequestModel).where(DSRRequestModel.id == request_id))
+    request = result.scalar_one_or_none()
+    if not request:
+        raise HTTPException(status_code=404, detail="DSR-Anfrage nicht gefunden")
+
+    old_status = request.status
+    if body.status is not None:
+        request.status = body.status
+    if body.assignee is not None:
+        request.assignee = body.assignee
+    if body.response_summary is not None:
+        request.response_summary = body.response_summary
+    if body.responded_at is not None:
+        request.responded_at = body.responded_at
+    if body.department is not None:
+        request.department = body.department
+
+    actor = _user.display_name if isinstance(_user, UserModel) else "System"
+    payload: dict = {"actor": actor}
+    if body.status and old_status != body.status:
+        payload["old_status"] = old_status
+        payload["new_status"] = body.status
+
+    activity = DSRActivityLogModel(
+        request_id=request_id,
+        event_type="updated",
+        payload=payload,
+    )
+    db.add(activity)
+    await db.flush()
+    await db.refresh(request)
+    return DSRRequestResponse(**orm_to_dsr_request_response(request))
+
+
+@router.delete("/{request_id}", status_code=204, summary="DSR-Anfrage löschen")
+async def delete_dsr_request(
+    request_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    _user=require_roles("admin"),
+):
+    result = await db.execute(select(DSRRequestModel).where(DSRRequestModel.id == request_id))
+    request = result.scalar_one_or_none()
+    if not request:
+        raise HTTPException(status_code=404, detail="DSR-Anfrage nicht gefunden")
+    await db.delete(request)
+    await db.flush()
+
+
+@router.post("/{request_id}/generate-draft", response_model=DSRRequestResponse, summary="Antwortschreiben-Entwurf generieren")
+async def generate_response_draft(
+    request_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    _user=require_roles("editor", "admin"),
+):
+    """Generiert per LLM einen Entwurf für das Antwortschreiben."""
+    result = await db.execute(select(DSRRequestModel).where(DSRRequestModel.id == request_id))
+    request = result.scalar_one_or_none()
+    if not request:
+        raise HTTPException(status_code=404, detail="DSR-Anfrage nicht gefunden")
+
+    from app.services.dsr_response_service import generate_draft_response
+    await generate_draft_response(request_id, db)
+    await db.refresh(request)
+    return DSRRequestResponse(**orm_to_dsr_request_response(request))
+
+
+@router.get("/{request_id}/activity", response_model=list[DSRActivityResponse], summary="Aktivitätsprotokoll abrufen")
+async def get_dsr_activity(
+    request_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    _user=require_roles("viewer", "editor", "admin"),
+):
+    """Gibt das Aktivitätsprotokoll einer DSR-Anfrage zurück."""
+    result = await db.execute(
+        select(DSRRequestModel).where(DSRRequestModel.id == request_id)
+    )
+    if result.scalar_one_or_none() is None:
+        raise HTTPException(status_code=404, detail="DSR-Anfrage nicht gefunden")
+
+    log_result = await db.execute(
+        select(DSRActivityLogModel)
+        .where(DSRActivityLogModel.request_id == request_id)
+        .order_by(DSRActivityLogModel.created_at.asc())
+    )
+    return [DSRActivityResponse(**orm_to_dsr_activity_response(e)) for e in log_result.scalars().all()]

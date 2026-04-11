@@ -1,16 +1,17 @@
-"""Celery app and tasks for async jobs (document extraction, run_checks)."""
+"""Celery app and tasks for async jobs (document extraction, run_checks, DSFA, retention, notifications)."""
 import asyncio
 import logging
 import uuid
 from uuid import UUID
 
 from celery import Celery
+from celery.schedules import crontab
 from sqlalchemy import create_engine, select, update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.config import settings
-from app.models.db import ActivityLogModel, CaseModel, DocumentModel, DSBReportJobModel, PlaybookModel, RunChecksJobModel
+from app.models.db import ActivityLogModel, CaseModel, DocumentModel, DSBReportJobModel, DSFAJobModel, PlaybookModel, RunChecksJobModel
 from app.services.run_checks_service import run_checks_impl
 from app.services.dsb_report_service import build_dsb_report, save_report
 from app.storage import get_file
@@ -30,6 +31,16 @@ celery_app.conf.update(
     accept_content=["json"],
     result_serializer="json",
     task_routes={"app.celery_app.extract_document_text": "extraction"},
+    beat_schedule={
+        "retention-scan-nightly": {
+            "task": "app.celery_app.retention_scan_task",
+            "schedule": crontab(hour=2, minute=0),  # täglich um 02:00 Uhr
+        },
+        "deadline-notifications-daily": {
+            "task": "app.celery_app.deadline_notifications_task",
+            "schedule": crontab(hour=7, minute=0),  # täglich um 07:00 Uhr
+        },
+    },
 )
 
 # Sync engine/session for worker only (lazy so API process does not need psycopg2 connection)
@@ -342,3 +353,108 @@ def _set_dsb_report_job_failed(job_id: str, error_message: str) -> None:
         raise
     finally:
         session.close()
+
+
+# ---------------------------------------------------------------------------
+# DSFA-Task
+# ---------------------------------------------------------------------------
+
+async def _build_dsfa_async(job_id: str) -> None:
+    """Lädt DSFA-Job, generiert die DSFA via LLM und persistiert das Ergebnis."""
+    session_factory = _get_async_session_factory()
+    async with session_factory() as session:
+        result = await session.execute(select(DSFAJobModel).where(DSFAJobModel.id == UUID(job_id)))
+        job = result.scalar_one_or_none()
+        if not job or job.status != "running":
+            return
+        from app.services.dsfa_service import generate_dsfa, save_dsfa
+        payload = await generate_dsfa(job.case_id, session)
+        await save_dsfa(job.case_id, payload, session)
+        job.status = "completed"
+        job.error = None
+        await session.commit()
+
+
+@celery_app.task(name="app.celery_app.build_dsfa_task", bind=True)
+def build_dsfa_task(self, job_id: str) -> dict:
+    """Generiert DSFA für einen dsfa_jobs-Eintrag asynchron."""
+    logger.info("build_dsfa_task started", extra={"job_id": job_id})
+    try:
+        asyncio.run(_build_dsfa_async(job_id))
+        logger.info("build_dsfa_task done", extra={"job_id": job_id})
+        return {"ok": True, "job_id": job_id}
+    except Exception as e:
+        err_msg = str(e)
+        logger.error("build_dsfa_task failed", extra={"job_id": job_id, "error": err_msg})
+        _set_dsfa_job_failed(job_id, err_msg)
+        return {"ok": False, "error": err_msg}
+
+
+def _set_dsfa_job_failed(job_id: str, error_message: str) -> None:
+    """Update dsfa_jobs row to status=failed. Uses sync session."""
+    session: Session = _get_session_factory()()
+    try:
+        row = session.execute(select(DSFAJobModel).where(DSFAJobModel.id == UUID(job_id))).scalar_one_or_none()
+        if row:
+            row.status = "failed"
+            row.error = error_message
+            session.commit()
+    except Exception:
+        session.rollback()
+        raise
+    finally:
+        session.close()
+
+
+# ---------------------------------------------------------------------------
+# Retention-Scan-Task (Celery Beat, nächtlich)
+# ---------------------------------------------------------------------------
+
+@celery_app.task(name="app.celery_app.retention_scan_task", bind=True)
+def retention_scan_task(self) -> dict:
+    """Archiviert fällige Vorgänge gemäß Aufbewahrungsfrist. Läuft täglich via Celery Beat."""
+    logger.info("retention_scan_task started")
+    try:
+        result = asyncio.run(_retention_scan_async())
+        logger.info("retention_scan_task done", extra={"archived": result.get("archived_count", 0)})
+        return {"ok": True, **result}
+    except Exception as e:
+        err_msg = str(e)
+        logger.error("retention_scan_task failed", extra={"error": err_msg})
+        return {"ok": False, "error": err_msg}
+
+
+async def _retention_scan_async() -> dict:
+    session_factory = _get_async_session_factory()
+    async with session_factory() as session:
+        from app.services.retention_service import scan_cases_for_retention
+        archived = await scan_cases_for_retention(session, dry_run=False)
+        await session.commit()
+        return {"archived_count": len(archived)}
+
+
+# ---------------------------------------------------------------------------
+# Deadline-Benachrichtigungs-Task (Celery Beat, täglich)
+# ---------------------------------------------------------------------------
+
+@celery_app.task(name="app.celery_app.deadline_notifications_task", bind=True)
+def deadline_notifications_task(self) -> dict:
+    """Scannt Fristen und sendet E-Mail-Benachrichtigungen. Läuft täglich via Celery Beat."""
+    logger.info("deadline_notifications_task started")
+    try:
+        result = asyncio.run(_deadline_notifications_async())
+        logger.info("deadline_notifications_task done", extra={"sent": result.get("sent", 0)})
+        return {"ok": True, **result}
+    except Exception as e:
+        err_msg = str(e)
+        logger.error("deadline_notifications_task failed", extra={"error": err_msg})
+        return {"ok": False, "error": err_msg}
+
+
+async def _deadline_notifications_async() -> dict:
+    session_factory = _get_async_session_factory()
+    async with session_factory() as session:
+        from app.services.notification_service import scan_and_notify_deadlines
+        result = await scan_and_notify_deadlines(session)
+        await session.commit()
+        return result

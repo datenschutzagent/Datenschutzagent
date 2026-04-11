@@ -259,6 +259,88 @@ class DSBReportJobModel(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
 
+class DSFAAssessmentModel(Base):
+    """DSFA (Datenschutz-Folgenabschätzung, Art. 35 DSGVO) per case."""
+    __tablename__ = "dsfa_assessments"
+
+    case_id: Mapped[uuid.UUID] = mapped_column(PG_UUID(as_uuid=True), ForeignKey("cases.id", ondelete="CASCADE"), primary_key=True)
+    status: Mapped[str] = mapped_column(String(30), nullable=False, default="draft")  # draft | finalized
+    payload: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
+    generated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    finalized_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    finalized_by: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+
+
+class DSFAJobModel(Base):
+    """Async DSFA generation job tracking."""
+    __tablename__ = "dsfa_jobs"
+    __table_args__ = (Index("ix_dsfa_jobs_case_id", "case_id"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(PG_UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    case_id: Mapped[uuid.UUID] = mapped_column(PG_UUID(as_uuid=True), ForeignKey("cases.id", ondelete="CASCADE"), nullable=False)
+    status: Mapped[str] = mapped_column(String(20), nullable=False)  # running | completed | failed
+    celery_task_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+
+
+class FindingChatMessageModel(Base):
+    """LLM chat messages per finding (finding remediation assistant)."""
+    __tablename__ = "finding_chat_messages"
+    __table_args__ = (Index("ix_finding_chat_messages_finding_id", "finding_id"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(PG_UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    finding_id: Mapped[uuid.UUID] = mapped_column(PG_UUID(as_uuid=True), ForeignKey("findings.id", ondelete="CASCADE"), nullable=False)
+    case_id: Mapped[uuid.UUID] = mapped_column(PG_UUID(as_uuid=True), ForeignKey("cases.id", ondelete="CASCADE"), nullable=False)
+    role: Mapped[str] = mapped_column(String(20), nullable=False)  # user | assistant
+    content: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+
+
+class DSRRequestModel(Base):
+    """Betroffenenrechts-Anfragen (Art. 15–22 DSGVO)."""
+    __tablename__ = "dsr_requests"
+    __table_args__ = (
+        Index("ix_dsr_requests_status", "status"),
+        Index("ix_dsr_requests_response_deadline", "response_deadline"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(PG_UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    request_type: Mapped[str] = mapped_column(String(50), nullable=False)  # access|rectification|erasure|portability|restriction|objection
+    requestor_name: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    requestor_email: Mapped[str | None] = mapped_column(String(320), nullable=True)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    department: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    status: Mapped[str] = mapped_column(String(30), nullable=False, default="received")  # received|in_progress|response_sent|closed|denied
+    assignee: Mapped[str] = mapped_column(String(200), nullable=False, default="")
+    received_at: Mapped[date] = mapped_column(Date, nullable=False)
+    response_deadline: Mapped[date] = mapped_column(Date, nullable=False)
+    responded_at: Mapped[date | None] = mapped_column(Date, nullable=True)
+    response_summary: Mapped[str | None] = mapped_column(Text, nullable=True)
+    draft_response: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+
+    activity_logs: Mapped[list["DSRActivityLogModel"]] = relationship("DSRActivityLogModel", back_populates="request", cascade="all, delete-orphan")
+
+
+class DSRActivityLogModel(Base):
+    """Aktivitätsprotokoll für DSR-Anfragen."""
+    __tablename__ = "dsr_activity_log"
+    __table_args__ = (Index("ix_dsr_activity_log_request_id", "request_id"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(PG_UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    request_id: Mapped[uuid.UUID] = mapped_column(PG_UUID(as_uuid=True), ForeignKey("dsr_requests.id", ondelete="CASCADE"), nullable=False)
+    event_type: Mapped[str] = mapped_column(String(80), nullable=False)
+    payload: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+
+    request: Mapped["DSRRequestModel"] = relationship("DSRRequestModel", back_populates="activity_logs")
+
+
 def orm_to_user_response(orm: UserModel) -> dict[str, Any]:
     """Map UserModel to API response shape."""
     return {
@@ -422,5 +504,63 @@ def orm_to_prompt_template_response(orm: PromptTemplateModel) -> dict[str, Any]:
         "version": orm.version,
         "content": orm.content,
         "is_active": orm.is_active,
+        "created_at": orm.created_at,
+    }
+
+
+def orm_to_dsfa_response(orm: DSFAAssessmentModel) -> dict[str, Any]:
+    """Map DSFAAssessmentModel to API response shape."""
+    return {
+        "case_id": orm.case_id,
+        "status": orm.status,
+        "payload": orm.payload or {},
+        "generated_at": orm.generated_at,
+        "finalized_at": orm.finalized_at,
+        "finalized_by": orm.finalized_by,
+        "created_at": orm.created_at,
+        "updated_at": orm.updated_at,
+    }
+
+
+def orm_to_finding_chat_message_response(orm: FindingChatMessageModel) -> dict[str, Any]:
+    """Map FindingChatMessageModel to API response shape."""
+    return {
+        "id": orm.id,
+        "finding_id": orm.finding_id,
+        "case_id": orm.case_id,
+        "role": orm.role,
+        "content": orm.content,
+        "created_at": orm.created_at,
+    }
+
+
+def orm_to_dsr_request_response(orm: DSRRequestModel) -> dict[str, Any]:
+    """Map DSRRequestModel to API response shape."""
+    return {
+        "id": orm.id,
+        "request_type": orm.request_type,
+        "requestor_name": orm.requestor_name,
+        "requestor_email": orm.requestor_email,
+        "description": orm.description,
+        "department": orm.department,
+        "status": orm.status,
+        "assignee": orm.assignee,
+        "received_at": orm.received_at,
+        "response_deadline": orm.response_deadline,
+        "responded_at": orm.responded_at,
+        "response_summary": orm.response_summary,
+        "draft_response": orm.draft_response,
+        "created_at": orm.created_at,
+        "updated_at": orm.updated_at,
+    }
+
+
+def orm_to_dsr_activity_response(orm: DSRActivityLogModel) -> dict[str, Any]:
+    """Map DSRActivityLogModel to API response shape."""
+    return {
+        "id": orm.id,
+        "request_id": orm.request_id,
+        "event_type": orm.event_type,
+        "payload": orm.payload or {},
         "created_at": orm.created_at,
     }

@@ -8,7 +8,7 @@ from uuid import UUID
 from docx import Document as DocxDocument
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import Response
-from sqlalchemy import func, select
+from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -18,24 +18,151 @@ from app.models.db import (
     ActivityLogModel,
     CaseModel,
     DocumentModel,
+    FindingChatMessageModel,
     FindingCommentModel,
     FindingModel,
     UserModel,
+    orm_to_finding_chat_message_response,
     orm_to_finding_comment_response,
     orm_to_finding_response,
 )
 from app.models.schemas import (
     FindingBulkUpdate,
+    FindingChatMessageCreate,
+    FindingChatMessageResponse,
     FindingCommentCreate,
     FindingCommentResponse,
     FindingListResponse,
     FindingResponse,
+    FindingStatsResponse,
+    FindingTrendItem,
+    FindingsByDepartment,
+    TopFailingCheck,
     FindingUpdate,
 )
 
 router = APIRouter()
 
 EXPORT_MAX = 5000
+
+
+@router.get("/stats", response_model=FindingStatsResponse, summary="Befund-Statistiken abrufen")
+async def get_findings_stats(
+    db: AsyncSession = Depends(get_db),
+    _user=require_roles("viewer", "editor", "admin"),
+):
+    """Aggregierte Befund-Statistiken: nach Schweregrad, Kategorie, Abteilung, Top-Checks und Zeitverlauf (6 Monate)."""
+
+    # Nach Schweregrad
+    sev_result = await db.execute(
+        select(FindingModel.severity, func.count(FindingModel.id))
+        .where(FindingModel.status == "open")
+        .group_by(FindingModel.severity)
+    )
+    by_severity = {row[0]: row[1] for row in sev_result.all()}
+
+    # Nach Kategorie
+    cat_result = await db.execute(
+        select(FindingModel.category, func.count(FindingModel.id))
+        .where(FindingModel.status == "open")
+        .group_by(FindingModel.category)
+        .order_by(func.count(FindingModel.id).desc())
+        .limit(20)
+    )
+    by_category = {row[0]: row[1] for row in cat_result.all()}
+
+    # Nach Abteilung (Join über cases)
+    dept_result = await db.execute(text("""
+        SELECT c.department,
+               SUM(CASE WHEN f.severity = 'critical' THEN 1 ELSE 0 END) AS critical,
+               SUM(CASE WHEN f.severity = 'high'     THEN 1 ELSE 0 END) AS high,
+               SUM(CASE WHEN f.severity = 'medium'   THEN 1 ELSE 0 END) AS medium,
+               SUM(CASE WHEN f.severity = 'low'      THEN 1 ELSE 0 END) AS low,
+               SUM(CASE WHEN f.severity = 'info'     THEN 1 ELSE 0 END) AS info,
+               COUNT(*) AS total
+        FROM findings f
+        JOIN cases c ON c.id = f.case_id
+        WHERE f.status = 'open'
+        GROUP BY c.department
+        ORDER BY total DESC
+        LIMIT 20
+    """))
+    by_department = [
+        FindingsByDepartment(
+            department=row[0],
+            critical=row[1],
+            high=row[2],
+            medium=row[3],
+            low=row[4],
+            info=row[5],
+            total=row[6],
+        )
+        for row in dept_result.all()
+    ]
+
+    # Top-Checks mit häufigsten offenen Befunden
+    top_result = await db.execute(text("""
+        SELECT check_name, category,
+               COUNT(*) AS total,
+               SUM(CASE WHEN severity = 'critical' THEN 1 ELSE 0 END) AS critical,
+               SUM(CASE WHEN severity = 'high'     THEN 1 ELSE 0 END) AS high,
+               SUM(CASE WHEN severity = 'medium'   THEN 1 ELSE 0 END) AS medium,
+               SUM(CASE WHEN severity = 'low'      THEN 1 ELSE 0 END) AS low,
+               SUM(CASE WHEN severity = 'info'     THEN 1 ELSE 0 END) AS info
+        FROM findings
+        WHERE status = 'open'
+        GROUP BY check_name, category
+        ORDER BY total DESC
+        LIMIT 10
+    """))
+    top_failing_checks = [
+        TopFailingCheck(
+            check_name=row[0],
+            category=row[1],
+            count=row[2],
+            severity_breakdown={
+                "critical": row[3],
+                "high": row[4],
+                "medium": row[5],
+                "low": row[6],
+                "info": row[7],
+            },
+        )
+        for row in top_result.all()
+    ]
+
+    # Zeitverlauf der letzten 6 Monate
+    trend_result = await db.execute(text("""
+        SELECT TO_CHAR(DATE_TRUNC('month', created_at), 'YYYY-MM') AS month,
+               SUM(CASE WHEN severity = 'critical' THEN 1 ELSE 0 END) AS critical,
+               SUM(CASE WHEN severity = 'high'     THEN 1 ELSE 0 END) AS high,
+               SUM(CASE WHEN severity = 'medium'   THEN 1 ELSE 0 END) AS medium,
+               SUM(CASE WHEN severity = 'low'      THEN 1 ELSE 0 END) AS low,
+               SUM(CASE WHEN severity = 'info'     THEN 1 ELSE 0 END) AS info
+        FROM findings
+        WHERE created_at >= NOW() - INTERVAL '6 months'
+        GROUP BY DATE_TRUNC('month', created_at)
+        ORDER BY DATE_TRUNC('month', created_at) ASC
+    """))
+    trend = [
+        FindingTrendItem(
+            month=row[0],
+            critical=row[1],
+            high=row[2],
+            medium=row[3],
+            low=row[4],
+            info=row[5],
+        )
+        for row in trend_result.all()
+    ]
+
+    return FindingStatsResponse(
+        by_severity=by_severity,
+        by_category=by_category,
+        by_department=by_department,
+        top_failing_checks=top_failing_checks,
+        trend=trend,
+    )
 
 
 @router.get("", response_model=FindingListResponse, summary="Findings auflisten")
@@ -394,3 +521,60 @@ async def create_finding_comment(
     await db.flush()
     await db.refresh(comment)
     return FindingCommentResponse(**orm_to_finding_comment_response(comment))
+
+
+# --- LLM-Befund-Chat (KI-Assistent) ---
+
+@router.get("/{finding_id}/chat", response_model=list[FindingChatMessageResponse], summary="Chat-Verlauf abrufen")
+async def get_finding_chat(
+    finding_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    _user=require_roles("viewer", "editor", "admin"),
+):
+    """Gibt alle Chat-Nachrichten für einen Befund zurück (älteste zuerst)."""
+    result = await db.execute(select(FindingModel).where(FindingModel.id == finding_id))
+    if result.scalar_one_or_none() is None:
+        raise HTTPException(status_code=404, detail="Finding not found")
+    chat_result = await db.execute(
+        select(FindingChatMessageModel)
+        .where(FindingChatMessageModel.finding_id == finding_id)
+        .order_by(FindingChatMessageModel.created_at.asc())
+    )
+    return [
+        FindingChatMessageResponse(**orm_to_finding_chat_message_response(m))
+        for m in chat_result.scalars().all()
+    ]
+
+
+@router.post("/{finding_id}/chat", response_model=FindingChatMessageResponse, status_code=201, summary="Nachricht an KI-Assistent senden")
+async def send_finding_chat_message(
+    finding_id: UUID,
+    body: FindingChatMessageCreate,
+    db: AsyncSession = Depends(get_db),
+    _user=require_roles("editor", "admin"),
+):
+    """Sendet eine Nutzernachricht und erhält eine KI-Antwort im Befund-Kontext."""
+    from app.services.finding_chat_service import chat_with_finding
+    result = await db.execute(select(FindingModel).where(FindingModel.id == finding_id))
+    if result.scalar_one_or_none() is None:
+        raise HTTPException(status_code=404, detail="Finding not found")
+
+    try:
+        response_text = await chat_with_finding(finding_id, body.content, db)
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"LLM-Fehler: {exc}")
+
+    # Die letzte Assistent-Nachricht zurückgeben
+    last_result = await db.execute(
+        select(FindingChatMessageModel)
+        .where(
+            FindingChatMessageModel.finding_id == finding_id,
+            FindingChatMessageModel.role == "assistant",
+        )
+        .order_by(FindingChatMessageModel.created_at.desc())
+        .limit(1)
+    )
+    last_msg = last_result.scalar_one_or_none()
+    if not last_msg:
+        raise HTTPException(status_code=500, detail="Chat message not saved")
+    return FindingChatMessageResponse(**orm_to_finding_chat_message_response(last_msg))

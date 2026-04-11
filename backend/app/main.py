@@ -109,6 +109,8 @@ _OPENAPI_TAGS = [
     {"name": "config", "description": "Öffentliche App-Konfiguration (Organisationsname, Optionen)."},
     {"name": "departments", "description": "Abteilungsliste der Organisation."},
     {"name": "vvt-overview", "description": "VVT-Gesamtübersicht auf Organisationsebene (Art. 30 DSGVO)."},
+    {"name": "dsfa", "description": "Datenschutz-Folgenabschätzung (Art. 35 DSGVO) generieren und verwalten."},
+    {"name": "dsr", "description": "Betroffenenrechts-Anfragen (Art. 15–22 DSGVO) erfassen und bearbeiten."},
 ]
 
 app = FastAPI(
