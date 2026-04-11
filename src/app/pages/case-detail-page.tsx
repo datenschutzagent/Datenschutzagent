@@ -22,6 +22,8 @@ import {
   archiveCase,
   unarchiveCase,
   canEdit,
+  getAuditTrailExportBlob,
+  downloadBlob,
   type ApiCase,
   type ApiFinding,
   type ApiFindingComment,
@@ -518,9 +520,26 @@ export function CaseDetailPage() {
           <TabsContent value="audit" className="space-y-6">
             <ErrorBoundary>
               <Card>
-                <CardHeader>
-                  <CardTitle>Audit Trail</CardTitle>
-                  <CardDescription>Nachvollziehbare Historie aller Änderungen</CardDescription>
+                <CardHeader className="flex flex-row items-start justify-between gap-4">
+                  <div>
+                    <CardTitle>Audit Trail</CardTitle>
+                    <CardDescription>Nachvollziehbare Historie aller Änderungen</CardDescription>
+                  </div>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={async () => {
+                      try {
+                        const blob = await getAuditTrailExportBlob(caseData.id);
+                        downloadBlob(blob, `audit-trail-${caseData.id}.csv`);
+                        toast.success("Audit Trail exportiert.");
+                      } catch {
+                        toast.error("Export fehlgeschlagen.");
+                      }
+                    }}
+                  >
+                    <Download className="size-4 mr-1" /> CSV exportieren
+                  </Button>
                 </CardHeader>
                 <CardContent>
                   <ActivityTimeline caseId={caseData.id} />

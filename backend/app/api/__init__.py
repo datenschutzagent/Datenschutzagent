@@ -2,7 +2,7 @@
 from fastapi import APIRouter, Depends
 
 from app.api.routes import admin, admin_prompt_templates, cases, departments, documents, findings, legal_bases, playbooks, users, vvt_overview
-from app.api.routes import dsfa, dsr
+from app.api.routes import dsfa, dsr, data_breaches, avv, tom, case_templates
 from app.core.auth import get_current_user
 
 router = APIRouter(dependencies=[Depends(get_current_user)])
@@ -19,3 +19,7 @@ router.include_router(playbooks.router, prefix="/playbooks", tags=["playbooks"])
 router.include_router(vvt_overview.router, prefix="/vvt-overview", tags=["vvt-overview"])
 router.include_router(dsfa.router, prefix="/cases", tags=["dsfa"])
 router.include_router(dsr.router, prefix="/dsr", tags=["dsr"])
+router.include_router(data_breaches.router, prefix="/data-breaches", tags=["data-breaches"])
+router.include_router(avv.router, prefix="/avv", tags=["avv"])
+router.include_router(tom.router, prefix="/tom", tags=["tom"])
+router.include_router(case_templates.router, prefix="/case-templates", tags=["case-templates"])

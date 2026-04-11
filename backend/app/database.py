@@ -53,6 +53,15 @@ _SCHEMA_MIGRATIONS = [
     "CREATE INDEX IF NOT EXISTS ix_dsr_requests_status ON dsr_requests (status)",
     "CREATE INDEX IF NOT EXISTS ix_dsr_requests_response_deadline ON dsr_requests (response_deadline)",
     "CREATE INDEX IF NOT EXISTS ix_dsr_activity_log_request_id ON dsr_activity_log (request_id)",
+    # Datenpannen-Management (Art. 33/34 DSGVO)
+    "ALTER TABLE data_breaches ADD COLUMN IF NOT EXISTS authority_reference VARCHAR(200)",
+    "ALTER TABLE data_breaches ADD COLUMN IF NOT EXISTS draft_notification TEXT",
+    # AVV-Management
+    "ALTER TABLE avv_contracts ADD COLUMN IF NOT EXISTS check_result JSONB",
+    # TOM-Katalog
+    "ALTER TABLE tom_measures ADD COLUMN IF NOT EXISTS evidence TEXT",
+    # Vorgangs-Vorlagen
+    "ALTER TABLE case_templates ADD COLUMN IF NOT EXISTS is_builtin BOOLEAN NOT NULL DEFAULT false",
 ]
 
 
