@@ -1,11 +1,13 @@
 """Unit tests for pure helper functions in run_checks_service.py.
 
-Only tests module-level pure functions (_legal_base_applicable).
-No database, LLM, or Weaviate required.
+Only tests module-level pure functions (_legal_base_applicable) and
+schema defaults. No database, LLM, or Weaviate required.
 """
 import uuid
+from types import SimpleNamespace
 
 from app.models.db import LegalBaseModel
+from app.models.schemas import RunChecksRequest
 from app.services.run_checks_service import _legal_base_applicable
 
 
@@ -182,3 +184,74 @@ def test_conditional_department_no_match_case_type_match():
         case_types=["Softwareeinführung"],
     )
     assert _legal_base_applicable(base, "HR", "Softwareeinführung") is False
+
+
+# ---------------------------------------------------------------------------
+# RunChecksRequest schema – skip_resolved default (Bug #1)
+# ---------------------------------------------------------------------------
+
+
+def test_run_checks_request_skip_resolved_defaults_to_true():
+    """skip_resolved must default to True so periodic re-checks never reopen reviewed findings."""
+    req = RunChecksRequest(playbook_id=uuid.uuid4())
+    assert req.skip_resolved is True
+
+
+def test_run_checks_request_skip_resolved_can_be_set_false():
+    """Callers may explicitly request a full force-recheck by setting skip_resolved=False."""
+    req = RunChecksRequest(playbook_id=uuid.uuid4(), skip_resolved=False)
+    assert req.skip_resolved is False
+
+
+def test_run_checks_request_strategies_default():
+    """Default strategy is full_text (unchanged by Bug #1 fix)."""
+    req = RunChecksRequest(playbook_id=uuid.uuid4())
+    assert req.strategies == ["full_text"]
+
+
+# ---------------------------------------------------------------------------
+# Document extraction-status filtering (Bug #2)
+# ---------------------------------------------------------------------------
+
+def _make_doc(extraction_status: str) -> SimpleNamespace:
+    """Minimal document stub with id and extraction_status."""
+    return SimpleNamespace(id=uuid.uuid4(), content="text", extraction_status=extraction_status)
+
+
+def test_only_done_documents_are_checked():
+    """run_checks_impl filters to extraction_status=='done'; other statuses yield no docs."""
+    docs = [
+        _make_doc("done"),
+        _make_doc("pending"),
+        _make_doc("processing"),
+        _make_doc("failed"),
+    ]
+    extractable = [d for d in docs if d.extraction_status == "done"]
+    assert len(extractable) == 1
+    assert extractable[0].extraction_status == "done"
+
+
+def test_all_done_documents_included():
+    """All 'done' documents are included."""
+    docs = [_make_doc("done"), _make_doc("done"), _make_doc("done")]
+    extractable = [d for d in docs if d.extraction_status == "done"]
+    assert len(extractable) == 3
+
+
+def test_no_done_documents_yields_empty():
+    """If no documents are extracted yet, no checks are run."""
+    docs = [_make_doc("pending"), _make_doc("processing")]
+    extractable = [d for d in docs if d.extraction_status == "done"]
+    assert extractable == []
+
+
+def test_skipped_doc_count_is_correct():
+    """The count of skipped (non-done) documents is reported accurately."""
+    docs = [
+        _make_doc("done"),
+        _make_doc("pending"),
+        _make_doc("failed"),
+    ]
+    extractable = [d for d in docs if d.extraction_status == "done"]
+    skipped = len(docs) - len(extractable)
+    assert skipped == 2

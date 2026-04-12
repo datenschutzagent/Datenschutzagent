@@ -48,11 +48,15 @@ async def run_checks_impl(
     playbook_id: UUID,
     strategies: list[str],
     on_check_done: Optional[Callable[[], Awaitable[None]]] = None,
+    skip_resolved: bool = True,
 ) -> tuple[int, list[dict], dict]:
     """
     Run all playbook checks (document- and case-scoped, full_text/rag).
     Writes findings to db; does not write ActivityLog or RunChecksJob.
     on_check_done: optional async callback invoked after each individual check completes.
+    skip_resolved: when True (default), findings with status accepted/fixed/overruled/in_review
+        are included in the deduplication set so they are not re-opened on subsequent runs.
+        Set to False only when explicitly forcing a full re-check that should ignore prior decisions.
     Returns (findings_added, errors, activity_payload).
     """
     result = await db.execute(
@@ -89,16 +93,26 @@ async def run_checks_impl(
     case_case_type = getattr(case, "case_type", None) or ""
     findings_added = 0
     rag_skipped = False
+    # Logged once per run to avoid flooding the errors list with the same Weaviate message
+    # for every check when RAG is globally unavailable.
+    _rag_weaviate_error_logged = False
     errors: list[dict] = []
 
     # Semaphore begrenzt gleichzeitige LLM-Aufrufe (verhindert Überlastung / Rate-Limit-Fehler).
     _max_concurrent = getattr(settings, "max_concurrent_llm_calls", 5)
     _llm_semaphore = asyncio.Semaphore(_max_concurrent) if _max_concurrent > 0 else None
 
-    # Load existing open findings for deduplication (check_name + document_id)
+    # Load existing findings for deduplication (check_name + document_id).
+    # When skip_resolved=True (default) we include all statuses so that reviewed/resolved
+    # findings (accepted, fixed, overruled, in_review) are not re-created on subsequent runs.
+    # When skip_resolved=False only open findings are skipped – all resolved findings will
+    # be recreated (use only for explicit force-rechecks).
+    dedup_where = [FindingModel.case_id == case_id]
+    if not skip_resolved:
+        dedup_where.append(FindingModel.status == "open")
     existing_result = await db.execute(
         select(FindingModel.check_name, FindingModel.document_id)
-        .where(FindingModel.case_id == case_id, FindingModel.status == "open")
+        .where(*dedup_where)
     )
     existing_open: set[tuple] = {(row[0], row[1]) for row in existing_result.all()}
 
@@ -247,7 +261,7 @@ async def run_checks_impl(
         legal_ctx = _legal_bases_context_for_instruction(instruction, lb_ids)
 
         async def _do():
-            nonlocal rag_skipped
+            nonlocal rag_skipped, _rag_weaviate_error_logged
             rag_result = None
             try:
                 rag_result = await run_check_rag(
@@ -257,9 +271,10 @@ async def run_checks_impl(
                 errors.append({"check": name, "scope": "document", "document_id": str(doc_id), "strategy": "rag", "error": str(e)})
                 rag_skipped = True
             if rag_result is None:
-                # Fallback to full_text when RAG is unavailable
+                # Fallback to full_text when RAG is unavailable; log Weaviate error only once per run
                 rag_skipped = True
-                if "Weaviate/chunks unavailable" not in str(errors[-1].get("error", "") if errors else ""):
+                if not _rag_weaviate_error_logged:
+                    _rag_weaviate_error_logged = True
                     errors.append({"check": name, "scope": "document", "document_id": str(doc_id), "strategy": "rag", "error": "Weaviate/chunks unavailable – falling back to full_text"})
                 doc_text = next((d.content or "" for d in case.documents if d.id == doc_id), "")
                 try:
@@ -304,9 +319,21 @@ async def run_checks_impl(
         else:
             await _do()
 
+    # Only run checks against documents whose text extraction has completed.
+    # Documents still in pending/processing/failed state have no content yet – running checks
+    # on them would produce empty-text results and false-positive "compliant" verdicts.
+    extractable_docs = [doc for doc in case.documents if doc.extraction_status == "done"]
+    skipped_doc_count = len(case.documents) - len(extractable_docs)
+    if skipped_doc_count:
+        logger.warning(
+            "run_checks: skipping %d document(s) with extraction_status != 'done' for case %s",
+            skipped_doc_count,
+            case_id,
+        )
+
     doc_coros = []
-    for doc in case.documents:
-        text = (doc.content or "") or ""
+    for doc in extractable_docs:
+        text = doc.content or ""
         for item in document_checks:
             if "full_text" in strategies:
                 doc_coros.append(_run_doc_check_full_text(doc.id, text, item))
@@ -315,8 +342,8 @@ async def run_checks_impl(
     if doc_coros:
         await asyncio.gather(*doc_coros)
 
-    if case_checks and case.documents:
-        doc_list = [(doc.id, (doc.content or "") or "") for doc in case.documents]
+    if case_checks and extractable_docs:
+        doc_list = [(doc.id, doc.content or "") for doc in extractable_docs]
 
         async def _run_case_check_full_text(item):
             name = item.get("name") or item.get("check_name") or "Check"
@@ -365,7 +392,7 @@ async def run_checks_impl(
             legal_ctx = _legal_bases_context_for_instruction(instruction, lb_ids)
 
             async def _do():
-                nonlocal rag_skipped
+                nonlocal rag_skipped, _rag_weaviate_error_logged
                 rag_result = None
                 try:
                     rag_result = await run_cross_document_check_rag(
@@ -375,9 +402,11 @@ async def run_checks_impl(
                     errors.append({"check": name, "scope": "case", "document_id": None, "strategy": "rag", "error": str(e)})
                     rag_skipped = True
                 if rag_result is None:
-                    # Fallback to full_text when RAG is unavailable
+                    # Fallback to full_text when RAG is unavailable; log Weaviate error only once per run
                     rag_skipped = True
-                    errors.append({"check": name, "scope": "case", "document_id": None, "strategy": "rag", "error": "Weaviate/chunks unavailable – falling back to full_text"})
+                    if not _rag_weaviate_error_logged:
+                        _rag_weaviate_error_logged = True
+                        errors.append({"check": name, "scope": "case", "document_id": None, "strategy": "rag", "error": "Weaviate/chunks unavailable – falling back to full_text"})
                     try:
                         fallback_result = await run_cross_document_check(
                             doc_list, instruction, language=case_language, legal_bases_context=legal_ctx or None
@@ -440,7 +469,10 @@ async def run_checks_impl(
         "model": llm_info.get("model", settings.ollama_model),
         "findings_count": findings_added,
         "strategies": strategies,
+        "skip_resolved": skip_resolved,
     }
+    if skipped_doc_count:
+        activity_payload["skipped_unextracted_docs"] = skipped_doc_count
     if rag_skipped:
         activity_payload["rag_fallback"] = "rag requested but Weaviate/chunks unavailable for some checks"
     if errors:

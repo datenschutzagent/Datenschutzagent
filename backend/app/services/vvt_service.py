@@ -7,7 +7,8 @@ from typing import Annotated, Literal
 
 from pydantic import BaseModel, BeforeValidator, Field
 
-from app.core.llm import create_agent
+from app.config import settings
+from app.core.llm import create_agent, llm_retry_call
 from app.services.org_profile_loader import DEFAULT_VVT_FIELD_NAMES, get_vvt_field_names
 from app.services.prompt_template_service import get_active_template, render
 
@@ -120,14 +121,20 @@ async def normalize_vvt(
     system_tpl = await get_active_template("vvt_system")
     system = render(system_tpl or DEFAULT_VVT_SYSTEM, {"language_hint": language_hint})
     agent = create_agent(system_prompt=system)
-    truncated = (raw_text or "")[:25000]
+    vvt_limit = getattr(settings, "max_context_chars_vvt", 25000)
+    raw = raw_text or ""
+    if len(raw) > vvt_limit:
+        logger.info("VVT text truncated: %d → %d chars", len(raw), vvt_limit)
+        truncated = raw[:vvt_limit] + f"\n\n[... truncated, {len(raw)} chars total ...]"
+    else:
+        truncated = raw
     field_list = ", ".join(f'"{n}"' for n in canonical_fields)
     user_tpl = await get_active_template("vvt_user")
     user_content = render(
         user_tpl or DEFAULT_VVT_USER,
         {"field_list": field_list, "document_text": truncated},
     )
-    result = await agent.run(user_content, output_type=_VVTExtractionResult)
+    result = await llm_retry_call(agent, user_content, output_type=_VVTExtractionResult)
     data = result.output
 
     # Normalize LLM-returned field names to canonical names via fuzzy matching

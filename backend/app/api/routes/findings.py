@@ -164,6 +164,7 @@ async def get_findings_stats(
 @router.get("", response_model=FindingListResponse, summary="Findings auflisten")
 async def list_findings(
     case_id: Annotated[UUID | None, Query()] = None,
+    q: Annotated[str | None, Query(description="Volltext-Suche in Check-Name und Beschreibung")] = None,
     severity: Annotated[str | None, Query()] = None,
     status: Annotated[str | None, Query()] = None,
     category: Annotated[str | None, Query()] = None,
@@ -175,28 +176,36 @@ async def list_findings(
     _user=require_roles("viewer", "editor", "admin"),
 ):
     """List findings with optional filters. Returns paginated results."""
-    q = select(FindingModel)
+    from sqlalchemy import or_
+    query = select(FindingModel)
     if case_id is not None:
-        q = q.where(FindingModel.case_id == case_id)
+        query = query.where(FindingModel.case_id == case_id)
+    if q:
+        like = f"%{q}%"
+        query = query.where(
+            or_(
+                FindingModel.check_name.ilike(like),
+                FindingModel.description.ilike(like),
+            )
+        )
     if severity is not None:
-        q = q.where(FindingModel.severity == severity)
+        query = query.where(FindingModel.severity == severity)
     if status is not None:
-        q = q.where(FindingModel.status == status)
+        query = query.where(FindingModel.status == status)
     if category is not None:
-        q = q.where(FindingModel.category == category)
+        query = query.where(FindingModel.category == category)
     if source_strategy is not None:
-        q = q.where(FindingModel.source_strategy == source_strategy)
+        query = query.where(FindingModel.source_strategy == source_strategy)
     if has_due_date is True:
-        q = q.where(FindingModel.due_date != None)  # noqa: E711
+        query = query.where(FindingModel.due_date != None)  # noqa: E711
     elif has_due_date is False:
-        q = q.where(FindingModel.due_date == None)  # noqa: E711
+        query = query.where(FindingModel.due_date == None)  # noqa: E711
 
-    count_q = select(func.count()).select_from(q.subquery())
+    count_q = select(func.count()).select_from(query.subquery())
     total_result = await db.execute(count_q)
     total = total_result.scalar_one()
 
-    q = q.offset(offset).limit(limit)
-    result = await db.execute(q)
+    result = await db.execute(query.offset(offset).limit(limit))
     findings = result.scalars().all()
 
     return FindingListResponse(

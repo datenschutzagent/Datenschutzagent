@@ -168,6 +168,14 @@ class RunChecksRequest(BaseModel):
         default=["full_text"],
         description="Run full_text and/or rag (RAG uses Weaviate chunks). Both can run in parallel for comparison.",
     )
+    skip_resolved: bool = Field(
+        default=True,
+        description=(
+            "When True (default), findings already resolved (accepted, fixed, overruled, in_review) "
+            "are not re-created even if the check would fail again. "
+            "Set to False to force a full re-check that ignores all prior review decisions."
+        ),
+    )
 
 
 class CaseResponse(BaseModel):

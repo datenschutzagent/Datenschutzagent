@@ -72,6 +72,7 @@ class Settings(BaseSettings):
     # LLM context limits (chars per document; lower = faster/cheaper, higher = more context)
     max_context_chars_per_doc: int = 15000  # single-doc full-text context window limit
     max_context_chars_rag: int = 20000       # assembled RAG context limit
+    max_context_chars_vvt: int = 25000       # VVT/ROPA normalization context limit (higher because ROPA docs can be large)
 
     # Maximale Anzahl gleichzeitiger LLM-Anfragen pro run_checks-Job.
     # Verhindert Überlastung von Ollama und Rate-Limit-Fehler bei OpenAI/Anthropic.

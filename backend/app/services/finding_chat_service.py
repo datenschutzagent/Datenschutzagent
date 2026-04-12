@@ -5,7 +5,7 @@ from uuid import UUID
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.llm import create_agent
+from app.core.llm import create_agent, llm_retry_call
 from app.models.db import DocumentModel, FindingChatMessageModel, FindingModel
 
 logger = logging.getLogger(__name__)
@@ -86,8 +86,8 @@ async def chat_with_finding(
     full_user_content = "\n\n".join(conversation_parts)
 
     agent = create_agent(system_prompt)
-    result = await agent.run(full_user_content)
-    response_text = str(result.data)
+    result = await llm_retry_call(agent, full_user_content, output_type=str)
+    response_text = result.output
 
     # Nachrichten persistieren
     user_msg = FindingChatMessageModel(
