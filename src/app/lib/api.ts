@@ -1794,8 +1794,25 @@ export interface TOMUpdate {
   department_codes?: string[];
 }
 
+export interface ApiTOMAttachment {
+  id: string;
+  tomId: string;
+  name: string;
+  format: string;
+  sizeBytes: number;
+  size: string;        // formatted, e.g. "1.2 MB"
+  uploadedBy: string;
+  uploadedAt: string;
+}
+
 function mapTOM(d: Record<string, unknown>): ApiTOM {
   return deepSnakeToCamel(d) as unknown as ApiTOM;
+}
+
+function mapTOMAttachment(d: Record<string, unknown>): ApiTOMAttachment {
+  const base = deepSnakeToCamel(d) as unknown as ApiTOMAttachment;
+  base.size = typeof d.size_bytes === "number" ? formatBytes(d.size_bytes) : "";
+  return base;
 }
 
 export async function listTOMs(params: {
@@ -1819,15 +1836,46 @@ export async function getTOMStats(): Promise<ApiTOMStats> {
 }
 
 export async function createTOM(body: TOMCreate): Promise<ApiTOM> {
-  return mapTOM(await request<Record<string, unknown>>("POST", "/tom", body));
+  return mapTOM(await request<Record<string, unknown>>("POST", "/tom", { body }));
 }
 
 export async function updateTOM(id: string, body: TOMUpdate): Promise<ApiTOM> {
-  return mapTOM(await request<Record<string, unknown>>("PATCH", `/tom/${id}`, body));
+  return mapTOM(await request<Record<string, unknown>>("PATCH", `/tom/${id}`, { body }));
 }
 
 export async function deleteTOM(id: string): Promise<void> {
   await request<void>("DELETE", `/tom/${id}`);
+}
+
+export async function listTOMAttachments(tomId: string): Promise<ApiTOMAttachment[]> {
+  const list = await request<Record<string, unknown>[]>("GET", `/tom/${tomId}/attachments`);
+  return (list ?? []).map(mapTOMAttachment);
+}
+
+export async function uploadTOMAttachment(
+  tomId: string,
+  file: File,
+  uploadedBy: string,
+): Promise<ApiTOMAttachment> {
+  const form = new FormData();
+  form.append("file", file);
+  form.append("uploaded_by", uploadedBy);
+  const d = await request<Record<string, unknown>>("POST", `/tom/${tomId}/attachments`, { formData: form });
+  return mapTOMAttachment(d);
+}
+
+export async function getTOMAttachmentBlob(tomId: string, attachmentId: string): Promise<Blob> {
+  const url = `${API_BASE}${API_PREFIX}/tom/${tomId}/attachments/${attachmentId}/download`;
+  const res = await fetch(url, { headers: authHeaders() });
+  if (!res.ok) {
+    const detail = await parseErrorResponse(res);
+    throw new Error(detail);
+  }
+  return res.blob();
+}
+
+export async function deleteTOMAttachment(tomId: string, attachmentId: string): Promise<void> {
+  await request<void>("DELETE", `/tom/${tomId}/attachments/${attachmentId}`);
 }
 
 // ---------------------------------------------------------------------------

@@ -881,6 +881,18 @@ class TOMStatsResponse(BaseModel):
     implementation_rate: float = 0.0
 
 
+class TOMAttachmentResponse(BaseModel):
+    id: UUID
+    tom_id: UUID
+    name: str
+    format: DocumentFormatEnum
+    size_bytes: int
+    uploaded_by: str
+    uploaded_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
 # --- Vorgangs-Vorlagen ---
 class CaseTemplateCreate(BaseModel):
     name: str = Field(..., min_length=1, max_length=200)

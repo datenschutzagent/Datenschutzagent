@@ -160,3 +160,57 @@ def delete_file(storage_path: str) -> None:
         delete_file_minio(storage_path)
     else:
         raise ValueError(f"Unsupported storage_backend: {settings.storage_backend}")
+
+
+# --- TOM Attachment Storage ---
+
+def _local_tom_path(tom_id: uuid.UUID, attachment_id: uuid.UUID, filename: str) -> Path:
+    """Build path for TOM attachment: toms/{tom_id}/{attachment_id}.{ext}"""
+    root = Path(settings.storage_local_path)
+    root.mkdir(parents=True, exist_ok=True)
+    base = root / "toms" / str(tom_id)
+    base.mkdir(parents=True, exist_ok=True)
+    ext = Path(filename).suffix or ""
+    return base / f"{attachment_id}{ext}"
+
+
+def save_tom_file_local(tom_id: uuid.UUID, attachment_id: uuid.UUID, filename: str, content: bytes) -> str:
+    path = _local_tom_path(tom_id, attachment_id, filename)
+    path.write_bytes(content)
+    return str(path.relative_to(settings.storage_local_path))
+
+
+def save_tom_file_minio(tom_id: uuid.UUID, attachment_id: uuid.UUID, filename: str, content: bytes) -> str:
+    client = _get_minio_client()
+    bucket = settings.s3_bucket
+    _ensure_bucket(client, bucket)
+    ext = Path(filename).suffix or ""
+    object_name = f"toms/{tom_id}/{attachment_id}{ext}"
+    content_type, _ = mimetypes.guess_type(filename)
+    client.put_object(
+        bucket,
+        object_name,
+        io.BytesIO(content),
+        len(content),
+        content_type=content_type or "application/octet-stream",
+    )
+    return object_name
+
+
+def save_tom_file(tom_id: uuid.UUID, attachment_id: uuid.UUID, filename: str, content: bytes) -> str:
+    """Save TOM attachment using configured backend. Returns storage_path for DB."""
+    if settings.storage_backend == "local":
+        return save_tom_file_local(tom_id, attachment_id, filename, content)
+    elif settings.storage_backend == "minio":
+        return save_tom_file_minio(tom_id, attachment_id, filename, content)
+    raise ValueError(f"Unsupported storage_backend: {settings.storage_backend}")
+
+
+def get_tom_file(storage_path: str) -> bytes:
+    """Read TOM attachment. Delegates to backend-agnostic get_file."""
+    return get_file(storage_path)
+
+
+def delete_tom_file(storage_path: str) -> None:
+    """Delete TOM attachment. Delegates to backend-agnostic delete_file."""
+    delete_file(storage_path)
