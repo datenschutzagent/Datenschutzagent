@@ -57,6 +57,11 @@ nav:
     - Developer Guide: entwicklung/developer-guide.md
 
   - Projekt:
+    - Dokumentations-Guide: projekt/documentation-guide.md
+    - Projekt-Übersicht: projekt/project-overview.md
+    - System Inspection Report: projekt/system-inspection.md
+    - Business Overview: projekt/business-overview.md
+    - Stakeholder-Perspektiven: projekt/stakeholder-perspectives.md
     - Roadmap: projekt/roadmap.md
     - Requirements & Gap-Analyse: projekt/requirements_gap.md
     - Nächste Schritte: projekt/next_steps.md
