@@ -8,6 +8,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.auth import require_roles
+from app.core.crypto import decrypt_secret, encrypt_secret
 from app.database import get_db
 from app.models.db import WebhookConfigModel, WebhookDeliveryLogModel
 
@@ -107,7 +108,7 @@ async def create_webhook(
     webhook = WebhookConfigModel(
         name=body.name,
         url=body.url,
-        secret=body.secret,
+        secret=encrypt_secret(body.secret) if body.secret else None,
         events=body.events,
         created_by=creator,
     )
@@ -132,10 +133,12 @@ async def update_webhook(
         invalid = [e for e in body.events if e not in VALID_EVENTS]
         if invalid:
             raise HTTPException(status_code=400, detail=f"Unbekannte Events: {invalid}")
-    for field in ["name", "url", "secret", "events", "is_active"]:
+    for field in ["name", "url", "events", "is_active"]:
         val = getattr(body, field, None)
         if val is not None:
             setattr(webhook, field, val)
+    if body.secret is not None:
+        webhook.secret = encrypt_secret(body.secret) if body.secret else None
     await db.flush()
     await db.refresh(webhook)
     return _orm_to_response(webhook)
@@ -170,7 +173,7 @@ async def test_webhook(
     success, http_status, error = await _deliver_webhook(
         webhook.id,
         webhook.url,
-        webhook.secret,
+        decrypt_secret(webhook.secret) if webhook.secret else None,
         "test",
         {"message": "Datenschutzagent Test-Event", "webhook_id": str(webhook.id)},
     )

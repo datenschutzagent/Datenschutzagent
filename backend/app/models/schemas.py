@@ -118,6 +118,10 @@ class FindingBulkUpdate(BaseModel):
     status: FindingStatusEnum
 
 
+class FindingBulkDelete(BaseModel):
+    finding_ids: list[UUID]
+
+
 class FindingListResponse(BaseModel):
     items: list[FindingResponse]
     total: int

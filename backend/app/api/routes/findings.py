@@ -27,6 +27,7 @@ from app.models.db import (
     orm_to_finding_response,
 )
 from app.models.schemas import (
+    FindingBulkDelete,
     FindingBulkUpdate,
     FindingChatMessageCreate,
     FindingChatMessageResponse,
@@ -51,110 +52,105 @@ async def get_findings_stats(
     db: AsyncSession = Depends(get_db),
     _user=require_roles("viewer", "editor", "admin"),
 ):
-    """Aggregierte Befund-Statistiken: nach Schweregrad, Kategorie, Abteilung, Top-Checks und Zeitverlauf (6 Monate)."""
+    """Aggregierte Befund-Statistiken: nach Schweregrad, Kategorie, Abteilung, Top-Checks und Zeitverlauf (6 Monate).
+    Alle Teilabfragen werden in einem einzigen DB-Round-Trip via CTEs ausgeführt."""
 
-    # Nach Schweregrad
-    sev_result = await db.execute(
-        select(FindingModel.severity, func.count(FindingModel.id))
-        .where(FindingModel.status == "open")
-        .group_by(FindingModel.severity)
-    )
-    by_severity = {row[0]: row[1] for row in sev_result.all()}
-
-    # Nach Kategorie
-    cat_result = await db.execute(
-        select(FindingModel.category, func.count(FindingModel.id))
-        .where(FindingModel.status == "open")
-        .group_by(FindingModel.category)
-        .order_by(func.count(FindingModel.id).desc())
-        .limit(20)
-    )
-    by_category = {row[0]: row[1] for row in cat_result.all()}
-
-    # Nach Abteilung (Join über cases)
-    dept_result = await db.execute(text("""
-        SELECT c.department,
-               SUM(CASE WHEN f.severity = 'critical' THEN 1 ELSE 0 END) AS critical,
-               SUM(CASE WHEN f.severity = 'high'     THEN 1 ELSE 0 END) AS high,
-               SUM(CASE WHEN f.severity = 'medium'   THEN 1 ELSE 0 END) AS medium,
-               SUM(CASE WHEN f.severity = 'low'      THEN 1 ELSE 0 END) AS low,
-               SUM(CASE WHEN f.severity = 'info'     THEN 1 ELSE 0 END) AS info,
-               COUNT(*) AS total
-        FROM findings f
-        JOIN cases c ON c.id = f.case_id
-        WHERE f.status = 'open'
-        GROUP BY c.department
-        ORDER BY total DESC
-        LIMIT 20
-    """))
-    by_department = [
-        FindingsByDepartment(
-            department=row[0],
-            critical=row[1],
-            high=row[2],
-            medium=row[3],
-            low=row[4],
-            info=row[5],
-            total=row[6],
+    stats_result = await db.execute(text("""
+        WITH by_severity AS (
+            SELECT severity, COUNT(*) AS cnt
+            FROM findings
+            WHERE status = 'open'
+            GROUP BY severity
+        ),
+        by_category AS (
+            SELECT category, COUNT(*) AS cnt
+            FROM findings
+            WHERE status = 'open'
+            GROUP BY category
+            ORDER BY cnt DESC
+            LIMIT 20
+        ),
+        by_department AS (
+            SELECT c.department,
+                   SUM(CASE WHEN f.severity = 'critical' THEN 1 ELSE 0 END) AS critical,
+                   SUM(CASE WHEN f.severity = 'high'     THEN 1 ELSE 0 END) AS high,
+                   SUM(CASE WHEN f.severity = 'medium'   THEN 1 ELSE 0 END) AS medium,
+                   SUM(CASE WHEN f.severity = 'low'      THEN 1 ELSE 0 END) AS low,
+                   SUM(CASE WHEN f.severity = 'info'     THEN 1 ELSE 0 END) AS info,
+                   COUNT(*) AS total
+            FROM findings f
+            JOIN cases c ON c.id = f.case_id
+            WHERE f.status = 'open'
+            GROUP BY c.department
+            ORDER BY total DESC
+            LIMIT 20
+        ),
+        top_checks AS (
+            SELECT check_name, category,
+                   COUNT(*) AS total,
+                   SUM(CASE WHEN severity = 'critical' THEN 1 ELSE 0 END) AS critical,
+                   SUM(CASE WHEN severity = 'high'     THEN 1 ELSE 0 END) AS high,
+                   SUM(CASE WHEN severity = 'medium'   THEN 1 ELSE 0 END) AS medium,
+                   SUM(CASE WHEN severity = 'low'      THEN 1 ELSE 0 END) AS low,
+                   SUM(CASE WHEN severity = 'info'     THEN 1 ELSE 0 END) AS info
+            FROM findings
+            WHERE status = 'open'
+            GROUP BY check_name, category
+            ORDER BY total DESC
+            LIMIT 10
+        ),
+        trend AS (
+            SELECT TO_CHAR(DATE_TRUNC('month', created_at), 'YYYY-MM') AS month,
+                   SUM(CASE WHEN severity = 'critical' THEN 1 ELSE 0 END) AS critical,
+                   SUM(CASE WHEN severity = 'high'     THEN 1 ELSE 0 END) AS high,
+                   SUM(CASE WHEN severity = 'medium'   THEN 1 ELSE 0 END) AS medium,
+                   SUM(CASE WHEN severity = 'low'      THEN 1 ELSE 0 END) AS low,
+                   SUM(CASE WHEN severity = 'info'     THEN 1 ELSE 0 END) AS info
+            FROM findings
+            WHERE created_at >= NOW() - INTERVAL '6 months'
+            GROUP BY DATE_TRUNC('month', created_at)
+            ORDER BY DATE_TRUNC('month', created_at) ASC
         )
-        for row in dept_result.all()
-    ]
-
-    # Top-Checks mit häufigsten offenen Befunden
-    top_result = await db.execute(text("""
-        SELECT check_name, category,
-               COUNT(*) AS total,
-               SUM(CASE WHEN severity = 'critical' THEN 1 ELSE 0 END) AS critical,
-               SUM(CASE WHEN severity = 'high'     THEN 1 ELSE 0 END) AS high,
-               SUM(CASE WHEN severity = 'medium'   THEN 1 ELSE 0 END) AS medium,
-               SUM(CASE WHEN severity = 'low'      THEN 1 ELSE 0 END) AS low,
-               SUM(CASE WHEN severity = 'info'     THEN 1 ELSE 0 END) AS info
-        FROM findings
-        WHERE status = 'open'
-        GROUP BY check_name, category
-        ORDER BY total DESC
-        LIMIT 10
+        SELECT
+            'severity'   AS qname, severity   AS key1, NULL AS key2, cnt AS n,  0 AS c2, 0 AS c3, 0 AS c4, 0 AS c5, 0 AS c6  FROM by_severity
+        UNION ALL
+        SELECT 'category', category, NULL, cnt, 0, 0, 0, 0, 0                                                                   FROM by_category
+        UNION ALL
+        SELECT 'department', department, NULL, total, critical, high, medium, low, info                                         FROM by_department
+        UNION ALL
+        SELECT 'top_check', check_name, category, total, critical, high, medium, low, info                                      FROM top_checks
+        UNION ALL
+        SELECT 'trend', month, NULL, 0, critical, high, medium, low, info                                                       FROM trend
     """))
-    top_failing_checks = [
-        TopFailingCheck(
-            check_name=row[0],
-            category=row[1],
-            count=row[2],
-            severity_breakdown={
-                "critical": row[3],
-                "high": row[4],
-                "medium": row[5],
-                "low": row[6],
-                "info": row[7],
-            },
-        )
-        for row in top_result.all()
-    ]
+    rows = stats_result.fetchall()
 
-    # Zeitverlauf der letzten 6 Monate
-    trend_result = await db.execute(text("""
-        SELECT TO_CHAR(DATE_TRUNC('month', created_at), 'YYYY-MM') AS month,
-               SUM(CASE WHEN severity = 'critical' THEN 1 ELSE 0 END) AS critical,
-               SUM(CASE WHEN severity = 'high'     THEN 1 ELSE 0 END) AS high,
-               SUM(CASE WHEN severity = 'medium'   THEN 1 ELSE 0 END) AS medium,
-               SUM(CASE WHEN severity = 'low'      THEN 1 ELSE 0 END) AS low,
-               SUM(CASE WHEN severity = 'info'     THEN 1 ELSE 0 END) AS info
-        FROM findings
-        WHERE created_at >= NOW() - INTERVAL '6 months'
-        GROUP BY DATE_TRUNC('month', created_at)
-        ORDER BY DATE_TRUNC('month', created_at) ASC
-    """))
-    trend = [
-        FindingTrendItem(
-            month=row[0],
-            critical=row[1],
-            high=row[2],
-            medium=row[3],
-            low=row[4],
-            info=row[5],
-        )
-        for row in trend_result.all()
-    ]
+    by_severity: dict[str, int] = {}
+    by_category: dict[str, int] = {}
+    by_department: list[FindingsByDepartment] = []
+    top_failing_checks: list[TopFailingCheck] = []
+    trend: list[FindingTrendItem] = []
+
+    for row in rows:
+        qname, key1, key2, n, c2, c3, c4, c5, c6 = row
+        if qname == "severity":
+            by_severity[key1] = n
+        elif qname == "category":
+            by_category[key1] = n
+        elif qname == "department":
+            by_department.append(FindingsByDepartment(
+                department=key1, total=n, critical=c2, high=c3, medium=c4, low=c5, info=c6,
+            ))
+        elif qname == "top_check":
+            top_failing_checks.append(TopFailingCheck(
+                check_name=key1,
+                category=key2 or "",
+                count=n,
+                severity_breakdown={"critical": c2, "high": c3, "medium": c4, "low": c5, "info": c6},
+            ))
+        elif qname == "trend":
+            trend.append(FindingTrendItem(
+                month=key1, critical=c2, high=c3, medium=c4, low=c5, info=c6,
+            ))
 
     return FindingStatsResponse(
         by_severity=by_severity,
@@ -244,6 +240,26 @@ async def bulk_update_findings(
 
     await db.flush()
     return {"updated": updated}
+
+
+@router.delete("/bulk-delete", status_code=200)
+async def bulk_delete_findings(
+    body: FindingBulkDelete,
+    db: AsyncSession = Depends(get_db),
+    _user=require_roles("editor", "admin"),
+):
+    """Mehrere Befunde auf einmal löschen. Gibt die Anzahl gelöschter Befunde zurück."""
+    if not body.finding_ids:
+        return {"deleted": 0}
+
+    result = await db.execute(
+        select(FindingModel).where(FindingModel.id.in_(body.finding_ids))
+    )
+    findings = result.scalars().all()
+    for finding in findings:
+        await db.delete(finding)
+    await db.flush()
+    return {"deleted": len(findings)}
 
 
 def _build_findings_docx(case_title: str, findings: list, docs_by_id: dict) -> bytes:
