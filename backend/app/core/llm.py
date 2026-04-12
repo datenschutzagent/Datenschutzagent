@@ -7,6 +7,7 @@ Der aktive Provider wird über die Einstellung LLM_PROVIDER gesteuert:
 """
 import asyncio
 import logging
+import time
 
 import httpx
 from pydantic_ai import Agent
@@ -33,13 +34,20 @@ async def llm_retry_call(agent: Agent, user_content: str, output_type, *, reques
     LLM_RETRY_DELAYS. Raises the last exception if all attempts fail.
     """
     last_exc: Exception | None = None
+    t0 = time.monotonic()
     for attempt, delay in enumerate(
         [0] + LLM_RETRY_DELAYS[: LLM_RETRY_ATTEMPTS - 1], start=1
     ):
         if delay:
             await asyncio.sleep(delay)
         try:
-            return await agent.run(user_content, output_type=output_type)
+            result = await agent.run(user_content, output_type=output_type)
+            elapsed = round(time.monotonic() - t0, 2)
+            logger.info(
+                "LLM call succeeded (attempt %d/%d) elapsed=%.2fs prompt_chars=%d  [request_id=%s]",
+                attempt, LLM_RETRY_ATTEMPTS, elapsed, len(user_content), request_id,
+            )
+            return result
         except Exception as exc:
             last_exc = exc
             logger.warning(
@@ -49,6 +57,11 @@ async def llm_retry_call(agent: Agent, user_content: str, output_type, *, reques
                 exc,
                 request_id,
             )
+    elapsed = round(time.monotonic() - t0, 2)
+    logger.error(
+        "LLM call exhausted all retries elapsed=%.2fs  [request_id=%s]",
+        elapsed, request_id,
+    )
     raise last_exc
 
 

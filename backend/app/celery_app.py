@@ -1,6 +1,7 @@
 """Celery app and tasks for async jobs (document extraction, run_checks, DSFA, retention, notifications)."""
 import asyncio
 import logging
+import time
 import uuid
 from uuid import UUID
 
@@ -245,12 +246,34 @@ async def _run_checks_async(job_id: str) -> None:
         result = await session.execute(select(RunChecksJobModel).where(RunChecksJobModel.id == job_uuid))
         job = result.scalar_one_or_none()
         if not job:
-            raise ValueError("run_checks job not found")
+            logger.error(
+                "run_checks: job row not found in DB — possible race condition (task dispatched before commit?)",
+                extra={"job_id": job_id},
+            )
+            raise ValueError(f"run_checks job not found: {job_id}")
         if job.status != "running":
+            logger.warning(
+                "run_checks: job status is '%s', expected 'running' — skipping to avoid double-run",
+                job.status,
+                extra={
+                    "job_id": job_id,
+                    "actual_status": job.status,
+                    "case_id": str(job.case_id),
+                },
+            )
             return
         case_id = job.case_id
         playbook_id = job.playbook_id
         strategies = list(job.strategies) if job.strategies else ["full_text"]
+        logger.info(
+            "run_checks: job loaded, starting execution",
+            extra={
+                "job_id": job_id,
+                "case_id": str(case_id),
+                "playbook_id": str(playbook_id),
+                "strategies": strategies,
+            },
+        )
 
         # Load playbook to calculate checks_total; set it before running
         from app.models.db import PlaybookModel, DocumentModel as DocModel
@@ -263,13 +286,31 @@ async def _run_checks_async(job_id: str) -> None:
             )
         )
         doc_count = len(doc_result.scalars().all())
+        checks_total = 0
         if playbook:
             checks_total = _count_checks_total(playbook.content, doc_count, strategies)
             job.checks_total = checks_total
             await session.flush()
+        logger.info(
+            "run_checks: playbook and documents loaded",
+            extra={
+                "job_id": job_id,
+                "playbook_name": playbook.name if playbook else "NOT_FOUND",
+                "doc_count": doc_count,
+                "checks_total": checks_total,
+            },
+        )
 
         findings_added, errors, activity_payload = await run_checks_impl(
             session, case_id, playbook_id, strategies, on_check_done=_on_check_done, skip_resolved=True
+        )
+        logger.info(
+            "run_checks: impl returned",
+            extra={
+                "job_id": job_id,
+                "findings_added": findings_added,
+                "error_count": len(errors),
+            },
         )
         activity = ActivityLogModel(
             case_id=case_id,
@@ -291,14 +332,17 @@ def run_playbook_checks(self, job_id: str) -> dict:
     Run playbook checks for a run_checks_jobs row. Loads job, runs run_checks_impl in async context,
     writes ActivityLog and updates job to completed/failed.
     """
-    logger.info("run_playbook_checks started", extra={"job_id": job_id})
+    logger.info("run_playbook_checks started", extra={"job_id": job_id, "celery_task_id": self.request.id})
+    t0 = time.monotonic()
     try:
         asyncio.run(_run_checks_async(job_id))
-        logger.info("run_playbook_checks done", extra={"job_id": job_id})
+        elapsed = round(time.monotonic() - t0, 2)
+        logger.info("run_playbook_checks done", extra={"job_id": job_id, "elapsed_seconds": elapsed})
         return {"ok": True, "job_id": job_id}
     except Exception as e:
+        elapsed = round(time.monotonic() - t0, 2)
         err_msg = str(e)
-        logger.error("run_playbook_checks failed", extra={"job_id": job_id, "error": err_msg})
+        logger.error("run_playbook_checks failed", extra={"job_id": job_id, "error": err_msg, "elapsed_seconds": elapsed})
         _set_run_checks_job_failed(job_id, err_msg)
         return {"ok": False, "error": err_msg}
 

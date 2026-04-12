@@ -1,6 +1,7 @@
 import hashlib
 import json
 import logging
+import time
 import uuid
 from typing import List
 from uuid import UUID
@@ -206,9 +207,18 @@ async def run_check(
     cache_key = _cache_key(system, user_content)
     cached = await _cache_get(cache_key)
     if cached is not None:
-        logger.debug("LLM cache hit for check '%s'  [request_id=%s]", check_instruction[:60], get_request_id())
+        logger.info("LLM cache hit for check '%s'  [request_id=%s]", check_instruction[:60], get_request_id())
         return cached
+    t0 = time.monotonic()
     result = await llm_retry_call(agent, user_content, output_type=CheckResult, request_id=get_request_id())
+    elapsed = round(time.monotonic() - t0, 2)
+    logger.info(
+        "run_check completed: compliant=%s severity=%s elapsed=%.2fs  [request_id=%s]",
+        result.output.is_compliant,
+        result.output.severity if not result.output.is_compliant else "-",
+        elapsed,
+        get_request_id(),
+    )
     await _cache_set(cache_key, result.output)
     return result.output
 
@@ -251,9 +261,18 @@ async def run_cross_document_check(
     cache_key = _cache_key(system, user_content)
     cached = await _cache_get(cache_key)
     if cached is not None:
-        logger.debug("LLM cache hit for cross-doc check '%s'  [request_id=%s]", check_instruction[:60], get_request_id())
+        logger.info("LLM cache hit for cross-doc check '%s'  [request_id=%s]", check_instruction[:60], get_request_id())
         return cached
+    t0 = time.monotonic()
     result = await llm_retry_call(agent, user_content, output_type=CheckResult, request_id=get_request_id())
+    elapsed = round(time.monotonic() - t0, 2)
+    logger.info(
+        "run_cross_document_check completed: compliant=%s doc_count=%d elapsed=%.2fs  [request_id=%s]",
+        result.output.is_compliant,
+        len(documents),
+        elapsed,
+        get_request_id(),
+    )
     await _cache_set(cache_key, result.output)
     return result.output
 
@@ -294,9 +313,19 @@ async def run_check_rag(
     cache_key = _cache_key(system, user_content)
     cached = await _cache_get(cache_key)
     if cached is not None:
-        logger.debug("LLM cache hit for RAG check '%s'  [request_id=%s]", check_instruction[:60], get_request_id())
+        logger.info("LLM cache hit for RAG check '%s'  [request_id=%s]", check_instruction[:60], get_request_id())
         return cached
+    t0 = time.monotonic()
     result = await llm_retry_call(agent, user_content, output_type=CheckResult, request_id=get_request_id())
+    elapsed = round(time.monotonic() - t0, 2)
+    logger.info(
+        "run_check_rag completed: compliant=%s doc=%s chunks=%d elapsed=%.2fs  [request_id=%s]",
+        result.output.is_compliant,
+        document_id,
+        len(chunks),
+        elapsed,
+        get_request_id(),
+    )
     await _cache_set(cache_key, result.output)
     return result.output
 
@@ -338,8 +367,18 @@ async def run_cross_document_check_rag(
     cache_key = _cache_key(system, user_content)
     cached = await _cache_get(cache_key)
     if cached is not None:
-        logger.debug("LLM cache hit for cross-RAG check '%s'  [request_id=%s]", check_instruction[:60], get_request_id())
+        logger.info("LLM cache hit for cross-RAG check '%s'  [request_id=%s]", check_instruction[:60], get_request_id())
         return cached
+    t0 = time.monotonic()
     result = await llm_retry_call(agent, user_content, output_type=CheckResult, request_id=get_request_id())
+    elapsed = round(time.monotonic() - t0, 2)
+    logger.info(
+        "run_cross_document_check_rag completed: compliant=%s case=%s chunks=%d elapsed=%.2fs  [request_id=%s]",
+        result.output.is_compliant,
+        case_id,
+        len(chunks),
+        elapsed,
+        get_request_id(),
+    )
     await _cache_set(cache_key, result.output)
     return result.output
