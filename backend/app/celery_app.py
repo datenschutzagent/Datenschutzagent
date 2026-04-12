@@ -92,6 +92,13 @@ def _set_extraction_failed(session: Session, document_id: UUID, error_message: s
         raise
 
 
+def _parse_recheck_strategies() -> list[str]:
+    """Parse RECHECK_DEFAULT_STRATEGIES setting into a list of strategy strings."""
+    raw = getattr(settings, "recheck_default_strategies", "full_text") or "full_text"
+    strategies = [s.strip() for s in raw.split(",") if s.strip() in ("full_text", "rag")]
+    return strategies if strategies else ["full_text"]
+
+
 def _maybe_auto_run_checks(session: Session, case_id: uuid.UUID) -> None:
     """If the case has auto_run_checks=True, find the best matching playbook and queue a run_checks job."""
     try:
@@ -111,6 +118,7 @@ def _maybe_auto_run_checks(session: Session, case_id: uuid.UUID) -> None:
             strict_case_type=False,
         )
         best_playbook = ranked[0][0] if ranked else playbooks[0]
+        strategies = _parse_recheck_strategies()
         job_id = uuid.uuid4()
         job = RunChecksJobModel(
             id=job_id,
@@ -118,12 +126,15 @@ def _maybe_auto_run_checks(session: Session, case_id: uuid.UUID) -> None:
             status="running",
             playbook_id=best_playbook.id,
             playbook_name=best_playbook.name,
-            strategies=["full_text"],
+            strategies=strategies,
         )
         session.add(job)
         session.commit()
         run_playbook_checks.delay(str(job_id))
-        logger.info("auto_run_checks queued job %s for case %s (playbook: %s)", job_id, case_id, best_playbook.name)
+        logger.info(
+            "auto_run_checks queued job %s for case %s (playbook: %s, strategies: %s)",
+            job_id, case_id, best_playbook.name, strategies,
+        )
     except Exception as exc:
         logger.warning("auto_run_checks failed to queue job for case %s: %s", case_id, exc)
 
@@ -531,6 +542,7 @@ async def _periodic_recheck_async() -> dict:
             )
             best_playbook = ranked[0][0] if ranked else active_playbooks[0]
 
+            recheck_strategies = _parse_recheck_strategies()
             job_id = uuid.uuid4()
             job = RunChecksJobModel(
                 id=job_id,
@@ -538,7 +550,7 @@ async def _periodic_recheck_async() -> dict:
                 status="running",
                 playbook_id=best_playbook.id,
                 playbook_name=best_playbook.name,
-                strategies=["full_text"],
+                strategies=recheck_strategies,
             )
             session.add(job)
 

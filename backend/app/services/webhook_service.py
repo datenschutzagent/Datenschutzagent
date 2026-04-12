@@ -10,6 +10,7 @@ Unterstützte Events:
 Jeder Webhook-Aufruf wird im WebhookDeliveryLogModel protokolliert.
 HMAC-SHA256-Signatur im Header X-Datenschutzagent-Signature wenn secret konfiguriert.
 """
+import asyncio
 import hashlib
 import hmac
 import json
@@ -19,6 +20,9 @@ from typing import Any
 from uuid import UUID
 
 import httpx
+
+# Wartezeiten (Sekunden) zwischen Retry-Versuchen: 2s → 4s → 8s
+_WEBHOOK_RETRY_DELAYS = [2, 4, 8]
 
 from app.config import settings
 from app.core.crypto import decrypt_secret
@@ -49,8 +53,13 @@ async def _deliver_webhook(
         headers["X-Datenschutzagent-Signature"] = _sign_payload(secret, payload_bytes)
 
     timeout = settings.webhook_timeout_seconds
+    max_retries = settings.webhook_max_retries
+    delays = _WEBHOOK_RETRY_DELAYS[: max_retries - 1]  # n-1 Pausen für n Versuche
     last_error = None
-    for attempt in range(settings.webhook_max_retries):
+    for attempt in range(max_retries):
+        if attempt > 0:
+            delay = delays[attempt - 1] if attempt - 1 < len(delays) else delays[-1]
+            await asyncio.sleep(delay)
         try:
             async with httpx.AsyncClient(timeout=timeout) as client:
                 response = await client.post(url, content=payload_bytes, headers=headers)
@@ -59,10 +68,10 @@ async def _deliver_webhook(
                 last_error = f"HTTP {response.status_code}: {response.text[:200]}"
         except Exception as exc:
             last_error = str(exc)
-            logger.warning(
-                "Webhook delivery attempt %d/%d failed for %s: %s",
-                attempt + 1, settings.webhook_max_retries, url, last_error
-            )
+        logger.warning(
+            "Webhook delivery attempt %d/%d failed for %s: %s",
+            attempt + 1, max_retries, url, last_error,
+        )
 
     return False, None, last_error
 

@@ -73,6 +73,15 @@ class Settings(BaseSettings):
     max_context_chars_per_doc: int = 15000  # single-doc full-text context window limit
     max_context_chars_rag: int = 20000       # assembled RAG context limit
 
+    # Maximale Anzahl gleichzeitiger LLM-Anfragen pro run_checks-Job.
+    # Verhindert Überlastung von Ollama und Rate-Limit-Fehler bei OpenAI/Anthropic.
+    # 0 = kein Limit (altes Verhalten).
+    max_concurrent_llm_calls: int = 5
+
+    # Standard-Strategien für automatische Re-Checks (auto_run_checks, periodic_recheck).
+    # Kommagetrennt: "full_text", "rag" oder "full_text,rag"
+    recheck_default_strategies: str = "full_text"
+
     # Ollama (extern gehostet, z. B. im lokalen Netzwerk)
     ollama_base_url: str = "http://localhost:11434"
     ollama_model: str = "llama3.2"

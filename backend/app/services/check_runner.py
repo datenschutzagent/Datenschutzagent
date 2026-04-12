@@ -41,15 +41,37 @@ class CheckResult(BaseModel):
     recommendation: str = Field(description="Recommendation to fix the issue.")
 
 
+# Modul-weiter Redis-Client-Singleton: wird einmalig pro Prozess erstellt und
+# wiederverwendet, statt pro Cache-Aufruf eine neue Verbindung aufzubauen.
+# Analog zum _async_session_factory-Muster in celery_app.py.
+_redis_client = None
+
+
+def _get_redis_client():
+    """Gibt den Modul-Singleton-Redis-Client zurück (lazy init, thread-safe via GIL)."""
+    global _redis_client
+    if _redis_client is None:
+        try:
+            import redis.asyncio as aioredis  # type: ignore
+            _redis_client = aioredis.from_url(
+                settings.celery_broker_url,
+                decode_responses=True,
+                max_connections=10,
+            )
+        except Exception as exc:
+            logger.debug("Redis client init failed (cache disabled): %s", exc)
+    return _redis_client
+
+
 async def _cache_get(key: str) -> CheckResult | None:
     """Return a cached CheckResult or None if cache is disabled / miss."""
     if not settings.llm_cache_enabled:
         return None
     try:
-        import redis.asyncio as aioredis  # type: ignore
-        r = aioredis.from_url(settings.celery_broker_url, decode_responses=True)
-        async with r:
-            raw = await r.get(key)
+        r = _get_redis_client()
+        if r is None:
+            return None
+        raw = await r.get(key)
         if raw is None:
             return None
         return CheckResult.model_validate_json(raw)
@@ -63,10 +85,10 @@ async def _cache_set(key: str, result: CheckResult) -> None:
     if not settings.llm_cache_enabled:
         return
     try:
-        import redis.asyncio as aioredis  # type: ignore
-        r = aioredis.from_url(settings.celery_broker_url, decode_responses=True)
-        async with r:
-            await r.setex(key, settings.llm_cache_ttl, result.model_dump_json())
+        r = _get_redis_client()
+        if r is None:
+            return
+        await r.setex(key, settings.llm_cache_ttl, result.model_dump_json())
     except Exception as exc:
         logger.debug("LLM cache SET failed (ignored): %s", exc)
 

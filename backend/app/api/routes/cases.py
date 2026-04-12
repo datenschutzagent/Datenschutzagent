@@ -181,6 +181,11 @@ async def bulk_update_cases(
         if new_status and case.status != new_status:
             changed["status"] = {"old": case.status, "new": new_status}
             case.status = new_status
+            # completed_at automatisch setzen/löschen bei Statuswechsel
+            if new_status == "completed" and case.completed_at is None:
+                case.completed_at = datetime.now(timezone.utc)
+            elif new_status != "completed":
+                case.completed_at = None
         if archive is True and case.archived_at is None:
             case.archived_at = datetime.now(timezone.utc)
             changed["archived"] = True
@@ -415,6 +420,12 @@ async def update_case(
         if old_value != value:
             changed[key] = {"old": str(old_value) if old_value is not None else None, "new": str(value) if value is not None else None}
         setattr(case, key, value)
+    # completed_at automatisch setzen/löschen wenn Status auf "completed" geändert wird
+    if "status" in update_data:
+        if update_data["status"] == "completed" and case.completed_at is None:
+            case.completed_at = datetime.now(timezone.utc)
+        elif update_data["status"] != "completed":
+            case.completed_at = None
     await db.flush()
     if changed:
         actor = _user.display_name if isinstance(_user, UserModel) else "System"
