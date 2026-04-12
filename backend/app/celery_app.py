@@ -257,7 +257,10 @@ async def _run_checks_async(job_id: str) -> None:
         pb_result = await session.execute(select(PlaybookModel).where(PlaybookModel.id == playbook_id))
         playbook = pb_result.scalar_one_or_none()
         doc_result = await session.execute(
-            select(DocModel).where(DocModel.case_id == case_id)
+            select(DocModel).where(
+                DocModel.case_id == case_id,
+                DocModel.extraction_status == "done",
+            )
         )
         doc_count = len(doc_result.scalars().all())
         if playbook:
@@ -266,7 +269,7 @@ async def _run_checks_async(job_id: str) -> None:
             await session.flush()
 
         findings_added, errors, activity_payload = await run_checks_impl(
-            session, case_id, playbook_id, strategies, on_check_done=_on_check_done
+            session, case_id, playbook_id, strategies, on_check_done=_on_check_done, skip_resolved=True
         )
         activity = ActivityLogModel(
             case_id=case_id,

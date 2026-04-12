@@ -1120,7 +1120,9 @@ async def run_checks(
             },
         )
 
-    findings_added, errors, activity_payload = await run_checks_impl(db, case_id, body.playbook_id, strategies)
+    findings_added, errors, activity_payload = await run_checks_impl(
+        db, case_id, body.playbook_id, strategies, skip_resolved=body.skip_resolved
+    )
     activity = ActivityLogModel(
         case_id=case_id,
         event_type="run_checks",
