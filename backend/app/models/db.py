@@ -102,6 +102,8 @@ class DocumentModel(Base):
     __table_args__ = (
         Index("ix_documents_case_id", "case_id"),
         Index("ix_documents_extraction_status", "extraction_status"),
+        Index("ix_documents_case_id_extraction_status", "case_id", "extraction_status"),
+        Index("ix_documents_case_id_type", "case_id", "type"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(PG_UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)

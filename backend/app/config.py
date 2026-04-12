@@ -63,6 +63,12 @@ class Settings(BaseSettings):
     # Empty = use profile.yaml or built-in DSGVO Art. 30 defaults.
     vvt_field_names: str = ""
 
+    # Dokument-Upload: maximale Dateigröße in Bytes (Standard: 50 MB; via MAX_UPLOAD_SIZE_BYTES überschreibbar)
+    max_upload_size_bytes: int = 52428800
+
+    # Periodischer Recheck: Verzögerung in Sekunden zwischen gestaffelten Celery-Jobs (verhindert Lastspitzen)
+    run_checks_stagger_seconds: int = 30
+
     # LLM context limits (chars per document; lower = faster/cheaper, higher = more context)
     max_context_chars_per_doc: int = 15000  # single-doc full-text context window limit
     max_context_chars_rag: int = 20000       # assembled RAG context limit
@@ -122,6 +128,10 @@ class Settings(BaseSettings):
     # Webhook-Benachrichtigungen (ausgehend)
     webhook_max_retries: int = 3          # Anzahl Wiederholungsversuche bei Fehler
     webhook_timeout_seconds: float = 10.0 # HTTP-Timeout pro Versuch
+    # Fernet-Schlüssel zur Verschlüsselung von Webhook-Secrets in der DB (optional).
+    # Erzeugen: python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+    # Leer lassen = Secrets werden unverschlüsselt gespeichert (Rückwärtskompatibilität).
+    webhook_secret_encryption_key: str = ""
 
     # Weaviate (optional; RAG document checks)
     weaviate_url: str = "http://localhost:8080"

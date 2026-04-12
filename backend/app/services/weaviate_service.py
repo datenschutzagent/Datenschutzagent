@@ -232,14 +232,17 @@ def index_legal_base(legal_base_id: UUID, title: str, content: str) -> bool:
             )
 
         return True
+    except (ConnectionError, OSError, TimeoutError) as e:
+        logger.warning("Weaviate-Netzwerkfehler in index_legal_base: %s", e)
+        return False
     except Exception as e:
-        logger.exception("Weaviate index_legal_base failed: %s", e)
+        logger.exception("Weaviate index_legal_base fehlgeschlagen: %s", e)
         return False
     finally:
         try:
             client.close()
-        except Exception:
-            pass
+        except Exception as _close_err:
+            logger.debug("Weaviate client.close() fehlgeschlagen: %s", _close_err)
 
 
 def delete_legal_base_chunks(legal_base_id: UUID) -> bool:
@@ -261,8 +264,8 @@ def delete_legal_base_chunks(legal_base_id: UUID) -> bool:
     finally:
         try:
             client.close()
-        except Exception:
-            pass
+        except Exception as _close_err:
+            logger.debug("Weaviate client.close() fehlgeschlagen: %s", _close_err)
 
 
 def get_relevant_legal_base_chunks(
@@ -317,8 +320,8 @@ def get_relevant_legal_base_chunks(
     finally:
         try:
             client.close()
-        except Exception:
-            pass
+        except Exception as _close_err:
+            logger.debug("Weaviate client.close() fehlgeschlagen: %s", _close_err)
 
 
 def index_document_chunks(document_id: UUID, case_id: UUID, text: str) -> bool:
@@ -362,14 +365,17 @@ def index_document_chunks(document_id: UUID, case_id: UUID, text: str) -> bool:
             )
 
         return True
+    except (ConnectionError, OSError, TimeoutError) as e:
+        logger.warning("Weaviate-Netzwerkfehler in index_document_chunks: %s", e)
+        return False
     except Exception as e:
-        logger.exception("Weaviate index_document_chunks failed: %s", e)
+        logger.exception("Weaviate index_document_chunks fehlgeschlagen: %s", e)
         return False
     finally:
         try:
             client.close()
-        except Exception:
-            pass
+        except Exception as _close_err:
+            logger.debug("Weaviate client.close() fehlgeschlagen: %s", _close_err)
 
 
 def delete_chunks_by_document_id(document_id: UUID) -> bool:
@@ -391,8 +397,8 @@ def delete_chunks_by_document_id(document_id: UUID) -> bool:
     finally:
         try:
             client.close()
-        except Exception:
-            pass
+        except Exception as _close_err:
+            logger.debug("Weaviate client.close() fehlgeschlagen: %s", _close_err)
 
 
 def delete_chunks_by_case_id(case_id: UUID) -> bool:
@@ -414,8 +420,8 @@ def delete_chunks_by_case_id(case_id: UUID) -> bool:
     finally:
         try:
             client.close()
-        except Exception:
-            pass
+        except Exception as _close_err:
+            logger.debug("Weaviate client.close() fehlgeschlagen: %s", _close_err)
 
 
 def get_relevant_chunks(
@@ -455,8 +461,8 @@ def get_relevant_chunks(
     finally:
         try:
             client.close()
-        except Exception:
-            pass
+        except Exception as _close_err:
+            logger.debug("Weaviate client.close() fehlgeschlagen: %s", _close_err)
 
 
 def get_relevant_chunks_for_case(
@@ -495,5 +501,5 @@ def get_relevant_chunks_for_case(
     finally:
         try:
             client.close()
-        except Exception:
-            pass
+        except Exception as _close_err:
+            logger.debug("Weaviate client.close() fehlgeschlagen: %s", _close_err)

@@ -546,11 +546,15 @@ async def _periodic_recheck_async() -> dict:
             case.last_rechecked_at = now
 
             await session.flush()
-            run_playbook_checks.delay(str(job_id))
+            run_playbook_checks.apply_async(
+                (str(job_id),),
+                countdown=queued_count * settings.run_checks_stagger_seconds,
+            )
             queued_count += 1
             logger.info(
-                "periodic_recheck queued job %s for case %s (interval: %dd)",
-                job_id, case.id, case.recheck_interval_days
+                "periodic_recheck queued job %s for case %s (interval: %dd, countdown: %ds)",
+                job_id, case.id, case.recheck_interval_days,
+                (queued_count - 1) * settings.run_checks_stagger_seconds,
             )
 
         await session.commit()

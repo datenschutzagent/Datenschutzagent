@@ -66,7 +66,12 @@ async def _process_one_upload(
             detail=f"Unsupported file format for '{filename}'. Allowed: {', '.join(ALLOWED_EXTENSIONS)}",
         )
     file_format = EXT_TO_FORMAT[ext]
-    content = await file.read()
+    content = await file.read(settings.max_upload_size_bytes + 1)
+    if len(content) > settings.max_upload_size_bytes:
+        raise HTTPException(
+            status_code=413,
+            detail=f"Datei '{filename}' überschreitet das erlaubte Maximum von {settings.max_upload_size_bytes // (1024 * 1024)} MB.",
+        )
     size_bytes = len(content)
     if async_extraction:
         text_content = None
@@ -108,6 +113,7 @@ async def list_documents(
     case_id: UUID | None = None,
     document_type: str | None = None,
     db: AsyncSession = Depends(get_db),
+    _user=require_roles("viewer", "editor", "admin"),
 ):
     """List documents, optionally filtered by case_id and/or document_type. Ordered by type, then version (asc)."""
     q = select(DocumentModel)
@@ -125,6 +131,7 @@ async def list_documents(
 async def download_document(
     document_id: UUID,
     db: AsyncSession = Depends(get_db),
+    _user=require_roles("viewer", "editor", "admin"),
 ):
     """Download the original document file. Access requires authentication (same as listing documents)."""
     result = await db.execute(select(DocumentModel).where(DocumentModel.id == document_id))
@@ -154,6 +161,7 @@ async def download_document(
 async def get_document_content(
     document_id: UUID,
     db: AsyncSession = Depends(get_db),
+    _user=require_roles("viewer", "editor", "admin"),
 ):
     """Get the extracted text content of a document (for in-app display). Includes extraction_status and extraction_error for UI state."""
     result = await db.execute(select(DocumentModel).where(DocumentModel.id == document_id))
@@ -171,6 +179,7 @@ async def get_document_content(
 async def list_document_comments(
     document_id: UUID,
     db: AsyncSession = Depends(get_db),
+    _user=require_roles("viewer", "editor", "admin"),
 ):
     """List comments for a document, sorted by created_at ascending."""
     result = await db.execute(select(DocumentModel).where(DocumentModel.id == document_id))
@@ -217,6 +226,7 @@ async def create_document_comment(
 async def get_document(
     document_id: UUID,
     db: AsyncSession = Depends(get_db),
+    _user=require_roles("viewer", "editor", "admin"),
 ):
     """Get a single document by ID."""
     result = await db.execute(select(DocumentModel).where(DocumentModel.id == document_id))
