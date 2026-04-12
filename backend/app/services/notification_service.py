@@ -113,6 +113,10 @@ async def scan_and_notify_deadlines(db: AsyncSession) -> dict:
             continue
         assignee_user = users_by_name.get(case.assignee.lower())
         if not assignee_user or not assignee_user.email:
+            logger.info(
+                "deadline_warning skipped: assignee '%s' for case %s has no registered user with e-mail",
+                case.assignee, case.id,
+            )
             continue
         # Anti-Spam: nicht öfter als einmal pro Cooldown-Fenster benachrichtigen
         if case.last_notified_at and (now_utc - case.last_notified_at) < cooldown:
@@ -155,6 +159,10 @@ async def scan_and_notify_deadlines(db: AsyncSession) -> dict:
             continue
         assignee_user = users_by_name.get(case.assignee.lower())
         if not assignee_user or not assignee_user.email:
+            logger.info(
+                "deadline_overdue skipped: assignee '%s' for case %s has no registered user with e-mail",
+                case.assignee, case.id,
+            )
             continue
         # Anti-Spam: nicht öfter als einmal pro Cooldown-Fenster benachrichtigen
         if case.last_notified_at and (now_utc - case.last_notified_at) < cooldown:
@@ -202,6 +210,10 @@ async def scan_and_notify_deadlines(db: AsyncSession) -> dict:
             continue
         assignee_user = users_by_name.get(breach.assignee.lower())
         if not assignee_user or not assignee_user.email:
+            logger.info(
+                "breach_warning skipped: assignee '%s' for breach %s has no registered user with e-mail",
+                breach.assignee, breach.id,
+            )
             continue
         # Anti-Spam: nicht öfter als einmal pro Cooldown-Fenster benachrichtigen
         if breach.last_notified_at and (now - breach.last_notified_at) < cooldown:
@@ -243,6 +255,10 @@ async def scan_and_notify_deadlines(db: AsyncSession) -> dict:
             continue
         assignee_user = users_by_name.get(breach.assignee.lower())
         if not assignee_user or not assignee_user.email:
+            logger.info(
+                "breach_overdue skipped: assignee '%s' for breach %s has no registered user with e-mail",
+                breach.assignee, breach.id,
+            )
             continue
         # Anti-Spam: nicht öfter als einmal pro Cooldown-Fenster benachrichtigen
         if breach.last_notified_at and (now - breach.last_notified_at) < cooldown:
@@ -290,6 +306,10 @@ async def scan_and_notify_deadlines(db: AsyncSession) -> dict:
             continue
         assignee_user = users_by_name.get(dsr.assignee.lower())
         if not assignee_user or not assignee_user.email:
+            logger.info(
+                "dsr_warning skipped: assignee '%s' for DSR %s has no registered user with e-mail",
+                dsr.assignee, dsr.id,
+            )
             continue
         # Anti-Spam: nicht öfter als einmal pro Cooldown-Fenster benachrichtigen
         dsr_last = dsr.last_notified_at
@@ -346,6 +366,10 @@ async def scan_and_notify_deadlines(db: AsyncSession) -> dict:
             continue
         assignee_user = users_by_name.get(avv.assignee.lower())
         if not assignee_user or not assignee_user.email:
+            logger.info(
+                "avv_expiry skipped: assignee '%s' for AVV %s has no registered user with e-mail",
+                avv.assignee, avv.id,
+            )
             continue
         # Anti-Spam: nicht öfter als einmal pro Cooldown-Fenster benachrichtigen
         if avv.last_notified_at and (now_utc - avv.last_notified_at) < cooldown:
