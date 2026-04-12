@@ -1154,9 +1154,23 @@ async def run_checks(
         db.add(job)
         await db.flush()
         await db.refresh(job)
+        # Commit FIRST so the job row is visible to the Celery worker's DB session.
+        # Previously the task was dispatched before commit, causing a race condition
+        # where the worker could not find the job row.
+        await db.commit()
         celery_result = run_playbook_checks.delay(str(job.id))
         job.celery_task_id = celery_result.id
         await db.commit()
+        logger.info(
+            "run_checks: dispatched celery task",
+            extra={
+                "job_id": str(job.id),
+                "case_id": str(case_id),
+                "playbook_name": playbook.name,
+                "strategies": strategies,
+                "celery_task_id": celery_result.id,
+            },
+        )
         return JSONResponse(
             status_code=202,
             content={
