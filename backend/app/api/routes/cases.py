@@ -68,6 +68,35 @@ from app.core.rate_limit import limiter
 router = APIRouter()
 
 
+# ---- Running-checks endpoint (must be before /{case_id} routes) ----------
+
+@router.get("/running-checks", summary="Alle laufenden Playbook-Prüfungen")
+async def list_running_checks(db: AsyncSession = Depends(get_db)):
+    """Return all currently running playbook check jobs across all cases.
+
+    Used by the frontend to display a global status banner showing active checks.
+    """
+    result = await db.execute(
+        select(RunChecksJobModel, CaseModel.title)
+        .join(CaseModel, RunChecksJobModel.case_id == CaseModel.id)
+        .where(RunChecksJobModel.status == "running")
+        .order_by(RunChecksJobModel.created_at.desc())
+    )
+    return [
+        {
+            "job_id": str(job.id),
+            "case_id": str(job.case_id),
+            "case_title": title,
+            "playbook_name": job.playbook_name,
+            "status": job.status,
+            "checks_total": job.checks_total,
+            "checks_done": job.checks_done,
+            "created_at": job.created_at.isoformat() if job.created_at else None,
+        }
+        for job, title in result.all()
+    ]
+
+
 _CASE_SORT_COLUMNS = {
     "updated_at": CaseModel.updated_at,
     "created_at": CaseModel.created_at,

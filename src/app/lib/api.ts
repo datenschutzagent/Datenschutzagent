@@ -534,6 +534,44 @@ export async function deleteCase(id: string): Promise<void> {
 
 export type RunChecksStrategy = "full_text" | "rag";
 
+/** Single running check job returned by GET /cases/running-checks */
+export interface RunningCheckJob {
+  jobId: string;
+  caseId: string;
+  caseTitle: string;
+  playbookName: string | null;
+  status: string;
+  checksTotal: number;
+  checksDone: number;
+  createdAt: string | null;
+}
+
+/** Fetch all currently running playbook check jobs across all cases. */
+export async function getRunningChecks(): Promise<RunningCheckJob[]> {
+  const raw = await request<
+    Array<{
+      job_id: string;
+      case_id: string;
+      case_title: string;
+      playbook_name: string | null;
+      status: string;
+      checks_total: number;
+      checks_done: number;
+      created_at: string | null;
+    }>
+  >("GET", "/cases/running-checks");
+  return raw.map((r) => ({
+    jobId: r.job_id,
+    caseId: r.case_id,
+    caseTitle: r.case_title,
+    playbookName: r.playbook_name,
+    status: r.status,
+    checksTotal: r.checks_total,
+    checksDone: r.checks_done,
+    createdAt: r.created_at,
+  }));
+}
+
 /** When POST run-checks returns 202, the job was queued (Celery). */
 export interface RunChecksAcceptedResponse {
   accepted: true;
