@@ -70,6 +70,12 @@ _SCHEMA_MIGRATIONS = [
     # Periodische Re-Checks (CaseModel)
     "ALTER TABLE cases ADD COLUMN IF NOT EXISTS recheck_interval_days INTEGER",
     "ALTER TABLE cases ADD COLUMN IF NOT EXISTS last_rechecked_at TIMESTAMPTZ",
+    # Anti-Spam: Letzter Benachrichtigungsversand pro Entität
+    "ALTER TABLE cases ADD COLUMN IF NOT EXISTS last_notified_at TIMESTAMPTZ",
+    "ALTER TABLE cases ADD COLUMN IF NOT EXISTS completed_at TIMESTAMPTZ",
+    "ALTER TABLE data_breaches ADD COLUMN IF NOT EXISTS last_notified_at TIMESTAMPTZ",
+    "ALTER TABLE dsr_requests ADD COLUMN IF NOT EXISTS last_notified_at TIMESTAMPTZ",
+    "ALTER TABLE avv_contracts ADD COLUMN IF NOT EXISTS last_notified_at TIMESTAMPTZ",
 ]
 
 

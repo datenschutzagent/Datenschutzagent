@@ -9,7 +9,20 @@ from sqlalchemy import and_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
-from app.models.db import ActivityLogModel, AVVContractModel, CaseModel, DataBreachModel, DSRRequestModel, UserModel
+from app.models.db import (
+    ActivityLogModel,
+    AVVContractModel,
+    CaseModel,
+    DataBreachActivityLogModel,
+    DataBreachModel,
+    DSRActivityLogModel,
+    DSRRequestModel,
+    UserModel,
+)
+
+# Mindestabstand zwischen zwei Benachrichtigungen derselben Entität (Anti-Spam).
+# Verhindert tägliche E-Mail-Flut bei langen Warnfenstern.
+_NOTIFICATION_COOLDOWN_HOURS = 20
 
 logger = logging.getLogger(__name__)
 
@@ -80,6 +93,8 @@ async def scan_and_notify_deadlines(db: AsyncSession) -> dict:
             users_by_name[u.display_name.lower()] = u
 
     sent_count = 0
+    now_utc = datetime.now(timezone.utc)
+    cooldown = timedelta(hours=_NOTIFICATION_COOLDOWN_HOURS)
 
     # Vorgänge mit bevorstehender Frist
     cases_result = await db.execute(
@@ -99,6 +114,9 @@ async def scan_and_notify_deadlines(db: AsyncSession) -> dict:
         assignee_user = users_by_name.get(case.assignee.lower())
         if not assignee_user or not assignee_user.email:
             continue
+        # Anti-Spam: nicht öfter als einmal pro Cooldown-Fenster benachrichtigen
+        if case.last_notified_at and (now_utc - case.last_notified_at) < cooldown:
+            continue
         days_left = (case.deadline - today).days
         subject = f"[Datenschutzagent] Frist in {days_left} Tag(en): {case.title}"
         body = (
@@ -110,6 +128,7 @@ async def scan_and_notify_deadlines(db: AsyncSession) -> dict:
         )
         try:
             _send_email(assignee_user.email, subject, body)
+            case.last_notified_at = now_utc
             activity = ActivityLogModel(
                 case_id=case.id,
                 event_type="notification_sent",
@@ -137,6 +156,9 @@ async def scan_and_notify_deadlines(db: AsyncSession) -> dict:
         assignee_user = users_by_name.get(case.assignee.lower())
         if not assignee_user or not assignee_user.email:
             continue
+        # Anti-Spam: nicht öfter als einmal pro Cooldown-Fenster benachrichtigen
+        if case.last_notified_at and (now_utc - case.last_notified_at) < cooldown:
+            continue
         days_overdue = (today - case.deadline).days
         subject = f"[Datenschutzagent] ÜBERFÄLLIG ({days_overdue}d): {case.title}"
         body = (
@@ -148,6 +170,7 @@ async def scan_and_notify_deadlines(db: AsyncSession) -> dict:
         )
         try:
             _send_email(assignee_user.email, subject, body)
+            case.last_notified_at = now_utc
             activity = ActivityLogModel(
                 case_id=case.id,
                 event_type="notification_sent",
@@ -161,7 +184,7 @@ async def scan_and_notify_deadlines(db: AsyncSession) -> dict:
     # -------------------------------------------------------
     # Datenpannen: 72-Stunden-Meldepflicht (Art. 33 DSGVO)
     # -------------------------------------------------------
-    now = datetime.now(timezone.utc)
+    now = now_utc  # Alias für Datenpannen-Abschnitt (timezone-aware)
     breach_warning_dt = now + timedelta(hours=settings.notification_breach_warning_hours)
 
     breaches_result = await db.execute(
@@ -180,8 +203,11 @@ async def scan_and_notify_deadlines(db: AsyncSession) -> dict:
         assignee_user = users_by_name.get(breach.assignee.lower())
         if not assignee_user or not assignee_user.email:
             continue
+        # Anti-Spam: nicht öfter als einmal pro Cooldown-Fenster benachrichtigen
+        if breach.last_notified_at and (now - breach.last_notified_at) < cooldown:
+            continue
         hours_left = max(0, int((breach.notification_deadline - now).total_seconds() / 3600))
-        subject = f"[Datenschutzagent] ⚠️ Datenpanne – Meldepflicht in {hours_left}h: {breach.title}"
+        subject = f"[Datenschutzagent] Datenpanne – Meldepflicht in {hours_left}h: {breach.title}"
         body = (
             f"Guten Tag {assignee_user.display_name},\n\n"
             f"die 72-Stunden-Meldepflicht (Art. 33 DSGVO) für folgende Datenpanne läuft ab:\n\n"
@@ -193,6 +219,12 @@ async def scan_and_notify_deadlines(db: AsyncSession) -> dict:
         )
         try:
             _send_email(assignee_user.email, subject, body)
+            breach.last_notified_at = now
+            db.add(DataBreachActivityLogModel(
+                breach_id=breach.id,
+                event_type="notification_sent",
+                payload={"type": "breach_warning", "recipient": assignee_user.email, "hours_left": hours_left},
+            ))
             sent_count += 1
         except Exception as exc:
             logger.warning("Failed to send breach notification for breach %s: %s", breach.id, exc)
@@ -212,8 +244,11 @@ async def scan_and_notify_deadlines(db: AsyncSession) -> dict:
         assignee_user = users_by_name.get(breach.assignee.lower())
         if not assignee_user or not assignee_user.email:
             continue
+        # Anti-Spam: nicht öfter als einmal pro Cooldown-Fenster benachrichtigen
+        if breach.last_notified_at and (now - breach.last_notified_at) < cooldown:
+            continue
         hours_overdue = max(0, int((now - breach.notification_deadline).total_seconds() / 3600))
-        subject = f"[Datenschutzagent] 🚨 ÜBERFÄLLIG – Datenpanne nicht gemeldet ({hours_overdue}h): {breach.title}"
+        subject = f"[Datenschutzagent] ÜBERFÄLLIG – Datenpanne nicht gemeldet ({hours_overdue}h): {breach.title}"
         body = (
             f"Guten Tag {assignee_user.display_name},\n\n"
             f"die 72-Stunden-Meldepflicht für folgende Datenpanne ist ÜBERSCHRITTEN:\n\n"
@@ -225,6 +260,12 @@ async def scan_and_notify_deadlines(db: AsyncSession) -> dict:
         )
         try:
             _send_email(assignee_user.email, subject, body)
+            breach.last_notified_at = now
+            db.add(DataBreachActivityLogModel(
+                breach_id=breach.id,
+                event_type="notification_sent",
+                payload={"type": "breach_overdue", "recipient": assignee_user.email, "hours_overdue": hours_overdue},
+            ))
             sent_count += 1
         except Exception as exc:
             logger.warning("Failed to send overdue breach notification for breach %s: %s", breach.id, exc)
@@ -250,6 +291,12 @@ async def scan_and_notify_deadlines(db: AsyncSession) -> dict:
         assignee_user = users_by_name.get(dsr.assignee.lower())
         if not assignee_user or not assignee_user.email:
             continue
+        # Anti-Spam: nicht öfter als einmal pro Cooldown-Fenster benachrichtigen
+        dsr_last = dsr.last_notified_at
+        if dsr_last and dsr_last.tzinfo is None:
+            dsr_last = dsr_last.replace(tzinfo=timezone.utc)
+        if dsr_last and (now_utc - dsr_last) < cooldown:
+            continue
         days_left = (dsr.response_deadline - today).days
         req_type_labels = {
             "access": "Auskunft", "rectification": "Berichtigung",
@@ -269,6 +316,12 @@ async def scan_and_notify_deadlines(db: AsyncSession) -> dict:
         )
         try:
             _send_email(assignee_user.email, subject, body)
+            dsr.last_notified_at = now_utc
+            db.add(DSRActivityLogModel(
+                request_id=dsr.id,
+                event_type="notification_sent",
+                payload={"type": "dsr_warning", "recipient": assignee_user.email, "days_left": days_left},
+            ))
             sent_count += 1
         except Exception as exc:
             logger.warning("Failed to send DSR notification for DSR %s: %s", dsr.id, exc)
@@ -294,6 +347,9 @@ async def scan_and_notify_deadlines(db: AsyncSession) -> dict:
         assignee_user = users_by_name.get(avv.assignee.lower())
         if not assignee_user or not assignee_user.email:
             continue
+        # Anti-Spam: nicht öfter als einmal pro Cooldown-Fenster benachrichtigen
+        if avv.last_notified_at and (now_utc - avv.last_notified_at) < cooldown:
+            continue
         days_left = (avv.expiry_date - today).days
         subject = f"[Datenschutzagent] AVV läuft ab in {days_left} Tag(en): {avv.partner_name}"
         body = (
@@ -307,6 +363,7 @@ async def scan_and_notify_deadlines(db: AsyncSession) -> dict:
         )
         try:
             _send_email(assignee_user.email, subject, body)
+            avv.last_notified_at = now_utc
             sent_count += 1
         except Exception as exc:
             logger.warning("Failed to send AVV expiry notification for AVV %s: %s", avv.id, exc)

@@ -42,6 +42,8 @@ class CaseModel(Base):
     retention_months: Mapped[int | None] = mapped_column(Integer, nullable=True, default=None)
     recheck_interval_days: Mapped[int | None] = mapped_column(Integer, nullable=True, default=None)  # Automatischer Re-Check alle X Tage
     last_rechecked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, default=None)
+    last_notified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, default=None)  # Letzter Benachrichtigungsversand (Anti-Spam)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, default=None)  # Zeitpunkt des Abschlusses (Basis für Aufbewahrungsfrist)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
@@ -325,6 +327,7 @@ class DSRRequestModel(Base):
     responded_at: Mapped[date | None] = mapped_column(Date, nullable=True)
     response_summary: Mapped[str | None] = mapped_column(Text, nullable=True)
     draft_response: Mapped[str | None] = mapped_column(Text, nullable=True)
+    last_notified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, default=None)  # Letzter Benachrichtigungsversand (Anti-Spam)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
@@ -372,6 +375,7 @@ class DataBreachModel(Base):
     authority_reference: Mapped[str | None] = mapped_column(String(200), nullable=True)
     measures_taken: Mapped[str | None] = mapped_column(Text, nullable=True)
     draft_notification: Mapped[str | None] = mapped_column(Text, nullable=True)
+    last_notified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, default=None)  # Letzter Benachrichtigungsversand (Anti-Spam)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
@@ -421,6 +425,7 @@ class AVVContractModel(Base):
     risk_level: Mapped[str | None] = mapped_column(String(20), nullable=True)        # low | medium | high | critical
     risk_assessment: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)  # detaillierte Bewertung
     risk_assessed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_notified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, default=None)  # Letzter Benachrichtigungsversand (Anti-Spam)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 

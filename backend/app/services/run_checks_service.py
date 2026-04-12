@@ -20,6 +20,7 @@ import logging
 
 logger = logging.getLogger(__name__)
 from app.services.weaviate_service import get_relevant_legal_base_chunks
+from app.core.llm import get_llm_provider_info
 
 
 def _legal_base_applicable(
@@ -89,6 +90,10 @@ async def run_checks_impl(
     findings_added = 0
     rag_skipped = False
     errors: list[dict] = []
+
+    # Semaphore begrenzt gleichzeitige LLM-Aufrufe (verhindert Überlastung / Rate-Limit-Fehler).
+    _max_concurrent = getattr(settings, "max_concurrent_llm_calls", 5)
+    _llm_semaphore = asyncio.Semaphore(_max_concurrent) if _max_concurrent > 0 else None
 
     # Load existing open findings for deduplication (check_name + document_id)
     existing_result = await db.execute(
@@ -203,27 +208,33 @@ async def run_checks_impl(
             return
         lb_ids = _legal_base_ids_for_check(item)
         legal_ctx = _legal_bases_context_for_instruction(instruction, lb_ids)
-        try:
-            check_result = await run_check(
-                doc_text, instruction, language=case_language, legal_bases_context=legal_ctx or None
-            )
-        except Exception as e:
-            errors.append({"check": name, "scope": "document", "document_id": str(doc_id), "strategy": "full_text", "error": str(e)})
-            return
-        if not check_result.is_compliant:
-            _add_finding(
-                case_id=case_id,
-                document_id=doc_id,
-                check_name=name,
-                category=category,
-                severity=check_result.severity,
-                description=check_result.description,
-                evidence=check_result.evidence or [],
-                recommendation=check_result.recommendation or "",
-                source_strategy="full_text",
-            )
-        if on_check_done:
-            await on_check_done()
+        async def _do():
+            try:
+                check_result = await run_check(
+                    doc_text, instruction, language=case_language, legal_bases_context=legal_ctx or None
+                )
+            except Exception as e:
+                errors.append({"check": name, "scope": "document", "document_id": str(doc_id), "strategy": "full_text", "error": str(e)})
+                return
+            if not check_result.is_compliant:
+                _add_finding(
+                    case_id=case_id,
+                    document_id=doc_id,
+                    check_name=name,
+                    category=category,
+                    severity=check_result.severity,
+                    description=check_result.description,
+                    evidence=check_result.evidence or [],
+                    recommendation=check_result.recommendation or "",
+                    source_strategy="full_text",
+                )
+            if on_check_done:
+                await on_check_done()
+        if _llm_semaphore:
+            async with _llm_semaphore:
+                await _do()
+        else:
+            await _do()
 
     async def _run_doc_check_rag(doc_id, item):
         nonlocal rag_skipped
@@ -234,55 +245,64 @@ async def run_checks_impl(
             return
         lb_ids = _legal_base_ids_for_check(item)
         legal_ctx = _legal_bases_context_for_instruction(instruction, lb_ids)
-        rag_result = None
-        try:
-            rag_result = await run_check_rag(
-                doc_id, case_id, instruction, language=case_language, legal_bases_context=legal_ctx or None
-            )
-        except Exception as e:
-            errors.append({"check": name, "scope": "document", "document_id": str(doc_id), "strategy": "rag", "error": str(e)})
-            rag_skipped = True
-        if rag_result is None:
-            # Fallback to full_text when RAG is unavailable
-            rag_skipped = True
-            if "Weaviate/chunks unavailable" not in str(errors[-1].get("error", "") if errors else ""):
-                errors.append({"check": name, "scope": "document", "document_id": str(doc_id), "strategy": "rag", "error": "Weaviate/chunks unavailable – falling back to full_text"})
-            doc_text = next((d.content or "" for d in case.documents if d.id == doc_id), "")
+
+        async def _do():
+            nonlocal rag_skipped
+            rag_result = None
             try:
-                fallback_result = await run_check(
-                    doc_text, instruction, language=case_language, legal_bases_context=legal_ctx or None
+                rag_result = await run_check_rag(
+                    doc_id, case_id, instruction, language=case_language, legal_bases_context=legal_ctx or None
                 )
-                if not fallback_result.is_compliant:
-                    _add_finding(
-                        case_id=case_id,
-                        document_id=doc_id,
-                        check_name=name,
-                        category=category,
-                        severity=fallback_result.severity,
-                        description=fallback_result.description,
-                        evidence=fallback_result.evidence or [],
-                        recommendation=fallback_result.recommendation or "",
-                        source_strategy="full_text",
+            except Exception as e:
+                errors.append({"check": name, "scope": "document", "document_id": str(doc_id), "strategy": "rag", "error": str(e)})
+                rag_skipped = True
+            if rag_result is None:
+                # Fallback to full_text when RAG is unavailable
+                rag_skipped = True
+                if "Weaviate/chunks unavailable" not in str(errors[-1].get("error", "") if errors else ""):
+                    errors.append({"check": name, "scope": "document", "document_id": str(doc_id), "strategy": "rag", "error": "Weaviate/chunks unavailable – falling back to full_text"})
+                doc_text = next((d.content or "" for d in case.documents if d.id == doc_id), "")
+                try:
+                    fallback_result = await run_check(
+                        doc_text, instruction, language=case_language, legal_bases_context=legal_ctx or None
                     )
-            except Exception as e2:
-                errors.append({"check": name, "scope": "document", "document_id": str(doc_id), "strategy": "rag_fallback_full_text", "error": str(e2)})
+                    if not fallback_result.is_compliant:
+                        _add_finding(
+                            case_id=case_id,
+                            document_id=doc_id,
+                            check_name=name,
+                            category=category,
+                            severity=fallback_result.severity,
+                            description=fallback_result.description,
+                            evidence=fallback_result.evidence or [],
+                            recommendation=fallback_result.recommendation or "",
+                            source_strategy="full_text",
+                        )
+                except Exception as e2:
+                    errors.append({"check": name, "scope": "document", "document_id": str(doc_id), "strategy": "rag_fallback_full_text", "error": str(e2)})
+                if on_check_done:
+                    await on_check_done()
+                return
+            if not rag_result.is_compliant:
+                _add_finding(
+                    case_id=case_id,
+                    document_id=doc_id,
+                    check_name=name,
+                    category=category,
+                    severity=rag_result.severity,
+                    description=rag_result.description,
+                    evidence=rag_result.evidence or [],
+                    recommendation=rag_result.recommendation or "",
+                    source_strategy="rag",
+                )
             if on_check_done:
                 await on_check_done()
-            return
-        if not rag_result.is_compliant:
-            _add_finding(
-                case_id=case_id,
-                document_id=doc_id,
-                check_name=name,
-                category=category,
-                severity=rag_result.severity,
-                description=rag_result.description,
-                evidence=rag_result.evidence or [],
-                recommendation=rag_result.recommendation or "",
-                source_strategy="rag",
-            )
-        if on_check_done:
-            await on_check_done()
+
+        if _llm_semaphore:
+            async with _llm_semaphore:
+                await _do()
+        else:
+            await _do()
 
     doc_coros = []
     for doc in case.documents:
@@ -306,27 +326,33 @@ async def run_checks_impl(
                 return
             lb_ids = _legal_base_ids_for_check(item)
             legal_ctx = _legal_bases_context_for_instruction(instruction, lb_ids)
-            try:
-                check_result = await run_cross_document_check(
-                    doc_list, instruction, language=case_language, legal_bases_context=legal_ctx or None
-                )
-            except Exception as e:
-                errors.append({"check": name, "scope": "case", "document_id": None, "strategy": "full_text", "error": str(e)})
-                return
-            if not check_result.is_compliant:
-                _add_finding(
-                    case_id=case_id,
-                    document_id=None,
-                    check_name=name,
-                    category=category,
-                    severity=check_result.severity,
-                    description=check_result.description,
-                    evidence=check_result.evidence or [],
-                    recommendation=check_result.recommendation or "",
-                    source_strategy="full_text",
-                )
-            if on_check_done:
-                await on_check_done()
+            async def _do():
+                try:
+                    check_result = await run_cross_document_check(
+                        doc_list, instruction, language=case_language, legal_bases_context=legal_ctx or None
+                    )
+                except Exception as e:
+                    errors.append({"check": name, "scope": "case", "document_id": None, "strategy": "full_text", "error": str(e)})
+                    return
+                if not check_result.is_compliant:
+                    _add_finding(
+                        case_id=case_id,
+                        document_id=None,
+                        check_name=name,
+                        category=category,
+                        severity=check_result.severity,
+                        description=check_result.description,
+                        evidence=check_result.evidence or [],
+                        recommendation=check_result.recommendation or "",
+                        source_strategy="full_text",
+                    )
+                if on_check_done:
+                    await on_check_done()
+            if _llm_semaphore:
+                async with _llm_semaphore:
+                    await _do()
+            else:
+                await _do()
 
         async def _run_case_check_rag(item):
             nonlocal rag_skipped
@@ -337,53 +363,62 @@ async def run_checks_impl(
                 return
             lb_ids = _legal_base_ids_for_check(item)
             legal_ctx = _legal_bases_context_for_instruction(instruction, lb_ids)
-            rag_result = None
-            try:
-                rag_result = await run_cross_document_check_rag(
-                    case_id, instruction, language=case_language, legal_bases_context=legal_ctx or None
-                )
-            except Exception as e:
-                errors.append({"check": name, "scope": "case", "document_id": None, "strategy": "rag", "error": str(e)})
-                rag_skipped = True
-            if rag_result is None:
-                # Fallback to full_text when RAG is unavailable
-                rag_skipped = True
-                errors.append({"check": name, "scope": "case", "document_id": None, "strategy": "rag", "error": "Weaviate/chunks unavailable – falling back to full_text"})
+
+            async def _do():
+                nonlocal rag_skipped
+                rag_result = None
                 try:
-                    fallback_result = await run_cross_document_check(
-                        doc_list, instruction, language=case_language, legal_bases_context=legal_ctx or None
+                    rag_result = await run_cross_document_check_rag(
+                        case_id, instruction, language=case_language, legal_bases_context=legal_ctx or None
                     )
-                    if not fallback_result.is_compliant:
-                        _add_finding(
-                            case_id=case_id,
-                            document_id=None,
-                            check_name=name,
-                            category=category,
-                            severity=fallback_result.severity,
-                            description=fallback_result.description,
-                            evidence=fallback_result.evidence or [],
-                            recommendation=fallback_result.recommendation or "",
-                            source_strategy="full_text",
+                except Exception as e:
+                    errors.append({"check": name, "scope": "case", "document_id": None, "strategy": "rag", "error": str(e)})
+                    rag_skipped = True
+                if rag_result is None:
+                    # Fallback to full_text when RAG is unavailable
+                    rag_skipped = True
+                    errors.append({"check": name, "scope": "case", "document_id": None, "strategy": "rag", "error": "Weaviate/chunks unavailable – falling back to full_text"})
+                    try:
+                        fallback_result = await run_cross_document_check(
+                            doc_list, instruction, language=case_language, legal_bases_context=legal_ctx or None
                         )
-                except Exception as e2:
-                    errors.append({"check": name, "scope": "case", "document_id": None, "strategy": "rag_fallback_full_text", "error": str(e2)})
+                        if not fallback_result.is_compliant:
+                            _add_finding(
+                                case_id=case_id,
+                                document_id=None,
+                                check_name=name,
+                                category=category,
+                                severity=fallback_result.severity,
+                                description=fallback_result.description,
+                                evidence=fallback_result.evidence or [],
+                                recommendation=fallback_result.recommendation or "",
+                                source_strategy="full_text",
+                            )
+                    except Exception as e2:
+                        errors.append({"check": name, "scope": "case", "document_id": None, "strategy": "rag_fallback_full_text", "error": str(e2)})
+                    if on_check_done:
+                        await on_check_done()
+                    return
+                if not rag_result.is_compliant:
+                    _add_finding(
+                        case_id=case_id,
+                        document_id=None,
+                        check_name=name,
+                        category=category,
+                        severity=rag_result.severity,
+                        description=rag_result.description,
+                        evidence=rag_result.evidence or [],
+                        recommendation=rag_result.recommendation or "",
+                        source_strategy="rag",
+                    )
                 if on_check_done:
                     await on_check_done()
-                return
-            if not rag_result.is_compliant:
-                _add_finding(
-                    case_id=case_id,
-                    document_id=None,
-                    check_name=name,
-                    category=category,
-                    severity=rag_result.severity,
-                    description=rag_result.description,
-                    evidence=rag_result.evidence or [],
-                    recommendation=rag_result.recommendation or "",
-                    source_strategy="rag",
-                )
-            if on_check_done:
-                await on_check_done()
+
+            if _llm_semaphore:
+                async with _llm_semaphore:
+                    await _do()
+            else:
+                await _do()
 
         case_coros = []
         for item in case_checks:
@@ -396,11 +431,13 @@ async def run_checks_impl(
 
     await db.flush()
 
+    llm_info = get_llm_provider_info()
     activity_payload: dict = {
         "playbook_id": str(playbook_id),
         "playbook_name": playbook.name,
         "playbook_version": playbook.version,
-        "model": settings.ollama_model,
+        "llm_provider": llm_info.get("provider", settings.llm_provider),
+        "model": llm_info.get("model", settings.ollama_model),
         "findings_count": findings_added,
         "strategies": strategies,
     }
