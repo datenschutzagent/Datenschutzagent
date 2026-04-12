@@ -55,8 +55,9 @@ import { CaseDocumentsTab } from "../components/case-detail/CaseDocumentsTab";
 import { CaseFindingsTab } from "../components/case-detail/CaseFindingsTab";
 import { ArrowLeft, Download, MessageSquare, Loader2, CircleAlert } from "lucide-react";
 import { toast } from "sonner";
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import { useAppConfig } from "../contexts/AppConfigContext";
+import { useRunningChecks } from "../contexts/RunningChecksContext";
 
 export function CaseDetailPage() {
   const { caseId } = useParams();
@@ -78,9 +79,17 @@ export function CaseDetailPage() {
   const [selectedPlaybookId, setSelectedPlaybookId] = useState<string>("");
   const [runChecksStrategy, setRunChecksStrategy] = useState<"full_text" | "rag" | "both">("full_text");
   const [runChecksLoading, setRunChecksLoading] = useState(false);
-  const [runChecksStatus, setRunChecksStatus] = useState<"idle" | "running" | "completed" | "failed">("idle");
   const [runChecksError, setRunChecksError] = useState<string | null>(null);
-  const [runChecksProgress, setRunChecksProgress] = useState<{ done: number; total: number }>({ done: 0, total: 0 });
+  // -- Running checks state from global context (replaces local polling) --
+  const { registerJob, getJob } = useRunningChecks();
+  const currentJob = caseId ? getJob(caseId) : undefined;
+  const runChecksStatus: "idle" | "running" | "completed" | "failed" =
+    currentJob?.status === "running" ? "running"
+    : currentJob?.status === "failed" ? "failed"
+    : "idle";
+  const runChecksProgress = currentJob
+    ? { done: currentJob.checksDone, total: currentJob.checksTotal }
+    : { done: 0, total: 0 };
   const [findingStatusLoading, setFindingStatusLoading] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState("overview");
   const [documentsChangedSinceLastRun, setDocumentsChangedSinceLastRun] = useState(false);
@@ -159,7 +168,8 @@ export function CaseDetailPage() {
         runChecksStrategy === "both" ? ["full_text", "rag"] : [runChecksStrategy];
       const result = await runChecks(caseId, selectedPlaybookId, strategies);
       if ("accepted" in result && result.accepted) {
-        setRunChecksStatus("running");
+        const selectedPb = playbooks.find((p) => p.id === selectedPlaybookId);
+        registerJob(caseId, result.jobId, caseData?.title ?? "", selectedPb?.name);
       } else {
         setCaseData(result as ApiCase);
         loadRiskScore();
@@ -173,13 +183,19 @@ export function CaseDetailPage() {
     }
   };
 
-  // Load documents_changed_since_last_run flag on mount
+  // Load documents_changed_since_last_run flag on mount + recover running jobs
   useEffect(() => {
     if (!caseId) return;
     getRunChecksStatus(caseId)
-      .then((s) => setDocumentsChangedSinceLastRun(s.documents_changed_since_last_run ?? false))
+      .then((s) => {
+        setDocumentsChangedSinceLastRun(s.documents_changed_since_last_run ?? false);
+        // If a job is already running (e.g. auto-run or page refresh), register it globally
+        if (s.status === "running" && s.job_id && caseData) {
+          registerJob(caseId, s.job_id, caseData.title, s.playbook_name ?? undefined);
+        }
+      })
       .catch(() => {});
-  }, [caseId]);
+  }, [caseId, caseData?.title]);
 
   // Load similar cases on mount (background, best-effort)
   useEffect(() => {
@@ -196,34 +212,22 @@ export function CaseDetailPage() {
     loadRiskScore();
   }, [caseId]);
 
-  // Poll run-checks status when job was accepted (202) — independent of dialog state
+  // React to check completion/failure from the global context (reload case data, close dialog)
+  const prevJobStatusRef = useRef<string | undefined>(undefined);
   useEffect(() => {
-    if (!caseId || runChecksStatus !== "running") return;
-    const interval = setInterval(async () => {
-      try {
-        const statusRes = await getRunChecksStatus(caseId);
-        if (statusRes.checks_total > 0) {
-          setRunChecksProgress({ done: statusRes.checks_done, total: statusRes.checks_total });
-        }
-        if (statusRes.status === "completed") {
-          setRunChecksStatus("idle");
-          setRunChecksProgress({ done: 0, total: 0 });
-          toast.success("Prüfungen erfolgreich abgeschlossen");
-          loadCase();
-          loadRiskScore();
-          setRunChecksOpen(false);
-          setSelectedPlaybookId("");
-        } else if (statusRes.status === "failed") {
-          setRunChecksStatus("failed");
-          setRunChecksProgress({ done: 0, total: 0 });
-          setRunChecksError(statusRes.error ?? "Checks fehlgeschlagen.");
-        }
-      } catch {
-        // keep polling on transient errors
-      }
-    }, 3000);
-    return () => clearInterval(interval);
-  }, [caseId, runChecksStatus]);
+    const currentStatus = currentJob?.status;
+    const prevStatus = prevJobStatusRef.current;
+    prevJobStatusRef.current = currentStatus;
+
+    if (prevStatus === "running" && currentStatus === "completed") {
+      loadCase();
+      loadRiskScore();
+      setRunChecksOpen(false);
+      setSelectedPlaybookId("");
+    } else if (prevStatus === "running" && currentStatus === "failed") {
+      setRunChecksError("Checks fehlgeschlagen.");
+    }
+  }, [currentJob?.status]);
 
   const handleSelectFinding = (finding: ApiFinding) => {
     setSelectedFinding(finding);

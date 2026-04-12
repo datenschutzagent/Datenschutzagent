@@ -1,6 +1,7 @@
 import { Link, useLocation } from "react-router";
 import { useState } from "react";
 import { AppHeaderUser } from "./app-header-user";
+import { GlobalChecksBanner } from "./global-checks-banner";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "./ui/sheet";
 import { Button } from "./ui/button";
 import { useAuthOptional } from "../contexts/AuthContext";
@@ -132,6 +133,9 @@ export function AppLayout({ children, maxWidth = "max-w-7xl" }: AppLayoutProps) 
           </nav>
         </SheetContent>
       </Sheet>
+
+      {/* Running checks status banner (only visible when checks are active) */}
+      <GlobalChecksBanner />
 
       {/* Main Content */}
       <main id="main-content" className={`${maxWidth} mx-auto px-4 sm:px-6 lg:px-8 py-8`}>

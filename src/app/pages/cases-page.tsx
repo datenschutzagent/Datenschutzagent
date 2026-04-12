@@ -12,13 +12,15 @@ import { CasesSearchFilter, CasesFilters } from "../components/cases-search-filt
 import { statusLabels, statusColors, priorityColors, priorityLabels } from "../lib/mock-data";
 import { getCases, archiveCase, unarchiveCase, canEdit, type ApiCase, type CasesFilter } from "../lib/api";
 import { useAuthOptional } from "../contexts/AuthContext";
-import { Plus, FileText, CircleAlert, CheckCircle2, Clock, LayoutDashboard, Calendar, AlertTriangle } from "lucide-react";
+import { useRunningChecks } from "../contexts/RunningChecksContext";
+import { Plus, FileText, CircleAlert, CheckCircle2, Clock, LayoutDashboard, Calendar, AlertTriangle, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { useState, useMemo, useEffect } from "react";
 
 export function CasesPage() {
   const navigate = useNavigate();
   const auth = useAuthOptional();
+  const { isRunning } = useRunningChecks();
   const [cases, setCases] = useState<ApiCase[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -212,6 +214,12 @@ export function CasesPage() {
                               {(caseItem as { priority?: string }).priority && (
                                 <Badge className={priorityColors[(caseItem as { priority: string }).priority]}>
                                   {priorityLabels[(caseItem as { priority: string }).priority]}
+                                </Badge>
+                              )}
+                              {isRunning(caseItem.id) && (
+                                <Badge className="bg-blue-100 text-blue-700 dark:bg-blue-900/50 dark:text-blue-300 gap-1">
+                                  <Loader2 className="size-3 animate-spin" />
+                                  Prüfung läuft
                                 </Badge>
                               )}
                             </div>
