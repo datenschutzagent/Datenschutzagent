@@ -455,6 +455,23 @@ class TOMModel(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
 
+class TOMAttachmentModel(Base):
+    """File attachments for TOM measures (evidence files)."""
+    __tablename__ = "tom_attachments"
+    __table_args__ = (
+        Index("ix_tom_attachments_tom_id", "tom_id"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(PG_UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    tom_id: Mapped[uuid.UUID] = mapped_column(PG_UUID(as_uuid=True), ForeignKey("tom_measures.id", ondelete="CASCADE"), nullable=False)
+    name: Mapped[str] = mapped_column(String(500), nullable=False)
+    format: Mapped[str] = mapped_column(String(20), nullable=False)  # docx | pdf | xlsx | doc
+    size_bytes: Mapped[int] = mapped_column(Integer, nullable=False)
+    storage_path: Mapped[str] = mapped_column(String(1000), nullable=False)
+    uploaded_by: Mapped[str] = mapped_column(String(200), nullable=False, default="")
+    uploaded_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+
+
 class PrivacyPolicyModel(Base):
     """Generierte Datenschutzerklärungen (Art. 13/14 DSGVO)."""
     __tablename__ = "privacy_policies"
@@ -824,6 +841,19 @@ def orm_to_tom_response(orm: TOMModel) -> dict[str, Any]:
         "department_codes": orm.department_codes or [],
         "created_at": orm.created_at,
         "updated_at": orm.updated_at,
+    }
+
+
+def orm_to_tom_attachment_response(orm: TOMAttachmentModel) -> dict[str, Any]:
+    """Map TOMAttachmentModel to API response shape. storage_path is intentionally excluded."""
+    return {
+        "id": orm.id,
+        "tom_id": orm.tom_id,
+        "name": orm.name,
+        "format": orm.format,
+        "size_bytes": orm.size_bytes,
+        "uploaded_by": orm.uploaded_by,
+        "uploaded_at": orm.uploaded_at,
     }
 
 

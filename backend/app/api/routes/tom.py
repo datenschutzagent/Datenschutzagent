@@ -2,23 +2,36 @@
 import logging
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
+from fastapi.responses import StreamingResponse
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.auth import require_roles
+from app.config import settings
 from app.database import get_db
-from app.models.db import TOMModel, orm_to_tom_response
+from app.models.db import TOMModel, TOMAttachmentModel, orm_to_tom_response, orm_to_tom_attachment_response
 from app.models.schemas import (
+    TOMAttachmentResponse,
     TOMCreate,
     TOMListResponse,
     TOMResponse,
     TOMStatsResponse,
     TOMUpdate,
 )
+from app.storage import save_tom_file, get_tom_file, delete_tom_file
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
+
+ALLOWED_EXTENSIONS = {"docx", "pdf", "xlsx", "doc"}
+EXT_TO_FORMAT = {"docx": "docx", "pdf": "pdf", "xlsx": "xlsx", "doc": "doc"}
+FORMAT_TO_MEDIA_TYPE = {
+    "pdf": "application/pdf",
+    "docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    "xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    "doc": "application/msword",
+}
 
 
 @router.get("", response_model=TOMListResponse, summary="TOMs auflisten")
@@ -148,3 +161,133 @@ async def delete_tom(
         raise HTTPException(status_code=404, detail="TOM nicht gefunden")
     await db.delete(tom)
     await db.flush()
+
+
+# ---------------------------------------------------------------------------
+# TOM Attachments
+# ---------------------------------------------------------------------------
+
+@router.get("/{tom_id}/attachments", response_model=list[TOMAttachmentResponse], summary="Anhänge auflisten")
+async def list_tom_attachments(
+    tom_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    _user=require_roles("viewer", "editor", "admin"),
+):
+    """List all file attachments for a TOM measure."""
+    result = await db.execute(select(TOMModel).where(TOMModel.id == tom_id))
+    if not result.scalar_one_or_none():
+        raise HTTPException(status_code=404, detail="TOM nicht gefunden")
+    q = (
+        select(TOMAttachmentModel)
+        .where(TOMAttachmentModel.tom_id == tom_id)
+        .order_by(TOMAttachmentModel.uploaded_at.asc())
+    )
+    rows = (await db.execute(q)).scalars().all()
+    return [TOMAttachmentResponse(**orm_to_tom_attachment_response(r)) for r in rows]
+
+
+@router.post("/{tom_id}/attachments", response_model=TOMAttachmentResponse, status_code=201, summary="Anhang hochladen")
+async def upload_tom_attachment(
+    tom_id: UUID,
+    file: UploadFile = File(...),
+    uploaded_by: str = Form(default=""),
+    db: AsyncSession = Depends(get_db),
+    _user=require_roles("editor", "admin"),
+):
+    """Upload a file attachment to a TOM measure. Allowed: PDF, DOCX, XLSX, DOC. Max configured upload size."""
+    result = await db.execute(select(TOMModel).where(TOMModel.id == tom_id))
+    if not result.scalar_one_or_none():
+        raise HTTPException(status_code=404, detail="TOM nicht gefunden")
+
+    filename = file.filename or "attachment"
+    ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
+    if ext not in ALLOWED_EXTENSIONS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Nicht unterstütztes Dateiformat '{filename}'. Erlaubt: {', '.join(ALLOWED_EXTENSIONS)}",
+        )
+
+    content = await file.read(settings.max_upload_size_bytes + 1)
+    if len(content) > settings.max_upload_size_bytes:
+        raise HTTPException(
+            status_code=413,
+            detail=f"Datei überschreitet das Maximum von {settings.max_upload_size_bytes // (1024 * 1024)} MB.",
+        )
+
+    attachment = TOMAttachmentModel(
+        tom_id=tom_id,
+        name=filename,
+        format=EXT_TO_FORMAT[ext],
+        size_bytes=len(content),
+        uploaded_by=uploaded_by or "unknown",
+        storage_path="",
+    )
+    db.add(attachment)
+    await db.flush()  # populates attachment.id
+
+    storage_path = save_tom_file(tom_id, attachment.id, filename, content)
+    attachment.storage_path = storage_path
+    await db.flush()
+    await db.refresh(attachment)
+    return TOMAttachmentResponse(**orm_to_tom_attachment_response(attachment))
+
+
+@router.get("/{tom_id}/attachments/{attachment_id}/download", summary="Anhang herunterladen")
+async def download_tom_attachment(
+    tom_id: UUID,
+    attachment_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    _user=require_roles("viewer", "editor", "admin"),
+):
+    """Download a TOM attachment file."""
+    result = await db.execute(
+        select(TOMAttachmentModel).where(
+            TOMAttachmentModel.id == attachment_id,
+            TOMAttachmentModel.tom_id == tom_id,
+        )
+    )
+    attachment = result.scalar_one_or_none()
+    if not attachment:
+        raise HTTPException(status_code=404, detail="Anhang nicht gefunden")
+    try:
+        content = get_tom_file(attachment.storage_path)
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="Datei nicht gefunden")
+
+    media_type = FORMAT_TO_MEDIA_TYPE.get(attachment.format, "application/octet-stream")
+    return StreamingResponse(
+        iter([content]),
+        media_type=media_type,
+        headers={
+            "Content-Disposition": f'attachment; filename="{attachment.name}"',
+            "Content-Length": str(len(content)),
+        },
+    )
+
+
+@router.delete("/{tom_id}/attachments/{attachment_id}", status_code=204, summary="Anhang löschen")
+async def delete_tom_attachment(
+    tom_id: UUID,
+    attachment_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    _user=require_roles("editor", "admin"),
+):
+    """Delete a TOM attachment (file + DB record)."""
+    result = await db.execute(
+        select(TOMAttachmentModel).where(
+            TOMAttachmentModel.id == attachment_id,
+            TOMAttachmentModel.tom_id == tom_id,
+        )
+    )
+    attachment = result.scalar_one_or_none()
+    if not attachment:
+        raise HTTPException(status_code=404, detail="Anhang nicht gefunden")
+
+    storage_path = attachment.storage_path
+    await db.delete(attachment)
+    await db.flush()
+
+    try:
+        delete_tom_file(storage_path)
+    except Exception:
+        logger.warning("Could not delete TOM attachment file: %s", storage_path)

@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { AppLayout } from "../components/app-layout";
 import { PageHeader } from "../components/page-header";
 import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card";
@@ -18,14 +18,23 @@ import {
   createTOM,
   updateTOM,
   deleteTOM,
+  listTOMAttachments,
+  uploadTOMAttachment,
+  getTOMAttachmentBlob,
+  deleteTOMAttachment,
+  downloadBlob,
+  getCurrentUser,
+  canEdit,
+  type ApiUser,
   type ApiTOM,
   type ApiTOMStats,
+  type ApiTOMAttachment,
   type TOMCreate,
   type TOMCategory,
   type TOMStatus,
 } from "../lib/api";
 import { toast } from "sonner";
-import { Plus, Shield, Loader2, Trash2, CheckCircle, Clock, XCircle } from "lucide-react";
+import { Plus, Shield, Loader2, Trash2, CheckCircle, Clock, XCircle, Paperclip, Download, Upload } from "lucide-react";
 
 const CATEGORY_LABELS: Record<string, string> = {
   access_control: "Zugriffskontrolle",
@@ -99,6 +108,12 @@ export function TOMPage() {
   const [selected, setSelected] = useState<ApiTOM | null>(null);
   const [updatingStatus, setUpdatingStatus] = useState(false);
 
+  const [currentUser, setCurrentUser] = useState<ApiUser | null>(null);
+  const [attachments, setAttachments] = useState<ApiTOMAttachment[]>([]);
+  const [attachmentsLoading, setAttachmentsLoading] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
   const load = useCallback(async () => {
     setLoading(true);
     try {
@@ -119,6 +134,17 @@ export function TOMPage() {
   }, [categoryFilter, statusFilter]);
 
   useEffect(() => { void load(); }, [load]);
+
+  useEffect(() => { getCurrentUser().then(setCurrentUser).catch(() => {}); }, []);
+
+  useEffect(() => {
+    if (!selected) { setAttachments([]); return; }
+    setAttachmentsLoading(true);
+    listTOMAttachments(selected.id)
+      .then(setAttachments)
+      .catch(() => toast.error("Anhänge konnten nicht geladen werden."))
+      .finally(() => setAttachmentsLoading(false));
+  }, [selected]);
 
   async function handleCreate() {
     if (!form.title.trim()) { toast.error("Titel erforderlich."); return; }
@@ -167,6 +193,40 @@ export function TOMPage() {
       if (selected?.id === id) setSelected(null);
       toast.success("TOM gelöscht.");
       void load();
+    } catch {
+      toast.error("Fehler beim Löschen.");
+    }
+  }
+
+  async function handleAttachmentUpload(file: File) {
+    if (!selected) return;
+    setUploading(true);
+    try {
+      const attachment = await uploadTOMAttachment(selected.id, file, currentUser?.display_name ?? "");
+      setAttachments((prev) => [...prev, attachment]);
+      toast.success(`"${file.name}" hochgeladen.`);
+    } catch {
+      toast.error("Fehler beim Hochladen.");
+    } finally {
+      setUploading(false);
+    }
+  }
+
+  async function handleAttachmentDownload(att: ApiTOMAttachment) {
+    try {
+      const blob = await getTOMAttachmentBlob(selected!.id, att.id);
+      downloadBlob(blob, att.name);
+    } catch {
+      toast.error("Download fehlgeschlagen.");
+    }
+  }
+
+  async function handleAttachmentDelete(attachmentId: string) {
+    if (!selected) return;
+    try {
+      await deleteTOMAttachment(selected.id, attachmentId);
+      setAttachments((prev) => prev.filter((a) => a.id !== attachmentId));
+      toast.success("Anhang gelöscht.");
     } catch {
       toast.error("Fehler beim Löschen.");
     }
@@ -335,7 +395,7 @@ export function TOMPage() {
       {/* Detail dialog */}
       {selected && (
         <Dialog open onOpenChange={() => setSelected(null)}>
-          <DialogContent className="max-w-lg">
+          <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
             <DialogHeader>
               <DialogTitle className="flex items-center gap-2">
                 <StatusIcon status={selected.implementationStatus} />
@@ -375,6 +435,76 @@ export function TOMPage() {
                     </Button>
                   ))}
                 </div>
+              </div>
+              {/* Attachments */}
+              <div>
+                <div className="flex items-center justify-between mb-2">
+                  <p className="text-sm font-medium flex items-center gap-1.5">
+                    <Paperclip className="size-3.5" /> Anhänge
+                  </p>
+                  {canEdit(currentUser) && (
+                    <>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        disabled={uploading}
+                        onClick={() => fileInputRef.current?.click()}
+                      >
+                        {uploading
+                          ? <Loader2 className="size-3.5 mr-1 animate-spin" />
+                          : <Upload className="size-3.5 mr-1" />}
+                        Datei hinzufügen
+                      </Button>
+                      <input
+                        ref={fileInputRef}
+                        type="file"
+                        className="hidden"
+                        accept=".pdf,.docx,.xlsx,.doc"
+                        onChange={(e) => {
+                          const file = e.target.files?.[0];
+                          if (file) void handleAttachmentUpload(file);
+                          e.target.value = "";
+                        }}
+                      />
+                    </>
+                  )}
+                </div>
+                {attachmentsLoading ? (
+                  <Skeleton className="h-10 w-full" />
+                ) : attachments.length === 0 ? (
+                  <p className="text-xs text-muted-foreground">Keine Anhänge vorhanden.</p>
+                ) : (
+                  <ul className="space-y-1.5">
+                    {attachments.map((att) => (
+                      <li key={att.id} className="flex items-center justify-between gap-2 text-sm border rounded px-3 py-1.5">
+                        <span className="truncate flex-1 font-medium">{att.name}</span>
+                        <span className="text-xs text-muted-foreground shrink-0">{att.size}</span>
+                        <div className="flex items-center gap-1 shrink-0">
+                          <Button
+                            size="icon"
+                            variant="ghost"
+                            className="size-6"
+                            title="Herunterladen"
+                            onClick={() => void handleAttachmentDownload(att)}
+                          >
+                            <Download className="size-3.5" />
+                          </Button>
+                          {canEdit(currentUser) && (
+                            <Button
+                              size="icon"
+                              variant="ghost"
+                              className="size-6 text-destructive hover:text-destructive"
+                              title="Löschen"
+                              onClick={() => void handleAttachmentDelete(att.id)}
+                            >
+                              <Trash2 className="size-3.5" />
+                            </Button>
+                          )}
+                        </div>
+                      </li>
+                    ))}
+                  </ul>
+                )}
               </div>
             </div>
             <DialogFooter>
