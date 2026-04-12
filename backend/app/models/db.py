@@ -159,6 +159,8 @@ class FindingModel(Base):
         Index("ix_findings_case_id_status", "case_id", "status"),
         Index("ix_findings_case_id_severity", "case_id", "severity"),
         Index("ix_findings_document_id", "document_id"),
+        # Supports the 6-month trend query in /findings/stats (WHERE created_at >= NOW() - INTERVAL '6 months')
+        Index("ix_findings_created_at", "created_at"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(PG_UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)

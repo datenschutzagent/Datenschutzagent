@@ -1,4 +1,3 @@
-import asyncio
 import hashlib
 import json
 import logging
@@ -9,7 +8,7 @@ from uuid import UUID
 from pydantic import BaseModel, Field
 
 from app.config import settings
-from app.core.llm import create_agent
+from app.core.llm import create_agent, llm_retry_call
 from app.core.request_id import get_request_id
 from app.models.schemas import FindingSeverityEnum
 from app.services.prompt_template_service import get_active_template, render
@@ -92,10 +91,6 @@ async def _cache_set(key: str, result: CheckResult) -> None:
     except Exception as exc:
         logger.debug("LLM cache SET failed (ignored): %s", exc)
 
-_LLM_RETRY_ATTEMPTS = 3
-_LLM_RETRY_DELAYS = [2, 4, 8]  # seconds
-
-
 def _context_chars_per_doc() -> int:
     """Return configured per-document character limit for LLM context."""
     return getattr(settings, "max_context_chars_per_doc", 15000)
@@ -106,27 +101,6 @@ def _rag_context_chars() -> int:
     return getattr(settings, "max_context_chars_rag", 20000)
 
 
-async def _run_with_retry(agent, user_content: str, output_type):
-    """Run an LLM agent call with exponential backoff retry on transient errors."""
-    last_exc: Exception | None = None
-    for attempt, delay in enumerate(
-        [0] + _LLM_RETRY_DELAYS[: _LLM_RETRY_ATTEMPTS - 1], start=1
-    ):
-        if delay:
-            await asyncio.sleep(delay)
-        try:
-            result = await agent.run(user_content, output_type=output_type)
-            return result
-        except Exception as exc:
-            last_exc = exc
-            logger.warning(
-                "LLM call failed (attempt %d/%d): %s  [request_id=%s]",
-                attempt,
-                _LLM_RETRY_ATTEMPTS,
-                exc,
-                get_request_id(),
-            )
-    raise last_exc
 
 # Per-document character limit for LLM context (single-doc and cross-doc)
 # These are module-level defaults; use _context_chars_per_doc() / _rag_context_chars() at call time
@@ -234,7 +208,7 @@ async def run_check(
     if cached is not None:
         logger.debug("LLM cache hit for check '%s'  [request_id=%s]", check_instruction[:60], get_request_id())
         return cached
-    result = await _run_with_retry(agent, user_content, output_type=CheckResult)
+    result = await llm_retry_call(agent, user_content, output_type=CheckResult, request_id=get_request_id())
     await _cache_set(cache_key, result.output)
     return result.output
 
@@ -279,7 +253,7 @@ async def run_cross_document_check(
     if cached is not None:
         logger.debug("LLM cache hit for cross-doc check '%s'  [request_id=%s]", check_instruction[:60], get_request_id())
         return cached
-    result = await _run_with_retry(agent, user_content, output_type=CheckResult)
+    result = await llm_retry_call(agent, user_content, output_type=CheckResult, request_id=get_request_id())
     await _cache_set(cache_key, result.output)
     return result.output
 
@@ -322,7 +296,7 @@ async def run_check_rag(
     if cached is not None:
         logger.debug("LLM cache hit for RAG check '%s'  [request_id=%s]", check_instruction[:60], get_request_id())
         return cached
-    result = await _run_with_retry(agent, user_content, output_type=CheckResult)
+    result = await llm_retry_call(agent, user_content, output_type=CheckResult, request_id=get_request_id())
     await _cache_set(cache_key, result.output)
     return result.output
 
@@ -366,6 +340,6 @@ async def run_cross_document_check_rag(
     if cached is not None:
         logger.debug("LLM cache hit for cross-RAG check '%s'  [request_id=%s]", check_instruction[:60], get_request_id())
         return cached
-    result = await _run_with_retry(agent, user_content, output_type=CheckResult)
+    result = await llm_retry_call(agent, user_content, output_type=CheckResult, request_id=get_request_id())
     await _cache_set(cache_key, result.output)
     return result.output

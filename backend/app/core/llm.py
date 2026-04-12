@@ -5,12 +5,51 @@ Der aktive Provider wird über die Einstellung LLM_PROVIDER gesteuert:
   - "openai"    → OpenAI API (OPENAI_API_KEY erforderlich)
   - "anthropic" → Anthropic API (ANTHROPIC_API_KEY erforderlich, 'anthropic'-Package nötig)
 """
+import asyncio
+import logging
+
 import httpx
 from pydantic_ai import Agent
 from pydantic_ai.models.openai import OpenAIModel
 from pydantic_ai.providers.openai import OpenAIProvider
 
 from app.config import settings
+
+logger = logging.getLogger(__name__)
+
+# ---------------------------------------------------------------------------
+# LLM-Retry-Konfiguration
+# ---------------------------------------------------------------------------
+
+LLM_RETRY_ATTEMPTS = 3
+LLM_RETRY_DELAYS = [2, 4, 8]  # seconds between attempts
+
+
+async def llm_retry_call(agent: Agent, user_content: str, output_type, *, request_id: str = ""):
+    """Run an LLM agent call with exponential backoff retry on transient errors.
+
+    Shared utility used by check_runner and vvt_service to avoid duplicated
+    retry logic. Retries up to LLM_RETRY_ATTEMPTS times with delays from
+    LLM_RETRY_DELAYS. Raises the last exception if all attempts fail.
+    """
+    last_exc: Exception | None = None
+    for attempt, delay in enumerate(
+        [0] + LLM_RETRY_DELAYS[: LLM_RETRY_ATTEMPTS - 1], start=1
+    ):
+        if delay:
+            await asyncio.sleep(delay)
+        try:
+            return await agent.run(user_content, output_type=output_type)
+        except Exception as exc:
+            last_exc = exc
+            logger.warning(
+                "LLM call failed (attempt %d/%d): %s  [request_id=%s]",
+                attempt,
+                LLM_RETRY_ATTEMPTS,
+                exc,
+                request_id,
+            )
+    raise last_exc
 
 
 def _ollama_base_url() -> str:

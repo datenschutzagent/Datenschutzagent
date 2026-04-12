@@ -93,6 +93,9 @@ async def run_checks_impl(
     case_case_type = getattr(case, "case_type", None) or ""
     findings_added = 0
     rag_skipped = False
+    # Logged once per run to avoid flooding the errors list with the same Weaviate message
+    # for every check when RAG is globally unavailable.
+    _rag_weaviate_error_logged = False
     errors: list[dict] = []
 
     # Semaphore begrenzt gleichzeitige LLM-Aufrufe (verhindert Überlastung / Rate-Limit-Fehler).
@@ -258,7 +261,7 @@ async def run_checks_impl(
         legal_ctx = _legal_bases_context_for_instruction(instruction, lb_ids)
 
         async def _do():
-            nonlocal rag_skipped
+            nonlocal rag_skipped, _rag_weaviate_error_logged
             rag_result = None
             try:
                 rag_result = await run_check_rag(
@@ -268,9 +271,10 @@ async def run_checks_impl(
                 errors.append({"check": name, "scope": "document", "document_id": str(doc_id), "strategy": "rag", "error": str(e)})
                 rag_skipped = True
             if rag_result is None:
-                # Fallback to full_text when RAG is unavailable
+                # Fallback to full_text when RAG is unavailable; log Weaviate error only once per run
                 rag_skipped = True
-                if "Weaviate/chunks unavailable" not in str(errors[-1].get("error", "") if errors else ""):
+                if not _rag_weaviate_error_logged:
+                    _rag_weaviate_error_logged = True
                     errors.append({"check": name, "scope": "document", "document_id": str(doc_id), "strategy": "rag", "error": "Weaviate/chunks unavailable – falling back to full_text"})
                 doc_text = next((d.content or "" for d in case.documents if d.id == doc_id), "")
                 try:
@@ -388,7 +392,7 @@ async def run_checks_impl(
             legal_ctx = _legal_bases_context_for_instruction(instruction, lb_ids)
 
             async def _do():
-                nonlocal rag_skipped
+                nonlocal rag_skipped, _rag_weaviate_error_logged
                 rag_result = None
                 try:
                     rag_result = await run_cross_document_check_rag(
@@ -398,9 +402,11 @@ async def run_checks_impl(
                     errors.append({"check": name, "scope": "case", "document_id": None, "strategy": "rag", "error": str(e)})
                     rag_skipped = True
                 if rag_result is None:
-                    # Fallback to full_text when RAG is unavailable
+                    # Fallback to full_text when RAG is unavailable; log Weaviate error only once per run
                     rag_skipped = True
-                    errors.append({"check": name, "scope": "case", "document_id": None, "strategy": "rag", "error": "Weaviate/chunks unavailable – falling back to full_text"})
+                    if not _rag_weaviate_error_logged:
+                        _rag_weaviate_error_logged = True
+                        errors.append({"check": name, "scope": "case", "document_id": None, "strategy": "rag", "error": "Weaviate/chunks unavailable – falling back to full_text"})
                     try:
                         fallback_result = await run_cross_document_check(
                             doc_list, instruction, language=case_language, legal_bases_context=legal_ctx or None

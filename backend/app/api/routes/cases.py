@@ -68,6 +68,15 @@ from app.core.rate_limit import limiter
 router = APIRouter()
 
 
+_CASE_SORT_COLUMNS = {
+    "updated_at": CaseModel.updated_at,
+    "created_at": CaseModel.created_at,
+    "deadline": CaseModel.deadline,
+    "title": CaseModel.title,
+    "status": CaseModel.status,
+}
+
+
 @router.get("", response_model=CaseListResponse, summary="Vorgänge auflisten")
 async def list_cases(
     skip: int = Query(default=0, ge=0),
@@ -80,6 +89,8 @@ async def list_cases(
     has_open_findings: bool | None = Query(default=None, description="True = nur Vorgänge mit mindestens einem offenen Befund"),
     deadline_overdue: bool | None = Query(default=None, description="True = nur überfällige Vorgänge (Frist < heute, Status nicht completed)"),
     include_archived: bool = Query(default=False, description="True = auch archivierte Vorgänge zurückgeben (Standard: nur nicht-archivierte)"),
+    sort_by: str = Query(default="updated_at", description="Sortierfeld: updated_at (Standard), created_at, deadline, title, status"),
+    order: str = Query(default="desc", description="Sortierrichtung: desc (Standard) oder asc"),
     db: AsyncSession = Depends(get_db),
 ):
     """List cases with optional pagination and server-side filtering. Returns items and total count."""
@@ -134,10 +145,16 @@ async def list_cases(
     count_result = await db.execute(select(func.count()).select_from(base_q.subquery()))
     total = count_result.scalar_one()
 
+    sort_col = _CASE_SORT_COLUMNS.get(sort_by, CaseModel.updated_at)
+    sort_expr = sort_col.asc() if order == "asc" else sort_col.desc()
+    # NULL-Werte (z. B. deadline) werden bei DESC ans Ende gestellt (NULLS LAST)
+    from sqlalchemy import nulls_last, nulls_first
+    sort_expr = nulls_last(sort_expr) if order == "desc" else nulls_first(sort_expr)
+
     result = await db.execute(
         base_q
         .options(selectinload(CaseModel.documents), selectinload(CaseModel.findings))
-        .order_by(CaseModel.updated_at.desc())
+        .order_by(sort_expr)
         .offset(skip)
         .limit(limit)
     )
