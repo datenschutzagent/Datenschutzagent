@@ -76,8 +76,13 @@ class Settings(BaseSettings):
 
     # Maximale Anzahl gleichzeitiger LLM-Anfragen pro run_checks-Job.
     # Verhindert Überlastung von Ollama und Rate-Limit-Fehler bei OpenAI/Anthropic.
-    # 0 = kein Limit (altes Verhalten).
-    max_concurrent_llm_calls: int = 5
+    # 0 = kein Limit (nicht empfohlen für lokales Ollama).
+    max_concurrent_llm_calls: int = 2
+
+    # Timeout pro Prüfung in Sekunden (asyncio.wait_for um _do()).
+    # Muss >= ollama_timeout_seconds sein, damit der HTTP-Call noch sauber abbrechen kann.
+    # 0 = deaktiviert (nicht empfohlen bei lokalem Ollama, da hängende Requests den Job blockieren).
+    check_timeout_seconds: float = 180.0
 
     # Standard-Strategien für automatische Re-Checks (auto_run_checks, periodic_recheck).
     # Kommagetrennt: "full_text", "rag" oder "full_text,rag"

@@ -124,8 +124,11 @@ async def run_checks_impl(
     errors: list[dict] = []
 
     # Semaphore begrenzt gleichzeitige LLM-Aufrufe (verhindert Überlastung / Rate-Limit-Fehler).
-    _max_concurrent = getattr(settings, "max_concurrent_llm_calls", 5)
+    _max_concurrent = getattr(settings, "max_concurrent_llm_calls", 2)
     _llm_semaphore = asyncio.Semaphore(_max_concurrent) if _max_concurrent > 0 else None
+
+    # Per-check timeout: verhindert dass ein hängender LLM-Aufruf den ganzen Job blockiert.
+    _check_timeout = getattr(settings, "check_timeout_seconds", 180.0) or None
 
     # Load existing findings for deduplication (check_name + document_id).
     # When skip_resolved=True (default) we include all statuses so that reviewed/resolved
@@ -278,11 +281,29 @@ async def run_checks_impl(
                 )
             if on_check_done:
                 await on_check_done()
+        async def _do_with_timeout():
+            try:
+                if _check_timeout:
+                    await asyncio.wait_for(_do(), timeout=_check_timeout)
+                else:
+                    await _do()
+            except TimeoutError:
+                logger.error(
+                    "run_check [full_text] timed out after %.0fs: '%s' doc=%s",
+                    _check_timeout, name, doc_id,
+                )
+                errors.append({
+                    "check": name, "scope": "document", "document_id": str(doc_id),
+                    "strategy": "full_text", "error": f"timed out after {_check_timeout}s",
+                })
+                if on_check_done:
+                    await on_check_done()
+
         if _llm_semaphore:
             async with _llm_semaphore:
-                await _do()
+                await _do_with_timeout()
         else:
-            await _do()
+            await _do_with_timeout()
 
     async def _run_doc_check_rag(doc_id, item):
         nonlocal rag_skipped
@@ -359,11 +380,29 @@ async def run_checks_impl(
             if on_check_done:
                 await on_check_done()
 
+        async def _do_with_timeout():
+            try:
+                if _check_timeout:
+                    await asyncio.wait_for(_do(), timeout=_check_timeout)
+                else:
+                    await _do()
+            except TimeoutError:
+                logger.error(
+                    "run_check [rag] timed out after %.0fs: '%s' doc=%s",
+                    _check_timeout, name, doc_id,
+                )
+                errors.append({
+                    "check": name, "scope": "document", "document_id": str(doc_id),
+                    "strategy": "rag", "error": f"timed out after {_check_timeout}s",
+                })
+                if on_check_done:
+                    await on_check_done()
+
         if _llm_semaphore:
             async with _llm_semaphore:
-                await _do()
+                await _do_with_timeout()
         else:
-            await _do()
+            await _do_with_timeout()
 
     # Only run checks against documents whose text extraction has completed.
     # Documents still in pending/processing/failed state have no content yet – running checks
@@ -454,11 +493,30 @@ async def run_checks_impl(
                     )
                 if on_check_done:
                     await on_check_done()
+
+            async def _do_with_timeout():
+                try:
+                    if _check_timeout:
+                        await asyncio.wait_for(_do(), timeout=_check_timeout)
+                    else:
+                        await _do()
+                except TimeoutError:
+                    logger.error(
+                        "run_check [case/full_text] timed out after %.0fs: '%s'",
+                        _check_timeout, name,
+                    )
+                    errors.append({
+                        "check": name, "scope": "case", "document_id": None,
+                        "strategy": "full_text", "error": f"timed out after {_check_timeout}s",
+                    })
+                    if on_check_done:
+                        await on_check_done()
+
             if _llm_semaphore:
                 async with _llm_semaphore:
-                    await _do()
+                    await _do_with_timeout()
             else:
-                await _do()
+                await _do_with_timeout()
 
         async def _run_case_check_rag(item):
             nonlocal rag_skipped
@@ -534,11 +592,29 @@ async def run_checks_impl(
                 if on_check_done:
                     await on_check_done()
 
+            async def _do_with_timeout():
+                try:
+                    if _check_timeout:
+                        await asyncio.wait_for(_do(), timeout=_check_timeout)
+                    else:
+                        await _do()
+                except TimeoutError:
+                    logger.error(
+                        "run_check [case/rag] timed out after %.0fs: '%s'",
+                        _check_timeout, name,
+                    )
+                    errors.append({
+                        "check": name, "scope": "case", "document_id": None,
+                        "strategy": "rag", "error": f"timed out after {_check_timeout}s",
+                    })
+                    if on_check_done:
+                        await on_check_done()
+
             if _llm_semaphore:
                 async with _llm_semaphore:
-                    await _do()
+                    await _do_with_timeout()
             else:
-                await _do()
+                await _do_with_timeout()
 
         case_coros = []
         for item in case_checks:
