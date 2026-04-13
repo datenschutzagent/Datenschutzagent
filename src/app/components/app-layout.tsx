@@ -4,15 +4,12 @@ import { AppHeaderUser } from "./app-header-user";
 import { GlobalChecksBanner } from "./global-checks-banner";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "./ui/sheet";
 import { Button } from "./ui/button";
-import { useAuthOptional } from "../contexts/AuthContext";
 import { useAppConfig } from "../contexts/AppConfigContext";
-import { isAdmin } from "../lib/api";
 import { Menu } from "lucide-react";
 
 interface NavItem {
   to: string;
   label: string;
-  adminOnly?: boolean;
 }
 
 const NAV_ITEMS: NavItem[] = [
@@ -25,8 +22,6 @@ const NAV_ITEMS: NavItem[] = [
   { to: "/vvt-overview", label: "VVT-Übersicht" },
   { to: "/playbooks", label: "Playbooks" },
   { to: "/legal-bases", label: "Rechtsgrundlagen" },
-  { to: "/profile", label: "Mein Profil" },
-  { to: "/admin", label: "Verwaltung", adminOnly: true },
 ];
 
 function isActive(pathname: string, to: string): boolean {
@@ -41,14 +36,9 @@ interface AppLayoutProps {
 
 export function AppLayout({ children, maxWidth = "max-w-7xl" }: AppLayoutProps) {
   const location = useLocation();
-  const auth = useAuthOptional();
   const appConfig = useAppConfig();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const subtitle = appConfig.org_name || "Datenschutz-Compliance";
-
-  const visibleNavItems = NAV_ITEMS.filter(
-    (item) => !item.adminOnly || isAdmin(auth?.user ?? null)
-  );
 
   return (
     <div className="min-h-screen bg-slate-50 dark:bg-slate-950 transition-colors">
@@ -75,7 +65,7 @@ export function AppLayout({ children, maxWidth = "max-w-7xl" }: AppLayoutProps) 
 
             {/* Desktop Navigation */}
             <nav className="hidden lg:flex items-center gap-6">
-              {visibleNavItems.map((item) => (
+              {NAV_ITEMS.map((item) => (
                 <Link
                   key={item.to}
                   to={item.to}
@@ -115,7 +105,7 @@ export function AppLayout({ children, maxWidth = "max-w-7xl" }: AppLayoutProps) 
             <SheetTitle>Navigation</SheetTitle>
           </SheetHeader>
           <nav className="flex flex-col gap-1 mt-4">
-            {visibleNavItems.map((item) => (
+            {NAV_ITEMS.map((item) => (
               <Link
                 key={item.to}
                 to={item.to}

@@ -1,12 +1,16 @@
+import { Link } from "react-router";
 import { useAuthOptional } from "../contexts/AuthContext";
+import { isAdmin } from "../lib/api";
 import { Button } from "./ui/button";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "./ui/dropdown-menu";
-import { LogOut, User } from "lucide-react";
+import { LogOut, Settings, User, UserRound } from "lucide-react";
 
 /**
  * Shows current user and logout in the header when auth is available.
@@ -15,15 +19,41 @@ import { LogOut, User } from "lucide-react";
 export function AppHeaderUser() {
   const auth = useAuthOptional();
   if (!auth?.user) return null;
+
+  const displayName = auth.user.display_name || auth.user.email || "Profil";
+  const admin = isAdmin(auth.user);
+
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
         <Button variant="ghost" size="sm" className="gap-2">
           <User className="size-4" />
-          <span className="max-w-[140px] truncate">{auth.user.display_name || auth.user.email || "Profil"}</span>
+          <span className="max-w-[140px] truncate">{displayName}</span>
         </Button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="end">
+      <DropdownMenuContent align="end" className="min-w-[180px]">
+        <DropdownMenuLabel className="font-normal">
+          <p className="font-medium truncate">{auth.user.display_name || "Profil"}</p>
+          {auth.user.email && (
+            <p className="text-xs text-muted-foreground truncate">{auth.user.email}</p>
+          )}
+        </DropdownMenuLabel>
+        <DropdownMenuSeparator />
+        <DropdownMenuItem asChild className="gap-2 cursor-pointer">
+          <Link to="/profile">
+            <UserRound className="size-4" />
+            Mein Profil
+          </Link>
+        </DropdownMenuItem>
+        {admin && (
+          <DropdownMenuItem asChild className="gap-2 cursor-pointer">
+            <Link to="/admin">
+              <Settings className="size-4" />
+              Verwaltung
+            </Link>
+          </DropdownMenuItem>
+        )}
+        <DropdownMenuSeparator />
         <DropdownMenuItem onClick={() => auth.logout()} className="gap-2 cursor-pointer">
           <LogOut className="size-4" />
           Abmelden

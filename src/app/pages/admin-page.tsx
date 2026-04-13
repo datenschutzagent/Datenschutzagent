@@ -15,6 +15,10 @@ import {
   setActivePromptTemplate,
   listAdminUsers,
   updateAdminUserRole,
+  getRetentionPreview,
+  triggerRetentionScan,
+  testSmtp,
+  triggerDeadlineNotifications,
   isAdmin,
   type ApiAdminSettings,
   type ApiConnectionsStatus,
@@ -22,9 +26,12 @@ import {
   type ApiPromptTemplateKeyMeta,
   type ApiUser,
   type UserRole,
+  type ApiRetentionPreviewResponse,
+  type ApiRetentionScanResponse,
+  type ApiNotificationTestResponse,
 } from "../lib/api";
 import { useAuthOptional } from "../contexts/AuthContext";
-import { CheckCircle2, XCircle, HelpCircle, Loader2, CircleAlert, Pencil, History } from "lucide-react";
+import { CheckCircle2, XCircle, HelpCircle, Loader2, CircleAlert, Pencil, History, Archive, Mail, Play, TriangleAlert } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -104,6 +111,17 @@ export function AdminPage() {
   const [users, setUsers] = useState<ApiUser[]>([]);
   const [loadingUsers, setLoadingUsers] = useState(false);
   const [savingRoleId, setSavingRoleId] = useState<string | null>(null);
+
+  const [retentionPreview, setRetentionPreview] = useState<ApiRetentionPreviewResponse | null>(null);
+  const [retentionScanResult, setRetentionScanResult] = useState<ApiRetentionScanResponse | null>(null);
+  const [loadingRetentionPreview, setLoadingRetentionPreview] = useState(false);
+  const [loadingRetentionScan, setLoadingRetentionScan] = useState(false);
+  const [confirmRetentionScan, setConfirmRetentionScan] = useState(false);
+
+  const [smtpResult, setSmtpResult] = useState<ApiNotificationTestResponse | null>(null);
+  const [deadlineResult, setDeadlineResult] = useState<{ sent_count: number; checked_count?: number } | null>(null);
+  const [loadingSmtp, setLoadingSmtp] = useState(false);
+  const [loadingDeadlines, setLoadingDeadlines] = useState(false);
 
   if (auth?.user && !isAdmin(auth.user)) {
     return (
@@ -255,6 +273,66 @@ export function AdminPage() {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
       setSavingRoleId(null);
+    }
+  };
+
+  const handleRetentionPreview = async () => {
+    setLoadingRetentionPreview(true);
+    setRetentionPreview(null);
+    setRetentionScanResult(null);
+    setConfirmRetentionScan(false);
+    setError(null);
+    try {
+      const result = await getRetentionPreview();
+      setRetentionPreview(result);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setLoadingRetentionPreview(false);
+    }
+  };
+
+  const handleRetentionScan = async () => {
+    setLoadingRetentionScan(true);
+    setRetentionScanResult(null);
+    setError(null);
+    try {
+      const result = await triggerRetentionScan();
+      setRetentionScanResult(result);
+      setRetentionPreview(null);
+      setConfirmRetentionScan(false);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setLoadingRetentionScan(false);
+    }
+  };
+
+  const handleTestSmtp = async () => {
+    setLoadingSmtp(true);
+    setSmtpResult(null);
+    setError(null);
+    try {
+      const result = await testSmtp();
+      setSmtpResult(result);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setLoadingSmtp(false);
+    }
+  };
+
+  const handleDeadlineNotifications = async () => {
+    setLoadingDeadlines(true);
+    setDeadlineResult(null);
+    setError(null);
+    try {
+      const result = await triggerDeadlineNotifications();
+      setDeadlineResult(result);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setLoadingDeadlines(false);
     }
   };
 
@@ -451,6 +529,159 @@ export function AdminPage() {
                 ))}
               </div>
             )}
+          </CardContent>
+        </Card>
+
+        {/* Retention Management */}
+        <Card className="mb-8 dark:bg-slate-900 dark:border-slate-800">
+          <CardHeader>
+            <CardTitle className="dark:text-slate-100">Aufbewahrungsfristen</CardTitle>
+            <CardDescription className="dark:text-slate-400">
+              Vorgänge, deren Aufbewahrungsfrist abgelaufen ist, können archiviert werden. Zuerst Vorschau laden, dann Scan ausführen.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="flex flex-wrap gap-2 mb-4">
+              <Button
+                variant="outline"
+                onClick={handleRetentionPreview}
+                disabled={loadingRetentionPreview || loadingRetentionScan}
+              >
+                {loadingRetentionPreview ? (
+                  <><Loader2 className="size-4 mr-2 animate-spin" />Prüfe…</>
+                ) : (
+                  <><Archive className="size-4 mr-2" />Vorschau anzeigen</>
+                )}
+              </Button>
+              {retentionPreview && retentionPreview.would_archive_count > 0 && !confirmRetentionScan && (
+                <Button
+                  variant="outline"
+                  className="border-amber-400 text-amber-700 dark:text-amber-400 hover:bg-amber-50 dark:hover:bg-amber-900/20"
+                  onClick={() => setConfirmRetentionScan(true)}
+                >
+                  <TriangleAlert className="size-4 mr-2" />
+                  {retentionPreview.would_archive_count} Vorgang/Vorgänge archivieren
+                </Button>
+              )}
+              {confirmRetentionScan && (
+                <>
+                  <Button
+                    variant="destructive"
+                    onClick={handleRetentionScan}
+                    disabled={loadingRetentionScan}
+                  >
+                    {loadingRetentionScan ? (
+                      <><Loader2 className="size-4 mr-2 animate-spin" />Archiviere…</>
+                    ) : (
+                      <><Play className="size-4 mr-2" />Jetzt archivieren (bestätigen)</>
+                    )}
+                  </Button>
+                  <Button variant="ghost" onClick={() => setConfirmRetentionScan(false)}>
+                    Abbrechen
+                  </Button>
+                </>
+              )}
+            </div>
+
+            {retentionPreview && (
+              retentionPreview.would_archive_count === 0 ? (
+                <p className="text-sm text-slate-500 dark:text-slate-400 flex items-center gap-1">
+                  <CheckCircle2 className="size-4 text-green-600 dark:text-green-400" />
+                  Keine Vorgänge fällig – alle Aufbewahrungsfristen eingehalten.
+                </p>
+              ) : (
+                <div className="space-y-1">
+                  <p className="text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">
+                    {retentionPreview.would_archive_count} Vorgang/Vorgänge würden archiviert:
+                  </p>
+                  <div className="rounded-md border border-slate-200 dark:border-slate-700 overflow-hidden">
+                    <table className="w-full text-sm">
+                      <thead className="bg-slate-50 dark:bg-slate-800">
+                        <tr>
+                          <th className="px-3 py-2 text-left font-medium text-slate-600 dark:text-slate-400">Titel</th>
+                          <th className="px-3 py-2 text-left font-medium text-slate-600 dark:text-slate-400">Abteilung</th>
+                          <th className="px-3 py-2 text-left font-medium text-slate-600 dark:text-slate-400">Frist (Monate)</th>
+                          <th className="px-3 py-2 text-left font-medium text-slate-600 dark:text-slate-400">Zuletzt geändert</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100 dark:divide-slate-700">
+                        {retentionPreview.items.map((item) => (
+                          <tr key={item.case_id} className="hover:bg-slate-50 dark:hover:bg-slate-800/50">
+                            <td className="px-3 py-2 text-slate-900 dark:text-slate-100 max-w-[200px] truncate">{item.title}</td>
+                            <td className="px-3 py-2 text-slate-600 dark:text-slate-400">{item.department}</td>
+                            <td className="px-3 py-2 text-slate-600 dark:text-slate-400">{item.retention_months}</td>
+                            <td className="px-3 py-2 text-slate-500 dark:text-slate-400 text-xs">
+                              {item.updated_at ? new Date(item.updated_at).toLocaleString("de-DE") : "—"}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )
+            )}
+
+            {retentionScanResult && (
+              <p className="text-sm text-green-700 dark:text-green-400 flex items-center gap-1">
+                <CheckCircle2 className="size-4" />
+                {retentionScanResult.archived_count} Vorgang/Vorgänge erfolgreich archiviert.
+              </p>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* Notifications */}
+        <Card className="mb-8 dark:bg-slate-900 dark:border-slate-800">
+          <CardHeader>
+            <CardTitle className="dark:text-slate-100">Benachrichtigungen</CardTitle>
+            <CardDescription className="dark:text-slate-400">
+              SMTP-Verbindung testen und Frist-Benachrichtigungen manuell auslösen (unabhängig vom automatischen Celery-Job).
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="flex flex-wrap items-center gap-4">
+              <Button
+                variant="outline"
+                onClick={handleTestSmtp}
+                disabled={loadingSmtp}
+              >
+                {loadingSmtp ? (
+                  <><Loader2 className="size-4 mr-2 animate-spin" />Teste…</>
+                ) : (
+                  <><Mail className="size-4 mr-2" />SMTP testen</>
+                )}
+              </Button>
+              {smtpResult && (
+                <span className={`text-sm flex items-center gap-1 ${smtpResult.status === "ok" ? "text-green-600 dark:text-green-400" : "text-red-600 dark:text-red-400"}`}>
+                  {smtpResult.status === "ok" ? <CheckCircle2 className="size-4" /> : <XCircle className="size-4" />}
+                  {smtpResult.smtp_enabled
+                    ? smtpResult.status === "ok" ? "SMTP erreichbar" : `SMTP-Fehler${smtpResult.detail ? `: ${smtpResult.detail}` : ""}`
+                    : "SMTP nicht konfiguriert"}
+                </span>
+              )}
+            </div>
+
+            <div className="flex flex-wrap items-center gap-4">
+              <Button
+                variant="outline"
+                onClick={handleDeadlineNotifications}
+                disabled={loadingDeadlines}
+              >
+                {loadingDeadlines ? (
+                  <><Loader2 className="size-4 mr-2 animate-spin" />Sende…</>
+                ) : (
+                  <><Play className="size-4 mr-2" />Fristen-Benachrichtigungen jetzt senden</>
+                )}
+              </Button>
+              {deadlineResult && (
+                <span className="text-sm text-green-600 dark:text-green-400 flex items-center gap-1">
+                  <CheckCircle2 className="size-4" />
+                  {deadlineResult.sent_count} Benachrichtigung(en) versendet
+                  {deadlineResult.checked_count != null ? ` (${deadlineResult.checked_count} geprüft)` : ""}
+                </span>
+              )}
+            </div>
           </CardContent>
         </Card>
 

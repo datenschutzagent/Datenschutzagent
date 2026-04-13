@@ -286,6 +286,48 @@ export async function updateAdminUserRole(userId: string, role: UserRole): Promi
   return request<ApiUser>("PATCH", `/admin/users/${userId}/role`, { body: { role } });
 }
 
+// --- Admin: Retention Management ---
+export interface ApiRetentionPreviewItem {
+  case_id: string;
+  title: string;
+  department: string;
+  retention_months: number;
+  updated_at: string | null;
+}
+
+export interface ApiRetentionPreviewResponse {
+  would_archive_count: number;
+  items: ApiRetentionPreviewItem[];
+}
+
+export interface ApiRetentionScanResponse {
+  archived_count: number;
+  archived: ApiRetentionPreviewItem[];
+}
+
+export async function getRetentionPreview(): Promise<ApiRetentionPreviewResponse> {
+  return request<ApiRetentionPreviewResponse>("GET", "/admin/retention/preview");
+}
+
+export async function triggerRetentionScan(): Promise<ApiRetentionScanResponse> {
+  return request<ApiRetentionScanResponse>("POST", "/admin/retention/scan");
+}
+
+// --- Admin: Notifications ---
+export interface ApiNotificationTestResponse {
+  smtp_enabled: boolean;
+  status: string;
+  detail?: string | null;
+}
+
+export async function testSmtp(): Promise<ApiNotificationTestResponse> {
+  return request<ApiNotificationTestResponse>("GET", "/admin/notifications/test-smtp");
+}
+
+export async function triggerDeadlineNotifications(): Promise<{ sent_count: number; checked_count?: number }> {
+  return request<{ sent_count: number; checked_count?: number }>("POST", "/admin/notifications/scan-deadlines");
+}
+
 // --- Types (aligned with backend and mock-data) ---
 export type CaseStatus =
   | "intake"
