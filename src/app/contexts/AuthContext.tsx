@@ -7,6 +7,7 @@ import {
   type AuthConfig,
   type ApiUser,
 } from "../lib/api";
+import { logger } from "../lib/logger";
 import {
   clearStoredCodeVerifier,
   clearStoredToken,
@@ -84,6 +85,26 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     window.addEventListener("datenschutzagent:token-set", onTokenSet);
     return () => window.removeEventListener("datenschutzagent:token-set", onTokenSet);
   }, [refreshUser]);
+
+  // React to 401 responses from the API: clear the session.
+  // If OIDC is enabled, redirect to the IdP logout endpoint.
+  // If OIDC is disabled, simply clear the token so the user is prompted again.
+  useEffect(() => {
+    const handleUnauthorized = () => {
+      logger.warn("Received 401 – clearing session");
+      setAccessToken(null);
+      clearStoredToken();
+      clearStoredCodeVerifier();
+      setUser(null);
+      const config = authConfig;
+      if (config?.oidc_enabled && config?.end_session_endpoint) {
+        const redirectUri = encodeURIComponent(window.location.origin + "/");
+        window.location.href = `${config.end_session_endpoint}?post_logout_redirect_uri=${redirectUri}`;
+      }
+    };
+    window.addEventListener("datenschutzagent:unauthorized", handleUnauthorized);
+    return () => window.removeEventListener("datenschutzagent:unauthorized", handleUnauthorized);
+  }, [authConfig]);
 
   const login = useCallback(async () => {
     const config = authConfig ?? (await getAuthConfig());

@@ -146,9 +146,9 @@ export function ComplianceOverviewPage() {
       </div>
 
       {/* Filters + export */}
-      <div className="flex flex-wrap items-center gap-3 mb-4">
+      <div className="flex flex-col sm:flex-row sm:flex-wrap sm:items-center gap-3 mb-4">
         <Select value={severityFilter} onValueChange={(v) => setSeverityFilter(v)}>
-          <SelectTrigger className="w-40">
+          <SelectTrigger className="w-full sm:w-44">
             <SelectValue placeholder="Schweregrad" />
           </SelectTrigger>
           <SelectContent>
@@ -160,7 +160,7 @@ export function ComplianceOverviewPage() {
         </Select>
 
         <Select value={statusFilter} onValueChange={(v) => setStatusFilter(v)}>
-          <SelectTrigger className="w-40">
+          <SelectTrigger className="w-full sm:w-44">
             <SelectValue placeholder="Status" />
           </SelectTrigger>
           <SelectContent>
@@ -172,8 +172,8 @@ export function ComplianceOverviewPage() {
           </SelectContent>
         </Select>
 
-        <div className="ml-auto">
-          <Button variant="outline" size="sm" onClick={handleExport} disabled={exportLoading}>
+        <div className="sm:ml-auto">
+          <Button variant="outline" size="sm" className="w-full sm:w-auto" onClick={handleExport} disabled={exportLoading}>
             {exportLoading ? <Loader2 className="size-4 mr-2 animate-spin" /> : <Download className="size-4 mr-2" />}
             CSV exportieren
           </Button>
@@ -200,47 +200,82 @@ export function ComplianceOverviewPage() {
               Keine Findings für die gewählten Filter.
             </div>
           ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b border-border bg-muted/40">
-                    <th className="text-left py-3 px-4 font-medium text-muted-foreground">Schweregrad</th>
-                    <th className="text-left py-3 px-4 font-medium text-muted-foreground">Checkname</th>
-                    <th className="text-left py-3 px-4 font-medium text-muted-foreground">Kategorie</th>
-                    <th className="text-left py-3 px-4 font-medium text-muted-foreground">Status</th>
-                    <th className="text-left py-3 px-4 font-medium text-muted-foreground">Vorgang</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {findings.map((f) => (
-                    <tr key={f.id} className="border-b border-border last:border-0 hover:bg-muted/30 transition-colors">
-                      <td className="py-3 px-4">
-                        <Badge className={`${severityColors[f.severity]} flex items-center gap-1 w-fit`}>
-                          <SeverityIcon severity={f.severity as FindingSeverity} />
-                          {severityLabels[f.severity as FindingSeverity]}
-                        </Badge>
-                      </td>
-                      <td className="py-3 px-4 max-w-xs">
-                        <p className="font-medium truncate">{f.checkName}</p>
-                        <p className="text-xs text-muted-foreground truncate">{f.description}</p>
-                      </td>
-                      <td className="py-3 px-4 text-muted-foreground">{f.category}</td>
-                      <td className="py-3 px-4">
-                        <Badge variant="outline">{findingStatusLabels[f.status] ?? f.status}</Badge>
-                      </td>
-                      <td className="py-3 px-4">
+            <>
+              {/* Mobile card view (< md) */}
+              <div className="md:hidden divide-y divide-border">
+                {findings.map((f) => (
+                  <div key={f.id} className="p-4 space-y-2">
+                    <div className="flex items-center justify-between gap-2 flex-wrap">
+                      <Badge className={`${severityColors[f.severity]} flex items-center gap-1 w-fit`}>
+                        <SeverityIcon severity={f.severity as FindingSeverity} />
+                        {severityLabels[f.severity as FindingSeverity]}
+                      </Badge>
+                      <Badge variant="outline">{findingStatusLabels[f.status] ?? f.status}</Badge>
+                    </div>
+                    <p className="font-medium text-sm">{f.checkName}</p>
+                    {f.description && (
+                      <p className="text-xs text-muted-foreground line-clamp-2">{f.description}</p>
+                    )}
+                    <div className="flex items-center justify-between text-xs text-muted-foreground">
+                      <span>{f.category}</span>
+                      {f.caseId && (
                         <Link
                           to={`/cases/${f.caseId}`}
-                          className="text-blue-600 dark:text-blue-400 hover:underline text-xs truncate block max-w-[180px]"
+                          className="text-blue-600 dark:text-blue-400 hover:underline truncate max-w-[160px]"
                         >
-                          {f.caseId}
+                          {f.caseTitle ?? f.caseId.slice(0, 8)}
                         </Link>
-                      </td>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              {/* Desktop table view (≥ md) */}
+              <div className="hidden md:block overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-border bg-muted/40">
+                      <th className="text-left py-3 px-4 font-medium text-muted-foreground">Schweregrad</th>
+                      <th className="text-left py-3 px-4 font-medium text-muted-foreground">Checkname</th>
+                      <th className="text-left py-3 px-4 font-medium text-muted-foreground">Kategorie</th>
+                      <th className="text-left py-3 px-4 font-medium text-muted-foreground">Status</th>
+                      <th className="text-left py-3 px-4 font-medium text-muted-foreground">Vorgang</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+                  </thead>
+                  <tbody>
+                    {findings.map((f) => (
+                      <tr key={f.id} className="border-b border-border last:border-0 hover:bg-muted/30 transition-colors">
+                        <td className="py-3 px-4">
+                          <Badge className={`${severityColors[f.severity]} flex items-center gap-1 w-fit`}>
+                            <SeverityIcon severity={f.severity as FindingSeverity} />
+                            {severityLabels[f.severity as FindingSeverity]}
+                          </Badge>
+                        </td>
+                        <td className="py-3 px-4 max-w-xs">
+                          <p className="font-medium truncate">{f.checkName}</p>
+                          <p className="text-xs text-muted-foreground truncate">{f.description}</p>
+                        </td>
+                        <td className="py-3 px-4 text-muted-foreground">{f.category}</td>
+                        <td className="py-3 px-4">
+                          <Badge variant="outline">{findingStatusLabels[f.status] ?? f.status}</Badge>
+                        </td>
+                        <td className="py-3 px-4">
+                          {f.caseId && (
+                            <Link
+                              to={`/cases/${f.caseId}`}
+                              className="text-blue-600 dark:text-blue-400 hover:underline text-xs truncate block max-w-[180px]"
+                            >
+                              {f.caseTitle ?? f.caseId.slice(0, 8)}
+                            </Link>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </>
           )}
           {/* Pagination */}
           {total > PAGE_SIZE && (

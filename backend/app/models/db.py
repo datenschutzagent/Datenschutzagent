@@ -602,7 +602,22 @@ def orm_to_document_response(orm: DocumentModel) -> dict[str, Any]:
 
 
 def orm_to_finding_response(orm: FindingModel) -> dict[str, Any]:
-    """Map FindingModel to API response shape."""
+    """Map FindingModel to API response shape.
+
+    ``case_title`` is populated when the ``case`` relationship has been
+    eagerly loaded (e.g. via ``selectinload``).  It is ``None`` otherwise so
+    that callers which do not load the relationship keep working without error.
+    """
+    # Safely read the case title without triggering a lazy-load (which would
+    # fail inside an async context).  Guard with try/except in case the
+    # attribute is not yet loaded.
+    case_title: str | None = None
+    try:
+        if orm.case is not None:
+            case_title = orm.case.title
+    except Exception:  # noqa: BLE001 – lazy-load guard
+        pass
+
     return {
         "id": orm.id,
         "check_name": orm.check_name,
@@ -614,6 +629,7 @@ def orm_to_finding_response(orm: FindingModel) -> dict[str, Any]:
         "recommendation": orm.recommendation,
         "document_id": orm.document_id,
         "case_id": orm.case_id,
+        "case_title": case_title,
         "source_strategy": orm.source_strategy,
         "due_date": orm.due_date,
     }

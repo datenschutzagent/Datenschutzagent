@@ -205,7 +205,9 @@ async def list_findings(
     total_result = await db.execute(count_q)
     total = total_result.scalar_one()
 
-    result = await db.execute(query.offset(offset).limit(limit))
+    result = await db.execute(
+        query.offset(offset).limit(limit).options(selectinload(FindingModel.case))
+    )
     findings = result.scalars().all()
 
     return FindingListResponse(
