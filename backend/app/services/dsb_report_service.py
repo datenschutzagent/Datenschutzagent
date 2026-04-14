@@ -1,4 +1,5 @@
 """DSB Summary Report: build report data, persist, and render as Markdown."""
+import logging
 from datetime import datetime, timezone
 from uuid import UUID
 
@@ -8,6 +9,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.models.db import ActivityLogModel, CaseModel, DSBReportModel
+
+logger = logging.getLogger(__name__)
 from app.models.schemas import (
     DSBReportResponse,
     DSBReportRisk,
@@ -115,6 +118,7 @@ async def build_dsb_report(case_id: UUID, db: AsyncSession) -> DSBReportResponse
     Build DSB report for a case: load case with documents and findings,
     optionally compute VVT summary from first VVT document, return structured report.
     """
+    logger.info("DSB report generation started", extra={"case_id": str(case_id)})
     result = await db.execute(
         select(CaseModel)
         .where(CaseModel.id == case_id)
@@ -187,7 +191,7 @@ async def build_dsb_report(case_id: UUID, db: AsyncSession) -> DSBReportResponse
         vvt_available=bool(vvt_docs),
     )
 
-    return DSBReportResponse(
+    report = DSBReportResponse(
         case_id=case.id,
         case_title=case.title,
         generated_at=datetime.now(timezone.utc),
@@ -200,6 +204,16 @@ async def build_dsb_report(case_id: UUID, db: AsyncSession) -> DSBReportResponse
         next_steps=next_steps,
         next_steps_is_suggested=True,
     )
+    logger.info(
+        "DSB report generated",
+        extra={
+            "case_id": str(case_id),
+            "total_findings": total_findings,
+            "critical": critical,
+            "dsfa_required": summary.dsfa_required,
+        },
+    )
+    return report
 
 
 def render_report_markdown(report: DSBReportResponse) -> str:

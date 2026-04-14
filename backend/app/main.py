@@ -1,6 +1,7 @@
 """FastAPI application entry point."""
 import logging
 import logging.config
+import time
 import urllib.request
 import uuid
 from pathlib import Path
@@ -53,9 +54,11 @@ def _settings_debug() -> bool:
 
 _configure_logging()
 
+_startup_logger = logging.getLogger("app.startup")
+
 from app.config import settings
 from app.core.rate_limit import limiter
-from app.core.request_id import RequestIDMiddleware
+from app.core.request_id import RequestIDMiddleware, get_request_id
 from app.api import router as api_router
 from app.api.routes import auth as auth_routes
 from app.api.routes import app_config as app_config_routes
@@ -70,6 +73,16 @@ DEFAULT_USER_ID = uuid.UUID("00000000-0000-4000-8000-000000000001")
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Startup/shutdown lifecycle."""
+    _startup_logger.info(
+        "Application starting",
+        extra={
+            "llm_provider": getattr(settings, "llm_provider", None),
+            "storage_backend": settings.storage_backend,
+            "oidc_enabled": settings.oidc_enabled,
+            "celery_enabled": settings.celery_enabled,
+            "debug": settings.debug,
+        },
+    )
     await init_db()
     seed_dir = Path(settings.playbooks_seed_dir) if settings.playbooks_seed_dir else None
     async with async_session_factory() as session:
@@ -77,7 +90,9 @@ async def lifespan(app: FastAPI):
             n = await import_playbooks_from_yaml(session, seed_dir)
             if n > 0:
                 await session.commit()
-        except Exception:
+                _startup_logger.info("Playbooks seeded from YAML", extra={"count": n})
+        except Exception as exc:
+            _startup_logger.error("Playbook seeding failed on startup: %s", exc)
             await session.rollback()
         # Ensure default user exists for GET/PATCH /me when CURRENT_USER_ID is unset
         try:
@@ -91,10 +106,13 @@ async def lifespan(app: FastAPI):
                 )
                 session.add(default_user)
                 await session.commit()
-        except Exception:
+                _startup_logger.info("Default user created", extra={"user_id": str(DEFAULT_USER_ID)})
+        except Exception as exc:
+            _startup_logger.error("Default user creation failed on startup: %s", exc)
             await session.rollback()
+    _startup_logger.info("Application startup complete")
     yield
-    # Teardown if needed (e.g. close DB pool)
+    _startup_logger.info("Application shutting down")
 
 
 _OPENAPI_TAGS = [
@@ -142,6 +160,35 @@ app.add_middleware(
     allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allow_headers=["Authorization", "Content-Type", "Accept", "x-request-id"],
 )
+
+
+_access_logger = logging.getLogger("app.access")
+
+
+@app.middleware("http")
+async def log_http_requests(request: Request, call_next) -> Response:
+    """Minimal HTTP access log (replaces suppressed uvicorn.access). Skips /health."""
+    if request.url.path == "/health":
+        return await call_next(request)
+    start = time.monotonic()
+    response = await call_next(request)
+    duration_ms = int((time.monotonic() - start) * 1000)
+    status_code = response.status_code
+    if status_code >= 500:
+        level = logging.ERROR
+    elif status_code >= 400:
+        level = logging.WARNING
+    else:
+        level = logging.INFO
+    _access_logger.log(
+        level,
+        "%s %s %d",
+        request.method,
+        request.url.path,
+        status_code,
+        extra={"duration_ms": duration_ms, "request_id": get_request_id()},
+    )
+    return response
 
 
 @app.middleware("http")

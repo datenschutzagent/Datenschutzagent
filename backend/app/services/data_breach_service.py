@@ -44,13 +44,16 @@ async def generate_breach_notification(breach_id: UUID, db: AsyncSession) -> Non
     result = await db.execute(select(DataBreachModel).where(DataBreachModel.id == breach_id))
     breach = result.scalar_one_or_none()
     if not breach:
-        logger.warning("Datenpanne %s nicht gefunden", breach_id)
+        logger.warning("Data breach not found", extra={"breach_id": str(breach_id)})
         return
+
+    logger.info("Generating breach notification draft", extra={"breach_id": str(breach_id)})
 
     try:
         from app.config import settings
         if not settings.ollama_enabled:
             breach.draft_notification = _build_template_notification(breach)
+            logger.info("Breach notification generated via template (LLM disabled)", extra={"breach_id": str(breach_id)})
             activity = DataBreachActivityLogModel(
                 breach_id=breach_id,
                 event_type="notification_draft_generated",
@@ -87,9 +90,17 @@ async def generate_breach_notification(breach_id: UUID, db: AsyncSession) -> Non
             draft = data.get("response", "").strip()
 
         breach.draft_notification = draft if draft else _build_template_notification(breach)
+        method = "llm" if draft else "template_fallback"
+        logger.info(
+            "Breach notification generated via LLM",
+            extra={"breach_id": str(breach_id), "method": method, "draft_length": len(breach.draft_notification)},
+        )
 
     except Exception as exc:
-        logger.warning("LLM-Meldungsgenerierung fehlgeschlagen: %s – nutze Template", exc)
+        logger.warning(
+            "LLM breach notification failed, using template fallback: %s", exc,
+            extra={"breach_id": str(breach_id)},
+        )
         breach.draft_notification = _build_template_notification(breach)
 
     activity = DataBreachActivityLogModel(

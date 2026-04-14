@@ -2,7 +2,10 @@
 from __future__ import annotations
 
 import io
+import logging
 from uuid import UUID
+
+logger = logging.getLogger(__name__)
 
 import fitz  # PyMuPDF
 from docx import Document
@@ -103,7 +106,10 @@ async def build_annotated_docx(
     if not safe_name.endswith(".docx"):
         safe_name += ".docx"
     filename = f"Annotiert-{safe_name}"
-
+    logger.info(
+        "Annotated DOCX generated",
+        extra={"case_id": str(case_id), "document_id": str(document_id), "findings_count": len(findings)},
+    )
     return buf.getvalue(), filename
 
 
@@ -201,4 +207,8 @@ async def build_annotated_pdf(
     if not safe_name.endswith(".pdf"):
         safe_name += ".pdf"
     filename = f"Annotiert-{safe_name}"
+    logger.info(
+        "Annotated PDF generated",
+        extra={"case_id": str(case_id), "document_id": str(document_id), "findings_count": len(findings)},
+    )
     return buf.getvalue(), filename

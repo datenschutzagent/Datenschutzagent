@@ -1,10 +1,13 @@
 """Admin API: read-only settings, connection status, and user management (admin role required)."""
+import logging
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+
+logger = logging.getLogger(__name__)
 
 from app.config import settings
 from app.core.auth import require_roles
@@ -80,9 +83,14 @@ async def update_user_role(
     user = result.scalar_one_or_none()
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
+    old_role = user.role
     user.role = body.role
     await db.flush()
     await db.refresh(user)
+    logger.info(
+        "Admin: user role updated",
+        extra={"target_user_id": str(user_id), "old_role": old_role, "new_role": body.role},
+    )
     return orm_to_user_response(user)
 
 
@@ -117,6 +125,7 @@ async def trigger_retention_scan(
     _user=require_roles("admin"),
 ):
     """Führt sofort einen Retention-Scan durch und archiviert fällige Vorgänge."""
+    logger.info("Admin: manual retention scan triggered")
     from app.services.retention_service import scan_cases_for_retention
     from uuid import UUID as _UUID
     items_raw = await scan_cases_for_retention(db, dry_run=False)
@@ -156,6 +165,7 @@ async def trigger_deadline_notifications(
     _user=require_roles("admin"),
 ):
     """Scannt Fristen und sendet E-Mail-Benachrichtigungen sofort (ohne auf den Celery-Beat-Job zu warten)."""
+    logger.info("Admin: manual deadline notification scan triggered")
     from app.services.notification_service import scan_and_notify_deadlines
     result = await scan_and_notify_deadlines(db)
     return result

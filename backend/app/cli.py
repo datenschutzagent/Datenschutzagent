@@ -1,6 +1,7 @@
 """CLI for role and system settings management. Run with: python -m app.cli <command> ..."""
 import argparse
 import asyncio
+import logging
 import sys
 import uuid
 
@@ -10,6 +11,10 @@ from app.config import settings
 from app.database import async_session_factory
 from app.models.db import UserModel
 from app.services.connection_checks import check_all_connections
+
+# Basic logging setup for CLI context (not via main.py's _configure_logging)
+logging.basicConfig(level=logging.WARNING, format="%(levelname)s %(name)s %(message)s")
+logger = logging.getLogger("app.cli")
 
 VALID_ROLES = ("viewer", "editor", "admin")
 DEFAULT_USER_ID_STR = "00000000-0000-4000-8000-000000000001"
@@ -73,6 +78,7 @@ async def _cmd_users_set_role(user_id_str: str, role: str) -> int:
         user.role = role
         await session.commit()
     print(f"Role for user {user_id} ({user.display_name or 'n/a'}) set to {role}.")
+    logger.warning("CLI: user role changed to '%s' for user %s", role, user_id)
     return 0
 
 

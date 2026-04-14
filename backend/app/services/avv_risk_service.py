@@ -81,6 +81,8 @@ async def assess_avv_risk(contract_id: UUID, db: AsyncSession) -> dict[str, Any]
     if not contract:
         raise ValueError(f"AVV {contract_id} not found")
 
+    logger.info("AVV risk assessment started", extra={"contract_id": str(contract_id)})
+
     partner_type_label = (
         "Auftragsverarbeiter (direkter AV)" if contract.partner_type == "processor"
         else "Unter-Auftragsverarbeiter (Sub-AV, höheres Risiko)"
@@ -95,7 +97,14 @@ async def assess_avv_risk(contract_id: UUID, db: AsyncSession) -> dict[str, Any]
     )
 
     agent = create_agent(_AVV_RISK_SYSTEM)
-    llm_result = await agent.run(user_content, output_type=_AVVRiskResult)
+    try:
+        llm_result = await agent.run(user_content, output_type=_AVVRiskResult)
+    except Exception as exc:
+        logger.error(
+            "AVV risk assessment LLM call failed: %s", exc,
+            extra={"contract_id": str(contract_id)},
+        )
+        raise
     data = llm_result.output
 
     # Score normalisieren (Durchschnitt der Dimensionen, skaliert auf 0-100)
@@ -126,6 +135,11 @@ async def assess_avv_risk(contract_id: UUID, db: AsyncSession) -> dict[str, Any]
     contract.risk_assessment = assessment
     contract.risk_assessed_at = datetime.now(timezone.utc)
     await db.flush()
+
+    logger.info(
+        "AVV risk assessment complete",
+        extra={"contract_id": str(contract_id), "risk_score": risk_score, "risk_level": overall_level},
+    )
 
     return {
         "contract_id": str(contract_id),

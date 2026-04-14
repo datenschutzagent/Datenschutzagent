@@ -59,6 +59,8 @@ async def chat_with_finding(
     if not finding:
         raise ValueError(f"Finding {finding_id} not found")
 
+    logger.info("Finding chat request", extra={"finding_id": str(finding_id), "case_id": str(finding.case_id)})
+
     document: DocumentModel | None = None
     if finding.document_id:
         doc_result = await db.execute(
@@ -88,6 +90,10 @@ async def chat_with_finding(
     agent = create_agent(system_prompt)
     result = await llm_retry_call(agent, full_user_content, output_type=str)
     response_text = result.output
+    logger.debug(
+        "Finding chat response generated",
+        extra={"finding_id": str(finding_id), "response_length": len(response_text)},
+    )
 
     # Nachrichten persistieren
     user_msg = FindingChatMessageModel(

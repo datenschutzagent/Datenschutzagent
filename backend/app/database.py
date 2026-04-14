@@ -1,4 +1,5 @@
 """Async database session and engine."""
+import logging
 from collections.abc import AsyncGenerator
 
 from sqlalchemy import text
@@ -6,6 +7,8 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 
 from app.config import settings
 from app.models.db import Base
+
+logger = logging.getLogger(__name__)
 
 # Use asyncpg; replace postgresql+asyncpg in URL if needed
 engine = create_async_engine(
@@ -81,6 +84,7 @@ _SCHEMA_MIGRATIONS = [
 
 async def init_db() -> None:
     """Create all tables and run idempotent schema migrations. Call on app startup."""
+    logger.info("Initializing database: running schema migrations")
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
         for stmt in _SCHEMA_MIGRATIONS:
@@ -91,4 +95,6 @@ async def init_db() -> None:
                 err = str(e).lower()
                 if "does not exist" in err and "users" in err:
                     continue
+                logger.error("Schema migration failed: %s | stmt: %.120s", e, stmt)
                 raise
+    logger.info("Database initialization complete")

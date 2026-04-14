@@ -59,6 +59,11 @@ async def generate_draft_response(request_id: UUID, db: AsyncSession) -> str:
     days_remaining = max(0, (request.response_deadline - today).days)
     request_type_label = _REQUEST_TYPE_LABELS.get(request.request_type, request.request_type)
 
+    logger.info(
+        "Generating DSR draft response",
+        extra={"dsr_request_id": str(request_id), "request_type": request.request_type, "days_remaining": days_remaining},
+    )
+
     user_content = _USER_TEMPLATE.format(
         request_type_label=request_type_label,
         department=request.department or "Nicht angegeben",
@@ -71,6 +76,10 @@ async def generate_draft_response(request_id: UUID, db: AsyncSession) -> str:
     agent = create_agent(_SYSTEM_PROMPT)
     result_llm = await agent.run(user_content)
     draft = str(result_llm.data)
+    logger.info(
+        "DSR draft response generated",
+        extra={"dsr_request_id": str(request_id), "draft_length": len(draft)},
+    )
 
     # Draft speichern
     request.draft_response = draft

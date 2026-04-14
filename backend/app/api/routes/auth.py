@@ -1,11 +1,14 @@
 """Public auth config for frontend (OIDC endpoints, no auth required)."""
 import json
+import logging
 import urllib.request
 
 from fastapi import APIRouter, Request
 
 from app.config import settings
 from app.core.rate_limit import limiter
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -33,7 +36,8 @@ def get_auth_config(request: Request):
             out["authorization_endpoint"] = discovery.get("authorization_endpoint") or ""
             out["token_endpoint"] = discovery.get("token_endpoint") or ""
             out["end_session_endpoint"] = discovery.get("end_session_endpoint") or ""
-    except Exception:
+    except Exception as exc:
+        logger.warning("OIDC discovery failed for %s: %s", url, exc)
         out["authorization_endpoint"] = ""
         out["token_endpoint"] = ""
         out["end_session_endpoint"] = ""
