@@ -3,8 +3,25 @@
  * Uses VITE_API_URL or defaults to http://localhost:8002.
  */
 
+import { logger } from "./logger";
+
 const API_BASE = (import.meta as unknown as { env?: { VITE_API_URL?: string } }).env?.VITE_API_URL ?? "http://localhost:8002";
 const API_PREFIX = "/api/v1";
+
+/**
+ * Typed API error that includes the HTTP status code.
+ * Callers can check `err instanceof ApiError && err.status === 401`
+ * instead of parsing the error message string.
+ */
+export class ApiError extends Error {
+  constructor(
+    message: string,
+    public readonly status: number
+  ) {
+    super(message);
+    this.name = "ApiError";
+  }
+}
 
 /** Token for authenticated requests (set by auth flow when OIDC is enabled). */
 let accessToken: string | null = null;
@@ -119,10 +136,25 @@ async function request<T>(
     headers["Content-Type"] = "application/json";
     fetchBody = JSON.stringify(options.body);
   }
-  const res = await fetch(url, { method, headers, body: fetchBody });
+
+  let res: Response;
+  try {
+    res = await fetch(url, { method, headers, body: fetchBody });
+  } catch (networkErr) {
+    logger.error("Network request failed", { method, path }, networkErr);
+    throw new ApiError("Netzwerkfehler – bitte Verbindung prüfen.", 0);
+  }
+
   if (!res.ok) {
     const detail = await parseErrorResponse(res);
-    throw new Error(detail);
+    logger.warn("API request returned error", { method, path, status: res.status, detail });
+
+    if (res.status === 401) {
+      // Notify the auth layer so it can clear the session and redirect to login.
+      window.dispatchEvent(new CustomEvent("datenschutzagent:unauthorized"));
+    }
+
+    throw new ApiError(detail, res.status);
   }
   if (res.status === 204) return undefined as T;
   return res.json() as Promise<T>;

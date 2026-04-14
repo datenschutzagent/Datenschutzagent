@@ -1,4 +1,5 @@
 import { Link, useNavigate } from "react-router";
+import { logger } from "../lib/logger";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../components/ui/card";
 import { Badge } from "../components/ui/badge";
 import { Button } from "../components/ui/button";
@@ -122,7 +123,14 @@ export function CasesPage() {
       <Tabs defaultValue="list" className="space-y-6" onValueChange={(val) => {
         if (val === "archived") {
           setLoading(true);
-          getCases(0, 500, {}, true).then(setCases).catch(() => setCases([])).finally(() => setLoading(false));
+          getCases(0, 500, {}, true)
+            .then(setCases)
+            .catch((e) => {
+              logger.error("Archivierte Vorgänge konnten nicht geladen werden", {}, e);
+              toast.error("Archivierte Vorgänge konnten nicht geladen werden.");
+              setCases([]);
+            })
+            .finally(() => setLoading(false));
         } else if (val === "list") {
           loadCases();
         }

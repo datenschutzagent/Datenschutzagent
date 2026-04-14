@@ -35,6 +35,7 @@ import {
 } from "../lib/api";
 import { toast } from "sonner";
 import { Plus, Shield, Loader2, Trash2, CheckCircle, Clock, XCircle, Paperclip, Download, Upload } from "lucide-react";
+import { logger } from "../lib/logger";
 
 const CATEGORY_LABELS: Record<string, string> = {
   access_control: "Zugriffskontrolle",
@@ -135,7 +136,11 @@ export function TOMPage() {
 
   useEffect(() => { void load(); }, [load]);
 
-  useEffect(() => { getCurrentUser().then(setCurrentUser).catch(() => {}); }, []);
+  useEffect(() => {
+    getCurrentUser()
+      .then(setCurrentUser)
+      .catch((e) => logger.warn("Benutzerprofil konnte nicht geladen werden", {}, e));
+  }, []);
 
   useEffect(() => {
     if (!selected) { setAttachments([]); return; }
