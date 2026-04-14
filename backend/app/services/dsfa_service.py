@@ -9,6 +9,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.llm import create_agent
+from app.core.prompt_security import sanitize_prompt_field
 from app.models.db import CaseModel, DSFAAssessmentModel, DSFAJobModel, FindingModel
 from app.models.schemas import DSFARisk
 
@@ -100,13 +101,13 @@ async def generate_dsfa(case_id: UUID, db: AsyncSession) -> dict[str, Any]:
         findings_info = "\n".join(lines)
 
     user_content = _DSFA_USER_TEMPLATE.format(
-        title=case.title,
-        department=case.department,
-        case_type=case.case_type,
+        title=sanitize_prompt_field(case.title, max_chars=200),
+        department=sanitize_prompt_field(case.department, max_chars=100),
+        case_type=sanitize_prompt_field(case.case_type, max_chars=100),
         special_category="Ja" if case.special_category_data else "Nein",
         international_transfer="Ja" if case.international_transfer else "Nein",
-        vvt_info=vvt_info,
-        findings_info=findings_info,
+        vvt_info=sanitize_prompt_field(vvt_info, max_chars=500),
+        findings_info=sanitize_prompt_field(findings_info, max_chars=2000),
     )
 
     agent = create_agent(_DSFA_SYSTEM_PROMPT)

@@ -83,6 +83,17 @@ async def lifespan(app: FastAPI):
             "debug": settings.debug,
         },
     )
+    if not settings.oidc_enabled:
+        _startup_logger.warning(
+            "SECURITY: OIDC authentication is DISABLED. All API requests will be processed "
+            "as the default user without token validation. "
+            "Do NOT expose this instance to any network without enabling OIDC_ENABLED=true."
+        )
+    if settings.debug:
+        _startup_logger.warning(
+            "SECURITY: DEBUG mode is active. API documentation (/docs, /redoc) is publicly "
+            "accessible. Disable DEBUG for production deployments."
+        )
     await init_db()
     seed_dir = Path(settings.playbooks_seed_dir) if settings.playbooks_seed_dir else None
     async with async_session_factory() as session:
@@ -143,8 +154,10 @@ app = FastAPI(
     ),
     version="1.0.0",
     lifespan=lifespan,
-    docs_url="/docs",
-    redoc_url="/redoc",
+    # Disable API docs in production (set DEBUG=true to re-enable for development)
+    docs_url="/docs" if settings.debug else None,
+    redoc_url="/redoc" if settings.debug else None,
+    openapi_url="/openapi.json" if settings.debug else None,
     openapi_tags=_OPENAPI_TAGS,
 )
 
@@ -199,15 +212,19 @@ async def add_security_headers(request: Request, call_next) -> Response:
     response.headers["X-Frame-Options"] = "DENY"
     response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
     response.headers["Permissions-Policy"] = "geolocation=(), camera=(), microphone=()"
-    # Content-Security-Policy: restrict sources; adjust if you embed third-party resources
+    # Content-Security-Policy: restrict sources; adjust if you embed third-party resources.
+    # Note: 'unsafe-inline' for style-src is required by MUI/Emotion (CSS-in-JS runtime injection).
     response.headers["Content-Security-Policy"] = (
         "default-src 'self'; "
         "script-src 'self'; "
         "style-src 'self' 'unsafe-inline'; "
-        "img-src 'self' data:; "
+        "img-src 'self' data: blob:; "
         "font-src 'self'; "
         "connect-src 'self'; "
-        "frame-ancestors 'none';"
+        "frame-ancestors 'none'; "
+        "object-src 'none'; "
+        "base-uri 'self'; "
+        "form-action 'self';"
     )
     return response
 

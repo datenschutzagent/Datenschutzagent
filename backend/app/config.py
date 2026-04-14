@@ -150,6 +150,7 @@ class Settings(BaseSettings):
 
     # Weaviate (optional; RAG document checks)
     weaviate_url: str = "http://localhost:8080"
+    weaviate_api_key: str = ""  # API-Key für Weaviate-Authentifizierung (WEAVIATE_API_KEY)
     weaviate_indexing_enabled: bool = False
 
     @field_validator("weaviate_indexing_enabled", mode="before")
@@ -168,6 +169,9 @@ class Settings(BaseSettings):
     @model_validator(mode="after")
     def validate_storage_and_oidc(self) -> "Settings":
         """Fail fast at startup when required settings are missing for selected backends."""
+        import logging as _logging
+        _log = _logging.getLogger("app.startup")
+
         if self.storage_backend == "minio":
             missing = [f for f in ("s3_endpoint_url", "s3_access_key", "s3_secret_key") if not getattr(self, f)]
             if missing:
@@ -179,6 +183,29 @@ class Settings(BaseSettings):
                 raise ValueError("OIDC_ENABLED=true requires OIDC_ISSUER_URL to be set")
             if not self.oidc_client_id:
                 raise ValueError("OIDC_ENABLED=true requires OIDC_CLIENT_ID to be set")
+            if not self.oidc_audience:
+                _log.warning(
+                    "SECURITY: OIDC_AUDIENCE not set — JWT audience claim will NOT be verified. "
+                    "Set OIDC_AUDIENCE to the expected client ID for stricter token validation."
+                )
+
+        if not self.webhook_secret_encryption_key:
+            _log.warning(
+                "SECURITY: WEBHOOK_SECRET_ENCRYPTION_KEY not set — webhook secrets are stored "
+                "unencrypted in the database. Generate a key with: "
+                "python -c \"from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())\""
+            )
+
+        if not self.debug:
+            origins = self.cors_origins if isinstance(self.cors_origins, list) else []
+            http_origins = [o for o in origins if o.startswith("http://")]
+            if http_origins:
+                _log.warning(
+                    "SECURITY: CORS_ORIGINS contains non-HTTPS origins in non-debug mode: %s. "
+                    "Use HTTPS-only origins in production.",
+                    http_origins,
+                )
+
         return self
 
     @property

@@ -5,6 +5,7 @@ from uuid import UUID
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.prompt_security import sanitize_prompt_field
 from app.models.db import DataBreachModel, DataBreachActivityLogModel
 
 logger = logging.getLogger(__name__)
@@ -64,15 +65,15 @@ async def generate_breach_notification(breach_id: UUID, db: AsyncSession) -> Non
             return
 
         prompt = _NOTIFICATION_PROMPT.format(
-            title=breach.title,
-            description=breach.description or "Keine Beschreibung",
+            title=sanitize_prompt_field(breach.title, max_chars=200),
+            description=sanitize_prompt_field(breach.description or "Keine Beschreibung", max_chars=1000),
             discovered_at=breach.discovered_at.strftime("%d.%m.%Y %H:%M UTC"),
-            breach_type=_BREACH_TYPE_LABELS.get(breach.breach_type, breach.breach_type),
-            categories=", ".join(breach.affected_data_categories or []) or "Nicht angegeben",
+            breach_type=sanitize_prompt_field(_BREACH_TYPE_LABELS.get(breach.breach_type, breach.breach_type), max_chars=100),
+            categories=sanitize_prompt_field(", ".join(breach.affected_data_categories or []) or "Nicht angegeben", max_chars=500),
             persons_count=str(breach.affected_persons_count) if breach.affected_persons_count else "Unbekannt",
-            department=breach.department or "Nicht angegeben",
-            risk_level=breach.risk_level or "Nicht bewertet",
-            measures=breach.measures_taken or "Keine",
+            department=sanitize_prompt_field(breach.department or "Nicht angegeben", max_chars=100),
+            risk_level=sanitize_prompt_field(breach.risk_level or "Nicht bewertet", max_chars=50),
+            measures=sanitize_prompt_field(breach.measures_taken or "Keine", max_chars=500),
         )
 
         import httpx

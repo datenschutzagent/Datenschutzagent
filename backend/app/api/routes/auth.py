@@ -31,7 +31,7 @@ def get_auth_config(request: Request):
     try:
         url = f"{out['oidc_issuer_url']}/.well-known/openid-configuration"
         req = urllib.request.Request(url, method="GET")
-        with urllib.request.urlopen(req, timeout=3) as resp:
+        with urllib.request.urlopen(req, timeout=3) as resp:  # nosec B310 – URL from trusted config (OIDC_ISSUER_URL)
             discovery = json.loads(resp.read().decode())
             out["authorization_endpoint"] = discovery.get("authorization_endpoint") or ""
             out["token_endpoint"] = discovery.get("token_endpoint") or ""

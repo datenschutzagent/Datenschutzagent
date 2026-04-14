@@ -14,17 +14,19 @@ COPY . .
 RUN npm run build
 
 # Production: Nginx mit statischen Dateien
-FROM nginx:alpine
+FROM nginx:1.27-alpine
 
-# SPA: alle Pfade auf index.html
-RUN echo 'server { \
-  listen 80; \
-  root /usr/share/nginx/html; \
-  index index.html; \
-  location / { try_files $uri $uri/ /index.html; } \
-  }' > /etc/nginx/conf.d/default.conf
+# Remove default nginx config
+RUN rm /etc/nginx/conf.d/default.conf
 
+# Copy custom nginx config with security headers
+COPY nginx.conf /etc/nginx/conf.d/default.conf
+
+# Copy built frontend
 COPY --from=builder /app/dist /usr/share/nginx/html
 
+# Run nginx as non-root (nginx:alpine supports this via the www-data user for workers,
+# but the master process requires root to bind port 80.
+# Use nginxinc/nginx-unprivileged image for fully rootless operation on port 8080.)
 EXPOSE 80
 CMD ["nginx", "-g", "daemon off;"]

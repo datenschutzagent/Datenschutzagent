@@ -6,9 +6,9 @@ services:
   postgres:
     image: postgres:16-alpine
     environment:
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
-      POSTGRES_DB: datenschutzagent
+      POSTGRES_USER: "${POSTGRES_USER:?POSTGRES_USER must be set in .env}"
+      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set in .env}"
+      POSTGRES_DB: "${POSTGRES_DB:-datenschutzagent}"
     # Kein ports: nur im Docker-Netz für Backend erreichbar (postgres:5432)
     volumes:
       - postgres_data:/var/lib/postgresql/data
@@ -19,7 +19,7 @@ services:
       retries: 5
 
   minio:
-    image: minio/minio:latest
+    image: minio/minio:RELEASE.2025-01-20T14-49-07Z
     command: server /data
     environment:
       MINIO_ROOT_USER: "${MINIO_ROOT_USER:?MINIO_ROOT_USER must be set in .env}"
@@ -36,10 +36,11 @@ services:
   redis:
     image: redis:7-alpine
     # Kein ports: nur im Docker-Netz für Backend/Celery erreichbar (redis:6379)
+    command: redis-server --requirepass "${REDIS_PASSWORD:?REDIS_PASSWORD must be set in .env}"
     volumes:
       - redis_data:/data
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD}", "ping"]
       interval: 5s
       timeout: 3s
       retries: 5
@@ -49,7 +50,10 @@ services:
     # Kein ports: nur im Docker-Netz für Backend erreichbar (weaviate:8080)
     environment:
       DEFAULT_VECTORIZER_MODULE: "none"
-      AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED: "true"
+      AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED: "false"
+      AUTHENTICATION_APIKEY_ENABLED: "true"
+      AUTHENTICATION_APIKEY_ALLOWED_KEYS: "${WEAVIATE_API_KEY:?WEAVIATE_API_KEY must be set in .env}"
+      AUTHENTICATION_APIKEY_USERS: "datenschutzagent"
       PERSISTENCE_DATA_PATH: "${WEAVIATE_PERSISTENCE_DATA_PATH:-/var/lib/weaviate}"
       QUERY_DEFAULTS_LIMIT: "${WEAVIATE_QUERY_DEFAULTS_LIMIT:-25}"
       CLUSTER_HOSTNAME: "${WEAVIATE_CLUSTER_HOSTNAME:-node1}"
@@ -71,8 +75,8 @@ services:
       - .env
     environment:
       # Hostname "postgres" = Service-Name im Docker-Netz (nicht localhost)
-      DATABASE_URL: postgresql+asyncpg://postgres:postgres@postgres:5432/datenschutzagent
-      CELERY_BROKER_URL: redis://redis:6379/0
+      DATABASE_URL: "${DATABASE_URL:?DATABASE_URL must be set in .env}"
+      CELERY_BROKER_URL: "redis://:${REDIS_PASSWORD:?REDIS_PASSWORD must be set in .env}@redis:6379/0"
       # CORS: Zugriff vom Browser aus dem LAN (z. B. http://192.168.1.20:3001) erlauben.
       # Überschreibbar per .env: CORS_ORIGINS=http://...
       CORS_ORIGINS: "${CORS_ORIGINS:-http://localhost:3002,http://127.0.0.1:3002,http://localhost:3000,http://127.0.0.1:3000,http://localhost:3001,http://127.0.0.1:3001,http://localhost:5173,http://127.0.0.1:5173,http://192.168.1.20:3002,http://192.168.1.20:3001,http://192.168.1.20:5173}"
@@ -103,8 +107,8 @@ services:
     env_file:
       - .env
     environment:
-      DATABASE_URL: postgresql+asyncpg://postgres:postgres@postgres:5432/datenschutzagent
-      CELERY_BROKER_URL: redis://redis:6379/0
+      DATABASE_URL: "${DATABASE_URL:?DATABASE_URL must be set in .env}"
+      CELERY_BROKER_URL: "redis://:${REDIS_PASSWORD:?REDIS_PASSWORD must be set in .env}@redis:6379/0"
     depends_on:
       postgres:
         condition: service_healthy
