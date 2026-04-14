@@ -1,7 +1,10 @@
 """CRUD API for legal bases (Rechtsgrundlagen). Indexing to Weaviate on create/update, chunk deletion on delete."""
+import logging
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+
+logger = logging.getLogger(__name__)
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -56,6 +59,7 @@ async def create_legal_base(
     await db.commit()
     await db.refresh(model)
     index_legal_base(model.id, model.title, model.content or "")
+    logger.info("Legal base created", extra={"legal_base_id": str(model.id), "title": model.title[:80]})
     return LegalBaseResponse(**orm_to_legal_base_response(model))
 
 
@@ -90,6 +94,7 @@ async def update_legal_base(
     await db.commit()
     await db.refresh(base)
     index_legal_base(base.id, base.title, base.content or "")
+    logger.info("Legal base updated", extra={"legal_base_id": str(legal_base_id), "fields": list(update_data.keys())})
     return LegalBaseResponse(**orm_to_legal_base_response(base))
 
 
@@ -107,4 +112,5 @@ async def delete_legal_base(
     await db.delete(base)
     await db.commit()
     delete_legal_base_chunks(legal_base_id)
+    logger.info("Legal base deleted", extra={"legal_base_id": str(legal_base_id)})
     return None

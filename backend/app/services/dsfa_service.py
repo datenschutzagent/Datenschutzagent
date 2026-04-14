@@ -65,6 +65,8 @@ async def generate_dsfa(case_id: UUID, db: AsyncSession) -> dict[str, Any]:
     if not case:
         raise ValueError(f"Case {case_id} not found")
 
+    logger.info("DSFA generation started", extra={"case_id": str(case_id)})
+
     # Offene Befunde mit hoher/kritischer Schwere laden
     findings_result = await db.execute(
         select(FindingModel).where(
@@ -87,8 +89,8 @@ async def generate_dsfa(case_id: UUID, db: AsyncSession) -> dict[str, Any]:
             completeness = summary.get("vvt_completeness", 0)
             if vvt_available:
                 vvt_info = f"VVT vorhanden, Vollständigkeit: {completeness}%"
-    except Exception:
-        pass
+    except Exception as exc:
+        logger.warning("Could not load DSB report for DSFA context: %s", exc, extra={"case_id": str(case_id)})
 
     findings_info = "Keine kritischen/hohen offenen Befunde."
     if findings:
@@ -108,7 +110,11 @@ async def generate_dsfa(case_id: UUID, db: AsyncSession) -> dict[str, Any]:
     )
 
     agent = create_agent(_DSFA_SYSTEM_PROMPT)
-    result = await agent.run(user_content, result_type=_DSFAResult)
+    try:
+        result = await agent.run(user_content, result_type=_DSFAResult)
+    except Exception as exc:
+        logger.error("DSFA LLM generation failed: %s", exc, extra={"case_id": str(case_id)})
+        raise
     data = result.data
 
     # Normalisiere Werte (LLM könnte abweichende Strings liefern)
@@ -136,6 +142,15 @@ async def generate_dsfa(case_id: UUID, db: AsyncSession) -> dict[str, Any]:
         "dpo_consultation_required": bool(data.dpo_consultation_required),
         "measures": list(data.measures),
     }
+    logger.info(
+        "DSFA generation complete",
+        extra={
+            "case_id": str(case_id),
+            "residual_risk": payload["residual_risk"],
+            "risk_count": len(risks_payload),
+            "dpo_consultation_required": payload["dpo_consultation_required"],
+        },
+    )
     return payload
 
 
@@ -244,7 +259,8 @@ async def screen_dsfa_requirement(case_id: UUID, db: AsyncSession) -> dict[str, 
     for factor in _DSFA_SCREENING_FACTORS:
         try:
             met = bool(factor["check_fn"](case, findings))
-        except Exception:
+        except Exception as exc:
+            logger.debug("DSFA screening factor '%s' check failed: %s", factor["id"], exc, extra={"case_id": str(case_id)})
             met = False
         if met:
             score += 1
@@ -256,6 +272,10 @@ async def screen_dsfa_requirement(case_id: UUID, db: AsyncSession) -> dict[str, 
         })
 
     required = score >= _DSFA_REQUIRED_THRESHOLD
+    logger.info(
+        "DSFA screening complete",
+        extra={"case_id": str(case_id), "score": score, "required": required},
+    )
 
     if score == 0:
         recommendation = "Keine Risikofaktoren identifiziert. DSFA aktuell nicht erforderlich."

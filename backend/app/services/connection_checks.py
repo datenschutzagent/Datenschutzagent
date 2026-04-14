@@ -1,4 +1,5 @@
 """Check connectivity to Ollama, Weaviate, MinIO/S3, Postgres, Redis. Used by admin connections API."""
+import logging
 import urllib.request
 from typing import Any
 
@@ -6,6 +7,8 @@ from sqlalchemy import text
 
 from app.config import settings
 from app.database import engine
+
+logger = logging.getLogger(__name__)
 
 
 async def check_ollama() -> dict[str, Any]:
@@ -21,6 +24,7 @@ async def check_ollama() -> dict[str, Any]:
             if resp.status == 200:
                 return {"status": "ok"}
     except Exception as e:
+        logger.debug("Ollama connection check failed: %s", e)
         return {"status": "unreachable", "message": str(e)}
     return {"status": "unreachable", "message": "Unknown error"}
 
@@ -38,6 +42,7 @@ async def check_weaviate() -> dict[str, Any]:
             if resp.status == 200:
                 return {"status": "ok"}
     except Exception as e:
+        logger.debug("Weaviate connection check failed: %s", e)
         return {"status": "unreachable", "message": str(e)}
     return {"status": "unreachable", "message": "Unknown error"}
 
@@ -54,6 +59,7 @@ async def check_minio() -> dict[str, Any]:
         client.list_buckets()
         return {"status": "ok"}
     except Exception as e:
+        logger.debug("MinIO connection check failed: %s", e)
         return {"status": "unreachable", "message": str(e)}
 
 
@@ -64,6 +70,7 @@ async def check_postgres() -> dict[str, Any]:
             await conn.execute(text("SELECT 1"))
         return {"status": "ok"}
     except Exception as e:
+        logger.debug("Postgres connection check failed: %s", e)
         return {"status": "unreachable", "message": str(e)}
 
 
@@ -78,6 +85,7 @@ def _check_redis_sync() -> dict[str, Any]:
         r.ping()
         return {"status": "ok"}
     except Exception as e:
+        logger.debug("Redis connection check failed: %s", e)
         return {"status": "unreachable", "message": str(e)}
 
 

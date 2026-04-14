@@ -1,12 +1,15 @@
 """VVT overview at university level: list, stats, export (no LLM)."""
 import csv
 import io
+import logging
 from uuid import UUID
 
 from collections import defaultdict
 from datetime import datetime
 
 from fastapi import APIRouter, Depends, Query
+
+logger = logging.getLogger(__name__)
 from fastapi.responses import Response
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -236,6 +239,7 @@ async def get_vvt_overview_export(
 
     date_str = datetime.utcnow().strftime("%Y-%m-%d")
     filename = f"VVT-Uebersicht-{date_str}.csv"
+    logger.info("VVT overview exported", extra={"row_count": len(items), "filename": filename})
     return Response(
         content=buf.getvalue(),
         media_type="text/csv; charset=utf-8",

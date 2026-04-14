@@ -61,7 +61,8 @@ def _load_jwks(jwks_uri: str) -> dict[str, Any]:
                 keys[kid] = jwt.algorithms.ECAlgorithm.from_jwk(jwk_str)
             else:
                 continue
-        except Exception:
+        except Exception as exc:
+            logger.debug("Failed to parse JWK (kid=%s): %s", kid, exc)
             continue
     return keys
 
@@ -86,10 +87,12 @@ def _get_signing_key(token: str):
             )
         _jwks_uri_cached = jwks_uri
         _jwks_cache = _load_jwks(jwks_uri)
+        logger.debug("JWKS cache refreshed", extra={"kid": kid, "key_count": len(_jwks_cache)})
         if kid not in _jwks_cache:
             # kid truly unknown even after refresh – key may have rotated; try fresh discovery
             fresh_uri = _get_jwks_uri()
             if fresh_uri and fresh_uri != jwks_uri:
+                logger.debug("JWKS key rotation detected, fetching fresh JWKS", extra={"kid": kid})
                 _jwks_uri_cached = fresh_uri
                 _jwks_cache = _load_jwks(fresh_uri)
             if kid not in _jwks_cache:

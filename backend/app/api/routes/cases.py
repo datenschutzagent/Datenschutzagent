@@ -247,6 +247,7 @@ async def bulk_update_cases(
             updated += 1
 
     await db.flush()
+    logger.info("Cases bulk updated", extra={"updated_count": updated, "new_status": new_status, "archive": archive})
     return {"updated": updated}
 
 
@@ -321,6 +322,7 @@ async def export_cases(
 
     date_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
     body_content = "\ufeff" + buf.getvalue()
+    logger.info("Cases exported as CSV", extra={"row_count": len(cases)})
     return Response(
         content=body_content.encode("utf-8"),
         media_type="text/csv; charset=utf-8",
@@ -605,6 +607,10 @@ async def clone_case(
         .options(selectinload(CaseModel.documents), selectinload(CaseModel.findings))
     )
     new_case = new_result.scalar_one()
+    logger.info(
+        "Case cloned",
+        extra={"source_case_id": str(case_id), "new_case_id": str(new_case.id)},
+    )
     return CaseResponse(**orm_to_case_response(new_case))
 
 

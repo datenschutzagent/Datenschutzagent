@@ -97,6 +97,14 @@ async def create_dsr_request(
     db.add(activity)
     await db.flush()
     await db.refresh(request)
+    logger.info(
+        "DSR request created",
+        extra={
+            "dsr_request_id": str(request.id),
+            "request_type": body.request_type,
+            "response_deadline": response_deadline.isoformat(),
+        },
+    )
     return DSRRequestResponse(**orm_to_dsr_request_response(request))
 
 
@@ -152,6 +160,15 @@ async def update_dsr_request(
     db.add(activity)
     await db.flush()
     await db.refresh(request)
+    if body.status and old_status != body.status:
+        logger.info(
+            "DSR request status changed",
+            extra={
+                "dsr_request_id": str(request_id),
+                "old_status": old_status,
+                "new_status": body.status,
+            },
+        )
     return DSRRequestResponse(**orm_to_dsr_request_response(request))
 
 
@@ -167,6 +184,7 @@ async def delete_dsr_request(
         raise HTTPException(status_code=404, detail="DSR-Anfrage nicht gefunden")
     await db.delete(request)
     await db.flush()
+    logger.info("DSR request deleted", extra={"dsr_request_id": str(request_id)})
 
 
 @router.post("/{request_id}/generate-draft", response_model=DSRRequestResponse, summary="Antwortschreiben-Entwurf generieren")
