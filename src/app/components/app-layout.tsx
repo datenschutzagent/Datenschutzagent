@@ -16,6 +16,7 @@ const NAV_ITEMS: NavItem[] = [
   { to: "/", label: "Vorgänge" },
   { to: "/compliance", label: "Compliance" },
   { to: "/data-breaches", label: "Datenpannen" },
+  { to: "/dsr", label: "Betroffenenrechte" },
   { to: "/avv", label: "AVV" },
   { to: "/tom", label: "TOMs" },
   { to: "/privacy-policy", label: "Datenschutzerklärung" },

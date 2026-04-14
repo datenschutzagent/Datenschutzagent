@@ -27,6 +27,17 @@ vi.mock("../contexts/AppConfigContext", () => ({
   })),
 }));
 
+vi.mock("../contexts/RunningChecksContext", () => ({
+  useRunningChecks: vi.fn(() => ({
+    jobs: [],
+    registerJob: vi.fn(),
+    isRunning: vi.fn(() => false),
+    getJob: vi.fn(),
+    dismissJob: vi.fn(),
+    runningCount: 0,
+  })),
+}));
+
 vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
 
 import { getCases } from "../lib/api";
