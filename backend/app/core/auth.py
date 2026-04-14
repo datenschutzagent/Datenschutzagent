@@ -181,6 +181,7 @@ async def get_current_user_oidc(
     db.add(new_user)
     await db.flush()
     await db.refresh(new_user)
+    logger.info("New OIDC user created on first login", extra={"user_id": str(new_user.id), "role": new_user.role})
     return new_user
 
 
@@ -217,6 +218,14 @@ def require_roles(*allowed_roles: str):
     """Dependency factory: require current user to have one of the given roles (e.g. editor, admin). Raises 403 otherwise."""
     async def _dependency(current_user: UserModel = Depends(get_current_user)) -> UserModel:
         if current_user.role not in allowed_roles:
+            logger.warning(
+                "Authorization denied: insufficient role",
+                extra={
+                    "user_id": str(current_user.id),
+                    "user_role": current_user.role,
+                    "required_roles": list(allowed_roles),
+                },
+            )
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="Insufficient permissions",

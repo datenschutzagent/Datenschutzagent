@@ -11,6 +11,7 @@ import csv
 import hashlib
 import io
 import json
+import logging
 import zipfile
 from datetime import datetime, timezone
 from uuid import UUID
@@ -20,9 +21,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.db import ActivityLogModel, CaseModel, DocumentModel, FindingModel
 
+logger = logging.getLogger(__name__)
+
 
 async def build_audit_export(case_id: UUID, db: AsyncSession) -> tuple[bytes, str]:
     """Erstellt das ZIP-Audit-Paket und gibt (zip_bytes, filename) zurück."""
+    logger.info("Audit export started", extra={"case_id": str(case_id)})
     # Case laden
     case_result = await db.execute(select(CaseModel).where(CaseModel.id == case_id))
     case = case_result.scalar_one_or_none()
@@ -143,6 +147,10 @@ async def build_audit_export(case_id: UUID, db: AsyncSession) -> tuple[bytes, st
     zip_bytes = zip_buffer.getvalue()
     safe_title = "".join(c if c.isalnum() or c in "-_" else "_" for c in case.title[:40])
     filename = f"audit_{safe_title}_{case_id.hex[:8]}.zip"
+    logger.info(
+        "Audit export complete",
+        extra={"case_id": str(case_id), "filename": filename, "size_bytes": len(zip_bytes)},
+    )
     return zip_bytes, filename
 
 

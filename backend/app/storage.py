@@ -39,6 +39,7 @@ def get_file_local(storage_path: str) -> bytes:
     root = Path(settings.storage_local_path).resolve()
     path = (root / storage_path).resolve()
     if not path.is_relative_to(root):
+        logger.warning("Path traversal attempt denied", extra={"storage_path": storage_path})
         raise ValueError(f"Path traversal denied: {storage_path}")
     if not path.is_file():
         raise FileNotFoundError(storage_path)
@@ -50,6 +51,7 @@ def delete_file_local(storage_path: str) -> None:
     root = Path(settings.storage_local_path).resolve()
     path = (root / storage_path).resolve()
     if not path.is_relative_to(root):
+        logger.warning("Path traversal attempt denied on delete", extra={"storage_path": storage_path})
         raise ValueError(f"Path traversal denied: {storage_path}")
     if path.is_file():
         path.unlink()
@@ -91,15 +93,19 @@ def save_file_minio(case_id: uuid.UUID, document_id: uuid.UUID, filename: str, c
 
     ext = Path(filename).suffix or ""
     object_name = f"cases/{case_id}/{document_id}{ext}"
-    
+
     content_type, _ = mimetypes.guess_type(filename)
-    client.put_object(
-        bucket,
-        object_name,
-        io.BytesIO(content),
-        len(content),
-        content_type=content_type or "application/octet-stream",
-    )
+    try:
+        client.put_object(
+            bucket,
+            object_name,
+            io.BytesIO(content),
+            len(content),
+            content_type=content_type or "application/octet-stream",
+        )
+    except Exception as exc:
+        logger.error("Storage write failed (MinIO)", extra={"object_name": object_name, "error": str(exc)})
+        raise
     return object_name
 
 

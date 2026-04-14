@@ -1,8 +1,11 @@
 """Document upload and management API."""
 import asyncio
+import logging
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
+
+logger = logging.getLogger(__name__)
 from fastapi.responses import StreamingResponse
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -143,6 +146,10 @@ async def download_document(
     try:
         content = get_file(doc.storage_path)
     except FileNotFoundError:
+        logger.warning(
+            "Document file missing from storage",
+            extra={"document_id": str(document_id), "storage_path": doc.storage_path},
+        )
         raise HTTPException(status_code=404, detail="File not found")
     media_type = FORMAT_TO_MEDIA_TYPE.get(doc.format, "application/octet-stream")
     # Use RFC 5987 for filename with non-ASCII; Content-Disposition attachment so browser downloads
@@ -277,6 +284,16 @@ async def upload_document(
     doc = await _process_one_upload(
         case_id=case_id, file=file, document_type=document_type, uploaded_by=uploaded_by, db=db, async_extraction=use_async
     )
+    logger.info(
+        "Document uploaded",
+        extra={
+            "case_id": str(case_id),
+            "document_id": str(doc.id),
+            "format": doc.format,
+            "size_bytes": doc.size_bytes,
+            "async_extraction": use_async,
+        },
+    )
     if use_async:
         await db.commit()
         extract_document_text.delay(str(doc.id))
@@ -315,6 +332,11 @@ async def upload_documents_bulk(
                 doc_ids.append(doc.id)
         except HTTPException as e:
             errors.append(f"{f.filename or 'file'}: {e.detail}")
+    if errors:
+        logger.warning(
+            "Bulk upload partial or full failure",
+            extra={"case_id": str(case_id), "errors": errors, "created_count": len(created)},
+        )
     if errors and not created:
         raise HTTPException(status_code=400, detail="; ".join(errors))
     if use_async and doc_ids:
@@ -344,4 +366,5 @@ async def delete_document(
             delete_file(storage_path)
         except FileNotFoundError:
             pass
+    logger.info("Document deleted", extra={"document_id": str(document_id), "case_id": str(doc.case_id)})
     return None

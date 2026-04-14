@@ -1,12 +1,15 @@
 """Load organisation profile metadata (org_name, vvt_fields) from profile.yaml or env settings."""
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 from typing import Any
 
 import yaml
 
 from app.config import Settings
+
+logger = logging.getLogger(__name__)
 
 _APP_DIR = Path(__file__).resolve().parent.parent
 _DATA_DIR = _APP_DIR / "data"
@@ -34,7 +37,8 @@ def _load_profile_yaml(settings: Settings) -> dict[str, Any]:
         with open(path, encoding="utf-8") as f:
             data = yaml.safe_load(f)
         return data if isinstance(data, dict) else {}
-    except Exception:
+    except Exception as exc:
+        logger.warning("Failed to load org profile YAML at %s: %s", path, exc)
         return {}
 
 
