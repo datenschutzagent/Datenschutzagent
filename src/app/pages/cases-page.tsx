@@ -231,11 +231,11 @@ export function CasesPage() {
                                 </Badge>
                               )}
                             </div>
-                            <CardDescription className="flex items-center gap-4 text-sm">
+                            <CardDescription className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm">
                               <span>{caseItem.department}</span>
-                              <span>&bull;</span>
+                              <span className="hidden sm:inline">&bull;</span>
                               <span>{caseItem.caseType}</span>
-                              <span>&bull;</span>
+                              <span className="hidden sm:inline">&bull;</span>
                               <span>Erstellt: {new Date(caseItem.createdAt).toLocaleDateString("de-DE")}</span>
                             </CardDescription>
                             {(caseItem as { tags?: string[] }).tags?.length ? (

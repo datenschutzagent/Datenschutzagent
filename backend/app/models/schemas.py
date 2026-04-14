@@ -86,6 +86,7 @@ class FindingResponse(BaseModel):
     recommendation: str
     document_id: UUID | None = None
     case_id: UUID
+    case_title: str | None = None  # eagerly loaded when available
     source_strategy: SourceStrategyEnum | None = None
     due_date: date | None = None
 

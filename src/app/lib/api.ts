@@ -483,6 +483,8 @@ export interface ApiFinding {
   recommendation: string;
   documentId?: string;
   caseId?: string;
+  /** Human-readable title of the associated case (populated by the list endpoint). */
+  caseTitle?: string | null;
   sourceStrategy?: SourceStrategy;
   dueDate?: string | null;
 }

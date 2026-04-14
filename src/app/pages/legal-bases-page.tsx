@@ -36,6 +36,7 @@ import {
 } from "../lib/api";
 import { useAuthOptional } from "../contexts/AuthContext";
 import { toast } from "sonner";
+import { logger } from "../lib/logger";
 import { Skeleton } from "../components/ui/skeleton";
 import { Plus, Scale, Edit, Trash2, Loader2 } from "lucide-react";
 import { useState, useEffect } from "react";
@@ -63,7 +64,11 @@ export function LegalBasesPage() {
     setLoading(true);
     getLegalBases()
       .then(setBases)
-      .catch(() => setBases([]))
+      .catch((e) => {
+        logger.error("Rechtsgrundlagen konnten nicht geladen werden", {}, e);
+        toast.error("Rechtsgrundlagen konnten nicht geladen werden.");
+        setBases([]);
+      })
       .finally(() => setLoading(false));
   };
 

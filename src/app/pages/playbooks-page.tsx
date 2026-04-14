@@ -11,6 +11,7 @@ import { Skeleton } from "../components/ui/skeleton";
 import { getPlaybooks, canEdit, type ApiPlaybook } from "../lib/api";
 import { useAuthOptional } from "../contexts/AuthContext";
 import { toast } from "sonner";
+import { logger } from "../lib/logger";
 import { Plus, Search, Filter, BookOpen, CheckSquare, Archive } from "lucide-react";
 import { useState, useEffect } from "react";
 
@@ -25,7 +26,14 @@ export function PlaybooksPage() {
 
   const loadPlaybooks = () => {
     setLoading(true);
-    getPlaybooks().then(setPlaybooks).catch(() => setPlaybooks([])).finally(() => setLoading(false));
+    getPlaybooks()
+      .then(setPlaybooks)
+      .catch((e) => {
+        logger.error("Playbooks konnten nicht geladen werden", {}, e);
+        toast.error("Playbooks konnten nicht geladen werden.");
+        setPlaybooks([]);
+      })
+      .finally(() => setLoading(false));
   };
 
   useEffect(() => {
@@ -58,7 +66,7 @@ export function PlaybooksPage() {
         {/* Filters */}
         <Card className="mb-6">
           <CardContent className="pt-6">
-            <div className="flex gap-4">
+            <div className="flex flex-col sm:flex-row gap-3">
               <div className="flex-1 relative">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-slate-400 dark:text-slate-500" />
                 <Input
@@ -69,7 +77,7 @@ export function PlaybooksPage() {
                 />
               </div>
               <Select value={statusFilter} onValueChange={setStatusFilter}>
-                <SelectTrigger className="w-[200px]">
+                <SelectTrigger className="w-full sm:w-[200px]">
                   <Filter className="size-4 mr-2" />
                   <SelectValue placeholder="Status filtern" />
                 </SelectTrigger>
