@@ -1678,7 +1678,7 @@ export async function listDataBreaches(params: {
 
 export async function createDataBreach(body: DataBreachCreate): Promise<ApiDataBreach> {
   return mapDataBreach(
-    await request<Record<string, unknown>>("POST", "/data-breaches", body)
+    await request<Record<string, unknown>>("POST", "/data-breaches", { body })
   );
 }
 
@@ -1688,7 +1688,7 @@ export async function getDataBreach(id: string): Promise<ApiDataBreach> {
 
 export async function updateDataBreach(id: string, body: DataBreachUpdate): Promise<ApiDataBreach> {
   return mapDataBreach(
-    await request<Record<string, unknown>>("PATCH", `/data-breaches/${id}`, body)
+    await request<Record<string, unknown>>("PATCH", `/data-breaches/${id}`, { body })
   );
 }
 
@@ -1705,6 +1705,108 @@ export async function generateBreachNotification(id: string): Promise<ApiDataBre
 export async function getDataBreachActivity(id: string): Promise<ApiDataBreachActivity[]> {
   const list = (await request<Record<string, unknown>[]>("GET", `/data-breaches/${id}/activity`)) ?? [];
   return list.map((a) => deepSnakeToCamel(a) as unknown as ApiDataBreachActivity);
+}
+
+// ---------------------------------------------------------------------------
+// Betroffenenrechte / DSR (Art. 15–22 DSGVO)
+// ---------------------------------------------------------------------------
+
+export type DSRRequestType = "access" | "rectification" | "erasure" | "portability" | "restriction" | "objection";
+export type DSRStatus = "received" | "in_progress" | "response_sent" | "closed" | "denied";
+
+export interface ApiDSRRequest {
+  id: string;
+  requestType: DSRRequestType;
+  requestorName: string | null;
+  requestorEmail: string | null;
+  description: string | null;
+  department: string | null;
+  status: DSRStatus;
+  assignee: string;
+  receivedAt: string;
+  responseDeadline: string;
+  respondedAt: string | null;
+  responseSummary: string | null;
+  draftResponse: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ApiDSRActivity {
+  id: string;
+  requestId: string;
+  eventType: string;
+  payload: Record<string, unknown>;
+  createdAt: string;
+}
+
+export interface DSRRequestCreate {
+  request_type: DSRRequestType;
+  requestor_name?: string;
+  requestor_email?: string;
+  description?: string;
+  department?: string;
+  assignee?: string;
+  received_at: string;
+  deadline_extension_days?: number;
+}
+
+export interface DSRRequestUpdate {
+  status?: DSRStatus;
+  assignee?: string;
+  response_summary?: string;
+  responded_at?: string;
+  department?: string;
+}
+
+function mapDSR(d: Record<string, unknown>): ApiDSRRequest {
+  return deepSnakeToCamel(d) as unknown as ApiDSRRequest;
+}
+
+export async function listDSRRequests(params: {
+  status?: string;
+  requestType?: string;
+  assignee?: string;
+  overdueOnly?: boolean;
+  skip?: number;
+  limit?: number;
+} = {}): Promise<{ items: ApiDSRRequest[]; total: number }> {
+  const q = new URLSearchParams();
+  if (params.status) q.set("status", params.status);
+  if (params.requestType) q.set("request_type", params.requestType);
+  if (params.assignee) q.set("assignee", params.assignee);
+  if (params.overdueOnly) q.set("overdue_only", "true");
+  if (params.skip != null) q.set("skip", String(params.skip));
+  if (params.limit != null) q.set("limit", String(params.limit));
+  const qs = q.toString();
+  const r = await request<Record<string, unknown>>("GET", `/dsr${qs ? "?" + qs : ""}`);
+  const items = ((r.items as Record<string, unknown>[]) ?? []).map(mapDSR);
+  return { items, total: Number(r.total ?? 0) };
+}
+
+export async function createDSRRequest(body: DSRRequestCreate): Promise<ApiDSRRequest> {
+  return mapDSR(await request<Record<string, unknown>>("POST", "/dsr", { body }));
+}
+
+export async function getDSRRequest(id: string): Promise<ApiDSRRequest> {
+  return mapDSR(await request<Record<string, unknown>>("GET", `/dsr/${id}`));
+}
+
+export async function updateDSRRequest(id: string, body: DSRRequestUpdate): Promise<ApiDSRRequest> {
+  return mapDSR(await request<Record<string, unknown>>("PATCH", `/dsr/${id}`, { body }));
+}
+
+export async function deleteDSRRequest(id: string): Promise<void> {
+  await request<void>("DELETE", `/dsr/${id}`);
+}
+
+export async function generateDSRDraft(id: string): Promise<ApiDSRRequest> {
+  return mapDSR(await request<Record<string, unknown>>("POST", `/dsr/${id}/generate-draft`));
+}
+
+export async function getDSRActivity(id: string): Promise<ApiDSRActivity[]> {
+  const list = (await request<Record<string, unknown>[]>("GET", `/dsr/${id}/activity`)) ?? [];
+  return list.map((a) => deepSnakeToCamel(a) as unknown as ApiDSRActivity);
 }
 
 // ---------------------------------------------------------------------------
@@ -1773,11 +1875,11 @@ export async function listAVVContracts(params: {
 }
 
 export async function createAVVContract(body: AVVCreate): Promise<ApiAVVContract> {
-  return mapAVV(await request<Record<string, unknown>>("POST", "/avv", body));
+  return mapAVV(await request<Record<string, unknown>>("POST", "/avv", { body }));
 }
 
 export async function updateAVVContract(id: string, body: AVVUpdate): Promise<ApiAVVContract> {
-  return mapAVV(await request<Record<string, unknown>>("PATCH", `/avv/${id}`, body));
+  return mapAVV(await request<Record<string, unknown>>("PATCH", `/avv/${id}`, { body }));
 }
 
 export async function deleteAVVContract(id: string): Promise<void> {
@@ -1975,7 +2077,7 @@ export async function listCaseTemplates(params: {
 }
 
 export async function createCaseTemplate(body: CaseTemplateCreate): Promise<ApiCaseTemplate> {
-  return mapCaseTemplate(await request<Record<string, unknown>>("POST", "/case-templates", body));
+  return mapCaseTemplate(await request<Record<string, unknown>>("POST", "/case-templates", { body }));
 }
 
 export async function deleteCaseTemplate(id: string): Promise<void> {
@@ -1983,7 +2085,7 @@ export async function deleteCaseTemplate(id: string): Promise<void> {
 }
 
 export async function applyCaseTemplate(body: CaseTemplateApply): Promise<ApiCase> {
-  return mapCase(await request<Record<string, unknown>>("POST", "/case-templates/apply", body));
+  return mapCase(await request<Record<string, unknown>>("POST", "/case-templates/apply", { body }));
 }
 
 // --- Audit Trail Export ---

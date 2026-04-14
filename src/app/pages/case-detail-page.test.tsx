@@ -49,6 +49,17 @@ vi.mock("../contexts/AppConfigContext", () => ({
   })),
 }));
 
+vi.mock("../contexts/RunningChecksContext", () => ({
+  useRunningChecks: vi.fn(() => ({
+    jobs: [],
+    registerJob: vi.fn(),
+    isRunning: vi.fn(() => false),
+    getJob: vi.fn(),
+    dismissJob: vi.fn(),
+    runningCount: 0,
+  })),
+}));
+
 vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
 
 // Stub heavy sub-components to keep tests fast and focused
@@ -130,7 +141,7 @@ describe("CaseDetailPage", () => {
     mockGetCase.mockResolvedValue(makeFakeCase() as never);
     renderPage();
     await waitFor(() => {
-      expect(screen.getByText("DSGVO-Prüfung Testfall")).toBeTruthy();
+      expect(screen.getAllByText("DSGVO-Prüfung Testfall").length).toBeGreaterThan(0);
     });
   });
 
@@ -146,9 +157,9 @@ describe("CaseDetailPage", () => {
     mockGetCase.mockResolvedValue(makeFakeCase() as never);
     renderPage();
     await waitFor(() => {
-      expect(screen.getByText("Übersicht")).toBeTruthy();
-      expect(screen.getByText("Dokumente")).toBeTruthy();
-      expect(screen.getByText("Findings")).toBeTruthy();
+      expect(screen.getByText("Überblick")).toBeTruthy();
+      expect(screen.getAllByText(/Dokumente/).length).toBeGreaterThan(0);
+      expect(screen.getAllByText(/Findings/).length).toBeGreaterThan(0);
     });
   });
 

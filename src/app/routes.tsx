@@ -13,6 +13,7 @@ import { DataBreachesPage } from "./pages/data-breaches-page";
 import { AVVPage } from "./pages/avv-page";
 import { TOMPage } from "./pages/tom-page";
 import { PrivacyPolicyPage } from "./pages/privacy-policy-page";
+import { DSRPage } from "./pages/dsr-page";
 import { useAuthOptional } from "./contexts/AuthContext";
 
 function AuthGuard({ children }: { children: React.ReactNode }) {
@@ -120,6 +121,14 @@ export const router = createBrowserRouter([
     element: (
       <AuthGuard>
         <DataBreachesPage />
+      </AuthGuard>
+    ),
+  },
+  {
+    path: "/dsr",
+    element: (
+      <AuthGuard>
+        <DSRPage />
       </AuthGuard>
     ),
   },

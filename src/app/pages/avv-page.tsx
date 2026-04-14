@@ -11,6 +11,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from ".
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "../components/ui/dialog";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "../components/ui/alert-dialog";
 import { Skeleton } from "../components/ui/skeleton";
+import { Separator } from "../components/ui/separator";
 import {
   listAVVContracts,
   createAVVContract,
@@ -39,6 +40,20 @@ const STATUS_COLORS: Record<string, string> = {
   signed: "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300",
   expired: "bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300",
   terminated: "bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400",
+};
+
+const RISK_LEVEL_COLORS: Record<string, string> = {
+  low: "bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300",
+  medium: "bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-300",
+  high: "bg-orange-100 text-orange-800 dark:bg-orange-900/30 dark:text-orange-300",
+  critical: "bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300",
+};
+
+const RISK_LEVEL_LABELS: Record<string, string> = {
+  low: "Niedriges Risiko",
+  medium: "Mittleres Risiko",
+  high: "Hohes Risiko",
+  critical: "Kritisches Risiko",
 };
 
 const PARTNER_TYPE_LABELS: Record<string, string> = {
@@ -326,8 +341,8 @@ export function AVVPage() {
 
       {/* Detail dialog */}
       {selected && (
-        <Dialog open onOpenChange={() => setSelected(null)}>
-          <DialogContent className="max-w-lg">
+        <Dialog open onOpenChange={() => { setSelected(null); setRiskAssessment(null); }}>
+          <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
             <DialogHeader><DialogTitle>{selected.partnerName}</DialogTitle></DialogHeader>
             <div className="space-y-4">
               <div className="flex gap-2 flex-wrap">
@@ -363,6 +378,76 @@ export function AVVPage() {
                   ))}
                 </div>
               </div>
+
+              <Separator />
+
+              {/* Risk assessment */}
+              <div>
+                <div className="flex items-center justify-between mb-3">
+                  <p className="text-sm font-medium flex items-center gap-1">
+                    <ShieldAlert className="size-4" /> Risikobewertung
+                  </p>
+                  {!["expired", "terminated"].includes(selected.status) && (
+                    <Button size="sm" variant="outline" onClick={() => void handleRiskAssessment()} disabled={assessingRisk}>
+                      {assessingRisk ? <Loader2 className="size-3 mr-1 animate-spin" /> : <ShieldAlert className="size-3 mr-1" />}
+                      {riskAssessment ? "Neu bewerten" : "Bewertung durchführen"}
+                    </Button>
+                  )}
+                </div>
+
+                {riskAssessment ? (
+                  <div className="space-y-3">
+                    <div className="flex items-center gap-3">
+                      <span className="text-lg font-bold">{riskAssessment.risk_score}/100</span>
+                      <span className={`text-xs px-2 py-1 rounded-full font-medium ${RISK_LEVEL_COLORS[riskAssessment.risk_level] ?? ""}`}>
+                        {RISK_LEVEL_LABELS[riskAssessment.risk_level]}
+                      </span>
+                      <span className="text-xs text-muted-foreground">
+                        {new Date(riskAssessment.assessed_at).toLocaleDateString("de-DE")}
+                      </span>
+                    </div>
+
+                    {riskAssessment.assessment.dimensions && (
+                      <div className="space-y-2">
+                        <p className="text-xs font-medium text-muted-foreground">Dimensionen</p>
+                        {riskAssessment.assessment.dimensions.map((dim) => (
+                          <div key={dim.name} className="flex items-start gap-2 text-xs">
+                            <div className="flex items-center gap-1 shrink-0 w-32">
+                              <span className="font-medium">{dim.name}</span>
+                              <span className="text-muted-foreground">({dim.score}/5)</span>
+                            </div>
+                            <span className="text-muted-foreground">{dim.rationale}</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+
+                    {riskAssessment.assessment.main_risks && riskAssessment.assessment.main_risks.length > 0 && (
+                      <div>
+                        <p className="text-xs font-medium text-muted-foreground mb-1">Hauptrisiken</p>
+                        <ul className="text-xs text-muted-foreground space-y-0.5 list-disc list-inside">
+                          {riskAssessment.assessment.main_risks.map((r, i) => <li key={i}>{r}</li>)}
+                        </ul>
+                      </div>
+                    )}
+
+                    {riskAssessment.assessment.recommended_measures && riskAssessment.assessment.recommended_measures.length > 0 && (
+                      <div>
+                        <p className="text-xs font-medium text-muted-foreground mb-1">Empfohlene Maßnahmen</p>
+                        <ul className="text-xs text-muted-foreground space-y-0.5 list-disc list-inside">
+                          {riskAssessment.assessment.recommended_measures.map((m, i) => <li key={i}>{m}</li>)}
+                        </ul>
+                      </div>
+                    )}
+
+                    {riskAssessment.assessment.summary && (
+                      <p className="text-xs text-muted-foreground italic">{riskAssessment.assessment.summary}</p>
+                    )}
+                  </div>
+                ) : (
+                  <p className="text-xs text-muted-foreground italic">Noch keine Risikobewertung durchgeführt.</p>
+                )}
+              </div>
             </div>
             <DialogFooter>
               <AlertDialog>
@@ -380,7 +465,7 @@ export function AVVPage() {
                   </AlertDialogFooter>
                 </AlertDialogContent>
               </AlertDialog>
-              <Button variant="outline" onClick={() => setSelected(null)}>Schließen</Button>
+              <Button variant="outline" onClick={() => { setSelected(null); setRiskAssessment(null); }}>Schließen</Button>
             </DialogFooter>
           </DialogContent>
         </Dialog>
