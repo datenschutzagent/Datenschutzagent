@@ -1,9 +1,12 @@
 """Webhook-Management API: Konfiguration ausgehender HTTP-Benachrichtigungen."""
+import ipaddress
 import logging
+import socket
+from urllib.parse import urlparse
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from pydantic import BaseModel, HttpUrl
+from pydantic import BaseModel, field_validator
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -25,11 +28,46 @@ VALID_EVENTS = {
 }
 
 
+def _validate_webhook_url(url: str) -> str:
+    """Validate webhook URL to prevent SSRF attacks.
+
+    Blocks requests to private/loopback/link-local addresses to prevent
+    Server-Side Request Forgery (SSRF) attacks (OWASP A10).
+    """
+    parsed = urlparse(url)
+    if parsed.scheme not in ("http", "https"):
+        raise ValueError("Webhook URL must use http or https scheme")
+    hostname = parsed.hostname
+    if not hostname:
+        raise ValueError("Webhook URL must have a valid hostname")
+    # Try to resolve hostname and check if it points to a private/internal address
+    try:
+        resolved_ip = socket.gethostbyname(hostname)
+        addr = ipaddress.ip_address(resolved_ip)
+        if addr.is_private or addr.is_loopback or addr.is_link_local or addr.is_reserved:
+            logger.warning(
+                "SSRF attempt blocked: webhook URL resolves to internal address",
+                extra={"event": "ssrf_blocked", "hostname": hostname, "resolved_ip": resolved_ip},
+            )
+            raise ValueError(
+                f"Webhook URL must not point to private or internal addresses (resolved: {resolved_ip})"
+            )
+    except socket.gaierror:
+        # DNS resolution may fail at validation time; will fail at delivery time
+        pass
+    return url
+
+
 class WebhookCreate(BaseModel):
     name: str
     url: str
     secret: str | None = None
     events: list[str] = []  # leer = alle Events
+
+    @field_validator("url")
+    @classmethod
+    def validate_url_no_ssrf(cls, v: str) -> str:
+        return _validate_webhook_url(v)
 
 
 class WebhookUpdate(BaseModel):
@@ -38,6 +76,13 @@ class WebhookUpdate(BaseModel):
     secret: str | None = None
     events: list[str] | None = None
     is_active: bool | None = None
+
+    @field_validator("url")
+    @classmethod
+    def validate_url_no_ssrf(cls, v: str | None) -> str | None:
+        if v is not None:
+            return _validate_webhook_url(v)
+        return v
 
 
 class WebhookResponse(BaseModel):

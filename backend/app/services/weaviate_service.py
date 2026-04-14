@@ -137,12 +137,20 @@ def get_weaviate_client():
         return None
     try:
         import weaviate
+        from weaviate.auth import AuthApiKey
     except ImportError:
         logger.warning("weaviate-client not installed")
         return None
 
     try:
-        client = weaviate.connect_to_local(host=host, port=port, grpc_port=50051)
+        api_key = settings.weaviate_api_key
+        auth = AuthApiKey(api_key=api_key) if api_key else None
+        client = weaviate.connect_to_local(
+            host=host,
+            port=port,
+            grpc_port=50051,
+            auth_credentials=auth,
+        )
         return client
     except Exception as e:
         logger.warning("Weaviate connection failed: %s", e)

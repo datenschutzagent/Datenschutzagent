@@ -1,0 +1,153 @@
+name: Security Scan
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+  schedule:
+    # Weekly Monday 04:00 UTC – catches newly-disclosed CVEs
+    - cron: '0 4 * * 1'
+
+jobs:
+  python-sast:
+    name: Python SAST (Bandit + pip-audit)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install security tools
+        run: pip install bandit pip-audit
+
+      - name: pip-audit – CVE check
+        # Fail on HIGH or CRITICAL vulnerabilities
+        run: pip-audit -r backend/requirements.txt --fail-on-vuln-severity high
+
+      - name: Bandit – Python SAST
+        # Medium+ severity; skip B101 (assert usage in tests)
+        run: |
+          bandit -r backend/app/ \
+            --severity-level medium \
+            --skip B101 \
+            --format json \
+            --output bandit-report.json \
+          || true  # Non-blocking; upload report for review
+        continue-on-error: true
+
+      - name: Upload Bandit report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: bandit-report
+          path: bandit-report.json
+
+  frontend-security:
+    name: Frontend Security (npm audit)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: npm audit – HIGH/CRITICAL vulnerabilities
+        run: npm audit --audit-level=high
+
+  semgrep:
+    name: Semgrep SAST (OWASP Top 10 + Secrets)
+    runs-on: ubuntu-latest
+    container:
+      image: semgrep/semgrep:latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run Semgrep
+        run: |
+          semgrep \
+            --config=p/python \
+            --config=p/secrets \
+            --config=p/owasp-top-ten \
+            --json \
+            --output semgrep-report.json \
+            backend/app/ \
+          || true
+        continue-on-error: true
+
+      - name: Upload Semgrep report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: semgrep-report
+          path: semgrep-report.json
+
+  container-scan:
+    name: Container Vulnerability Scan (Trivy)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build backend image for scanning
+        run: docker build -t datenschutzagent-backend:scan backend/
+
+      - name: Trivy – container scan
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: 'datenschutzagent-backend:scan'
+          format: 'sarif'
+          output: 'trivy-results.sarif'
+          severity: 'CRITICAL,HIGH'
+          exit-code: '1'
+
+      - name: Upload Trivy SARIF
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: 'trivy-results.sarif'
+
+  secret-scan:
+    name: Secret Detection (detect-secrets)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Full history for detect-secrets baseline comparison
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install detect-secrets
+        run: pip install detect-secrets
+
+      - name: Run detect-secrets scan
+        run: |
+          detect-secrets scan \
+            --exclude-files '\.env\.example$' \
+            --exclude-files '\.secrets\.baseline$' \
+            > .secrets.scan-result.json
+
+      - name: Check for new secrets
+        run: |
+          # If baseline exists, compare; otherwise just report
+          if [ -f .secrets.baseline ]; then
+            detect-secrets audit .secrets.baseline
+          else
+            echo "No baseline found — review .secrets.scan-result.json"
+            cat .secrets.scan-result.json
+          fi
+
+      - name: Upload secrets report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: secrets-scan-report
+          path: .secrets.scan-result.json

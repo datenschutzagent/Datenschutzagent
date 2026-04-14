@@ -6,6 +6,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.llm import create_agent, llm_retry_call
+from app.core.prompt_security import sanitize_prompt_field
 from app.models.db import DocumentModel, FindingChatMessageModel, FindingModel
 
 logger = logging.getLogger(__name__)
@@ -35,15 +36,15 @@ def _build_system_prompt(finding: FindingModel, document: DocumentModel | None) 
         excerpt = document.content[:_MAX_DOC_CHARS]
         if len(document.content) > _MAX_DOC_CHARS:
             excerpt += "\n[... Dokument gekürzt ...]"
-        doc_context = f"**Relevanter Dokumentauszug ({document.name})**:\n{excerpt}"
+        doc_context = f"**Relevanter Dokumentauszug ({document.name})**:\n{sanitize_prompt_field(excerpt, max_chars=_MAX_DOC_CHARS)}"
 
     return _CHAT_SYSTEM_TEMPLATE.format(
-        check_name=finding.check_name,
-        category=finding.category,
-        severity=finding.severity,
-        description=finding.description,
-        recommendation=finding.recommendation or "Keine Empfehlung vorhanden.",
-        evidence=evidence_text,
+        check_name=sanitize_prompt_field(finding.check_name, max_chars=200),
+        category=sanitize_prompt_field(finding.category, max_chars=100),
+        severity=sanitize_prompt_field(finding.severity, max_chars=50),
+        description=sanitize_prompt_field(finding.description, max_chars=1000),
+        recommendation=sanitize_prompt_field(finding.recommendation or "Keine Empfehlung vorhanden.", max_chars=500),
+        evidence=sanitize_prompt_field(evidence_text, max_chars=1000),
         doc_context=doc_context,
     )
 

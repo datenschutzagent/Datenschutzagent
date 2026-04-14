@@ -34,7 +34,7 @@ def _get_jwks_uri() -> str:
     url = _oidc_discovery_url()
     try:
         req = urllib.request.Request(url, method="GET")
-        with urllib.request.urlopen(req, timeout=5) as resp:
+        with urllib.request.urlopen(req, timeout=5) as resp:  # nosec B310 – URL from trusted config (OIDC_ISSUER_URL)
             data = json.loads(resp.read().decode())
             return data.get("jwks_uri") or ""
     except Exception as e:
@@ -45,7 +45,7 @@ def _get_jwks_uri() -> str:
 def _load_jwks(jwks_uri: str) -> dict[str, Any]:
     """Fetch JWKS and return dict kid -> public key (for jwt.decode)."""
     req = urllib.request.Request(jwks_uri, method="GET")
-    with urllib.request.urlopen(req, timeout=5) as resp:
+    with urllib.request.urlopen(req, timeout=5) as resp:  # nosec B310 – URL from OIDC discovery (trusted issuer)
         jwks = json.loads(resp.read().decode())
     keys = {}
     for jwk in jwks.get("keys", []):
@@ -103,6 +103,9 @@ def _get_signing_key(token: str):
     return _jwks_cache[kid]
 
 
+_security_audit_logger = logging.getLogger("app.security.audit")
+
+
 def _verify_jwt(token: str) -> dict[str, Any]:
     """Verify JWT with JWKS from OIDC issuer. Returns payload (sub, email, preferred_username, etc.)."""
     issuer = (settings.oidc_issuer_url or "").rstrip("/")
@@ -114,23 +117,32 @@ def _verify_jwt(token: str) -> dict[str, Any]:
     key = _get_signing_key(token)
     try:
         algorithms = ["RS256", "RS384", "RS512", "ES256", "ES384", "ES512"]
-        options = {"verify_aud": bool(settings.oidc_audience)}
+        # Use oidc_audience if set; fall back to oidc_client_id to prevent cross-app token reuse
+        effective_audience = settings.oidc_audience or settings.oidc_client_id or None
+        options = {"verify_aud": effective_audience is not None}
         payload = jwt.decode(
             token,
             key,
             algorithms=algorithms,
-            audience=settings.oidc_audience or None,
+            audience=effective_audience,
             issuer=issuer,
             options=options,
         )
         return payload
     except jwt.ExpiredSignatureError:
+        _security_audit_logger.warning(
+            "Authentication failed: token expired",
+            extra={"event": "auth_failure", "reason": "token_expired"},
+        )
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Token expired",
         )
     except jwt.InvalidTokenError as e:
-        logger.debug("Invalid token: %s", e)
+        _security_audit_logger.warning(
+            "Authentication failed: invalid token",
+            extra={"event": "auth_failure", "reason": "invalid_token", "detail": str(e)[:100]},
+        )
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid token",
@@ -143,6 +155,10 @@ async def get_current_user_oidc(
 ):
     """Resolve current user from OIDC Bearer token. Validates JWT and ensures user exists in DB (create on first login)."""
     if not credentials or credentials.credentials is None:
+        _security_audit_logger.warning(
+            "Authentication failed: no Bearer token provided",
+            extra={"event": "auth_failure", "reason": "no_credentials"},
+        )
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Not authenticated",
@@ -185,6 +201,10 @@ async def get_current_user_oidc(
     await db.flush()
     await db.refresh(new_user)
     logger.info("New OIDC user created on first login", extra={"user_id": str(new_user.id), "role": new_user.role})
+    _security_audit_logger.info(
+        "Authentication successful: new user provisioned",
+        extra={"event": "auth_success", "user_id": str(new_user.id), "reason": "first_login"},
+    )
     return new_user
 
 

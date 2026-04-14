@@ -20,7 +20,7 @@ async def check_ollama() -> dict[str, Any]:
         return {"status": "unreachable", "message": "Ollama URL not set"}
     try:
         req = urllib.request.Request(f"{base}/api/tags", method="GET")
-        with urllib.request.urlopen(req, timeout=3) as resp:
+        with urllib.request.urlopen(req, timeout=3) as resp:  # nosec B310 – URL from trusted config (OLLAMA_BASE_URL)
             if resp.status == 200:
                 return {"status": "ok"}
     except Exception as e:
@@ -38,7 +38,7 @@ async def check_weaviate() -> dict[str, Any]:
         return {"status": "unreachable", "message": "Weaviate URL not set"}
     try:
         req = urllib.request.Request(f"{url}/v1/.well-known/ready", method="GET")
-        with urllib.request.urlopen(req, timeout=3) as resp:
+        with urllib.request.urlopen(req, timeout=3) as resp:  # nosec B310 – URL from trusted config (WEAVIATE_URL)
             if resp.status == 200:
                 return {"status": "ok"}
     except Exception as e:

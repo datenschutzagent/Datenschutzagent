@@ -6,6 +6,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.llm import create_agent
+from app.core.prompt_security import sanitize_prompt_field
 from app.models.db import DSRActivityLogModel, DSRRequestModel
 
 logger = logging.getLogger(__name__)
@@ -65,9 +66,9 @@ async def generate_draft_response(request_id: UUID, db: AsyncSession) -> str:
     )
 
     user_content = _USER_TEMPLATE.format(
-        request_type_label=request_type_label,
-        department=request.department or "Nicht angegeben",
-        description=request.description or "Keine Beschreibung vorhanden.",
+        request_type_label=sanitize_prompt_field(request_type_label, max_chars=100),
+        department=sanitize_prompt_field(request.department or "Nicht angegeben", max_chars=100),
+        description=sanitize_prompt_field(request.description or "Keine Beschreibung vorhanden.", max_chars=1000),
         received_at=request.received_at.strftime("%d.%m.%Y"),
         response_deadline=request.response_deadline.strftime("%d.%m.%Y"),
         days_remaining=days_remaining,
