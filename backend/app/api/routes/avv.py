@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.auth import require_roles
 from app.database import get_db
-from app.models.db import AVVContractModel, orm_to_avv_response
+from app.models.db import AVVContractModel
 from app.models.schemas import (
     AVVContractCreate,
     AVVContractResponse,
@@ -52,7 +52,7 @@ async def list_avv_contracts(
 
     q = q.order_by(AVVContractModel.partner_name.asc()).offset(skip).limit(limit)
     result = await db.execute(q)
-    items = [AVVContractResponse(**orm_to_avv_response(r)) for r in result.scalars().all()]
+    items = [AVVContractResponse.model_validate(r) for r in result.scalars().all()]
     return AVVListResponse(items=items, total=total)
 
 
@@ -75,7 +75,7 @@ async def create_avv_contract(
     db.add(contract)
     await db.flush()
     await db.refresh(contract)
-    return AVVContractResponse(**orm_to_avv_response(contract))
+    return AVVContractResponse.model_validate(contract)
 
 
 @router.get("/{contract_id}", response_model=AVVContractResponse, summary="AVV abrufen")
@@ -88,7 +88,7 @@ async def get_avv_contract(
     contract = result.scalar_one_or_none()
     if not contract:
         raise HTTPException(status_code=404, detail="AVV nicht gefunden")
-    return AVVContractResponse(**orm_to_avv_response(contract))
+    return AVVContractResponse.model_validate(contract)
 
 
 @router.patch("/{contract_id}", response_model=AVVContractResponse, summary="AVV aktualisieren")
@@ -111,7 +111,7 @@ async def update_avv_contract(
 
     await db.flush()
     await db.refresh(contract)
-    return AVVContractResponse(**orm_to_avv_response(contract))
+    return AVVContractResponse.model_validate(contract)
 
 
 @router.post("/{contract_id}/risk-assessment", summary="Supplier-Risikobewertung durchführen")

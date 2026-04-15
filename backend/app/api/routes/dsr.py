@@ -13,8 +13,6 @@ from app.models.db import (
     DSRActivityLogModel,
     DSRRequestModel,
     UserModel,
-    orm_to_dsr_activity_response,
-    orm_to_dsr_request_response,
 )
 from app.models.schemas import (
     DSRActivityResponse,
@@ -61,7 +59,7 @@ async def list_dsr_requests(
 
     q = q.order_by(DSRRequestModel.response_deadline.asc()).offset(skip).limit(limit)
     result = await db.execute(q)
-    items = [DSRRequestResponse(**orm_to_dsr_request_response(r)) for r in result.scalars().all()]
+    items = [DSRRequestResponse.model_validate(r) for r in result.scalars().all()]
 
     return DSRListResponse(items=items, total=total)
 
@@ -105,7 +103,7 @@ async def create_dsr_request(
             "response_deadline": response_deadline.isoformat(),
         },
     )
-    return DSRRequestResponse(**orm_to_dsr_request_response(request))
+    return DSRRequestResponse.model_validate(request)
 
 
 @router.get("/{request_id}", response_model=DSRRequestResponse, summary="DSR-Anfrage abrufen")
@@ -118,7 +116,7 @@ async def get_dsr_request(
     request = result.scalar_one_or_none()
     if not request:
         raise HTTPException(status_code=404, detail="DSR-Anfrage nicht gefunden")
-    return DSRRequestResponse(**orm_to_dsr_request_response(request))
+    return DSRRequestResponse.model_validate(request)
 
 
 @router.patch("/{request_id}", response_model=DSRRequestResponse, summary="DSR-Anfrage aktualisieren")
@@ -169,7 +167,7 @@ async def update_dsr_request(
                 "new_status": body.status,
             },
         )
-    return DSRRequestResponse(**orm_to_dsr_request_response(request))
+    return DSRRequestResponse.model_validate(request)
 
 
 @router.delete("/{request_id}", status_code=204, summary="DSR-Anfrage löschen")
@@ -202,7 +200,7 @@ async def generate_response_draft(
     from app.services.dsr_response_service import generate_draft_response
     await generate_draft_response(request_id, db)
     await db.refresh(request)
-    return DSRRequestResponse(**orm_to_dsr_request_response(request))
+    return DSRRequestResponse.model_validate(request)
 
 
 @router.get("/{request_id}/activity", response_model=list[DSRActivityResponse], summary="Aktivitätsprotokoll abrufen")
@@ -223,4 +221,4 @@ async def get_dsr_activity(
         .where(DSRActivityLogModel.request_id == request_id)
         .order_by(DSRActivityLogModel.created_at.asc())
     )
-    return [DSRActivityResponse(**orm_to_dsr_activity_response(e)) for e in log_result.scalars().all()]
+    return [DSRActivityResponse.model_validate(e) for e in log_result.scalars().all()]

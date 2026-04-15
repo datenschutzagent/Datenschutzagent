@@ -13,8 +13,6 @@ from app.models.db import (
     DataBreachActivityLogModel,
     DataBreachModel,
     UserModel,
-    orm_to_data_breach_activity_response,
-    orm_to_data_breach_response,
 )
 from app.models.schemas import (
     DataBreachActivityResponse,
@@ -61,7 +59,7 @@ async def list_data_breaches(
 
     q = q.order_by(DataBreachModel.notification_deadline.asc()).offset(skip).limit(limit)
     result = await db.execute(q)
-    items = [DataBreachResponse(**orm_to_data_breach_response(r)) for r in result.scalars().all()]
+    items = [DataBreachResponse.model_validate(r) for r in result.scalars().all()]
 
     return DataBreachListResponse(items=items, total=total)
 
@@ -102,7 +100,7 @@ async def create_data_breach(
     db.add(activity)
     await db.flush()
     await db.refresh(breach)
-    return DataBreachResponse(**orm_to_data_breach_response(breach))
+    return DataBreachResponse.model_validate(breach)
 
 
 @router.get("/{breach_id}", response_model=DataBreachResponse, summary="Datenpanne abrufen")
@@ -115,7 +113,7 @@ async def get_data_breach(
     breach = result.scalar_one_or_none()
     if not breach:
         raise HTTPException(status_code=404, detail="Datenpanne nicht gefunden")
-    return DataBreachResponse(**orm_to_data_breach_response(breach))
+    return DataBreachResponse.model_validate(breach)
 
 
 @router.patch("/{breach_id}", response_model=DataBreachResponse, summary="Datenpanne aktualisieren")
@@ -156,7 +154,7 @@ async def update_data_breach(
     db.add(activity)
     await db.flush()
     await db.refresh(breach)
-    return DataBreachResponse(**orm_to_data_breach_response(breach))
+    return DataBreachResponse.model_validate(breach)
 
 
 @router.delete("/{breach_id}", status_code=204, summary="Datenpanne löschen")
@@ -192,7 +190,7 @@ async def generate_notification_draft(
     from app.services.data_breach_service import generate_breach_notification
     await generate_breach_notification(breach_id, db)
     await db.refresh(breach)
-    return DataBreachResponse(**orm_to_data_breach_response(breach))
+    return DataBreachResponse.model_validate(breach)
 
 
 @router.get(
@@ -215,6 +213,6 @@ async def get_breach_activity(
         .order_by(DataBreachActivityLogModel.created_at.asc())
     )
     return [
-        DataBreachActivityResponse(**orm_to_data_breach_activity_response(e))
+        DataBreachActivityResponse.model_validate(e)
         for e in log_result.scalars().all()
     ]

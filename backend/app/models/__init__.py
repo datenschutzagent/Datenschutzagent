@@ -13,9 +13,6 @@ from app.models.db import (
     CaseModel,
     DocumentModel,
     FindingModel,
-    orm_to_case_response,
-    orm_to_document_response,
-    orm_to_finding_response,
 )
 
 __all__ = [
@@ -29,7 +26,5 @@ __all__ = [
     "DocumentResponse",
     "FindingModel",
     "FindingResponse",
-    "orm_to_case_response",
-    "orm_to_document_response",
-    "orm_to_finding_response",
+    "FindingUpdate",
 ]

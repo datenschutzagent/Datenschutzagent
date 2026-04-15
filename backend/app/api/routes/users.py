@@ -6,7 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.auth import get_current_user
 from app.database import get_db
-from app.models.db import UserModel, orm_to_user_response
+from app.models.db import UserModel
 from app.models.schemas import UserResponse, UserUpdate
 
 router = APIRouter()
@@ -16,7 +16,7 @@ logger = logging.getLogger(__name__)
 @router.get("/me", response_model=UserResponse)
 async def get_me(current_user: UserModel = Depends(get_current_user)):
     """Return the current user (from OIDC token or CURRENT_USER_ID/default when OIDC disabled)."""
-    return UserResponse(**orm_to_user_response(current_user))
+    return UserResponse.model_validate(current_user)
 
 
 @router.patch("/me", response_model=UserResponse)
@@ -38,4 +38,4 @@ async def update_me(
     await db.flush()
     await db.refresh(current_user)
     logger.info("User profile updated", extra={"user_id": str(current_user.id), "fields": list(body.model_fields_set)})
-    return UserResponse(**orm_to_user_response(current_user))
+    return UserResponse.model_validate(current_user)

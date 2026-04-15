@@ -3,7 +3,7 @@ from datetime import date, datetime
 from typing import Any, Generic, Literal, TypeVar
 from uuid import UUID
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 T = TypeVar("T")
 
@@ -203,6 +203,12 @@ class CaseResponse(BaseModel):
 
     model_config = {"from_attributes": True}
 
+    @model_validator(mode="after")
+    def sort_documents(self) -> "CaseResponse":
+        """Sort documents by type then version, matching the previous orm_to_case_response behaviour."""
+        self.documents = sorted(self.documents, key=lambda d: (d.type, d.version))
+        return self
+
 
 # --- Playbook ---
 class PlaybookCreate(BaseModel):
@@ -230,6 +236,17 @@ class PlaybookResponse(BaseModel):
     case_type: str | None
     department: str | None
     is_active: bool
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class PlaybookRevisionResponse(BaseModel):
+    id: UUID
+    playbook_id: UUID
+    version: str
+    content: dict[str, Any]
+    changed_by: str
     created_at: datetime
 
     model_config = {"from_attributes": True}
@@ -279,6 +296,11 @@ class LegalBaseResponse(BaseModel):
     updated_at: datetime
 
     model_config = {"from_attributes": True}
+
+    @field_validator("department_codes", "case_types", mode="before")
+    @classmethod
+    def coerce_none_to_list(cls, v: list[str] | None) -> list[str]:
+        return v or []
 
 
 # --- VVT Normalization (canonical model) ---
@@ -756,6 +778,11 @@ class DataBreachResponse(BaseModel):
 
     model_config = {"from_attributes": True}
 
+    @field_validator("affected_data_categories", mode="before")
+    @classmethod
+    def coerce_none_to_list(cls, v: list[str] | None) -> list[str]:
+        return v or []
+
 
 class DataBreachListResponse(BaseModel):
     items: list[DataBreachResponse]
@@ -868,6 +895,11 @@ class TOMResponse(BaseModel):
     updated_at: datetime
 
     model_config = {"from_attributes": True}
+
+    @field_validator("department_codes", mode="before")
+    @classmethod
+    def coerce_none_to_list(cls, v: list[str] | None) -> list[str]:
+        return v or []
 
 
 class TOMListResponse(BaseModel):

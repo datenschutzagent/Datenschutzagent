@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.auth import require_roles
 from app.config import settings
 from app.database import get_db
-from app.models.db import TOMModel, TOMAttachmentModel, orm_to_tom_response, orm_to_tom_attachment_response
+from app.models.db import TOMModel, TOMAttachmentModel
 from app.models.schemas import (
     TOMAttachmentResponse,
     TOMCreate,
@@ -57,7 +57,7 @@ async def list_toms(
 
     q = q.order_by(TOMModel.category.asc(), TOMModel.title.asc()).offset(skip).limit(limit)
     result = await db.execute(q)
-    items = [TOMResponse(**orm_to_tom_response(r)) for r in result.scalars().all()]
+    items = [TOMResponse.model_validate(r) for r in result.scalars().all()]
     return TOMListResponse(items=items, total=total)
 
 
@@ -110,7 +110,7 @@ async def create_tom(
     db.add(tom)
     await db.flush()
     await db.refresh(tom)
-    return TOMResponse(**orm_to_tom_response(tom))
+    return TOMResponse.model_validate(tom)
 
 
 @router.get("/{tom_id}", response_model=TOMResponse, summary="TOM abrufen")
@@ -123,7 +123,7 @@ async def get_tom(
     tom = result.scalar_one_or_none()
     if not tom:
         raise HTTPException(status_code=404, detail="TOM nicht gefunden")
-    return TOMResponse(**orm_to_tom_response(tom))
+    return TOMResponse.model_validate(tom)
 
 
 @router.patch("/{tom_id}", response_model=TOMResponse, summary="TOM aktualisieren")
@@ -146,7 +146,7 @@ async def update_tom(
 
     await db.flush()
     await db.refresh(tom)
-    return TOMResponse(**orm_to_tom_response(tom))
+    return TOMResponse.model_validate(tom)
 
 
 @router.delete("/{tom_id}", status_code=204, summary="TOM löschen")
@@ -183,7 +183,7 @@ async def list_tom_attachments(
         .order_by(TOMAttachmentModel.uploaded_at.asc())
     )
     rows = (await db.execute(q)).scalars().all()
-    return [TOMAttachmentResponse(**orm_to_tom_attachment_response(r)) for r in rows]
+    return [TOMAttachmentResponse.model_validate(r) for r in rows]
 
 
 @router.post("/{tom_id}/attachments", response_model=TOMAttachmentResponse, status_code=201, summary="Anhang hochladen")
@@ -229,7 +229,7 @@ async def upload_tom_attachment(
     attachment.storage_path = storage_path
     await db.flush()
     await db.refresh(attachment)
-    return TOMAttachmentResponse(**orm_to_tom_attachment_response(attachment))
+    return TOMAttachmentResponse.model_validate(attachment)
 
 
 @router.get("/{tom_id}/attachments/{attachment_id}/download", summary="Anhang herunterladen")
