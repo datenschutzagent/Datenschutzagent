@@ -12,8 +12,8 @@ logger = logging.getLogger(__name__)
 from app.config import settings
 from app.core.auth import require_roles
 from app.database import get_db
-from app.models.db import UserModel, orm_to_user_response
-from app.models.schemas import NotificationTestResponse, RetentionPreviewResponse, RetentionScanResponse
+from app.models.db import UserModel
+from app.models.schemas import NotificationTestResponse, RetentionPreviewResponse, RetentionScanResponse, UserResponse
 from app.services.connection_checks import check_all_connections
 
 router = APIRouter()
@@ -66,7 +66,7 @@ async def list_users(
     """List all registered users with their roles."""
     result = await db.execute(select(UserModel).order_by(UserModel.created_at.asc()))
     users = result.scalars().all()
-    return [orm_to_user_response(u) for u in users]
+    return [UserResponse.model_validate(u) for u in users]
 
 
 @router.patch("/users/{user_id}/role")
@@ -91,7 +91,7 @@ async def update_user_role(
         "Admin: user role updated",
         extra={"target_user_id": str(user_id), "old_role": old_role, "new_role": body.role},
     )
-    return orm_to_user_response(user)
+    return UserResponse.model_validate(user)
 
 
 # --- Retention Management ---

@@ -16,8 +16,8 @@ from app.models.db import UserModel
 from app.celery_app import extract_document_text
 from app.config import settings
 from app.database import get_db
-from app.models import DocumentModel, DocumentResponse, orm_to_document_response
-from app.models.db import CaseModel, DocumentCommentModel, UserModel, orm_to_document_comment_response
+from app.models import DocumentModel, DocumentResponse
+from app.models.db import CaseModel, DocumentCommentModel, UserModel
 from app.models.schemas import DocumentCommentCreate, DocumentCommentResponse, DocumentUpdate
 from app.services.document_processor import extract_text
 from app.services.weaviate_service import delete_chunks_by_document_id
@@ -127,7 +127,7 @@ async def list_documents(
     q = q.order_by(DocumentModel.type.asc(), DocumentModel.version.asc())
     result = await db.execute(q)
     docs = result.scalars().all()
-    return [DocumentResponse(**orm_to_document_response(d)) for d in docs]
+    return [DocumentResponse.model_validate(d) for d in docs]
 
 
 @router.get("/{document_id}/download")
@@ -200,7 +200,7 @@ async def list_document_comments(
     )
     comments_result = await db.execute(q)
     comments = comments_result.scalars().all()
-    return [DocumentCommentResponse(**orm_to_document_comment_response(c)) for c in comments]
+    return [DocumentCommentResponse.model_validate(c) for c in comments]
 
 
 @router.post("/{document_id}/comments", response_model=DocumentCommentResponse, status_code=201)
@@ -226,7 +226,7 @@ async def create_document_comment(
     db.add(comment)
     await db.flush()
     await db.refresh(comment)
-    return DocumentCommentResponse(**orm_to_document_comment_response(comment))
+    return DocumentCommentResponse.model_validate(comment)
 
 
 @router.get("/{document_id}", response_model=DocumentResponse)
@@ -240,7 +240,7 @@ async def get_document(
     doc = result.scalar_one_or_none()
     if not doc:
         raise HTTPException(status_code=404, detail="Document not found")
-    return DocumentResponse(**orm_to_document_response(doc))
+    return DocumentResponse.model_validate(doc)
 
 
 @router.patch("/{document_id}", response_model=DocumentResponse)
@@ -261,7 +261,7 @@ async def update_document(
         await db.refresh(doc)
         delete_chunks_by_document_id(document_id)
     await db.commit()
-    return DocumentResponse(**orm_to_document_response(doc))
+    return DocumentResponse.model_validate(doc)
 
 
 @router.post("", response_model=DocumentResponse, status_code=201, summary="Dokument hochladen")
@@ -297,7 +297,7 @@ async def upload_document(
     if use_async:
         await db.commit()
         extract_document_text.delay(str(doc.id))
-    return DocumentResponse(**orm_to_document_response(doc))
+    return DocumentResponse.model_validate(doc)
 
 
 @router.post("/bulk", response_model=list[DocumentResponse], status_code=201)
@@ -327,7 +327,7 @@ async def upload_documents_bulk(
             doc = await _process_one_upload(
                 case_id=case_id, file=f, document_type=document_type, uploaded_by=uploaded_by, db=db, async_extraction=use_async
             )
-            created.append(DocumentResponse(**orm_to_document_response(doc)))
+            created.append(DocumentResponse.model_validate(doc))
             if use_async:
                 doc_ids.append(doc.id)
         except HTTPException as e:

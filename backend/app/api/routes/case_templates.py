@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.auth import require_roles
 from app.database import get_db
-from app.models.db import CaseModel, CaseTemplateModel, UserModel, orm_to_case_response, orm_to_case_template_response
+from app.models.db import CaseModel, CaseTemplateModel, UserModel
 from app.models.schemas import (
     CaseResponse,
     CaseTemplateApplyRequest,
@@ -34,7 +34,7 @@ async def list_templates(
         q = q.where(CaseTemplateModel.department.ilike(f"%{department}%"))
     q = q.order_by(CaseTemplateModel.is_builtin.desc(), CaseTemplateModel.name.asc())
     result = await db.execute(q)
-    return [CaseTemplateResponse(**orm_to_case_template_response(t)) for t in result.scalars().all()]
+    return [CaseTemplateResponse.model_validate(t) for t in result.scalars().all()]
 
 
 @router.post("", response_model=CaseTemplateResponse, status_code=201, summary="Vorlage erstellen")
@@ -58,7 +58,7 @@ async def create_template(
     db.add(template)
     await db.flush()
     await db.refresh(template)
-    return CaseTemplateResponse(**orm_to_case_template_response(template))
+    return CaseTemplateResponse.model_validate(template)
 
 
 @router.delete("/{template_id}", status_code=204, summary="Vorlage löschen")
@@ -105,4 +105,4 @@ async def apply_template(
     db.add(case)
     await db.flush()
     await db.refresh(case)
-    return CaseResponse(**orm_to_case_response(case))
+    return CaseResponse.model_validate(case)

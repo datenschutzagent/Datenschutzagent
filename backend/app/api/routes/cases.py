@@ -21,7 +21,7 @@ from sqlalchemy.orm import selectinload
 
 from app.config import settings
 from app.database import get_db
-from app.models import CaseCreate, CaseListResponse, CaseModel, CaseResponse, CaseUpdate, orm_to_case_response
+from app.models import CaseCreate, CaseListResponse, CaseModel, CaseResponse, CaseUpdate
 from app.models.db import (
     ActivityLogModel,
     DocumentModel,
@@ -29,7 +29,6 @@ from app.models.db import (
     PlaybookModel,
     RunChecksJobModel,
     UserModel,
-    orm_to_activity_response,
 )
 from app.models.schemas import (
     ActivityResponse,
@@ -189,7 +188,7 @@ async def list_cases(
     )
     cases = result.scalars().all()
     return CaseListResponse(
-        items=[CaseResponse(**orm_to_case_response(c)) for c in cases],
+        items=[CaseResponse.model_validate(c) for c in cases],
         total=total,
     )
 
@@ -344,7 +343,7 @@ async def get_case(
     case = result.scalar_one_or_none()
     if not case:
         raise HTTPException(status_code=404, detail="Case not found")
-    return CaseResponse(**orm_to_case_response(case))
+    return CaseResponse.model_validate(case)
 
 
 @router.get("/{case_id}/activities", response_model=list[ActivityResponse])
@@ -364,7 +363,7 @@ async def get_case_activities(
         .order_by(ActivityLogModel.created_at.desc())
     )
     activities = activities_result.scalars().all()
-    return [ActivityResponse(**orm_to_activity_response(a)) for a in activities]
+    return [ActivityResponse.model_validate(a) for a in activities]
 
 
 @router.get("/{case_id}/activities/export", summary="Audit-Trail als CSV exportieren")
@@ -436,7 +435,7 @@ async def create_case(
         .options(selectinload(CaseModel.documents), selectinload(CaseModel.findings))
     )
     case = result.scalar_one()
-    return CaseResponse(**orm_to_case_response(case))
+    return CaseResponse.model_validate(case)
 
 
 @router.patch("/{case_id}", response_model=CaseResponse, summary="Vorgang aktualisieren")
@@ -506,7 +505,7 @@ async def update_case(
         .options(selectinload(CaseModel.documents), selectinload(CaseModel.findings))
     )
     case = result.scalar_one()
-    return CaseResponse(**orm_to_case_response(case))
+    return CaseResponse.model_validate(case)
 
 
 @router.delete("/{case_id}", status_code=204)
@@ -611,7 +610,7 @@ async def clone_case(
         "Case cloned",
         extra={"source_case_id": str(case_id), "new_case_id": str(new_case.id)},
     )
-    return CaseResponse(**orm_to_case_response(new_case))
+    return CaseResponse.model_validate(new_case)
 
 
 @router.post("/{case_id}/archive", response_model=CaseResponse)
@@ -634,7 +633,7 @@ async def archive_case(
     case.archived_at = datetime.now(timezone.utc)
     await db.flush()
     await db.refresh(case)
-    return CaseResponse(**orm_to_case_response(case))
+    return CaseResponse.model_validate(case)
 
 
 @router.post("/{case_id}/unarchive", response_model=CaseResponse)
@@ -657,7 +656,7 @@ async def unarchive_case(
     case.archived_at = None
     await db.flush()
     await db.refresh(case)
-    return CaseResponse(**orm_to_case_response(case))
+    return CaseResponse.model_validate(case)
 
 
 def _build_vvt_export_docx(doc_name: str, source_template: str, fields: list) -> bytes:
@@ -999,7 +998,7 @@ async def get_run_checks_status(
         .limit(1)
     )
     last_activity = activity_result.scalar_one_or_none()
-    last_run = orm_to_activity_response(last_activity) if last_activity else None
+    last_run = ActivityResponse.model_validate(last_activity) if last_activity else None
 
     # Determine if any document was re-uploaded after the last run-checks job
     documents_changed = False
@@ -1065,7 +1064,7 @@ async def stream_run_checks_status(
                     .limit(1)
                 )
                 last_activity = activity_result.scalar_one_or_none()
-                last_run = orm_to_activity_response(last_activity) if last_activity else None
+                last_run = ActivityResponse.model_validate(last_activity) if last_activity else None
 
                 if not job:
                     payload = {"status": "never_run", "job_id": None, "playbook_name": None,
@@ -1130,7 +1129,7 @@ async def run_checks(
     raw_checks = playbook.content.get("checks") if isinstance(playbook.content, dict) else []
     if not raw_checks:
         await db.refresh(case)
-        return CaseResponse(**orm_to_case_response(case))
+        return CaseResponse.model_validate(case)
 
     strategies = body.strategies or ["full_text"]
     use_async = settings.celery_enabled and bool((settings.celery_broker_url or "").strip())
@@ -1202,7 +1201,7 @@ async def run_checks(
         .options(selectinload(CaseModel.documents), selectinload(CaseModel.findings))
     )
     case = result2.scalar_one()
-    return CaseResponse(**orm_to_case_response(case))
+    return CaseResponse.model_validate(case)
 
 
 @router.get("/{case_id}/risk-score", response_model=CaseRiskScoreResponse)

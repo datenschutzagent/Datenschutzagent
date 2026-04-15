@@ -14,8 +14,6 @@ from app.models.db import (
     PlaybookModel,
     PlaybookRevisionModel,
     UserModel,
-    orm_to_playbook_response,
-    orm_to_playbook_revision_response,
 )
 from app.models.schemas import (
     PlaybookCoverageItem,
@@ -23,6 +21,7 @@ from app.models.schemas import (
     PlaybookCreate,
     PlaybookMatchResult,
     PlaybookResponse,
+    PlaybookRevisionResponse,
     PlaybookUpdate,
 )
 from app.services.playbook_matching import rank_playbooks_for_selection
@@ -54,7 +53,7 @@ async def list_playbooks_for_selection(
     )
     return [
         PlaybookMatchResult(
-            playbook=PlaybookResponse(**orm_to_playbook_response(pb)),
+            playbook=PlaybookResponse.model_validate(pb),
             match_priority=pri,
         )
         for pb, pri in ranked
@@ -75,7 +74,7 @@ async def list_playbooks(
     q = q.offset(skip).limit(limit)
     result = await db.execute(q)
     playbooks = result.scalars().all()
-    return [PlaybookResponse(**orm_to_playbook_response(p)) for p in playbooks]
+    return [PlaybookResponse.model_validate(p) for p in playbooks]
 
 @router.post("", response_model=PlaybookResponse, status_code=201)
 async def create_playbook(
@@ -94,7 +93,7 @@ async def create_playbook(
     db.add(db_playbook)
     await db.commit()
     await db.refresh(db_playbook)
-    return PlaybookResponse(**orm_to_playbook_response(db_playbook))
+    return PlaybookResponse.model_validate(db_playbook)
 
 @router.get("/{playbook_id}", response_model=PlaybookResponse)
 async def get_playbook(
@@ -106,7 +105,7 @@ async def get_playbook(
     playbook = result.scalar_one_or_none()
     if not playbook:
         raise HTTPException(status_code=404, detail="Playbook not found")
-    return PlaybookResponse(**orm_to_playbook_response(playbook))
+    return PlaybookResponse.model_validate(playbook)
 
 
 @router.patch("/{playbook_id}", response_model=PlaybookResponse)
@@ -137,7 +136,7 @@ async def update_playbook(
         setattr(playbook, key, value)
     await db.flush()
     await db.refresh(playbook)
-    return PlaybookResponse(**orm_to_playbook_response(playbook))
+    return PlaybookResponse.model_validate(playbook)
 
 
 @router.get("/{playbook_id}/revisions")
@@ -159,7 +158,7 @@ async def list_playbook_revisions(
         .limit(limit)
     )
     revisions = rev_result.scalars().all()
-    return [orm_to_playbook_revision_response(r) for r in revisions]
+    return [PlaybookRevisionResponse.model_validate(r) for r in revisions]
 
 
 @router.post("/{playbook_id}/revisions/{revision_id}/restore", response_model=PlaybookResponse)
@@ -199,7 +198,7 @@ async def restore_playbook_revision(
     playbook.content = revision.content
     await db.flush()
     await db.refresh(playbook)
-    return PlaybookResponse(**orm_to_playbook_response(playbook))
+    return PlaybookResponse.model_validate(playbook)
 
 
 @router.delete("/{playbook_id}", status_code=204)

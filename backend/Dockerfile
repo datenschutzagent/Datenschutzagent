@@ -25,5 +25,5 @@ RUN groupadd --gid 1001 appgroup \
 
 USER appuser
 
-# Run with uvicorn; host 0.0.0.0 for Docker
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+# Run Alembic migrations then start uvicorn (see entrypoint.sh)
+CMD ["./entrypoint.sh"]

@@ -16,7 +16,6 @@ from app.models.db import (
     DSFAAssessmentModel,
     DSFAJobModel,
     UserModel,
-    orm_to_dsfa_response,
 )
 from app.models.schemas import (
     DSFAFinalizeRequest,
@@ -56,7 +55,7 @@ async def get_dsfa(
     dsfa = result.scalar_one_or_none()
     if not dsfa:
         raise HTTPException(status_code=404, detail="Keine DSFA für diesen Vorgang vorhanden. Bitte zuerst generieren.")
-    return DSFAResponse(**orm_to_dsfa_response(dsfa))
+    return DSFAResponse.model_validate(dsfa)
 
 
 @router.post("/{case_id}/dsfa/generate", response_model=DSFAJobStatusResponse, status_code=202, summary="DSFA generieren")
@@ -144,7 +143,7 @@ async def finalize_dsfa(
     dsfa.finalized_by = body.finalized_by
     await db.flush()
     await db.refresh(dsfa)
-    return DSFAResponse(**orm_to_dsfa_response(dsfa))
+    return DSFAResponse.model_validate(dsfa)
 
 
 async def _run_dsfa_inline(job_id: UUID, db: AsyncSession) -> None:

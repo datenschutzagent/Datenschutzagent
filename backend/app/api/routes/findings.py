@@ -22,9 +22,6 @@ from app.models.db import (
     FindingCommentModel,
     FindingModel,
     UserModel,
-    orm_to_finding_chat_message_response,
-    orm_to_finding_comment_response,
-    orm_to_finding_response,
 )
 from app.models.schemas import (
     FindingBulkDelete,
@@ -211,7 +208,7 @@ async def list_findings(
     findings = result.scalars().all()
 
     return FindingListResponse(
-        items=[FindingResponse(**orm_to_finding_response(f)) for f in findings],
+        items=[FindingResponse.model_validate(f) for f in findings],
         total=total,
     )
 
@@ -489,7 +486,7 @@ async def update_finding(
         )
         db.add(activity)
     await db.refresh(finding)
-    return FindingResponse(**orm_to_finding_response(finding))
+    return FindingResponse.model_validate(finding)
 
 
 # --- Finding Comments ---
@@ -509,7 +506,7 @@ async def list_finding_comments(
         .where(FindingCommentModel.finding_id == finding_id)
         .order_by(FindingCommentModel.created_at.asc())
     )
-    return [FindingCommentResponse(**orm_to_finding_comment_response(c)) for c in comments_result.scalars().all()]
+    return [FindingCommentResponse.model_validate(c) for c in comments_result.scalars().all()]
 
 
 @router.post("/{finding_id}/comments", response_model=FindingCommentResponse, status_code=201)
@@ -547,7 +544,7 @@ async def create_finding_comment(
     db.add(activity)
     await db.flush()
     await db.refresh(comment)
-    return FindingCommentResponse(**orm_to_finding_comment_response(comment))
+    return FindingCommentResponse.model_validate(comment)
 
 
 # --- LLM-Befund-Chat (KI-Assistent) ---
@@ -568,7 +565,7 @@ async def get_finding_chat(
         .order_by(FindingChatMessageModel.created_at.asc())
     )
     return [
-        FindingChatMessageResponse(**orm_to_finding_chat_message_response(m))
+        FindingChatMessageResponse.model_validate(m)
         for m in chat_result.scalars().all()
     ]
 
@@ -604,4 +601,4 @@ async def send_finding_chat_message(
     last_msg = last_result.scalar_one_or_none()
     if not last_msg:
         raise HTTPException(status_code=500, detail="Chat message not saved")
-    return FindingChatMessageResponse(**orm_to_finding_chat_message_response(last_msg))
+    return FindingChatMessageResponse.model_validate(last_msg)

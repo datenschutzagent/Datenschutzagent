@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.auth import require_roles
 from app.database import get_db
-from app.models.db import LegalBaseModel, orm_to_legal_base_response
+from app.models.db import LegalBaseModel
 from app.models.schemas import (
     ApplicabilityEnum,
     LegalBaseCreate,
@@ -36,7 +36,7 @@ async def list_legal_bases(
     q = q.offset(skip).limit(limit)
     result = await db.execute(q)
     bases = result.scalars().all()
-    return [LegalBaseResponse(**orm_to_legal_base_response(b)) for b in bases]
+    return [LegalBaseResponse.model_validate(b) for b in bases]
 
 
 @router.post("", response_model=LegalBaseResponse, status_code=201)
@@ -60,7 +60,7 @@ async def create_legal_base(
     await db.refresh(model)
     index_legal_base(model.id, model.title, model.content or "")
     logger.info("Legal base created", extra={"legal_base_id": str(model.id), "title": model.title[:80]})
-    return LegalBaseResponse(**orm_to_legal_base_response(model))
+    return LegalBaseResponse.model_validate(model)
 
 
 @router.get("/{legal_base_id}", response_model=LegalBaseResponse)
@@ -73,7 +73,7 @@ async def get_legal_base(
     base = result.scalar_one_or_none()
     if not base:
         raise HTTPException(status_code=404, detail="Legal base not found")
-    return LegalBaseResponse(**orm_to_legal_base_response(base))
+    return LegalBaseResponse.model_validate(base)
 
 
 @router.patch("/{legal_base_id}", response_model=LegalBaseResponse)
@@ -95,7 +95,7 @@ async def update_legal_base(
     await db.refresh(base)
     index_legal_base(base.id, base.title, base.content or "")
     logger.info("Legal base updated", extra={"legal_base_id": str(legal_base_id), "fields": list(update_data.keys())})
-    return LegalBaseResponse(**orm_to_legal_base_response(base))
+    return LegalBaseResponse.model_validate(base)
 
 
 @router.delete("/{legal_base_id}", status_code=204)

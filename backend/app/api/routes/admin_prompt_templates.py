@@ -7,7 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.auth import require_roles
 from app.database import get_db
-from app.models.db import PromptTemplateModel, orm_to_prompt_template_response
+from app.models.db import PromptTemplateModel
 from app.models.schemas import (
     PromptTemplateCreate,
     PromptTemplateKeyMeta,
@@ -44,7 +44,7 @@ async def list_prompt_template_versions(
         .order_by(PromptTemplateModel.created_at.desc())
     )
     items = result.scalars().all()
-    return [PromptTemplateResponse(**orm_to_prompt_template_response(t)) for t in items]
+    return [PromptTemplateResponse.model_validate(t) for t in items]
 
 
 @router.get("", response_model=list[PromptTemplateResponse])
@@ -61,7 +61,7 @@ async def list_prompt_templates(
         q = q.where(PromptTemplateModel.key == key)
     result = await db.execute(q)
     items = result.scalars().all()
-    return [PromptTemplateResponse(**orm_to_prompt_template_response(t)) for t in items]
+    return [PromptTemplateResponse.model_validate(t) for t in items]
 
 
 @router.post("", response_model=PromptTemplateResponse, status_code=201)
@@ -114,7 +114,7 @@ async def create_prompt_template(
     await db.flush()
     await db.refresh(template)
     invalidate_cache(body.key)
-    return PromptTemplateResponse(**orm_to_prompt_template_response(template))
+    return PromptTemplateResponse.model_validate(template)
 
 
 @router.patch("/{template_id}", response_model=PromptTemplateResponse)
@@ -134,4 +134,4 @@ async def update_prompt_template(
             row.is_active = row.id == template_id
         template.is_active = True
         invalidate_cache(template.key)
-    return PromptTemplateResponse(**orm_to_prompt_template_response(template))
+    return PromptTemplateResponse.model_validate(template)
