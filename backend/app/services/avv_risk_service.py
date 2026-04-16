@@ -17,6 +17,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.llm import create_agent
+from app.core.prompt_security import sanitize_prompt_field
 from app.models.db import AVVContractModel
 
 logger = logging.getLogger(__name__)
@@ -89,11 +90,11 @@ async def assess_avv_risk(contract_id: UUID, db: AsyncSession) -> dict[str, Any]
     )
 
     user_content = _AVV_RISK_USER_TEMPLATE.format(
-        partner_name=contract.partner_name,
+        partner_name=sanitize_prompt_field(contract.partner_name, max_chars=200),
         partner_type=partner_type_label,
-        subject_matter=contract.subject_matter or "Nicht angegeben",
-        department=contract.department or "Nicht angegeben",
-        notes=contract.notes or "Keine Notizen",
+        subject_matter=sanitize_prompt_field(contract.subject_matter or "Nicht angegeben", max_chars=2000),
+        department=sanitize_prompt_field(contract.department or "Nicht angegeben", max_chars=200),
+        notes=sanitize_prompt_field(contract.notes or "Keine Notizen", max_chars=1000),
     )
 
     agent = create_agent(_AVV_RISK_SYSTEM)

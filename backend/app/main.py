@@ -226,6 +226,16 @@ async def add_security_headers(request: Request, call_next) -> Response:
         "base-uri 'self'; "
         "form-action 'self';"
     )
+    # HSTS: enforce HTTPS for one year on production deployments. Only emitted when:
+    #   - debug mode is off (avoid poisoning localhost browsers during development), AND
+    #   - the request arrived via HTTPS (either direct or via a reverse proxy that sets
+    #     X-Forwarded-Proto=https). Emitting HSTS on plain-HTTP responses is useless and
+    #     masks misconfiguration.
+    if not settings.debug:
+        forwarded_proto = request.headers.get("x-forwarded-proto", "").lower()
+        is_https = request.url.scheme == "https" or forwarded_proto == "https"
+        if is_https:
+            response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
     return response
 
 app.include_router(api_router, prefix=settings.api_v1_prefix)
