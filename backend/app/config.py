@@ -152,6 +152,12 @@ class Settings(BaseSettings):
     # Webhook-Benachrichtigungen (ausgehend)
     webhook_max_retries: int = 3          # Anzahl Wiederholungsversuche bei Fehler
     webhook_timeout_seconds: float = 10.0 # HTTP-Timeout pro Versuch
+    # Basiswartezeit (Sekunden) für exponentielles Backoff: 2s → 4s → 8s → 16s
+    webhook_backoff_base_seconds: float = 2.0
+    # Oberes Limit für Wartezeiten zwischen Retries (Sekunden)
+    webhook_backoff_max_seconds: float = 30.0
+    # Jitter (0.0–1.0): zufälliger Anteil der Wartezeit, um synchrones Hämmern zu vermeiden
+    webhook_backoff_jitter: float = 0.25
     # Fernet-Schlüssel zur Verschlüsselung von Webhook-Secrets in der DB (optional).
     # Erzeugen: python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
     # Leer lassen = Secrets werden unverschlüsselt gespeichert (Rückwärtskompatibilität).
