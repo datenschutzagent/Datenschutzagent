@@ -9,6 +9,7 @@ from pydantic import BaseModel, BeforeValidator, Field
 
 from app.config import settings
 from app.core.llm import create_agent, llm_retry_call
+from app.core.prompt_security import sanitize_prompt_field
 from app.services.org_profile_loader import DEFAULT_VVT_FIELD_NAMES, get_vvt_field_names
 from app.services.prompt_template_service import get_active_template, render
 
@@ -132,7 +133,10 @@ async def normalize_vvt(
     user_tpl = await get_active_template("vvt_user")
     user_content = render(
         user_tpl or DEFAULT_VVT_USER,
-        {"field_list": field_list, "document_text": truncated},
+        {
+            "field_list": field_list,
+            "document_text": sanitize_prompt_field(truncated, max_chars=vvt_limit),
+        },
     )
     result = await llm_retry_call(agent, user_content, output_type=_VVTExtractionResult)
     data = result.output

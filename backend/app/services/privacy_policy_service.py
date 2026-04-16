@@ -13,6 +13,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.llm import create_agent
+from app.core.prompt_security import sanitize_prompt_field
 from app.models.db import PrivacyPolicyModel
 
 logger = logging.getLogger(__name__)
@@ -77,12 +78,12 @@ async def generate_privacy_policy(
     org = org_name or settings.org_name or "Ihre Organisation"
 
     user_content = _PRIVACY_POLICY_USER_TEMPLATE.format(
-        org_name=org,
-        department=department or "Gesamte Organisation",
-        contact=contact or "[Kontaktdaten des Verantwortlichen eintragen]",
-        vvt_summary=vvt_summary,
-        avv_summary=avv_summary,
-        notes=notes or "Keine besonderen Hinweise.",
+        org_name=sanitize_prompt_field(org, max_chars=200),
+        department=sanitize_prompt_field(department or "Gesamte Organisation", max_chars=200),
+        contact=sanitize_prompt_field(contact or "[Kontaktdaten des Verantwortlichen eintragen]", max_chars=500),
+        vvt_summary=sanitize_prompt_field(vvt_summary, max_chars=4000),
+        avv_summary=sanitize_prompt_field(avv_summary, max_chars=2000),
+        notes=sanitize_prompt_field(notes or "Keine besonderen Hinweise.", max_chars=1000),
     )
 
     agent = create_agent(_PRIVACY_POLICY_SYSTEM)

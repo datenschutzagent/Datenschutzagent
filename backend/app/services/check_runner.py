@@ -10,9 +10,14 @@ from pydantic import BaseModel, Field
 
 from app.config import settings
 from app.core.llm import create_agent, llm_retry_call
+from app.core.prompt_security import sanitize_prompt_field
 from app.core.request_id import get_request_id
 from app.models.schemas import FindingSeverityEnum
 from app.services.prompt_template_service import get_active_template, render
+
+# Max chars for a check instruction (playbook requirement text). Defense-in-depth
+# even though playbooks are admin-controlled — imported playbooks may be less trusted.
+_CHECK_INSTRUCTION_MAX_CHARS = 4000
 
 logger = logging.getLogger(__name__)
 
@@ -198,8 +203,8 @@ async def run_check(
     user_content = render(
         user_tpl or DEFAULT_CHECK_FULL_TEXT_DOCUMENT_USER,
         {
-            "requirement": check_instruction,
-            "document_text": truncated_text,
+            "requirement": sanitize_prompt_field(check_instruction, max_chars=_CHECK_INSTRUCTION_MAX_CHARS),
+            "document_text": sanitize_prompt_field(truncated_text, max_chars=limit),
             "legal_bases_section": _legal_bases_section(legal_bases_context),
         },
     )
@@ -246,13 +251,14 @@ async def run_cross_document_check(
             truncated = raw[:limit] + f"\n[... truncated, {len(raw)} chars total ...]"
         else:
             truncated = raw
-        parts.append(f"--- Document {i} (id: {doc_id}) ---\n{truncated}")
+        sanitized = sanitize_prompt_field(truncated, max_chars=limit)
+        parts.append(f"--- Document {i} (id: {doc_id}) ---\n{sanitized}")
     combined = "\n\n".join(parts)
     user_tpl = await get_active_template("check_full_text_cross_user")
     user_content = render(
         user_tpl or DEFAULT_CHECK_FULL_TEXT_CROSS_USER,
         {
-            "requirement": check_instruction,
+            "requirement": sanitize_prompt_field(check_instruction, max_chars=_CHECK_INSTRUCTION_MAX_CHARS),
             "documents": combined,
             "legal_bases_section": _legal_bases_section(legal_bases_context),
         },
@@ -304,8 +310,8 @@ async def run_check_rag(
     user_content = render(
         user_tpl or DEFAULT_CHECK_RAG_DOCUMENT_USER,
         {
-            "requirement": check_instruction,
-            "excerpts": combined,
+            "requirement": sanitize_prompt_field(check_instruction, max_chars=_CHECK_INSTRUCTION_MAX_CHARS),
+            "excerpts": sanitize_prompt_field(combined, max_chars=rag_limit),
             "legal_bases_section": _legal_bases_section(legal_bases_context),
         },
     )
@@ -358,8 +364,8 @@ async def run_cross_document_check_rag(
     user_content = render(
         user_tpl or DEFAULT_CHECK_RAG_CROSS_USER,
         {
-            "requirement": check_instruction,
-            "excerpts": combined,
+            "requirement": sanitize_prompt_field(check_instruction, max_chars=_CHECK_INSTRUCTION_MAX_CHARS),
+            "excerpts": sanitize_prompt_field(combined, max_chars=cross_rag_limit),
             "legal_bases_section": _legal_bases_section(legal_bases_context),
         },
     )

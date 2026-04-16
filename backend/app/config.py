@@ -69,6 +69,15 @@ class Settings(BaseSettings):
     # Periodischer Recheck: Verzögerung in Sekunden zwischen gestaffelten Celery-Jobs (verhindert Lastspitzen)
     run_checks_stagger_seconds: int = 30
 
+    # Retention / Auto-Archivierung (DSGVO Art. 5 Abs. 1 lit. e – Speicherbegrenzung)
+    # True (default): Es werden NUR Vorgänge archiviert, die completed_at gesetzt haben.
+    # False: Fallback auf created_at (alte Vorgänge auch ohne Abschluss werden archiviert).
+    retention_require_completed: bool = True
+    # Vorlaufzeit in Tagen: Vorgänge, deren Aufbewahrungsfrist in <= N Tagen abläuft,
+    # erscheinen im Warn-Scan (scan_cases_due_for_retention_warning) und können
+    # via Benachrichtigung angekündigt werden.
+    retention_grace_days: int = 14
+
     # LLM context limits (chars per document; lower = faster/cheaper, higher = more context)
     max_context_chars_per_doc: int = 15000  # single-doc full-text context window limit
     max_context_chars_rag: int = 20000       # assembled RAG context limit
@@ -171,6 +180,25 @@ class Settings(BaseSettings):
         """Fail fast at startup when required settings are missing for selected backends."""
         import logging as _logging
         _log = _logging.getLogger("app.startup")
+
+        # LLM timeout: check_timeout_seconds must be >= ollama_timeout_seconds
+        # so that the asyncio.wait_for wrapper around the HTTP call does not
+        # cancel the request before the HTTP client returns its own timeout error.
+        # Exception: 0 means "disabled" for either knob.
+        if (
+            self.llm_provider == "ollama"
+            and self.check_timeout_seconds > 0
+            and self.ollama_timeout_seconds > 0
+            and self.check_timeout_seconds < self.ollama_timeout_seconds
+        ):
+            _log.warning(
+                "LLM timeout misconfiguration: CHECK_TIMEOUT_SECONDS (%.1fs) < "
+                "OLLAMA_TIMEOUT_SECONDS (%.1fs). Checks may be cancelled before "
+                "the HTTP client can surface its own timeout. Set CHECK_TIMEOUT_SECONDS "
+                ">= OLLAMA_TIMEOUT_SECONDS.",
+                self.check_timeout_seconds,
+                self.ollama_timeout_seconds,
+            )
 
         if self.storage_backend == "minio":
             missing = [f for f in ("s3_endpoint_url", "s3_access_key", "s3_secret_key") if not getattr(self, f)]
