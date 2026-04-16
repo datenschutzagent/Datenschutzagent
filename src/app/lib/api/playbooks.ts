@@ -109,6 +109,53 @@ export async function deletePlaybook(id: string): Promise<void> {
   await request("DELETE", `/playbooks/${id}`);
 }
 
+// --- Playbook-Revisionen (Versions-Historie) ---
+export interface ApiPlaybookRevision {
+  id: string;
+  playbookId: string;
+  version: string;
+  content: { checks: unknown[] };
+  changedBy: string;
+  createdAt: string;
+}
+
+function mapPlaybookRevision(d: Record<string, unknown>): ApiPlaybookRevision {
+  const content = d.content as Record<string, unknown> | undefined;
+  return {
+    id: (d.id as string) ?? "",
+    playbookId: (d.playbook_id as string) ?? "",
+    version: (d.version as string) ?? "",
+    content: {
+      checks: content && Array.isArray(content.checks) ? (content.checks as unknown[]) : [],
+    },
+    changedBy: (d.changed_by as string) ?? "",
+    createdAt: (d.created_at as string) ?? "",
+  };
+}
+
+export async function getPlaybookRevisions(
+  id: string,
+  limit = 20
+): Promise<ApiPlaybookRevision[]> {
+  const list =
+    (await request<Record<string, unknown>[]>(
+      "GET",
+      `/playbooks/${id}/revisions?limit=${limit}`
+    )) ?? [];
+  return list.map(mapPlaybookRevision);
+}
+
+export async function restorePlaybookRevision(
+  id: string,
+  revisionId: string
+): Promise<ApiPlaybook> {
+  const p = await request<Record<string, unknown>>(
+    "POST",
+    `/playbooks/${id}/revisions/${revisionId}/restore`
+  );
+  return mapPlaybook(p) as ApiPlaybook;
+}
+
 // --- Departments (Fachbereiche) ---
 export interface ApiDepartment {
   code: string;

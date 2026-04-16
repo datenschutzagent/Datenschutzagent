@@ -29,9 +29,12 @@ import {
   updatePlaybook,
   deletePlaybook,
   getLegalBases,
+  getPlaybookRevisions,
+  restorePlaybookRevision,
   canEdit as userCanEdit,
   type ApiPlaybook,
   type ApiLegalBase,
+  type ApiPlaybookRevision,
 } from "../lib/api";
 import { useAuthOptional } from "../contexts/AuthContext";
 import {
@@ -45,6 +48,8 @@ import {
   Loader2,
   Trash2,
   Scale,
+  History,
+  Undo2,
 } from "lucide-react";
 import { toast } from "sonner";
 import { useState, useEffect } from "react";
@@ -77,6 +82,11 @@ export function PlaybookDetailPage() {
   const [legalBases, setLegalBases] = useState<ApiLegalBase[]>([]);
   const [selectedLegalIds, setSelectedLegalIds] = useState<string[]>([]);
   const [legalBasesSaveLoading, setLegalBasesSaveLoading] = useState(false);
+  const [revisions, setRevisions] = useState<ApiPlaybookRevision[]>([]);
+  const [revisionsLoading, setRevisionsLoading] = useState(false);
+  const [revisionsError, setRevisionsError] = useState<string | null>(null);
+  const [restoreTarget, setRestoreTarget] = useState<ApiPlaybookRevision | null>(null);
+  const [restoreLoading, setRestoreLoading] = useState(false);
 
   const loadPlaybook = () => {
     if (!playbookId) return;
@@ -102,6 +112,40 @@ export function PlaybookDetailPage() {
   useEffect(() => {
     getLegalBases().then(setLegalBases).catch(() => setLegalBases([]));
   }, []);
+
+  const loadRevisions = (id: string) => {
+    setRevisionsLoading(true);
+    setRevisionsError(null);
+    getPlaybookRevisions(id)
+      .then(setRevisions)
+      .catch((e) => {
+        setRevisionsError(e instanceof Error ? e.message : String(e));
+        setRevisions([]);
+      })
+      .finally(() => setRevisionsLoading(false));
+  };
+
+  useEffect(() => {
+    if (playbookId) loadRevisions(playbookId);
+  }, [playbookId]);
+
+  const handleRestoreRevision = async () => {
+    if (!playbook?.id || !restoreTarget) return;
+    setRestoreLoading(true);
+    try {
+      const updated = await restorePlaybookRevision(playbook.id, restoreTarget.id);
+      setPlaybook(updated);
+      loadRevisions(playbook.id);
+      toast.success(`Version ${restoreTarget.version} wiederhergestellt`);
+      setRestoreTarget(null);
+    } catch (e) {
+      toast.error(
+        `Wiederherstellen fehlgeschlagen: ${e instanceof Error ? e.message : String(e)}`
+      );
+    } finally {
+      setRestoreLoading(false);
+    }
+  };
 
   useEffect(() => {
     if (playbook?.content && typeof playbook.content === "object" && playbook.content !== null) {
@@ -307,7 +351,10 @@ export function PlaybookDetailPage() {
           <TabsList>
             <TabsTrigger value="overview">Überblick</TabsTrigger>
             <TabsTrigger value="checks">Checks ({checks.length})</TabsTrigger>
-            <TabsTrigger value="history">Versions-Historie</TabsTrigger>
+            <TabsTrigger value="history" className="gap-2">
+              <History className="size-4" />
+              Versions-Historie
+            </TabsTrigger>
           </TabsList>
 
           {/* Overview Tab */}
@@ -560,30 +607,109 @@ export function PlaybookDetailPage() {
             <Card>
               <CardHeader>
                 <CardTitle>Versions-Historie</CardTitle>
-                <CardDescription>Bekannte Versionseinträge dieses Playbooks</CardDescription>
+                <CardDescription>
+                  Momentaufnahmen vor jeder Änderung. Bei Bedarf kann eine frühere
+                  Version wiederhergestellt werden.
+                </CardDescription>
               </CardHeader>
               <CardContent>
                 <div className="space-y-4">
+                  {/* Aktuelle Version */}
                   <div className="flex gap-4">
                     <div className="flex flex-col items-center">
                       <div className="size-3 rounded-full bg-green-600 dark:bg-green-500" />
+                      {(revisions.length > 0 || revisionsLoading) && (
+                        <div className="w-px flex-1 bg-border mt-1" />
+                      )}
                     </div>
                     <div className="flex-1">
                       <div className="flex items-center gap-2 mb-1">
-                        <Badge className="bg-green-100 text-green-700 dark:bg-green-900/50 dark:text-green-300">{playbook.version}</Badge>
-                        <Badge className="bg-blue-100 text-blue-700 dark:bg-blue-900/50 dark:text-blue-300">Aktuell</Badge>
+                        <Badge className="bg-green-100 text-green-700 dark:bg-green-900/50 dark:text-green-300">
+                          {playbook.version}
+                        </Badge>
+                        <Badge className="bg-blue-100 text-blue-700 dark:bg-blue-900/50 dark:text-blue-300">
+                          Aktuell
+                        </Badge>
                       </div>
                       <p className="text-xs text-slate-600 dark:text-slate-400">
-                        Zuletzt aktualisiert: {playbook.updatedAt ? new Date(playbook.updatedAt as string).toLocaleString("de-DE") : "—"}
+                        Zuletzt aktualisiert:{" "}
+                        {playbook.updatedAt
+                          ? new Date(playbook.updatedAt as string).toLocaleString("de-DE")
+                          : "—"}
                       </p>
                       <p className="text-xs text-slate-600 dark:text-slate-400 mt-0.5">
-                        Erstellt: {playbook.createdAt ? new Date(playbook.createdAt as string).toLocaleString("de-DE") : "—"}
+                        Erstellt:{" "}
+                        {playbook.createdAt
+                          ? new Date(playbook.createdAt as string).toLocaleString("de-DE")
+                          : "—"}
                       </p>
                     </div>
                   </div>
-                  <p className="text-xs text-slate-500 dark:text-slate-400 italic pt-2 border-t border-border">
-                    Detaillierte Änderungshistorie wird in einer zukünftigen Version verfügbar sein.
-                  </p>
+
+                  {/* Frühere Versionen */}
+                  {revisionsLoading && (
+                    <div className="flex items-center gap-2 text-sm text-slate-500 dark:text-slate-400 py-4">
+                      <Loader2 className="size-4 animate-spin" />
+                      Versionen werden geladen…
+                    </div>
+                  )}
+
+                  {revisionsError && !revisionsLoading && (
+                    <div className="flex items-center gap-2 text-sm text-red-600 dark:text-red-400 py-2">
+                      <CircleAlert className="size-4" />
+                      {revisionsError}
+                    </div>
+                  )}
+
+                  {!revisionsLoading && !revisionsError && revisions.length === 0 && (
+                    <p className="text-xs text-slate-500 dark:text-slate-400 italic pt-2 border-t border-border">
+                      Noch keine früheren Versionen vorhanden.
+                    </p>
+                  )}
+
+                  {revisions.map((rev, idx) => {
+                    const checkCount = Array.isArray(rev.content.checks)
+                      ? rev.content.checks.length
+                      : 0;
+                    const isLast = idx === revisions.length - 1;
+                    return (
+                      <div key={rev.id} className="flex gap-4">
+                        <div className="flex flex-col items-center">
+                          <div className="size-3 rounded-full bg-slate-400 dark:bg-slate-500" />
+                          {!isLast && <div className="w-px flex-1 bg-border mt-1" />}
+                        </div>
+                        <div className="flex-1">
+                          <div className="flex items-center justify-between gap-2 mb-1">
+                            <div className="flex items-center gap-2">
+                              <Badge variant="outline" className="font-mono text-xs">
+                                {rev.version}
+                              </Badge>
+                              <span className="text-xs text-slate-500 dark:text-slate-400">
+                                {checkCount} Check{checkCount === 1 ? "" : "s"}
+                              </span>
+                            </div>
+                            {canEdit && (
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                className="gap-2 h-7"
+                                onClick={() => setRestoreTarget(rev)}
+                                disabled={actionLoading || restoreLoading}
+                              >
+                                <Undo2 className="size-3.5" />
+                                Wiederherstellen
+                              </Button>
+                            )}
+                          </div>
+                          <p className="text-xs text-slate-600 dark:text-slate-400">
+                            Gespeichert am{" "}
+                            {new Date(rev.createdAt).toLocaleString("de-DE")} von{" "}
+                            <span className="font-medium">{rev.changedBy}</span>
+                          </p>
+                        </div>
+                      </div>
+                    );
+                  })}
                 </div>
               </CardContent>
             </Card>
@@ -598,6 +724,35 @@ export function PlaybookDetailPage() {
           setEditDialogOpen(false);
         }}
       />
+      <AlertDialog
+        open={restoreTarget !== null}
+        onOpenChange={(open) => !open && setRestoreTarget(null)}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              Version {restoreTarget?.version ?? ""} wiederherstellen?
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              Die aktuelle Playbook-Konfiguration wird zuvor als neue Momentaufnahme
+              gesichert, sodass ein erneutes Zurücksetzen jederzeit möglich bleibt.
+              {restoreTarget && (
+                <span className="block mt-2 text-xs text-slate-500 dark:text-slate-400">
+                  Gespeichert am{" "}
+                  {new Date(restoreTarget.createdAt).toLocaleString("de-DE")} von{" "}
+                  {restoreTarget.changedBy}
+                </span>
+              )}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={restoreLoading}>Abbrechen</AlertDialogCancel>
+            <AlertDialogAction onClick={handleRestoreRevision} disabled={restoreLoading}>
+              {restoreLoading ? "Wird wiederhergestellt…" : "Wiederherstellen"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
       <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
         <AlertDialogContent>
           <AlertDialogHeader>
