@@ -6,6 +6,7 @@ import { Button } from "../components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "../components/ui/tabs";
 import { Alert, AlertDescription } from "../components/ui/alert";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "../components/ui/dialog";
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "../components/ui/alert-dialog";
 import { statusLabels, statusColors, findingStatusLabels, severityColors, severityLabels } from "../lib/mock-data";
 import {
   getCase,
@@ -394,22 +395,41 @@ export function CaseDetailPage() {
                 Kommentierte Dokumente
               </Button>
               {userCanEdit && !caseData.archivedAt && (
-                <Button
-                  variant="outline"
-                  className="gap-2 text-amber-700 border-amber-300 hover:bg-amber-50 dark:text-amber-400 dark:border-amber-700 dark:hover:bg-amber-900/30"
-                  onClick={async () => {
-                    if (!caseId || !confirm("Vorgang archivieren? Archivierte Vorgänge sind schreibgeschützt.")) return;
-                    try {
-                      const updated = await archiveCase(caseId);
-                      setCaseData(updated);
-                      toast.success("Vorgang archiviert");
-                    } catch (e) {
-                      toast.error(e instanceof Error ? e.message : "Fehler beim Archivieren");
-                    }
-                  }}
-                >
-                  Archivieren
-                </Button>
+                <AlertDialog>
+                  <AlertDialogTrigger asChild>
+                    <Button
+                      variant="outline"
+                      className="gap-2 text-amber-700 border-amber-300 hover:bg-amber-50 dark:text-amber-400 dark:border-amber-700 dark:hover:bg-amber-900/30"
+                    >
+                      Archivieren
+                    </Button>
+                  </AlertDialogTrigger>
+                  <AlertDialogContent>
+                    <AlertDialogHeader>
+                      <AlertDialogTitle>Vorgang archivieren?</AlertDialogTitle>
+                      <AlertDialogDescription>
+                        Archivierte Vorgänge sind schreibgeschützt. Die Archivierung kann später rückgängig gemacht werden.
+                      </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                      <AlertDialogCancel>Abbrechen</AlertDialogCancel>
+                      <AlertDialogAction
+                        onClick={async () => {
+                          if (!caseId) return;
+                          try {
+                            const updated = await archiveCase(caseId);
+                            setCaseData(updated);
+                            toast.success("Vorgang archiviert");
+                          } catch (e) {
+                            toast.error(e instanceof Error ? e.message : "Fehler beim Archivieren");
+                          }
+                        }}
+                      >
+                        Archivieren
+                      </AlertDialogAction>
+                    </AlertDialogFooter>
+                  </AlertDialogContent>
+                </AlertDialog>
               )}
               {userCanEdit && caseData.archivedAt && (
                 <Button
