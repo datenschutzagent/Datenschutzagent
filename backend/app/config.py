@@ -1,10 +1,16 @@
 """Application configuration."""
-from pydantic import field_validator, model_validator
-from pydantic_settings import BaseSettings
+from pydantic import SecretStr, field_validator, model_validator
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
     """Settings loaded from environment."""
+
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        env_file_encoding="utf-8",
+        repr=False,  # prevent accidental secret leakage in logs
+    )
 
     app_name: str = "Datenschutzagent API"
     debug: bool = False
@@ -117,7 +123,7 @@ class Settings(BaseSettings):
     oidc_enabled: bool = False
     oidc_issuer_url: str = ""  # e.g. https://auth.example.com/realms/datenschutzagent
     oidc_client_id: str = ""
-    oidc_client_secret: str = ""  # For token introspection / backend flows; can be empty for public clients
+    oidc_client_secret: SecretStr = SecretStr("")  # For token introspection / backend flows; can be empty for public clients
     oidc_audience: str | None = None  # Optional; if set, JWT aud claim must match
     oidc_scopes: str = "openid profile email"  # Space-separated
 
@@ -133,7 +139,7 @@ class Settings(BaseSettings):
     smtp_host: str = "localhost"
     smtp_port: int = 587
     smtp_username: str = ""
-    smtp_password: str = ""
+    smtp_password: SecretStr = SecretStr("")
     smtp_from_address: str = "datenschutzagent@example.org"
     smtp_tls: bool = True
     notification_deadline_warning_days: int = 7        # Warnung X Tage vor Vorgangs-Fristablauf
@@ -144,9 +150,9 @@ class Settings(BaseSettings):
     # LLM-Provider (ollama | openai | anthropic)
     # Ollama-Konfiguration bleibt unverändert (ollama_base_url, ollama_model, etc.)
     llm_provider: str = "ollama"      # Aktiver Provider: "ollama", "openai" oder "anthropic"
-    openai_api_key: str = ""          # OpenAI API-Key (wenn llm_provider=openai)
-    openai_model: str = "gpt-4o-mini" # OpenAI-Modell
-    anthropic_api_key: str = ""       # Anthropic API-Key (wenn llm_provider=anthropic)
+    openai_api_key: SecretStr = SecretStr("")  # OpenAI API-Key (wenn llm_provider=openai)
+    openai_model: str = "gpt-4o-mini"
+    anthropic_api_key: SecretStr = SecretStr("")  # Anthropic API-Key (wenn llm_provider=anthropic)
     anthropic_model: str = "claude-3-5-haiku-latest"  # Anthropic-Modell
 
     # Webhook-Benachrichtigungen (ausgehend)
@@ -161,7 +167,7 @@ class Settings(BaseSettings):
     # Fernet-Schlüssel zur Verschlüsselung von Webhook-Secrets in der DB (optional).
     # Erzeugen: python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
     # Leer lassen = Secrets werden unverschlüsselt gespeichert (Rückwärtskompatibilität).
-    webhook_secret_encryption_key: str = ""
+    webhook_secret_encryption_key: SecretStr = SecretStr("")
 
     # Weaviate (optional; RAG document checks)
     weaviate_url: str = "http://localhost:8080"
@@ -223,7 +229,7 @@ class Settings(BaseSettings):
                     "Set OIDC_AUDIENCE to the expected client ID for stricter token validation."
                 )
 
-        if not self.webhook_secret_encryption_key:
+        if not self.webhook_secret_encryption_key.get_secret_value():
             _log.warning(
                 "SECURITY: WEBHOOK_SECRET_ENCRYPTION_KEY not set — webhook secrets are stored "
                 "unencrypted in the database. Generate a key with: "
@@ -247,9 +253,6 @@ class Settings(BaseSettings):
         """Sync DB URL for Celery worker (psycopg2)."""
         return self.database_url.replace("postgresql+asyncpg", "postgresql+psycopg2", 1)
 
-    class Config:
-        env_file = ".env"
-        env_file_encoding = "utf-8"
 
 
 settings = Settings()

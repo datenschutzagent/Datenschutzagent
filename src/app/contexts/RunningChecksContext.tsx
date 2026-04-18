@@ -6,7 +6,7 @@
  * - Fires toast notifications when jobs complete or fail.
  * - Provides helpers so any component can query running state without extra API calls.
  */
-import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { getRunningChecks, type RunningCheckJob } from "../lib/api";
 import { toast } from "sonner";
 
@@ -194,7 +194,7 @@ export function RunningChecksProvider({ children }: { children: React.ReactNode 
 
   // -- context value ---------------------------------------------------------
 
-  const jobsArray = Array.from(jobs.values());
+  const jobsArray = useMemo(() => Array.from(jobs.values()), [jobs]);
 
   const value: RunChecksContextValue = {
     jobs: jobsArray,

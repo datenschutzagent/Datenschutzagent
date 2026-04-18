@@ -24,7 +24,7 @@ def _get_fernet():
     if _fernet_initialized:
         return _fernet
     _fernet_initialized = True
-    key = (settings.webhook_secret_encryption_key or "").strip()
+    key = (settings.webhook_secret_encryption_key.get_secret_value() or "").strip()
     if not key:
         return None
     try:

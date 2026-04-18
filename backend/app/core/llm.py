@@ -81,12 +81,13 @@ def get_ollama_model() -> OpenAIModel:
 
 def get_openai_model() -> OpenAIModel:
     """Get configured OpenAI model via Pydantic AI OpenAIModel."""
-    if not settings.openai_api_key:
+    api_key = settings.openai_api_key.get_secret_value()
+    if not api_key:
         raise RuntimeError(
             "LLM_PROVIDER=openai erfordert OPENAI_API_KEY. "
             "Bitte in der .env-Datei setzen."
         )
-    provider = OpenAIProvider(api_key=settings.openai_api_key)
+    provider = OpenAIProvider(api_key=api_key)
     return OpenAIModel(settings.openai_model, provider=provider)
 
 
@@ -95,7 +96,8 @@ def get_anthropic_model():
 
     Requires the 'anthropic' package: pip install anthropic
     """
-    if not settings.anthropic_api_key:
+    api_key = settings.anthropic_api_key.get_secret_value()
+    if not api_key:
         raise RuntimeError(
             "LLM_PROVIDER=anthropic erfordert ANTHROPIC_API_KEY. "
             "Bitte in der .env-Datei setzen."
@@ -103,7 +105,7 @@ def get_anthropic_model():
     try:
         from pydantic_ai.models.anthropic import AnthropicModel
         from pydantic_ai.providers.anthropic import AnthropicProvider
-        provider = AnthropicProvider(api_key=settings.anthropic_api_key)
+        provider = AnthropicProvider(api_key=api_key)
         return AnthropicModel(settings.anthropic_model, provider=provider)
     except ImportError as exc:
         raise RuntimeError(
@@ -136,10 +138,10 @@ def get_llm_provider_info() -> dict:
     info: dict = {"provider": provider}
     if provider == "openai":
         info["model"] = settings.openai_model
-        info["api_key_configured"] = bool(settings.openai_api_key)
+        info["api_key_configured"] = bool(settings.openai_api_key.get_secret_value())
     elif provider == "anthropic":
         info["model"] = settings.anthropic_model
-        info["api_key_configured"] = bool(settings.anthropic_api_key)
+        info["api_key_configured"] = bool(settings.anthropic_api_key.get_secret_value())
     else:
         info["model"] = settings.ollama_model
         info["base_url"] = settings.ollama_base_url

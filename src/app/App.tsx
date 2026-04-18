@@ -4,19 +4,22 @@ import { PreferencesProvider } from "./contexts/PreferencesContext";
 import { AppConfigProvider } from "./contexts/AppConfigContext";
 import { RunningChecksProvider } from "./contexts/RunningChecksContext";
 import { Toaster } from "./components/ui/sonner";
+import { ErrorBoundary } from "./components/ErrorBoundary";
 import { router } from "./routes";
 
 export default function App() {
   return (
-    <AppConfigProvider>
-      <AuthProvider>
-        <PreferencesProvider>
-          <RunningChecksProvider>
-            <RouterProvider router={router} />
-          </RunningChecksProvider>
-          <Toaster />
-        </PreferencesProvider>
-      </AuthProvider>
-    </AppConfigProvider>
+    <ErrorBoundary>
+      <AppConfigProvider>
+        <AuthProvider>
+          <PreferencesProvider>
+            <RunningChecksProvider>
+              <RouterProvider router={router} />
+            </RunningChecksProvider>
+            <Toaster />
+          </PreferencesProvider>
+        </AuthProvider>
+      </AppConfigProvider>
+    </ErrorBoundary>
   );
 }

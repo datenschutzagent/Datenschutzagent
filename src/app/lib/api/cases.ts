@@ -9,6 +9,7 @@ import {
   API_PREFIX,
   authHeaders,
   deepSnakeToCamel,
+  fetchBlob,
   formatBytes,
   parseErrorResponse,
   request,
@@ -575,13 +576,7 @@ export async function getDSBReportBlob(
   caseId: string,
   format: "markdown" | "json"
 ): Promise<Blob> {
-  const url = `${API_BASE}${API_PREFIX}/cases/${caseId}/dsb-report?format=${format}`;
-  const res = await fetch(url, { headers: authHeaders() });
-  if (!res.ok) {
-    const detail = await parseErrorResponse(res);
-    throw new Error(detail);
-  }
-  return res.blob();
+  return fetchBlob(`${API_BASE}${API_PREFIX}/cases/${caseId}/dsb-report?format=${format}`);
 }
 
 // --- Case risk score ---
@@ -661,13 +656,7 @@ export async function getVVTExportBlob(
 ): Promise<Blob> {
   const params = new URLSearchParams({ format });
   if (documentId) params.set("document_id", documentId);
-  const url = `${API_BASE}${API_PREFIX}/cases/${caseId}/vvt-normalization/export?${params}`;
-  const res = await fetch(url, { headers: authHeaders() });
-  if (!res.ok) {
-    const detail = await parseErrorResponse(res);
-    throw new Error(detail);
-  }
-  return res.blob();
+  return fetchBlob(`${API_BASE}${API_PREFIX}/cases/${caseId}/vvt-normalization/export?${params}`);
 }
 
 // --- Annotated Documents (DOCX with findings) ---
@@ -691,34 +680,16 @@ export async function getAnnotatedDocumentBlob(
   caseId: string,
   documentId: string
 ): Promise<Blob> {
-  const url = `${API_BASE}${API_PREFIX}/cases/${caseId}/annotated-documents/${documentId}`;
-  const res = await fetch(url, { headers: authHeaders() });
-  if (!res.ok) {
-    const detail = await parseErrorResponse(res);
-    throw new Error(detail);
-  }
-  return res.blob();
+  return fetchBlob(`${API_BASE}${API_PREFIX}/cases/${caseId}/annotated-documents/${documentId}`);
 }
 
 // --- Audit Trail Export ---
 export async function getAuditTrailExportBlob(caseId: string): Promise<Blob> {
-  const url = `${API_BASE}${API_PREFIX}/cases/${caseId}/activities/export`;
-  const res = await fetch(url, { headers: authHeaders() });
-  if (!res.ok) {
-    const detail = await parseErrorResponse(res);
-    throw new Error(detail);
-  }
-  return res.blob();
+  return fetchBlob(`${API_BASE}${API_PREFIX}/cases/${caseId}/activities/export`);
 }
 
 export async function downloadAuditPackage(caseId: string): Promise<Blob> {
-  const url = `${API_BASE}${API_PREFIX}/cases/${caseId}/audit-export`;
-  const res = await fetch(url, { method: "POST", headers: authHeaders() });
-  if (!res.ok) {
-    const detail = await parseErrorResponse(res);
-    throw new Error(detail);
-  }
-  return res.blob();
+  return fetchBlob(`${API_BASE}${API_PREFIX}/cases/${caseId}/audit-export`, "POST");
 }
 
 // --- DSFA Screening ---

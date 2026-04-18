@@ -163,6 +163,6 @@ async def _run_dsfa_inline(job_id: UUID, db: AsyncSession) -> None:
             await session.commit()
         except Exception as exc:
             job.status = "failed"
-            job.error = str(exc)
+            job.error = str(exc)[:490]
             await session.commit()
             logger.error("DSFA inline generation failed for job %s: %s", job_id, exc)
