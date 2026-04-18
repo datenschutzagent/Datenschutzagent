@@ -1,12 +1,13 @@
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.config import settings
 from app.core.auth import require_roles
+from app.core.rate_limit import limiter
 from app.database import get_db
 from app.models.db import (
     CaseModel,
@@ -77,7 +78,9 @@ async def list_playbooks(
     return [PlaybookResponse.model_validate(p) for p in playbooks]
 
 @router.post("", response_model=PlaybookResponse, status_code=201)
+@limiter.limit("20/minute")
 async def create_playbook(
+    request: Request,
     playbook: PlaybookCreate,
     db: AsyncSession = Depends(get_db),
     _user=require_roles("editor", "admin"),

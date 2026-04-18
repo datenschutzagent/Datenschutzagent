@@ -126,3 +126,13 @@ export function downloadBlob(blob: Blob, filename: string): void {
   a.click();
   URL.revokeObjectURL(a.href);
 }
+
+/** Fetch a URL and return its body as a Blob. Throws ApiError on non-ok responses. */
+export async function fetchBlob(url: string, method = "GET"): Promise<Blob> {
+  const res = await fetch(url, { method, headers: authHeaders() });
+  if (!res.ok) {
+    const detail = await parseErrorResponse(res);
+    throw new ApiError(detail, res.status);
+  }
+  return res.blob();
+}

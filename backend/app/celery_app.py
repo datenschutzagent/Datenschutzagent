@@ -341,7 +341,7 @@ def run_playbook_checks(self, job_id: str) -> dict:
         return {"ok": True, "job_id": job_id}
     except Exception as e:
         elapsed = round(time.monotonic() - t0, 2)
-        err_msg = str(e)
+        err_msg = str(e)[:490]
         logger.error("run_playbook_checks failed", extra={"job_id": job_id, "error": err_msg, "elapsed_seconds": elapsed})
         _set_run_checks_job_failed(job_id, err_msg)
         return {"ok": False, "error": err_msg}

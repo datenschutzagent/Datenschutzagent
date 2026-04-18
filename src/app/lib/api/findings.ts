@@ -6,9 +6,8 @@
 import {
   API_BASE,
   API_PREFIX,
-  authHeaders,
   deepSnakeToCamel,
-  parseErrorResponse,
+  fetchBlob,
   request,
 } from "./core";
 import type { ApiFinding, FindingStatus } from "./cases";
@@ -74,13 +73,7 @@ export async function downloadFindingsExport(
   if (filters?.status) q.set("status", filters.status);
   if (filters?.category) q.set("category", filters.category);
   if (filters?.format) q.set("format", filters.format);
-  const url = `${API_BASE}${API_PREFIX}/findings/export?${q.toString()}`;
-  const res = await fetch(url, { headers: { ...authHeaders() } });
-  if (!res.ok) {
-    const detail = await parseErrorResponse(res);
-    throw new Error(detail);
-  }
-  return res.blob();
+  return fetchBlob(`${API_BASE}${API_PREFIX}/findings/export?${q.toString()}`);
 }
 
 export async function downloadAllFindingsExport(
@@ -91,13 +84,7 @@ export async function downloadAllFindingsExport(
   if (filters?.status) q.set("status", filters.status);
   if (filters?.category) q.set("category", filters.category);
   if (filters?.format) q.set("format", filters.format);
-  const url = `${API_BASE}${API_PREFIX}/findings/export?${q.toString()}`;
-  const res = await fetch(url, { headers: { ...authHeaders() } });
-  if (!res.ok) {
-    const detail = await parseErrorResponse(res);
-    throw new Error(detail);
-  }
-  return res.blob();
+  return fetchBlob(`${API_BASE}${API_PREFIX}/findings/export?${q.toString()}`);
 }
 
 // --- Finding due date ---

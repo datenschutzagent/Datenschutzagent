@@ -12,6 +12,7 @@ import { NewCaseDialog } from "../components/new-case-dialog";
 import { CasesSearchFilter, CasesFilters } from "../components/cases-search-filter";
 import { statusLabels, statusColors, priorityColors, priorityLabels } from "../lib/mock-data";
 import { getCases, archiveCase, unarchiveCase, canEdit, type ApiCase, type CasesFilter } from "../lib/api";
+import { getStatsForCase, getDeadlineStatus, formatDeadline } from "../lib/case-utils";
 import { useAuthOptional } from "../contexts/AuthContext";
 import { useRunningChecks } from "../contexts/RunningChecksContext";
 import { Plus, FileText, CircleAlert, CheckCircle2, Clock, LayoutDashboard, Calendar, AlertTriangle, Loader2 } from "lucide-react";
@@ -80,29 +81,6 @@ export function CasesPage() {
     loadCases(newFilters);
   };
 
-  const getStatsForCase = (caseItem: ApiCase) => {
-    const critical = caseItem.findings.filter(f => f.severity === "critical" && f.status === "open").length;
-    const high = caseItem.findings.filter(f => f.severity === "high" && f.status === "open").length;
-    const fixed = caseItem.findings.filter(f => f.status === "fixed").length;
-    return { critical, high, fixed, total: caseItem.findings.length };
-  };
-
-  // Check if deadline is overdue or soon
-  const getDeadlineStatus = (deadline?: string) => {
-    if (!deadline) return null;
-    const today = new Date();
-    const deadlineDate = new Date(deadline);
-    const daysUntil = Math.ceil((deadlineDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
-    
-    if (daysUntil < 0) return "overdue";
-    if (daysUntil <= 3) return "soon";
-    return "ok";
-  };
-
-  const formatDeadline = (deadline: string) => {
-    const date = new Date(deadline);
-    return date.toLocaleDateString("de-DE", { day: "2-digit", month: "2-digit", year: "numeric" });
-  };
 
   return (
     <AppLayout>

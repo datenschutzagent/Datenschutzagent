@@ -5,13 +5,14 @@ import socket
 from urllib.parse import urlparse
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, field_validator
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.auth import require_roles
 from app.core.crypto import decrypt_secret, encrypt_secret
+from app.core.rate_limit import limiter
 from app.database import get_db
 from app.models.db import WebhookConfigModel, WebhookDeliveryLogModel
 
@@ -141,7 +142,9 @@ async def list_webhooks(
 
 
 @router.post("", status_code=201, summary="Webhook anlegen")
+@limiter.limit("20/minute")
 async def create_webhook(
+    request: Request,
     body: WebhookCreate,
     db: AsyncSession = Depends(get_db),
     _user=require_roles("admin"),
@@ -204,7 +207,9 @@ async def delete_webhook(
 
 
 @router.post("/{webhook_id}/test", summary="Webhook testen")
+@limiter.limit("5/minute")
 async def test_webhook(
+    request: Request,
     webhook_id: UUID,
     db: AsyncSession = Depends(get_db),
     _user=require_roles("admin"),
