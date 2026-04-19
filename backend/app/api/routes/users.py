@@ -1,10 +1,11 @@
 """Current user (me) API: profile and preferences."""
 import logging
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.auth import get_current_user
+from app.core.rate_limit import limiter
 from app.database import get_db
 from app.models.db import UserModel
 from app.models.schemas import UserResponse, UserUpdate
@@ -20,7 +21,9 @@ async def get_me(current_user: UserModel = Depends(get_current_user)):
 
 
 @router.patch("/me", response_model=UserResponse)
+@limiter.limit("30/minute")
 async def update_me(
+    request: Request,
     body: UserUpdate,
     current_user: UserModel = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),

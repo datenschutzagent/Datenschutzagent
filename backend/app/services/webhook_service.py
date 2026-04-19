@@ -13,11 +13,14 @@ HMAC-SHA256-Signatur im Header X-Datenschutzagent-Signature wenn secret konfigur
 import asyncio
 import hashlib
 import hmac
+import ipaddress
 import json
 import logging
 import random
+import socket
 from datetime import datetime, timezone
 from typing import Any
+from urllib.parse import urlparse
 from uuid import UUID
 
 import httpx
@@ -64,6 +67,32 @@ def _is_retriable_status(status_code: int) -> bool:
     return status_code in _RETRIABLE_4XX
 
 
+def _assert_no_ssrf(url: str) -> None:
+    """Re-resolve the webhook URL immediately before delivery to prevent DNS-rebinding attacks.
+
+    The URL was validated at creation time, but an attacker could change their DNS record
+    after validation to point to an internal IP (DNS rebinding). This check re-resolves the
+    hostname and blocks delivery if it now resolves to a private/internal address.
+    """
+    parsed = urlparse(url)
+    hostname = parsed.hostname
+    if not hostname:
+        raise ValueError(f"Webhook URL has no hostname: {url}")
+    try:
+        resolved_ip = socket.gethostbyname(hostname)
+        addr = ipaddress.ip_address(resolved_ip)
+        if addr.is_private or addr.is_loopback or addr.is_link_local or addr.is_reserved:
+            logger.warning(
+                "SSRF blocked at delivery time: webhook URL resolves to internal address",
+                extra={"event": "ssrf_blocked_delivery", "hostname": hostname, "resolved_ip": resolved_ip},
+            )
+            raise ValueError(
+                f"Webhook delivery blocked: URL resolves to private/internal address ({resolved_ip})"
+            )
+    except socket.gaierror as exc:
+        raise ValueError(f"Webhook delivery blocked: DNS resolution failed for {hostname}: {exc}") from exc
+
+
 async def _deliver_webhook(
     webhook_id: UUID,
     url: str,
@@ -90,6 +119,12 @@ async def _deliver_webhook(
 
     timeout = settings.webhook_timeout_seconds
     max_retries = max(1, int(settings.webhook_max_retries))
+
+    # F21: Re-validate URL immediately before sending to prevent DNS-rebinding attacks.
+    try:
+        _assert_no_ssrf(url)
+    except ValueError as exc:
+        return False, None, str(exc), 0
 
     last_error: str | None = None
     last_status: int | None = None

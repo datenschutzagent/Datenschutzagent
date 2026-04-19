@@ -18,8 +18,8 @@ class Settings(BaseSettings):
     # API
     api_v1_prefix: str = "/api/v1"
 
-    # Database
-    database_url: str = "postgresql+asyncpg://postgres:postgres@localhost:5432/datenschutzagent"
+    # Database (F5: no default credentials — must be set via DATABASE_URL env var)
+    database_url: str = ""
 
     # Celery (Redis as broker; worker uses sync DB). If empty, document extraction runs synchronously.
     celery_broker_url: str = "redis://localhost:6379/0"
@@ -33,7 +33,8 @@ class Settings(BaseSettings):
     s3_secret_key: str | None = None
     s3_bucket: str = "documents"
 
-    # CORS (in .env als kommagetrennte Liste, z. B. CORS_ORIGINS=http://localhost:3000,http://localhost:5173)
+    # CORS (in .env als kommagetrennte Liste, z. B. CORS_ORIGINS=http://localhost:3002)
+    # Production: set to your exact HTTPS frontend origin, e.g. https://datenschutzagent.example.com
     cors_origins: str | list[str] = ["http://localhost:3002", "http://127.0.0.1:3002", "http://localhost:5173", "http://127.0.0.1:5173"]
 
     @field_validator("cors_origins", mode="before")
@@ -148,8 +149,9 @@ class Settings(BaseSettings):
     notification_avv_expiry_warning_days: int = 90     # Warnung X Tage vor AVV-Ablauf
 
     # Prompt injection protection: when True, requests containing injection patterns are
-    # rejected with an exception instead of just logged. False = log-only (default).
-    prompt_injection_block: bool = False
+    # rejected with an exception instead of just logged. True = block (default); set False
+    # only if you need to allow edge-case content that triggers false positives.
+    prompt_injection_block: bool = True
 
     # LLM-Provider (ollama | openai | anthropic)
     # Ollama-Konfiguration bleibt unverändert (ollama_base_url, ollama_model, etc.)
@@ -175,7 +177,7 @@ class Settings(BaseSettings):
 
     # Weaviate (optional; RAG document checks)
     weaviate_url: str = "http://localhost:8080"
-    weaviate_api_key: str = ""  # API-Key für Weaviate-Authentifizierung (WEAVIATE_API_KEY)
+    weaviate_api_key: SecretStr = SecretStr("")  # API-Key für Weaviate-Authentifizierung (WEAVIATE_API_KEY)
     weaviate_indexing_enabled: bool = False
 
     @field_validator("weaviate_indexing_enabled", mode="before")
@@ -196,6 +198,13 @@ class Settings(BaseSettings):
         """Fail fast at startup when required settings are missing for selected backends."""
         import logging as _logging
         _log = _logging.getLogger("app.startup")
+
+        # F5: DATABASE_URL must always be set explicitly — no default credentials.
+        if not self.database_url:
+            raise ValueError(
+                "DATABASE_URL must be set. Example: "
+                "postgresql+asyncpg://user:password@host:5432/dbname"
+            )
 
         # LLM timeout: check_timeout_seconds must be >= ollama_timeout_seconds
         # so that the asyncio.wait_for wrapper around the HTTP call does not
@@ -220,18 +229,36 @@ class Settings(BaseSettings):
                 raise ValueError(
                     f"storage_backend=minio requires these env vars to be set: {', '.join(m.upper() for m in missing)}"
                 )
+        # F1: In production (debug=False) OIDC must be enabled. An unauthenticated
+        # deployment exposes all data to anyone with network access.
+        if not self.debug and not self.oidc_enabled:
+            raise ValueError(
+                "SECURITY: OIDC_ENABLED must be true in production (DEBUG=false). "
+                "Set OIDC_ENABLED=true and configure OIDC_ISSUER_URL / OIDC_CLIENT_ID, "
+                "or set DEBUG=true for local development (never expose debug mode publicly)."
+            )
+
         if self.oidc_enabled:
             if not self.oidc_issuer_url:
                 raise ValueError("OIDC_ENABLED=true requires OIDC_ISSUER_URL to be set")
             if not self.oidc_client_id:
                 raise ValueError("OIDC_ENABLED=true requires OIDC_CLIENT_ID to be set")
+            # F2: OIDC_AUDIENCE must be set to prevent cross-application token reuse.
             if not self.oidc_audience:
-                _log.warning(
-                    "SECURITY: OIDC_AUDIENCE not set — JWT audience claim will NOT be verified. "
-                    "Set OIDC_AUDIENCE to the expected client ID for stricter token validation."
+                raise ValueError(
+                    "SECURITY: OIDC_ENABLED=true requires OIDC_AUDIENCE to be set. "
+                    "Set it to the expected JWT audience claim (typically the client ID) "
+                    "to prevent tokens issued for other applications from being accepted."
                 )
 
+        # F4: In production with OIDC, webhook secrets must be encrypted at rest.
         if not self.webhook_secret_encryption_key.get_secret_value():
+            if self.oidc_enabled:
+                raise ValueError(
+                    "SECURITY: WEBHOOK_SECRET_ENCRYPTION_KEY must be set when OIDC is enabled. "
+                    "Generate a key with: "
+                    "python -c \"from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())\""
+                )
             _log.warning(
                 "SECURITY: WEBHOOK_SECRET_ENCRYPTION_KEY not set — webhook secrets are stored "
                 "unencrypted in the database. Generate a key with: "

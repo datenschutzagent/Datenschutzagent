@@ -273,9 +273,14 @@ async def health():
         or pg_status != "ok"
     )
 
-    return {
-        "status": "degraded" if degraded else "ok",
-        "ollama": ollama_status,
-        "postgres": pg_status,
-        "redis": redis_status,
-    }
+    # F12: Limit infrastructure details in the health response to avoid
+    # exposing internal topology to unauthenticated callers.
+    # In debug mode the full breakdown is returned for troubleshooting.
+    if settings.debug:
+        return {
+            "status": "degraded" if degraded else "ok",
+            "ollama": ollama_status,
+            "postgres": pg_status,
+            "redis": redis_status,
+        }
+    return {"status": "degraded" if degraded else "ok"}

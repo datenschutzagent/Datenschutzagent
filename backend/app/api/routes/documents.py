@@ -152,13 +152,17 @@ async def download_document(
         )
         raise HTTPException(status_code=404, detail="File not found")
     media_type = FORMAT_TO_MEDIA_TYPE.get(doc.format, "application/octet-stream")
-    # Use RFC 5987 for filename with non-ASCII; Content-Disposition attachment so browser downloads
     filename = doc.name or f"document.{doc.format}"
+    # RFC 5987 encoding prevents header injection from filenames containing quotes or non-ASCII
+    from urllib.parse import quote
+    filename_encoded = quote(filename, safe="")
+    ascii_fallback = filename.encode("ascii", errors="replace").decode().replace('"', "_")
+    content_disposition = f'attachment; filename="{ascii_fallback}"; filename*=UTF-8\'\'{filename_encoded}'
     return StreamingResponse(
         iter([content]),
         media_type=media_type,
         headers={
-            "Content-Disposition": f'attachment; filename="{filename}"',
+            "Content-Disposition": content_disposition,
             "Content-Length": str(len(content)),
         },
     )
@@ -204,7 +208,9 @@ async def list_document_comments(
 
 
 @router.post("/{document_id}/comments", response_model=DocumentCommentResponse, status_code=201)
+@limiter.limit("30/minute")
 async def create_document_comment(
+    request: Request,
     document_id: UUID,
     body: DocumentCommentCreate,
     db: AsyncSession = Depends(get_db),
@@ -244,7 +250,9 @@ async def get_document(
 
 
 @router.patch("/{document_id}", response_model=DocumentResponse)
+@limiter.limit("60/minute")
 async def update_document(
+    request: Request,
     document_id: UUID,
     body: DocumentUpdate,
     db: AsyncSession = Depends(get_db),

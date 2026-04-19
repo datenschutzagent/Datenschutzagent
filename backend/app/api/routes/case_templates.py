@@ -2,11 +2,12 @@
 import logging
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.auth import require_roles
+from app.core.rate_limit import limiter
 from app.database import get_db
 from app.models.db import CaseModel, CaseTemplateModel, UserModel
 from app.models.schemas import (
@@ -38,7 +39,9 @@ async def list_templates(
 
 
 @router.post("", response_model=CaseTemplateResponse, status_code=201, summary="Vorlage erstellen")
+@limiter.limit("30/minute")
 async def create_template(
+    request: Request,
     body: CaseTemplateCreate,
     db: AsyncSession = Depends(get_db),
     user=require_roles("editor", "admin"),
@@ -78,7 +81,9 @@ async def delete_template(
 
 
 @router.post("/apply", response_model=CaseResponse, status_code=201, summary="Vorlage auf neuen Vorgang anwenden")
+@limiter.limit("10/minute")
 async def apply_template(
+    request: Request,
     body: CaseTemplateApplyRequest,
     db: AsyncSession = Depends(get_db),
     user=require_roles("editor", "admin"),

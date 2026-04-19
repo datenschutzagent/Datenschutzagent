@@ -3,11 +3,12 @@ import logging
 from datetime import datetime, timedelta, timezone
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.auth import require_roles
+from app.core.rate_limit import limiter
 from app.database import get_db
 from app.models.db import (
     DataBreachActivityLogModel,
@@ -65,7 +66,9 @@ async def list_data_breaches(
 
 
 @router.post("", response_model=DataBreachResponse, status_code=201, summary="Datenpanne melden")
+@limiter.limit("30/minute")
 async def create_data_breach(
+    request: Request,
     body: DataBreachCreate,
     db: AsyncSession = Depends(get_db),
     _user=require_roles("editor", "admin"),
@@ -117,7 +120,9 @@ async def get_data_breach(
 
 
 @router.patch("/{breach_id}", response_model=DataBreachResponse, summary="Datenpanne aktualisieren")
+@limiter.limit("60/minute")
 async def update_data_breach(
+    request: Request,
     breach_id: UUID,
     body: DataBreachUpdate,
     db: AsyncSession = Depends(get_db),
@@ -176,7 +181,9 @@ async def delete_data_breach(
     response_model=DataBreachResponse,
     summary="Behörden-Meldung generieren",
 )
+@limiter.limit("5/minute")
 async def generate_notification_draft(
+    request: Request,
     breach_id: UUID,
     db: AsyncSession = Depends(get_db),
     _user=require_roles("editor", "admin"),

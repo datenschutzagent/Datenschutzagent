@@ -81,9 +81,9 @@ services:
       # Hostname "postgres" = Service-Name im Docker-Netz (nicht localhost)
       DATABASE_URL: "${DATABASE_URL:?DATABASE_URL must be set in .env}"
       CELERY_BROKER_URL: "redis://:${REDIS_PASSWORD:?REDIS_PASSWORD must be set in .env}@redis:6379/0"
-      # CORS: Zugriff vom Browser aus dem LAN (z. B. http://192.168.1.20:3001) erlauben.
-      # Überschreibbar per .env: CORS_ORIGINS=http://...
-      CORS_ORIGINS: "${CORS_ORIGINS:-http://localhost:3002,http://127.0.0.1:3002,http://localhost:3000,http://127.0.0.1:3000,http://localhost:3001,http://127.0.0.1:3001,http://localhost:5173,http://127.0.0.1:5173,http://192.168.1.20:3002,http://192.168.1.20:3001,http://192.168.1.20:5173}"
+      # CORS: In production set CORS_ORIGINS in .env to your exact HTTPS frontend origin.
+      # Default is localhost-only for local development.
+      CORS_ORIGINS: "${CORS_ORIGINS:-http://localhost:3002,http://127.0.0.1:3002,http://localhost:5173,http://127.0.0.1:5173}"
       WEAVIATE_URL: "${WEAVIATE_URL:-http://weaviate:8080}"
       WEAVIATE_INDEXING_ENABLED: "${WEAVIATE_INDEXING_ENABLED:-false}"
     extra_hosts:

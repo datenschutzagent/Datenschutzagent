@@ -3,11 +3,12 @@ import logging
 from datetime import date, timedelta
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.auth import require_roles
+from app.core.rate_limit import limiter
 from app.database import get_db
 from app.models.db import (
     DSRActivityLogModel,
@@ -65,7 +66,9 @@ async def list_dsr_requests(
 
 
 @router.post("", response_model=DSRRequestResponse, status_code=201, summary="DSR-Anfrage erstellen")
+@limiter.limit("30/minute")
 async def create_dsr_request(
+    request: Request,
     body: DSRRequestCreate,
     db: AsyncSession = Depends(get_db),
     _user=require_roles("editor", "admin"),
@@ -120,7 +123,9 @@ async def get_dsr_request(
 
 
 @router.patch("/{request_id}", response_model=DSRRequestResponse, summary="DSR-Anfrage aktualisieren")
+@limiter.limit("60/minute")
 async def update_dsr_request(
+    request: Request,
     request_id: UUID,
     body: DSRRequestUpdate,
     db: AsyncSession = Depends(get_db),
@@ -186,7 +191,9 @@ async def delete_dsr_request(
 
 
 @router.post("/{request_id}/generate-draft", response_model=DSRRequestResponse, summary="Antwortschreiben-Entwurf generieren")
+@limiter.limit("5/minute")
 async def generate_response_draft(
+    request: Request,
     request_id: UUID,
     db: AsyncSession = Depends(get_db),
     _user=require_roles("editor", "admin"),
