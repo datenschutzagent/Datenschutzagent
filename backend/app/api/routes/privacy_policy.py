@@ -2,12 +2,13 @@
 import logging
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.auth import require_roles
+from app.core.rate_limit import limiter
 from app.database import get_db
 from app.models.db import PrivacyPolicyModel
 
@@ -58,7 +59,9 @@ async def list_privacy_policies(
 
 
 @router.post("/generate", summary="Datenschutzerklärung generieren", status_code=201)
+@limiter.limit("5/minute")
 async def generate_privacy_policy(
+    request: Request,
     body: PrivacyPolicyGenerateRequest,
     db: AsyncSession = Depends(get_db),
     _user=require_roles("editor", "admin"),
@@ -107,7 +110,9 @@ class PrivacyPolicyUpdate(BaseModel):
 
 
 @router.patch("/{policy_id}", summary="Datenschutzerklärung bearbeiten")
+@limiter.limit("60/minute")
 async def update_privacy_policy(
+    request: Request,
     policy_id: UUID,
     body: PrivacyPolicyUpdate,
     db: AsyncSession = Depends(get_db),

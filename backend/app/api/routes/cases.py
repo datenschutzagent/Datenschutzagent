@@ -194,7 +194,9 @@ async def list_cases(
 
 
 @router.patch("/bulk-update")
+@limiter.limit("20/minute")
 async def bulk_update_cases(
+    request: Request,
     body: dict,
     db: AsyncSession = Depends(get_db),
     _user=require_roles("editor", "admin"),
@@ -406,7 +408,9 @@ async def export_case_activities_csv(
 
 
 @router.post("", response_model=CaseResponse, status_code=201, summary="Vorgang erstellen")
+@limiter.limit("30/minute")
 async def create_case(
+    request: Request,
     body: CaseCreate,
     db: AsyncSession = Depends(get_db),
     _user=require_roles("editor", "admin"),
@@ -439,7 +443,9 @@ async def create_case(
 
 
 @router.patch("/{case_id}", response_model=CaseResponse, summary="Vorgang aktualisieren")
+@limiter.limit("60/minute")
 async def update_case(
+    request: Request,
     case_id: UUID,
     body: CaseUpdate,
     db: AsyncSession = Depends(get_db),
@@ -526,7 +532,9 @@ async def delete_case(
 
 
 @router.post("/{case_id}/audit-export", summary="Audit-Paket exportieren (ZIP)")
+@limiter.limit("10/minute")
 async def export_audit_package(
+    request: Request,
     case_id: UUID,
     db: AsyncSession = Depends(get_db),
     _user=require_roles("viewer", "editor", "admin"),
@@ -544,15 +552,20 @@ async def export_audit_package(
     except Exception as exc:
         logger.error("Audit export failed for case %s: %s", case_id, exc)
         raise HTTPException(status_code=500, detail=f"Export fehlgeschlagen: {exc}")
+    from urllib.parse import quote as _quote
+    _fn_enc = _quote(filename, safe="")
+    _fn_ascii = filename.encode("ascii", errors="replace").decode().replace('"', "_")
     return Response(
         content=zip_bytes,
         media_type="application/zip",
-        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        headers={"Content-Disposition": f'attachment; filename="{_fn_ascii}"; filename*=UTF-8\'\'{_fn_enc}'},
     )
 
 
 @router.post("/{case_id}/clone", response_model=CaseResponse, status_code=201, summary="Vorgang duplizieren")
+@limiter.limit("10/minute")
 async def clone_case(
+    request: Request,
     case_id: UUID,
     body: CaseCloneRequest,
     db: AsyncSession = Depends(get_db),
@@ -614,7 +627,9 @@ async def clone_case(
 
 
 @router.post("/{case_id}/archive", response_model=CaseResponse)
+@limiter.limit("30/minute")
 async def archive_case(
+    request: Request,
     case_id: UUID,
     db: AsyncSession = Depends(get_db),
     _user=require_roles("editor", "admin"),
@@ -637,7 +652,9 @@ async def archive_case(
 
 
 @router.post("/{case_id}/unarchive", response_model=CaseResponse)
+@limiter.limit("30/minute")
 async def unarchive_case(
+    request: Request,
     case_id: UUID,
     db: AsyncSession = Depends(get_db),
     _user=require_roles("editor", "admin"),
@@ -907,7 +924,9 @@ async def get_dsb_report_status(
 
 
 @router.post("/{case_id}/dsb-report/generate")
+@limiter.limit("5/minute")
 async def generate_dsb_report(
+    request: Request,
     case_id: UUID,
     db: AsyncSession = Depends(get_db),
     _user=require_roles("editor", "admin"),

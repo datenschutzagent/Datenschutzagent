@@ -2,12 +2,13 @@
 import logging
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, UploadFile
 from fastapi.responses import StreamingResponse
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.auth import require_roles
+from app.core.rate_limit import limiter
 from app.config import settings
 from app.database import get_db
 from app.models.db import TOMModel, TOMAttachmentModel
@@ -92,7 +93,9 @@ async def get_tom_stats(
 
 
 @router.post("", response_model=TOMResponse, status_code=201, summary="TOM anlegen")
+@limiter.limit("30/minute")
 async def create_tom(
+    request: Request,
     body: TOMCreate,
     db: AsyncSession = Depends(get_db),
     _user=require_roles("editor", "admin"),
@@ -127,7 +130,9 @@ async def get_tom(
 
 
 @router.patch("/{tom_id}", response_model=TOMResponse, summary="TOM aktualisieren")
+@limiter.limit("60/minute")
 async def update_tom(
+    request: Request,
     tom_id: UUID,
     body: TOMUpdate,
     db: AsyncSession = Depends(get_db),
@@ -187,7 +192,9 @@ async def list_tom_attachments(
 
 
 @router.post("/{tom_id}/attachments", response_model=TOMAttachmentResponse, status_code=201, summary="Anhang hochladen")
+@limiter.limit("10/minute")
 async def upload_tom_attachment(
+    request: Request,
     tom_id: UUID,
     file: UploadFile = File(...),
     uploaded_by: str = Form(default=""),
@@ -254,12 +261,16 @@ async def download_tom_attachment(
     except FileNotFoundError:
         raise HTTPException(status_code=404, detail="Datei nicht gefunden")
 
+    from urllib.parse import quote as _quote
+    _name = attachment.name or f"attachment.{attachment.format}"
+    _name_enc = _quote(_name, safe="")
+    _name_ascii = _name.encode("ascii", errors="replace").decode().replace('"', "_")
     media_type = FORMAT_TO_MEDIA_TYPE.get(attachment.format, "application/octet-stream")
     return StreamingResponse(
         iter([content]),
         media_type=media_type,
         headers={
-            "Content-Disposition": f'attachment; filename="{attachment.name}"',
+            "Content-Disposition": f'attachment; filename="{_name_ascii}"; filename*=UTF-8\'\'{_name_enc}',
             "Content-Length": str(len(content)),
         },
     )

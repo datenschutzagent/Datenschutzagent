@@ -42,8 +42,7 @@ class _LocalBackend:
         return path
 
     def save(self, rel_path: str, content: bytes, filename: str) -> str:
-        root = Path(settings.storage_local_path)
-        path = root / rel_path
+        path = self._resolve(rel_path)
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_bytes(content)
         return rel_path

@@ -143,7 +143,7 @@ def get_weaviate_client():
         return None
 
     try:
-        api_key = settings.weaviate_api_key
+        api_key = settings.weaviate_api_key.get_secret_value()
         auth = AuthApiKey(api_key=api_key) if api_key else None
         client = weaviate.connect_to_local(
             host=host,

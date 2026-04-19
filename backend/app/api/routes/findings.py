@@ -6,13 +6,14 @@ from typing import Annotated
 from uuid import UUID
 
 from docx import Document as DocxDocument
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import Response
 from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.core.auth import require_roles
+from app.core.rate_limit import limiter
 from app.database import get_db
 from app.models.db import (
     ActivityLogModel,
@@ -214,7 +215,9 @@ async def list_findings(
 
 
 @router.patch("/bulk-update")
+@limiter.limit("20/minute")
 async def bulk_update_findings(
+    request: Request,
     body: FindingBulkUpdate,
     db: AsyncSession = Depends(get_db),
     _user=require_roles("editor", "admin"),
@@ -384,8 +387,10 @@ async def export_findings(
         cases_result = await db.execute(select(CaseModel).where(CaseModel.id.in_(case_ids)))
         cases_by_id = {c.id: c.title for c in cases_result.scalars().all()}
 
+    import re as _re
+    from urllib.parse import quote as _quote
     date_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-    slug = case_title.replace("/", "-").replace("\\", "-")[:50]
+    slug = _re.sub(r'[^\w\s-]', "", case_title.replace("/", "-").replace("\\", "-"))[:50].strip()
 
     export_headers = {
         "X-Total-Count": str(total_count),
@@ -395,10 +400,11 @@ async def export_findings(
     if format.lower() == "docx":
         content_bytes = _build_findings_docx(case_title, findings, docs_by_id)
         filename = f"Befunde-{slug}-{date_str}.docx"
+        _fn_enc = _quote(filename, safe="")
         return Response(
             content=content_bytes,
             media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-            headers={"Content-Disposition": f'attachment; filename="{filename}"', **export_headers},
+            headers={"Content-Disposition": f'attachment; filename="{filename}"; filename*=UTF-8\'\'{_fn_enc}', **export_headers},
         )
 
     severity_labels = {
@@ -444,18 +450,21 @@ async def export_findings(
         ])
 
     filename = f"Befunde-{slug}-{date_str}.csv"
+    _fn_enc = _quote(filename, safe="")
 
     # UTF-8 BOM for Excel compatibility (consistent with VVT export)
     body = "\ufeff" + buf.getvalue()
     return Response(
         content=body.encode("utf-8"),
         media_type="text/csv; charset=utf-8",
-        headers={"Content-Disposition": f'attachment; filename="{filename}"', **export_headers},
+        headers={"Content-Disposition": f'attachment; filename="{filename}"; filename*=UTF-8\'\'{_fn_enc}', **export_headers},
     )
 
 
 @router.patch("/{finding_id}", response_model=FindingResponse)
+@limiter.limit("60/minute")
 async def update_finding(
+    request: Request,
     finding_id: UUID,
     body: FindingUpdate,
     db: AsyncSession = Depends(get_db),
@@ -510,7 +519,9 @@ async def list_finding_comments(
 
 
 @router.post("/{finding_id}/comments", response_model=FindingCommentResponse, status_code=201)
+@limiter.limit("30/minute")
 async def create_finding_comment(
+    request: Request,
     finding_id: UUID,
     body: FindingCommentCreate,
     db: AsyncSession = Depends(get_db),
@@ -571,7 +582,9 @@ async def get_finding_chat(
 
 
 @router.post("/{finding_id}/chat", response_model=FindingChatMessageResponse, status_code=201, summary="Nachricht an KI-Assistent senden")
+@limiter.limit("5/minute")
 async def send_finding_chat_message(
+    request: Request,
     finding_id: UUID,
     body: FindingChatMessageCreate,
     db: AsyncSession = Depends(get_db),

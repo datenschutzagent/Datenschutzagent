@@ -2,7 +2,7 @@
 import logging
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -11,6 +11,7 @@ logger = logging.getLogger(__name__)
 
 from app.config import settings
 from app.core.auth import require_roles
+from app.core.rate_limit import limiter
 from app.database import get_db
 from app.models.db import UserModel
 from app.models.schemas import NotificationTestResponse, RetentionPreviewResponse, RetentionScanResponse, UserResponse
@@ -70,7 +71,9 @@ async def list_users(
 
 
 @router.patch("/users/{user_id}/role")
+@limiter.limit("10/minute")
 async def update_user_role(
+    request: Request,
     user_id: UUID,
     body: UserRoleUpdate,
     db: AsyncSession = Depends(get_db),
@@ -120,7 +123,9 @@ async def retention_preview(
 
 
 @router.post("/retention/scan", response_model=RetentionScanResponse, summary="Retention-Scan auslösen")
+@limiter.limit("5/minute")
 async def trigger_retention_scan(
+    request: Request,
     db: AsyncSession = Depends(get_db),
     _user=require_roles("admin"),
 ):
@@ -160,7 +165,9 @@ def test_smtp(
 
 
 @router.post("/notifications/scan-deadlines", summary="Frist-Benachrichtigungen sofort versenden")
+@limiter.limit("5/minute")
 async def trigger_deadline_notifications(
+    request: Request,
     db: AsyncSession = Depends(get_db),
     _user=require_roles("admin"),
 ):

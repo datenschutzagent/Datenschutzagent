@@ -2,13 +2,14 @@
 import logging
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 
 logger = logging.getLogger(__name__)
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.auth import require_roles
+from app.core.rate_limit import limiter
 from app.database import get_db
 from app.models.db import LegalBaseModel
 from app.models.schemas import (
@@ -40,7 +41,9 @@ async def list_legal_bases(
 
 
 @router.post("", response_model=LegalBaseResponse, status_code=201)
+@limiter.limit("30/minute")
 async def create_legal_base(
+    request: Request,
     body: LegalBaseCreate,
     db: AsyncSession = Depends(get_db),
     _user=require_roles("editor", "admin"),
@@ -77,7 +80,9 @@ async def get_legal_base(
 
 
 @router.patch("/{legal_base_id}", response_model=LegalBaseResponse)
+@limiter.limit("60/minute")
 async def update_legal_base(
+    request: Request,
     legal_base_id: UUID,
     body: LegalBaseUpdate,
     db: AsyncSession = Depends(get_db),

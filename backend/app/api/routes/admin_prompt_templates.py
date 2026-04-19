@@ -1,11 +1,12 @@
 """Admin API: versioned prompt templates (admin role required)."""
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.auth import require_roles
+from app.core.rate_limit import limiter
 from app.database import get_db
 from app.models.db import PromptTemplateModel
 from app.models.schemas import (
@@ -65,7 +66,9 @@ async def list_prompt_templates(
 
 
 @router.post("", response_model=PromptTemplateResponse, status_code=201)
+@limiter.limit("30/minute")
 async def create_prompt_template(
+    request: Request,
     body: PromptTemplateCreate,
     db: AsyncSession = Depends(get_db),
     _user=require_roles("admin"),
@@ -118,7 +121,9 @@ async def create_prompt_template(
 
 
 @router.patch("/{template_id}", response_model=PromptTemplateResponse)
+@limiter.limit("60/minute")
 async def update_prompt_template(
+  request: Request,
   template_id: UUID,
   body: PromptTemplateUpdate,
   db: AsyncSession = Depends(get_db),

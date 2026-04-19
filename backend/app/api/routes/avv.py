@@ -2,11 +2,12 @@
 import logging
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.auth import require_roles
+from app.core.rate_limit import limiter
 from app.database import get_db
 from app.models.db import AVVContractModel
 from app.models.schemas import (
@@ -57,7 +58,9 @@ async def list_avv_contracts(
 
 
 @router.post("", response_model=AVVContractResponse, status_code=201, summary="AVV anlegen")
+@limiter.limit("30/minute")
 async def create_avv_contract(
+    request: Request,
     body: AVVContractCreate,
     db: AsyncSession = Depends(get_db),
     _user=require_roles("editor", "admin"),
@@ -92,7 +95,9 @@ async def get_avv_contract(
 
 
 @router.patch("/{contract_id}", response_model=AVVContractResponse, summary="AVV aktualisieren")
+@limiter.limit("60/minute")
 async def update_avv_contract(
+    request: Request,
     contract_id: UUID,
     body: AVVContractUpdate,
     db: AsyncSession = Depends(get_db),
@@ -115,7 +120,9 @@ async def update_avv_contract(
 
 
 @router.post("/{contract_id}/risk-assessment", summary="Supplier-Risikobewertung durchführen")
+@limiter.limit("5/minute")
 async def assess_avv_risk(
+    request: Request,
     contract_id: UUID,
     db: AsyncSession = Depends(get_db),
     _user=require_roles("editor", "admin"),

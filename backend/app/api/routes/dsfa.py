@@ -5,11 +5,12 @@ import uuid
 from datetime import datetime, timezone
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.auth import require_roles
+from app.core.rate_limit import limiter
 from app.database import get_db
 from app.models.db import (
     CaseModel,
@@ -59,7 +60,9 @@ async def get_dsfa(
 
 
 @router.post("/{case_id}/dsfa/generate", response_model=DSFAJobStatusResponse, status_code=202, summary="DSFA generieren")
+@limiter.limit("5/minute")
 async def generate_dsfa(
+    request: Request,
     case_id: UUID,
     db: AsyncSession = Depends(get_db),
     _user=require_roles("editor", "admin"),
@@ -124,7 +127,9 @@ async def get_dsfa_job_status(
 
 
 @router.patch("/{case_id}/dsfa/finalize", response_model=DSFAResponse, summary="DSFA finalisieren")
+@limiter.limit("30/minute")
 async def finalize_dsfa(
+    request: Request,
     case_id: UUID,
     body: DSFAFinalizeRequest,
     db: AsyncSession = Depends(get_db),

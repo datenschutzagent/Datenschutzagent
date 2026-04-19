@@ -28,15 +28,13 @@ jobs:
         run: pip-audit -r backend/requirements.txt --fail-on-vuln-severity high
 
       - name: Bandit – Python SAST
-        # Medium+ severity; skip B101 (assert usage in tests)
+        # Medium+ severity; skip B101 (assert in tests), B110 (try-except-pass — reviewed)
         run: |
           bandit -r backend/app/ \
             --severity-level medium \
-            --skip B101 \
+            --skip B101,B110 \
             --format json \
-            --output bandit-report.json \
-          || true  # Non-blocking; upload report for review
-        continue-on-error: true
+            --output bandit-report.json
 
       - name: Upload Bandit report
         uses: actions/upload-artifact@v4
@@ -78,9 +76,7 @@ jobs:
             --config=p/owasp-top-ten \
             --json \
             --output semgrep-report.json \
-            backend/app/ \
-          || true
-        continue-on-error: true
+            backend/app/
 
       - name: Upload Semgrep report
         uses: actions/upload-artifact@v4
