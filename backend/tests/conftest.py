@@ -1,5 +1,6 @@
 """Pytest configuration and fixtures for backend tests."""
 import os
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from httpx import ASGITransport, AsyncClient
@@ -24,3 +25,51 @@ async def client():
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as ac:
         yield ac
+
+
+class _FakeLLMResult:
+    """Minimal stand-in for a pydantic_ai RunResult.
+
+    Tests that need a specific output type should set `result.output` on the
+    instance returned by `agent_run_mock.return_value` before exercising the
+    code under test.
+    """
+
+    def __init__(self, output=None):
+        self.output = output
+        # Legacy alias (some older services access .data)
+        self.data = output
+
+
+@pytest.fixture
+def mock_llm(monkeypatch):
+    """Patch the LLM layer so tests never hit a real provider.
+
+    Yields a MagicMock that represents the fake pydantic_ai Agent. Its `.run`
+    attribute is an AsyncMock, so tests can control the returned value::
+
+        async def test_something(mock_llm):
+            from app.models.schemas import FindingSeverityEnum
+            from app.services.check_runner import CheckResult
+            mock_llm.run.return_value = _FakeLLMResult(
+                CheckResult(
+                    is_compliant=True,
+                    severity=FindingSeverityEnum.low,
+                    description="ok",
+                    evidence=[],
+                    recommendation="",
+                )
+            )
+            # … exercise the service under test …
+
+    By default `.run` returns a ``_FakeLLMResult(output=None)`` which is safe
+    for smoke tests that only care about reaching the LLM call without error.
+    """
+    fake_agent = MagicMock()
+    fake_agent.run = AsyncMock(return_value=_FakeLLMResult())
+
+    with patch("app.core.llm.create_agent", return_value=fake_agent) as _create, \
+         patch("app.core.llm.llm_retry_call", new_callable=AsyncMock) as retry_mock:
+        retry_mock.return_value = _FakeLLMResult()
+        fake_agent._retry_mock = retry_mock
+        yield fake_agent

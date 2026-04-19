@@ -30,6 +30,7 @@ openpyxl>=3.1.5
 pydantic-ai==1.77.0
 openai>=1.61.0
 ollama>=0.4.1
+anthropic>=0.40.0
 
 # Vector DB (Weaviate, optional for RAG checks)
 weaviate-client>=4.9.2
