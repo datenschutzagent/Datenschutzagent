@@ -76,7 +76,7 @@ async def generate_draft_response(request_id: UUID, db: AsyncSession) -> str:
 
     agent = create_agent(_SYSTEM_PROMPT)
     result_llm = await agent.run(user_content)
-    draft = str(result_llm.data)
+    draft = str(result_llm.output)
     logger.info(
         "DSR draft response generated",
         extra={"dsr_request_id": str(request_id), "draft_length": len(draft)},

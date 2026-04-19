@@ -112,11 +112,11 @@ async def generate_dsfa(case_id: UUID, db: AsyncSession) -> dict[str, Any]:
 
     agent = create_agent(_DSFA_SYSTEM_PROMPT)
     try:
-        result = await agent.run(user_content, result_type=_DSFAResult)
+        result = await agent.run(user_content, output_type=_DSFAResult)
     except Exception as exc:
         logger.error("DSFA LLM generation failed: %s", exc, extra={"case_id": str(case_id)})
         raise
-    data = result.data
+    data = result.output
 
     # Normalisiere Werte (LLM könnte abweichende Strings liefern)
     valid_levels = {"low", "medium", "high"}

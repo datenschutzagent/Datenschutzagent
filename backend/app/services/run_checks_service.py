@@ -538,6 +538,10 @@ async def run_checks_impl(
     }
     if skipped_doc_count:
         activity_payload["skipped_unextracted_docs"] = skipped_doc_count
+    # Always record RAG availability so monitoring dashboards can detect degraded mode
+    # without having to parse the error list.
+    rag_requested = any(s in strategies for s in ("rag",))
+    activity_payload["rag_available"] = not state.rag_skipped if rag_requested else None
     if state.rag_skipped:
         activity_payload["rag_fallback"] = "rag requested but Weaviate/chunks unavailable for some checks"
     if state.errors:

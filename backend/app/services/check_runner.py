@@ -32,8 +32,13 @@ def _log_extra() -> dict:
 # ---------------------------------------------------------------------------
 
 def _cache_key(system_prompt: str, user_content: str) -> str:
-    """SHA-256 hash of system+user prompt as a Redis key."""
-    raw = f"{system_prompt}\x00{user_content}"
+    """SHA-256 hash of model+system+user prompt as a Redis key.
+
+    The model identifier is included so that a model upgrade (e.g. llama3.2 →
+    llama3.3) automatically invalidates existing cache entries.
+    """
+    model_id = f"{settings.llm_provider}:{settings.ollama_model if settings.llm_provider == 'ollama' else settings.openai_model if settings.llm_provider == 'openai' else settings.anthropic_model}"
+    raw = f"{model_id}\x00{system_prompt}\x00{user_content}"
     digest = hashlib.sha256(raw.encode("utf-8")).hexdigest()
     return f"llm_cache:{digest}"
 
@@ -81,7 +86,7 @@ async def _cache_get(key: str) -> CheckResult | None:
             return None
         return CheckResult.model_validate_json(raw)
     except Exception as exc:
-        logger.debug("LLM cache GET failed (ignored): %s", exc)
+        logger.warning("LLM cache GET failed: %s", exc, extra={"cache_key": key})
         return None
 
 
@@ -95,7 +100,7 @@ async def _cache_set(key: str, result: CheckResult) -> None:
             return
         await r.setex(key, settings.llm_cache_ttl, result.model_dump_json())
     except Exception as exc:
-        logger.debug("LLM cache SET failed (ignored): %s", exc)
+        logger.warning("LLM cache SET failed: %s", exc, extra={"cache_key": key})
 
 def _context_chars_per_doc() -> int:
     """Return configured per-document character limit for LLM context."""

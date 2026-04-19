@@ -8,6 +8,9 @@ of AI-generated compliance assessments.
 import logging
 import re
 
+from app.config import settings
+from app.core.exceptions import PromptInjectionError
+
 logger = logging.getLogger("app.security")
 
 # Default maximum characters for a single user-controlled field in a prompt
@@ -60,16 +63,23 @@ def sanitize_prompt_field(value: str | None, max_chars: int = _DEFAULT_MAX_FIELD
     # cause a KeyError or inject an unintended placeholder.
     text = text.replace("{", "{{").replace("}", "}}")
 
-    # Detect (but do not block) common prompt injection patterns.
-    # Blocking would be too aggressive and could prevent legitimate content.
-    # Logging allows operators to monitor and investigate suspicious inputs.
+    # Detect common prompt injection patterns.
+    # When PROMPT_INJECTION_BLOCK=true the request is rejected; otherwise it is
+    # only logged so operators can monitor suspicious inputs without breaking
+    # legitimate edge-case content.
     if _INJECTION_PATTERN.search(text):
         logger.warning(
             "Potential prompt injection pattern detected in user input",
             extra={
                 "event": "prompt_injection_attempt",
                 "value_preview": text[:100],
+                "blocked": settings.prompt_injection_block,
             },
         )
+        if settings.prompt_injection_block:
+            raise PromptInjectionError(
+                "Input rejected: potential prompt injection pattern detected. "
+                "Remove instructions that attempt to override system behaviour."
+            )
 
     return text

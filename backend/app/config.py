@@ -147,6 +147,10 @@ class Settings(BaseSettings):
     notification_dsr_warning_days: int = 5             # Warnung X Tage vor DSR-Antwortpflicht
     notification_avv_expiry_warning_days: int = 90     # Warnung X Tage vor AVV-Ablauf
 
+    # Prompt injection protection: when True, requests containing injection patterns are
+    # rejected with an exception instead of just logged. False = log-only (default).
+    prompt_injection_block: bool = False
+
     # LLM-Provider (ollama | openai | anthropic)
     # Ollama-Konfiguration bleibt unverändert (ollama_base_url, ollama_model, etc.)
     llm_provider: str = "ollama"      # Aktiver Provider: "ollama", "openai" oder "anthropic"
@@ -203,13 +207,11 @@ class Settings(BaseSettings):
             and self.ollama_timeout_seconds > 0
             and self.check_timeout_seconds < self.ollama_timeout_seconds
         ):
-            _log.warning(
-                "LLM timeout misconfiguration: CHECK_TIMEOUT_SECONDS (%.1fs) < "
-                "OLLAMA_TIMEOUT_SECONDS (%.1fs). Checks may be cancelled before "
-                "the HTTP client can surface its own timeout. Set CHECK_TIMEOUT_SECONDS "
-                ">= OLLAMA_TIMEOUT_SECONDS.",
-                self.check_timeout_seconds,
-                self.ollama_timeout_seconds,
+            raise ValueError(
+                f"CHECK_TIMEOUT_SECONDS ({self.check_timeout_seconds:.1f}s) must be "
+                f">= OLLAMA_TIMEOUT_SECONDS ({self.ollama_timeout_seconds:.1f}s). "
+                "Checks would be cancelled before the HTTP client can surface its own "
+                "timeout error. Increase CHECK_TIMEOUT_SECONDS or decrease OLLAMA_TIMEOUT_SECONDS."
             )
 
         if self.storage_backend == "minio":
