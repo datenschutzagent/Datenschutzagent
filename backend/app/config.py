@@ -1,4 +1,7 @@
 """Application configuration."""
+from __future__ import annotations
+
+import urllib.parse
 from pydantic import SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -199,12 +202,44 @@ class Settings(BaseSettings):
         import logging as _logging
         _log = _logging.getLogger("app.startup")
 
+        def _redact_url(url: str) -> str:
+            """Return a safe-to-log URL without userinfo (password)."""
+            try:
+                p = urllib.parse.urlparse(url)
+                netloc = p.netloc
+                if "@" in netloc:
+                    netloc = f"***@{netloc.split('@', 1)[1]}"
+                return urllib.parse.urlunparse((p.scheme, netloc, p.path, p.params, p.query, p.fragment))
+            except Exception:
+                return "<unparseable>"
+
         # F5: DATABASE_URL must always be set explicitly — no default credentials.
         if not self.database_url:
             raise ValueError(
                 "DATABASE_URL must be set. Example: "
                 "postgresql+asyncpg://user:password@host:5432/dbname"
             )
+
+        # Celery broker URL: validate early with a helpful error message.
+        # Avoid logging secrets by redacting userinfo.
+        broker_url = (self.celery_broker_url or "").strip()
+        if self.celery_enabled and broker_url:
+            try:
+                p = urllib.parse.urlparse(broker_url)
+                if p.scheme not in ("redis", "rediss", "amqp", "pyamqp"):
+                    raise ValueError(f"unsupported scheme {p.scheme!r}")
+                if not p.hostname:
+                    raise ValueError("missing hostname")
+                # Accessing .port can raise ValueError if it is not an int.
+                _ = p.port  # noqa: F841
+            except Exception as exc:
+                safe = _redact_url(broker_url)
+                raise ValueError(
+                    "CELERY_BROKER_URL ist ungültig und kann nicht geparst werden. "
+                    "Erwartetes Format (Redis): redis://:PASSWORD@HOST:6379/0 "
+                    "(Passwort ggf. URL-encoden oder ein hex-Passwort verwenden). "
+                    f"Aktuell (redacted): {safe}. Fehler: {exc}"
+                ) from exc
 
         # LLM timeout: check_timeout_seconds must be >= ollama_timeout_seconds
         # so that the asyncio.wait_for wrapper around the HTTP call does not

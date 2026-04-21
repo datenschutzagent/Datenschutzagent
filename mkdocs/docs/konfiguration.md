@@ -52,7 +52,7 @@ Die Anwendung wird über Umgebungsvariablen konfiguriert. Im Projektroot liegt e
 
 | Variable | Beschreibung |
 | :--- | :--- |
-| `CELERY_BROKER_URL` | Redis-URL für Celery (z. B. `redis://localhost:6379/0`). In Docker setzt docker-compose z. B. `redis://redis:6379/0`. |
+| `CELERY_BROKER_URL` | Redis-URL für Celery (z. B. `redis://localhost:6379/0`). In Docker setzt docker-compose z. B. `redis://:REDIS_PASSWORD@redis:6379/0` (Passwort ggf. URL-encoden, falls Sonderzeichen enthalten sind). |
 | `CELERY_ENABLED` | Wenn nicht gesetzt oder Broker fehlt: Extraktion beim Upload synchron. |
 
 ---
