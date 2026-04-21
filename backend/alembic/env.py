@@ -57,6 +57,13 @@ def run_migrations_online() -> None:
         _get_sync_url(),
         poolclass=pool.NullPool,
     )
+
+    # Ensure all tables exist before migrations run (handles fresh installs).
+    # On existing deployments create_all is a no-op; Alembic then adds any
+    # missing columns/indexes via the baseline migration.
+    with connectable.begin() as bootstrap_conn:
+        target_metadata.create_all(bootstrap_conn, checkfirst=True)
+
     with connectable.connect() as connection:
         context.configure(
             connection=connection,
