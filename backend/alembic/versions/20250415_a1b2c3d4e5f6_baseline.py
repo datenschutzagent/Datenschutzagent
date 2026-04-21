@@ -33,7 +33,7 @@ def upgrade() -> None:
     op.execute("ALTER TABLE findings ADD COLUMN IF NOT EXISTS source_strategy VARCHAR(20)")
     op.execute("ALTER TABLE findings ADD COLUMN IF NOT EXISTS due_date TIMESTAMPTZ")
     op.execute(
-        "CREATE INDEX CONCURRENTLY IF NOT EXISTS ix_findings_created_at ON findings (created_at)"
+        "CREATE INDEX IF NOT EXISTS ix_findings_created_at ON findings (created_at)"
     )
 
     # ---- Users ----
