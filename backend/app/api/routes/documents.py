@@ -34,6 +34,43 @@ FORMAT_TO_MEDIA_TYPE = {
     "doc": "application/msword",
 }
 
+# Magic-byte signatures per format. We rely on these instead of MIME headers because
+# the client controls Content-Type. DOCX/XLSX share the ZIP container signature; the
+# downstream parser (python-docx / openpyxl) rejects any ZIP that doesn't match.
+_PDF_MAGIC = b"%PDF-"
+_ZIP_MAGIC = b"PK\x03\x04"
+_ZIP_EMPTY_MAGIC = b"PK\x05\x06"  # empty archive — reject as malformed
+_OLE2_MAGIC = b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1"
+
+
+def _verify_magic_bytes(content: bytes, expected_format: str, filename: str) -> None:
+    """Raise HTTP 415 if the file content's magic bytes do not match the extension.
+
+    This catches renamed files (e.g. a PDF uploaded as ``report.docx``) that would
+    otherwise reach the parser and waste resources or exploit parser edge cases.
+    """
+    header = content[:16] if content else b""
+    if expected_format == "pdf":
+        ok = header.startswith(_PDF_MAGIC)
+    elif expected_format in ("docx", "xlsx"):
+        ok = header.startswith(_ZIP_MAGIC)
+    elif expected_format == "doc":
+        ok = header.startswith(_OLE2_MAGIC)
+    else:
+        ok = False
+    if not ok:
+        logger.warning(
+            "Magic-byte mismatch on upload: filename=%r expected=%s header=%r",
+            filename, expected_format, header[:8],
+        )
+        raise HTTPException(
+            status_code=415,
+            detail=(
+                f"Dateiinhalt von '{filename}' passt nicht zur Endung .{expected_format}. "
+                f"Bitte eine echte {expected_format.upper()}-Datei hochladen."
+            ),
+        )
+
 
 async def _next_version_for_type(
     db: AsyncSession,
@@ -75,6 +112,7 @@ async def _process_one_upload(
             status_code=413,
             detail=f"Datei '{filename}' überschreitet das erlaubte Maximum von {settings.max_upload_size_bytes // (1024 * 1024)} MB.",
         )
+    _verify_magic_bytes(content, file_format, filename)
     size_bytes = len(content)
     if async_extraction:
         text_content = None

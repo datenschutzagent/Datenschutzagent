@@ -44,8 +44,44 @@ class Settings(BaseSettings):
     @classmethod
     def parse_cors_origins(cls, v: str | list[str]) -> list[str]:
         if isinstance(v, list):
-            return v
-        return [x.strip() for x in str(v).split(",") if x.strip()]
+            items = v
+        else:
+            items = [x.strip() for x in str(v).split(",") if x.strip()]
+        # Reject obvious misconfigurations (wildcards, regex chars, empty scheme) that would
+        # open CSRF surface. Exact scheme://host[:port] only.
+        for origin in items:
+            if origin == "*" or "*" in origin:
+                raise ValueError(f"CORS_ORIGINS wildcard not allowed: {origin!r}")
+            if any(c in origin for c in ("?", "(", ")", "[", "]", "{", "}", "^", "$", "\\")):
+                raise ValueError(f"CORS_ORIGINS regex/special chars not allowed: {origin!r}")
+            p = urllib.parse.urlparse(origin)
+            if p.scheme not in ("http", "https") or not p.netloc or p.path not in ("", "/"):
+                raise ValueError(
+                    f"CORS_ORIGINS must be 'scheme://host[:port]' only, got: {origin!r}"
+                )
+        return items
+
+    # Reverse-proxy / load-balancer peers whose X-Forwarded-For header the rate limiter
+    # should trust. Comma-separated list of exact IPs or CIDR ranges (e.g.
+    # "10.0.0.0/8,192.168.1.5"). Empty = only the direct socket peer IP is used.
+    trusted_proxies: str | list[str] = ""
+
+    @field_validator("trusted_proxies", mode="before")
+    @classmethod
+    def parse_trusted_proxies(cls, v: str | list[str]) -> list[str]:
+        if isinstance(v, list):
+            items = v
+        else:
+            items = [x.strip() for x in str(v).split(",") if x.strip()]
+        import ipaddress as _ip
+        for entry in items:
+            try:
+                _ip.ip_network(entry, strict=False)
+            except ValueError as exc:
+                raise ValueError(
+                    f"TRUSTED_PROXIES entry {entry!r} is not a valid IP or CIDR range: {exc}"
+                ) from exc
+        return items
 
     # Playbook seed (YAML directory; used when playbooks table is empty)
     playbooks_seed_dir: str | None = None  # None = use default app/data/playbooks

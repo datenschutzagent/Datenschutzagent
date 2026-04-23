@@ -31,14 +31,35 @@ def _log_extra() -> dict:
 # LLM response cache (optional Redis-backed)
 # ---------------------------------------------------------------------------
 
-def _cache_key(system_prompt: str, user_content: str) -> str:
-    """SHA-256 hash of model+system+user prompt as a Redis key.
+_org_profile_hash_cached: str | None = None
 
-    The model identifier is included so that a model upgrade (e.g. llama3.2 →
-    llama3.3) automatically invalidates existing cache entries.
+
+def _org_profile_hash() -> str:
+    """Stable hash over the organisation context that influences prompt semantics.
+
+    Included so that two deployments with the same prompt/document text but
+    different org profiles cannot share a cache entry. Memoized for the process
+    lifetime because these settings are immutable after startup.
+    """
+    global _org_profile_hash_cached
+    if _org_profile_hash_cached is None:
+        raw = f"{settings.org_profile}\x00{settings.org_name}"
+        _org_profile_hash_cached = hashlib.sha256(raw.encode("utf-8")).hexdigest()[:16]
+    return _org_profile_hash_cached
+
+
+def _cache_key(system_prompt: str, user_content: str, case_id: UUID | None) -> str:
+    """SHA-256 hash of org+case+model+system+user prompt as a Redis key.
+
+    Scoping the key by ``org_profile`` and ``case_id`` prevents cross-case or
+    cross-tenant cache reuse, which could otherwise leak or poison results when
+    two contexts produce the same prompt bytes. The model identifier is
+    included so that a model upgrade (e.g. llama3.2 → llama3.3) automatically
+    invalidates existing cache entries.
     """
     model_id = f"{settings.llm_provider}:{settings.ollama_model if settings.llm_provider == 'ollama' else settings.openai_model if settings.llm_provider == 'openai' else settings.anthropic_model}"
-    raw = f"{model_id}\x00{system_prompt}\x00{user_content}"
+    case_part = str(case_id) if case_id is not None else "-"
+    raw = f"{_org_profile_hash()}\x00{case_part}\x00{model_id}\x00{system_prompt}\x00{user_content}"
     digest = hashlib.sha256(raw.encode("utf-8")).hexdigest()
     return f"llm_cache:{digest}"
 
@@ -193,6 +214,8 @@ async def run_check(
     check_instruction: str,
     language: str | None = None,
     legal_bases_context: str | None = None,
+    *,
+    case_id: UUID | None = None,
 ) -> CheckResult:
     """Run a single check against a document using the LLM."""
     language_hint = _language_hint(language) if language else ""
@@ -214,7 +237,7 @@ async def run_check(
         },
     )
     agent = create_agent(system_prompt=system)
-    cache_key = _cache_key(system, user_content)
+    cache_key = _cache_key(system, user_content, case_id)
     cached = await _cache_get(cache_key)
     if cached is not None:
         logger.info("LLM cache hit for check '%s'  [request_id=%s]", check_instruction[:60], get_request_id())
@@ -238,6 +261,8 @@ async def run_cross_document_check(
     check_instruction: str,
     language: str | None = None,
     legal_bases_context: str | None = None,
+    *,
+    case_id: UUID | None = None,
 ) -> CheckResult:
     """
     Run a single check across multiple documents (case-level / cross-document).
@@ -269,7 +294,7 @@ async def run_cross_document_check(
         },
     )
     agent = create_agent(system_prompt=system)
-    cache_key = _cache_key(system, user_content)
+    cache_key = _cache_key(system, user_content, case_id)
     cached = await _cache_get(cache_key)
     if cached is not None:
         logger.info("LLM cache hit for cross-doc check '%s'  [request_id=%s]", check_instruction[:60], get_request_id())
@@ -321,7 +346,7 @@ async def run_check_rag(
         },
     )
     agent = create_agent(system_prompt=system)
-    cache_key = _cache_key(system, user_content)
+    cache_key = _cache_key(system, user_content, case_id)
     cached = await _cache_get(cache_key)
     if cached is not None:
         logger.info("LLM cache hit for RAG check '%s'  [request_id=%s]", check_instruction[:60], get_request_id())
@@ -375,7 +400,7 @@ async def run_cross_document_check_rag(
         },
     )
     agent = create_agent(system_prompt=system)
-    cache_key = _cache_key(system, user_content)
+    cache_key = _cache_key(system, user_content, case_id)
     cached = await _cache_get(cache_key)
     if cached is not None:
         logger.info("LLM cache hit for cross-RAG check '%s'  [request_id=%s]", check_instruction[:60], get_request_id())
