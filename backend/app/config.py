@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import urllib.parse
+from typing import Literal
+
 from pydantic import SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -17,6 +19,12 @@ class Settings(BaseSettings):
 
     app_name: str = "Datenschutzagent API"
     debug: bool = False
+
+    # Deployment environment — required. ``production`` triggers a stricter
+    # validator cascade (OIDC mandatory, webhook encryption key mandatory,
+    # HTTPS-only CORS). No default on purpose: forgetting to set it must fail
+    # the container startup rather than silently booting with permissive rules.
+    app_environment: Literal["development", "test", "production"]
 
     # API
     api_v1_prefix: str = "/api/v1"
@@ -44,8 +52,44 @@ class Settings(BaseSettings):
     @classmethod
     def parse_cors_origins(cls, v: str | list[str]) -> list[str]:
         if isinstance(v, list):
-            return v
-        return [x.strip() for x in str(v).split(",") if x.strip()]
+            items = v
+        else:
+            items = [x.strip() for x in str(v).split(",") if x.strip()]
+        # Reject obvious misconfigurations (wildcards, regex chars, empty scheme) that would
+        # open CSRF surface. Exact scheme://host[:port] only.
+        for origin in items:
+            if origin == "*" or "*" in origin:
+                raise ValueError(f"CORS_ORIGINS wildcard not allowed: {origin!r}")
+            if any(c in origin for c in ("?", "(", ")", "[", "]", "{", "}", "^", "$", "\\")):
+                raise ValueError(f"CORS_ORIGINS regex/special chars not allowed: {origin!r}")
+            p = urllib.parse.urlparse(origin)
+            if p.scheme not in ("http", "https") or not p.netloc or p.path not in ("", "/"):
+                raise ValueError(
+                    f"CORS_ORIGINS must be 'scheme://host[:port]' only, got: {origin!r}"
+                )
+        return items
+
+    # Reverse-proxy / load-balancer peers whose X-Forwarded-For header the rate limiter
+    # should trust. Comma-separated list of exact IPs or CIDR ranges (e.g.
+    # "10.0.0.0/8,192.168.1.5"). Empty = only the direct socket peer IP is used.
+    trusted_proxies: str | list[str] = ""
+
+    @field_validator("trusted_proxies", mode="before")
+    @classmethod
+    def parse_trusted_proxies(cls, v: str | list[str]) -> list[str]:
+        if isinstance(v, list):
+            items = v
+        else:
+            items = [x.strip() for x in str(v).split(",") if x.strip()]
+        import ipaddress as _ip
+        for entry in items:
+            try:
+                _ip.ip_network(entry, strict=False)
+            except ValueError as exc:
+                raise ValueError(
+                    f"TRUSTED_PROXIES entry {entry!r} is not a valid IP or CIDR range: {exc}"
+                ) from exc
+        return items
 
     # Playbook seed (YAML directory; used when playbooks table is empty)
     playbooks_seed_dir: str | None = None  # None = use default app/data/playbooks
@@ -133,6 +177,20 @@ class Settings(BaseSettings):
 
     # RBAC: default role for new users (viewer, editor, admin). Existing users updated by migration.
     rbac_default_role: str = "viewer"
+
+    # Session-cookie auth (feature flag). When enabled, /api/v1/auth/session
+    # exchanges OIDC authorization codes for an HttpOnly session cookie + a
+    # readable CSRF cookie. The legacy Bearer-token flow keeps working so
+    # deployments can roll the change out gradually.
+    auth_session_cookie_enabled: bool = False
+    session_ttl_seconds: int = 43200  # 12h sliding session
+    # Cookie names. The ``__Host-`` prefix mandates Secure + no Domain + Path=/
+    # and is only usable over HTTPS, so we drop it in non-production so
+    # browsers accept the cookie on plain-HTTP dev setups.
+    session_cookie_name_production: str = "__Host-ds_session"
+    session_cookie_name_development: str = "ds_session"
+    csrf_cookie_name_production: str = "__Host-ds_csrf"
+    csrf_cookie_name_development: str = "ds_csrf"
 
     # LLM response cache (Redis; avoids re-running identical checks on unchanged documents)
     llm_cache_enabled: bool = False  # set True to activate; requires Redis (celery_broker_url)
@@ -264,14 +322,10 @@ class Settings(BaseSettings):
                 raise ValueError(
                     f"storage_backend=minio requires these env vars to be set: {', '.join(m.upper() for m in missing)}"
                 )
-        # F1: In production (debug=False) OIDC must be enabled. An unauthenticated
-        # deployment exposes all data to anyone with network access.
-        if not self.debug and not self.oidc_enabled:
-            raise ValueError(
-                "SECURITY: OIDC_ENABLED must be true in production (DEBUG=false). "
-                "Set OIDC_ENABLED=true and configure OIDC_ISSUER_URL / OIDC_CLIENT_ID, "
-                "or set DEBUG=true for local development (never expose debug mode publicly)."
-            )
+        # Production-profile enforcement is handled further down, gated by
+        # APP_ENVIRONMENT. The older check that used DEBUG as a proxy for
+        # production was removed because it fired in test environments whenever
+        # DEBUG defaulted to false.
 
         if self.oidc_enabled:
             if not self.oidc_issuer_url:
@@ -308,6 +362,36 @@ class Settings(BaseSettings):
                     "SECURITY: CORS_ORIGINS contains non-HTTPS origins in non-debug mode: %s. "
                     "Use HTTPS-only origins in production.",
                     http_origins,
+                )
+
+        # Production profile: turn the earlier advisory warnings into hard
+        # failures so that a misconfigured deployment never boots. Development
+        # and test environments keep their lenient behaviour.
+        if self.app_environment == "production":
+            problems: list[str] = []
+            if not self.oidc_enabled:
+                problems.append("OIDC_ENABLED must be true")
+            if self.debug:
+                problems.append("DEBUG must be false")
+            if not self.webhook_secret_encryption_key.get_secret_value():
+                problems.append("WEBHOOK_SECRET_ENCRYPTION_KEY must be set")
+            origins = self.cors_origins if isinstance(self.cors_origins, list) else []
+            http_origins = [o for o in origins if o.startswith("http://")]
+            if http_origins:
+                problems.append(
+                    f"CORS_ORIGINS must use HTTPS only (rejected: {http_origins})"
+                )
+            trusted = self.trusted_proxies if isinstance(self.trusted_proxies, list) else []
+            if not trusted:
+                _log.warning(
+                    "SECURITY: APP_ENVIRONMENT=production but TRUSTED_PROXIES is empty. "
+                    "Set it to the CIDR range of your load balancer so X-Forwarded-For "
+                    "is honoured; otherwise rate limits apply to the LB IP as one source."
+                )
+            if problems:
+                raise ValueError(
+                    "SECURITY: APP_ENVIRONMENT=production requires: "
+                    + "; ".join(problems)
                 )
 
         return self

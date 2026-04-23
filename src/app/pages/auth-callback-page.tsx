@@ -1,6 +1,8 @@
 import { useEffect, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router";
 import { getAuthConfig, setAccessToken } from "../lib/api";
+import { startSessionCookie } from "../lib/api/admin";
+import { setSessionCookieMode } from "../lib/api/core";
 import { getStoredCodeVerifier, clearStoredCodeVerifier, setStoredToken } from "../lib/auth";
 
 const API_BASE = (import.meta as unknown as { env?: { VITE_API_URL?: string } }).env?.VITE_API_URL ?? "http://localhost:8002";
@@ -99,6 +101,17 @@ export function AuthCallbackPage() {
     (async () => {
       try {
         const config = await getAuthConfig();
+        // Session-cookie flow: backend performs the exchange and sets the
+        // HttpOnly session cookie. No access token ever touches JS.
+        if (config.auth_session_cookie_enabled) {
+          setSessionCookieMode(true);
+          await startSessionCookie({ code, redirect_uri: redirectUri, code_verifier: verifier });
+          if (cancelled) return;
+          window.dispatchEvent(new CustomEvent("datenschutzagent:token-set"));
+          setStatus("ok");
+          navigate("/", { replace: true });
+          return;
+        }
         if (!config.token_endpoint || !config.oidc_client_id) {
           setMessage("OIDC token endpoint not configured");
           setStatus("error");

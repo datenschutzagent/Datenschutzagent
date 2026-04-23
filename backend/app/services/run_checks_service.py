@@ -238,7 +238,7 @@ async def _doc_check_full_text(state: _CheckRunState, doc_id: UUID, doc_text: st
         logger.info("run_check [full_text] start: '%s' doc=%s", name, doc_id)
         t_chk = time.monotonic()
         try:
-            result = await run_check(doc_text, instruction, language=state.case_language, legal_bases_context=legal_ctx or None)
+            result = await run_check(doc_text, instruction, language=state.case_language, legal_bases_context=legal_ctx or None, case_id=state.case_id)
         except Exception as e:
             logger.error("run_check [full_text] error: '%s' doc=%s: %s", name, doc_id, e)
             state.errors.append({"check": name, "scope": "document", "document_id": str(doc_id), "strategy": "full_text", "error": str(e)})
@@ -286,7 +286,7 @@ async def _doc_check_rag(state: _CheckRunState, doc_id: UUID, item: dict) -> Non
                 state.errors.append({"check": name, "scope": "document", "document_id": str(doc_id), "strategy": "rag", "error": "Weaviate/chunks unavailable – falling back to full_text"})
             doc_text = next((d.content or "" for d in state.case.documents if d.id == doc_id), "")
             try:
-                fallback = await run_check(doc_text, instruction, language=state.case_language, legal_bases_context=legal_ctx or None)
+                fallback = await run_check(doc_text, instruction, language=state.case_language, legal_bases_context=legal_ctx or None, case_id=state.case_id)
                 if not fallback.is_compliant:
                     state.add_finding(
                         document_id=doc_id, check_name=name, category=category,
@@ -328,7 +328,7 @@ async def _case_check_full_text(state: _CheckRunState, doc_list: list[tuple], it
         logger.info("run_check [case/full_text] start: '%s'", name)
         t_chk = time.monotonic()
         try:
-            result = await run_cross_document_check(doc_list, instruction, language=state.case_language, legal_bases_context=legal_ctx or None)
+            result = await run_cross_document_check(doc_list, instruction, language=state.case_language, legal_bases_context=legal_ctx or None, case_id=state.case_id)
         except Exception as e:
             logger.error("run_check [case/full_text] error: '%s': %s", name, e)
             state.errors.append({"check": name, "scope": "case", "document_id": None, "strategy": "full_text", "error": str(e)})
@@ -374,7 +374,7 @@ async def _case_check_rag(state: _CheckRunState, doc_list: list[tuple], item: di
                 state.rag_weaviate_error_logged = True
                 state.errors.append({"check": name, "scope": "case", "document_id": None, "strategy": "rag", "error": "Weaviate/chunks unavailable – falling back to full_text"})
             try:
-                fallback = await run_cross_document_check(doc_list, instruction, language=state.case_language, legal_bases_context=legal_ctx or None)
+                fallback = await run_cross_document_check(doc_list, instruction, language=state.case_language, legal_bases_context=legal_ctx or None, case_id=state.case_id)
                 if not fallback.is_compliant:
                     state.add_finding(
                         document_id=None, check_name=name, category=category,

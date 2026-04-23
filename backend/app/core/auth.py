@@ -5,7 +5,7 @@ import urllib.request
 from typing import Any
 
 import jwt
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -227,11 +227,66 @@ async def get_current_user_fallback(db: AsyncSession = Depends(get_db)):
     return user
 
 
+async def _get_user_by_sub(db: AsyncSession, sub: str) -> UserModel:
+    result = await db.execute(select(UserModel).where(UserModel.oidc_sub == sub))
+    user = result.scalar_one_or_none()
+    if user is None:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Session user not found")
+    return user
+
+
+async def get_current_user_cookie(
+    request: Request,
+    db: AsyncSession,
+) -> UserModel | None:
+    """Resolve user from session cookie if present + CSRF header valid.
+
+    Returns ``None`` when no session cookie is set, so callers can fall back
+    to Bearer-token authentication. Raises 401/403 only when a cookie IS
+    present but invalid (missing session, CSRF mismatch) — a missing cookie
+    is not an error, it simply means the caller did not opt into cookie auth.
+    """
+    from app.core.session import (
+        csrf_cookie_name,
+        load_session,
+        refresh_session_ttl,
+        session_cookie_name,
+        verify_csrf,
+    )
+
+    if not settings.auth_session_cookie_enabled:
+        return None
+    session_id = request.cookies.get(session_cookie_name(), "")
+    if not session_id:
+        return None
+    payload = await load_session(session_id)
+    if payload is None:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Session expired")
+    verify_csrf(request, payload.get("csrf", ""))
+    sub = payload.get("sub")
+    if not sub:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Session missing sub")
+    user = await _get_user_by_sub(db, sub)
+    await refresh_session_ttl(session_id)
+    return user
+
+
 async def get_current_user(
+    request: Request,
     credentials: HTTPAuthorizationCredentials | None = Depends(security),
     db: AsyncSession = Depends(get_db),
 ) -> UserModel:
-    """Dependency: return current user. When OIDC is enabled, requires valid Bearer token; otherwise uses CURRENT_USER_ID or default."""
+    """Dependency: return current user.
+
+    Resolution order:
+    1. Session cookie (when ``auth_session_cookie_enabled=true`` and cookie set)
+    2. OIDC Bearer token (when ``oidc_enabled=true``)
+    3. ``CURRENT_USER_ID`` fallback / default user (when OIDC is disabled)
+    """
+    if settings.auth_session_cookie_enabled:
+        user = await get_current_user_cookie(request=request, db=db)
+        if user is not None:
+            return user
     if settings.oidc_enabled:
         return await get_current_user_oidc(credentials=credentials, db=db)
     return await get_current_user_fallback(db=db)

@@ -7,6 +7,8 @@ import {
   type AuthConfig,
   type ApiUser,
 } from "../lib/api";
+import { endSessionCookie } from "../lib/api/admin";
+import { setSessionCookieMode, isSessionCookieMode } from "../lib/api/core";
 import { logger } from "../lib/logger";
 import {
   clearStoredCodeVerifier,
@@ -25,7 +27,7 @@ interface AuthContextValue {
   isAuthenticated: boolean;
   user: ApiUser | null;
   login: () => Promise<void>;
-  logout: () => void;
+  logout: () => void | Promise<void>;
   refreshUser: () => Promise<void>;
 }
 
@@ -38,10 +40,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<ApiUser | null>(null);
 
   const token = getAccessToken();
-  const isAuthenticated = !!token;
+  const isAuthenticated = !!token || !!user;
 
   const refreshUser = useCallback(async () => {
-    if (!getAccessToken()) return;
+    if (!isSessionCookieMode() && !getAccessToken()) return;
     try {
       const u = await getCurrentUser();
       setUser(u);
@@ -57,13 +59,22 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         const config = await getAuthConfig();
         if (cancelled) return;
         setAuthConfig(config);
+        // If the backend uses the session-cookie flow, let the API client
+        // switch into ``credentials: "include"`` + CSRF-header mode.
+        const cookieFlow = !!config.auth_session_cookie_enabled;
+        setSessionCookieMode(cookieFlow);
         const stored = getStoredToken();
-        if (stored) {
+        if (stored && !cookieFlow) {
           setAccessToken(stored);
         }
-        if (stored || !config.oidc_enabled) {
-          const u = await getCurrentUser();
-          if (!cancelled) setUser(u);
+        if (cookieFlow || stored || !config.oidc_enabled) {
+          try {
+            const u = await getCurrentUser();
+            if (!cancelled) setUser(u);
+          } catch {
+            // Cookie may be absent on first load in cookie-mode — stay logged out.
+            if (!cancelled && !cookieFlow) throw new Error("Failed to load current user");
+          }
         }
       } catch (e) {
         if (!cancelled) {
@@ -131,7 +142,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     window.location.href = `${config.authorization_endpoint}?${params.toString()}`;
   }, [authConfig]);
 
-  const logout = useCallback(() => {
+  const logout = useCallback(async () => {
+    // Tell the backend to invalidate the session (cookie-flow) so Redis is clean.
+    if (isSessionCookieMode()) {
+      try {
+        await endSessionCookie();
+      } catch (err) {
+        logger.warn("Backend logout failed", err);
+      }
+    }
     setAccessToken(null);
     clearStoredToken();
     clearStoredCodeVerifier();

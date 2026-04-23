@@ -37,6 +37,7 @@ jobs:
     env:
       DATABASE_URL: postgresql+asyncpg://postgres:postgres@localhost:5432/datenschutzagent_test
       OLLAMA_ENABLED: "false"
+      APP_ENVIRONMENT: test
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5

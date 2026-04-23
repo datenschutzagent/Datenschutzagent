@@ -37,12 +37,24 @@ def _get_fernet():
 
 
 def encrypt_secret(plaintext: str) -> str:
-    """Verschlüsselt einen Klartext-String. Gibt den Klartext unverändert zurück,
-    wenn kein Verschlüsselungsschlüssel konfiguriert ist."""
+    """Verschlüsselt einen Klartext-String.
+
+    In Produktion (``APP_ENVIRONMENT=production``) muss ein Fernet-Schlüssel
+    konfiguriert sein; andernfalls wird ein ``RuntimeError`` geworfen, damit
+    keine Klartext-Secrets in der DB landen. In Entwicklungs-/Testumgebungen
+    bleibt das lockere Verhalten erhalten: fehlt der Schlüssel, wird der
+    Klartext unverändert zurückgegeben.
+    """
     if not plaintext:
         return plaintext
     fernet = _get_fernet()
     if fernet is None:
+        if settings.app_environment == "production":
+            raise RuntimeError(
+                "WEBHOOK_SECRET_ENCRYPTION_KEY must be set in production — refusing to "
+                "store webhook secrets in plaintext. Generate a key with: "
+                "python -c \"from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())\""
+            )
         return plaintext
     return fernet.encrypt(plaintext.encode()).decode()
 

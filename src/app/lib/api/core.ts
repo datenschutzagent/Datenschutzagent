@@ -26,6 +26,13 @@ export class ApiError extends Error {
 /** Token for authenticated requests (set by auth flow when OIDC is enabled). */
 let accessToken: string | null = null;
 
+/**
+ * Enabled when the backend reports ``auth_session_cookie_enabled: true`` in
+ * ``/auth/config``. When true, the SPA switches from the Bearer-token flow to
+ * HttpOnly session cookies + CSRF double-submit.
+ */
+let sessionCookieMode = false;
+
 export function setAccessToken(token: string | null): void {
   accessToken = token;
 }
@@ -34,9 +41,49 @@ export function getAccessToken(): string | null {
   return accessToken;
 }
 
+export function setSessionCookieMode(enabled: boolean): void {
+  sessionCookieMode = enabled;
+}
+
+export function isSessionCookieMode(): boolean {
+  return sessionCookieMode;
+}
+
+/** Name of the CSRF cookie the backend sets. Mirrors backend production /
+ * development split (``__Host-ds_csrf`` vs ``ds_csrf``). The ``__Host-``
+ * variant is used in production (Secure origins). */
+function csrfCookieCandidates(): string[] {
+  return ["__Host-ds_csrf", "ds_csrf"];
+}
+
+function readCookie(name: string): string | null {
+  const prefix = `${name}=`;
+  const parts = document.cookie.split(";");
+  for (const raw of parts) {
+    const trimmed = raw.trim();
+    if (trimmed.startsWith(prefix)) {
+      return decodeURIComponent(trimmed.slice(prefix.length));
+    }
+  }
+  return null;
+}
+
+function readCsrfToken(): string | null {
+  for (const name of csrfCookieCandidates()) {
+    const v = readCookie(name);
+    if (v) return v;
+  }
+  return null;
+}
+
 export function authHeaders(): Record<string, string> {
   const h: Record<string, string> = {};
-  if (accessToken) h["Authorization"] = `Bearer ${accessToken}`;
+  if (sessionCookieMode) {
+    const csrf = readCsrfToken();
+    if (csrf) h["X-CSRF-Token"] = csrf;
+  } else if (accessToken) {
+    h["Authorization"] = `Bearer ${accessToken}`;
+  }
   return h;
 }
 
@@ -84,10 +131,7 @@ export async function request<T>(
   options?: { body?: unknown; formData?: FormData }
 ): Promise<T> {
   const url = `${API_BASE}${API_PREFIX}${path}`;
-  const headers: Record<string, string> = {};
-  if (accessToken) {
-    headers["Authorization"] = `Bearer ${accessToken}`;
-  }
+  const headers: Record<string, string> = { ...authHeaders() };
   let fetchBody: string | FormData | undefined;
   if (options?.formData) {
     fetchBody = options.formData;
@@ -97,8 +141,12 @@ export async function request<T>(
   }
 
   let res: Response;
+  const init: RequestInit = { method, headers, body: fetchBody };
+  if (sessionCookieMode) {
+    init.credentials = "include";
+  }
   try {
-    res = await fetch(url, { method, headers, body: fetchBody });
+    res = await fetch(url, init);
   } catch (networkErr) {
     logger.error("Network request failed", { method, path }, networkErr);
     throw new ApiError("Netzwerkfehler – bitte Verbindung prüfen.", 0);
@@ -129,7 +177,9 @@ export function downloadBlob(blob: Blob, filename: string): void {
 
 /** Fetch a URL and return its body as a Blob. Throws ApiError on non-ok responses. */
 export async function fetchBlob(url: string, method = "GET"): Promise<Blob> {
-  const res = await fetch(url, { method, headers: authHeaders() });
+  const init: RequestInit = { method, headers: authHeaders() };
+  if (sessionCookieMode) init.credentials = "include";
+  const res = await fetch(url, init);
   if (!res.ok) {
     const detail = await parseErrorResponse(res);
     throw new ApiError(detail, res.status);
