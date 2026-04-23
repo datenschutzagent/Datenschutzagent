@@ -11,6 +11,8 @@ os.environ.setdefault("OLLAMA_ENABLED", "false")
 os.environ.setdefault("RBAC_DEFAULT_ROLE", "admin")
 # Disable Celery so document extraction runs inline (Redis not available in test env)
 os.environ.setdefault("CELERY_ENABLED", "false")
+# Mark environment as test so the production-profile validator stays lenient.
+os.environ.setdefault("APP_ENVIRONMENT", "test")
 
 
 @pytest.fixture

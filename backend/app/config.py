@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import urllib.parse
+from typing import Literal
+
 from pydantic import SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -17,6 +19,12 @@ class Settings(BaseSettings):
 
     app_name: str = "Datenschutzagent API"
     debug: bool = False
+
+    # Deployment environment — required. ``production`` triggers a stricter
+    # validator cascade (OIDC mandatory, webhook encryption key mandatory,
+    # HTTPS-only CORS). No default on purpose: forgetting to set it must fail
+    # the container startup rather than silently booting with permissive rules.
+    app_environment: Literal["development", "test", "production"]
 
     # API
     api_v1_prefix: str = "/api/v1"
@@ -300,14 +308,10 @@ class Settings(BaseSettings):
                 raise ValueError(
                     f"storage_backend=minio requires these env vars to be set: {', '.join(m.upper() for m in missing)}"
                 )
-        # F1: In production (debug=False) OIDC must be enabled. An unauthenticated
-        # deployment exposes all data to anyone with network access.
-        if not self.debug and not self.oidc_enabled:
-            raise ValueError(
-                "SECURITY: OIDC_ENABLED must be true in production (DEBUG=false). "
-                "Set OIDC_ENABLED=true and configure OIDC_ISSUER_URL / OIDC_CLIENT_ID, "
-                "or set DEBUG=true for local development (never expose debug mode publicly)."
-            )
+        # Production-profile enforcement is handled further down, gated by
+        # APP_ENVIRONMENT. The older check that used DEBUG as a proxy for
+        # production was removed because it fired in test environments whenever
+        # DEBUG defaulted to false.
 
         if self.oidc_enabled:
             if not self.oidc_issuer_url:
@@ -344,6 +348,36 @@ class Settings(BaseSettings):
                     "SECURITY: CORS_ORIGINS contains non-HTTPS origins in non-debug mode: %s. "
                     "Use HTTPS-only origins in production.",
                     http_origins,
+                )
+
+        # Production profile: turn the earlier advisory warnings into hard
+        # failures so that a misconfigured deployment never boots. Development
+        # and test environments keep their lenient behaviour.
+        if self.app_environment == "production":
+            problems: list[str] = []
+            if not self.oidc_enabled:
+                problems.append("OIDC_ENABLED must be true")
+            if self.debug:
+                problems.append("DEBUG must be false")
+            if not self.webhook_secret_encryption_key.get_secret_value():
+                problems.append("WEBHOOK_SECRET_ENCRYPTION_KEY must be set")
+            origins = self.cors_origins if isinstance(self.cors_origins, list) else []
+            http_origins = [o for o in origins if o.startswith("http://")]
+            if http_origins:
+                problems.append(
+                    f"CORS_ORIGINS must use HTTPS only (rejected: {http_origins})"
+                )
+            trusted = self.trusted_proxies if isinstance(self.trusted_proxies, list) else []
+            if not trusted:
+                _log.warning(
+                    "SECURITY: APP_ENVIRONMENT=production but TRUSTED_PROXIES is empty. "
+                    "Set it to the CIDR range of your load balancer so X-Forwarded-For "
+                    "is honoured; otherwise rate limits apply to the LB IP as one source."
+                )
+            if problems:
+                raise ValueError(
+                    "SECURITY: APP_ENVIRONMENT=production requires: "
+                    + "; ".join(problems)
                 )
 
         return self
