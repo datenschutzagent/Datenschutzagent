@@ -15,6 +15,14 @@ export interface AuthConfig {
   authorization_endpoint?: string;
   token_endpoint?: string;
   end_session_endpoint?: string;
+  /**
+   * When true, the SPA uses the HttpOnly session-cookie flow. Instead of
+   * exchanging the PKCE code for an access token and storing it in JS, the
+   * frontend POSTs the code to ``/auth/session`` and the backend sets the
+   * session + CSRF cookies. All subsequent API calls use ``credentials:
+   * 'include'`` and echo the CSRF cookie in an ``X-CSRF-Token`` header.
+   */
+  auth_session_cookie_enabled?: boolean;
 }
 
 export async function getAuthConfig(): Promise<AuthConfig> {
@@ -25,6 +33,31 @@ export async function getAuthConfig(): Promise<AuthConfig> {
     throw new Error(detail);
   }
   return res.json() as Promise<AuthConfig>;
+}
+
+// --- Session-cookie flow (opt-in via auth_session_cookie_enabled) ---
+
+export async function startSessionCookie(body: {
+  code: string;
+  redirect_uri: string;
+  code_verifier: string;
+}): Promise<void> {
+  const url = `${API_BASE}${API_PREFIX}/auth/session`;
+  const res = await fetch(url, {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    const detail = await parseErrorResponse(res);
+    throw new Error(detail || "Session exchange failed");
+  }
+}
+
+export async function endSessionCookie(): Promise<void> {
+  const url = `${API_BASE}${API_PREFIX}/auth/logout`;
+  await fetch(url, { method: "POST", credentials: "include" });
 }
 
 // --- User / Me (profile and preferences) ---

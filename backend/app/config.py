@@ -178,6 +178,20 @@ class Settings(BaseSettings):
     # RBAC: default role for new users (viewer, editor, admin). Existing users updated by migration.
     rbac_default_role: str = "viewer"
 
+    # Session-cookie auth (feature flag). When enabled, /api/v1/auth/session
+    # exchanges OIDC authorization codes for an HttpOnly session cookie + a
+    # readable CSRF cookie. The legacy Bearer-token flow keeps working so
+    # deployments can roll the change out gradually.
+    auth_session_cookie_enabled: bool = False
+    session_ttl_seconds: int = 43200  # 12h sliding session
+    # Cookie names. The ``__Host-`` prefix mandates Secure + no Domain + Path=/
+    # and is only usable over HTTPS, so we drop it in non-production so
+    # browsers accept the cookie on plain-HTTP dev setups.
+    session_cookie_name_production: str = "__Host-ds_session"
+    session_cookie_name_development: str = "ds_session"
+    csrf_cookie_name_production: str = "__Host-ds_csrf"
+    csrf_cookie_name_development: str = "ds_csrf"
+
     # LLM response cache (Redis; avoids re-running identical checks on unchanged documents)
     llm_cache_enabled: bool = False  # set True to activate; requires Redis (celery_broker_url)
     llm_cache_ttl: int = 86400       # seconds (default: 24 h)
