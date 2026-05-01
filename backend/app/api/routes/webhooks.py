@@ -60,9 +60,9 @@ def _validate_webhook_url(url: str) -> str:
 
 
 class WebhookCreate(BaseModel):
-    name: str
-    url: str
-    secret: str | None = None
+    name: str = Field(..., min_length=1, max_length=200)
+    url: str = Field(..., max_length=2000)
+    secret: str | None = Field(default=None, max_length=500)
     events: list[str] = []  # leer = alle Events
 
     @field_validator("url")
@@ -72,9 +72,9 @@ class WebhookCreate(BaseModel):
 
 
 class WebhookUpdate(BaseModel):
-    name: str | None = None
-    url: str | None = None
-    secret: str | None = None
+    name: str | None = Field(default=None, min_length=1, max_length=200)
+    url: str | None = Field(default=None, max_length=2000)
+    secret: str | None = Field(default=None, max_length=500)
     events: list[str] | None = None
     is_active: bool | None = None
 

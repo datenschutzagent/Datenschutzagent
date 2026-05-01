@@ -1,4 +1,5 @@
 """Text extraction from documents (PDF, DOCX, XLSX). PDFs with little text use Ollama Vision OCR fallback."""
+import base64
 import io
 import logging
 from dataclasses import dataclass
@@ -6,6 +7,7 @@ from typing import Literal
 
 import fitz  # PyMuPDF
 import docx
+import httpx
 import openpyxl
 
 from app.config import settings
@@ -37,27 +39,25 @@ def _pdf_page_to_png_bytes(content: bytes, page_index: int, dpi: int = 150) -> b
         return pix.tobytes("png")
 
 
-def _extract_text_from_pdf_via_ollama(content: bytes) -> str:
-    """
-    Extract text from PDF using Ollama Vision model (e.g. qwen2.5-vl).
-    Renders each page to PNG and sends to the model. On failure returns empty string.
-    """
-    try:
-        import ollama
-    except ImportError:
-        logger.warning("ollama package not available; OCR fallback disabled")
-        return ""
-
-    # Ollama client: host without /v1 (native API is on :11434)
+def _ollama_chat_api_url() -> str:
+    """Return the Ollama native chat API URL (always at :11434/api/chat, not /v1)."""
     base = (settings.ollama_base_url or "").rstrip("/")
     if base.endswith("/v1"):
         base = base[:-3]
-    host = base or "http://localhost:11434"
+    return f"{base}/api/chat"
 
-    client = ollama.Client(host=host)
+
+def _extract_text_from_pdf_via_ollama(content: bytes) -> str:
+    """
+    Extract text from a scanned PDF using Ollama Vision (e.g. qwen2.5-vl).
+    Renders each page to PNG and sends to the Ollama /api/chat endpoint via httpx.
+    Returns empty string on failure.
+    """
+    chat_url = _ollama_chat_api_url()
+    timeout = httpx.Timeout(settings.ollama_timeout_seconds, connect=10.0)
     dpi = getattr(settings, "ocr_dpi", 150)
-
     max_ocr_pages = getattr(settings, "ocr_max_pages", 200)
+
     with fitz.open(stream=content, filetype="pdf") as doc:
         page_texts: list[str] = []
         total_pages = len(doc)
@@ -67,19 +67,22 @@ def _extract_text_from_pdf_via_ollama(content: bytes) -> str:
         for i in range(pages_to_process):
             try:
                 png_bytes = _pdf_page_to_png_bytes(content, i, dpi=dpi)
-                response = client.chat(
-                    model=settings.ollama_ocr_model,
-                    messages=[
+                payload = {
+                    "model": settings.ollama_ocr_model,
+                    "messages": [
                         {
                             "role": "user",
                             "content": OCR_PROMPT,
-                            "images": [png_bytes],
+                            "images": [base64.b64encode(png_bytes).decode()],
                         }
                     ],
-                )
-                # response is a Pydantic ChatResponse model, not a dict
-                content_msg = (response.message.content or "") if hasattr(response, "message") else ""
-                page_texts.append(content_msg.strip())
+                    "stream": False,
+                }
+                resp = httpx.post(chat_url, json=payload, timeout=timeout)
+                resp.raise_for_status()
+                data = resp.json()
+                page_text = (data.get("message") or {}).get("content") or ""
+                page_texts.append(page_text.strip())
             except Exception as e:
                 logger.warning("Ollama OCR failed for page %s: %s", i + 1, e)
                 page_texts.append("")

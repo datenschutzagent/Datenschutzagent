@@ -49,6 +49,7 @@ from app.services.annotated_document_service import (
 )
 from app.services.run_checks_service import run_checks_impl
 from app.celery_app import build_dsb_report_task, run_playbook_checks
+from app.core.request_id import get_request_id
 from app.services.weaviate_service import delete_chunks_by_case_id
 from app.services.dsb_report_service import (
     build_dsb_report,
@@ -941,7 +942,7 @@ async def generate_dsb_report(
         db.add(job)
         await db.flush()
         await db.refresh(job)
-        build_dsb_report_task.delay(str(job.id))
+        build_dsb_report_task.delay(str(job.id), get_request_id())
         return JSONResponse(
             status_code=202,
             content={"job_id": str(job.id), "status": "running", "message": "Report wird erstellt."},
@@ -1182,7 +1183,7 @@ async def run_checks(
         # Previously the task was dispatched before commit, causing a race condition
         # where the worker could not find the job row.
         await db.commit()
-        celery_result = run_playbook_checks.delay(str(job.id))
+        celery_result = run_playbook_checks.delay(str(job.id), get_request_id())
         job.celery_task_id = celery_result.id
         await db.commit()
         logger.info(

@@ -1,17 +1,20 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
-import { MemoryRouter } from "react-router";
+import { screen, waitFor } from "@testing-library/react";
+import { renderWithProviders } from "../test-utils";
 
 // ---------------------------------------------------------------------------
 // Mocks
 // ---------------------------------------------------------------------------
 
-vi.mock("../lib/api", () => ({
-  getCases: vi.fn(),
-  archiveCase: vi.fn(),
-  unarchiveCase: vi.fn(),
-  canEdit: vi.fn(() => true),
-  isAdmin: vi.fn(() => false),
+vi.mock("../lib/queries/casesQueries", () => ({
+  useCases: vi.fn(),
+  useArchivedCases: vi.fn(),
+  useInvalidateCases: vi.fn(() => vi.fn()),
+  casesKeys: {
+    all: ["cases"],
+    list: (f?: unknown) => ["cases", "list", f ?? {}],
+    archived: () => ["cases", "archived"],
+  },
 }));
 
 vi.mock("../contexts/AuthContext", () => ({
@@ -40,10 +43,27 @@ vi.mock("../contexts/RunningChecksContext", () => ({
 
 vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
 
-import { getCases } from "../lib/api";
+// Stub heavy sub-components that are not under test
+vi.mock("../components/dashboard-stats", () => ({
+  DashboardStats: () => null,
+}));
+vi.mock("../components/new-case-dialog", () => ({
+  NewCaseDialog: () => null,
+}));
+vi.mock("../components/cases-search-filter", () => ({
+  CasesSearchFilter: () => null,
+}));
+vi.mock("../lib/api", () => ({
+  unarchiveCase: vi.fn(),
+  canEdit: vi.fn(() => true),
+  isAdmin: vi.fn(() => false),
+}));
+
+import { useCases, useArchivedCases } from "../lib/queries/casesQueries";
 import { CasesPage } from "./cases-page";
 
-const mockGetCases = vi.mocked(getCases);
+const mockUseCases = vi.mocked(useCases);
+const mockUseArchivedCases = vi.mocked(useArchivedCases);
 
 const makeFakeCase = (overrides: Record<string, unknown> = {}) => ({
   id: "case-1",
@@ -65,12 +85,11 @@ const makeFakeCase = (overrides: Record<string, unknown> = {}) => ({
   ...overrides,
 });
 
+const loadingState = { data: undefined, isLoading: true, isError: false, error: null };
+const emptyState = { data: [], isLoading: false, isError: false, error: null };
+
 function renderPage() {
-  return render(
-    <MemoryRouter>
-      <CasesPage />
-    </MemoryRouter>
-  );
+  return renderWithProviders(<CasesPage />);
 }
 
 // ---------------------------------------------------------------------------
@@ -80,22 +99,27 @@ function renderPage() {
 describe("CasesPage", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockUseArchivedCases.mockReturnValue(emptyState as ReturnType<typeof useArchivedCases>);
   });
 
   it("shows a loading skeleton while cases are being fetched", () => {
-    // Never resolves — keeps component in loading state
-    mockGetCases.mockReturnValue(new Promise(() => {}));
+    mockUseCases.mockReturnValue(loadingState as ReturnType<typeof useCases>);
     renderPage();
-    // Skeleton elements should be present (the component renders them during load)
     const skeletons = document.querySelectorAll("[data-slot='skeleton']");
     expect(skeletons.length).toBeGreaterThan(0);
   });
 
   it("renders case titles after loading", async () => {
-    mockGetCases.mockResolvedValue([
-      makeFakeCase({ title: "Datenschutzfall Alpha" }),
-      makeFakeCase({ id: "case-2", title: "Datenschutzfall Beta" }),
-    ]);
+    mockUseCases.mockReturnValue({
+      data: [
+        makeFakeCase({ title: "Datenschutzfall Alpha" }),
+        makeFakeCase({ id: "case-2", title: "Datenschutzfall Beta" }),
+      ],
+      isLoading: false,
+      isError: false,
+      error: null,
+    } as ReturnType<typeof useCases>);
+
     renderPage();
     await waitFor(() => {
       expect(screen.getByText("Datenschutzfall Alpha")).toBeTruthy();
@@ -103,8 +127,14 @@ describe("CasesPage", () => {
     });
   });
 
-  it("shows an error message when getCases rejects", async () => {
-    mockGetCases.mockRejectedValue(new Error("Netzwerkfehler"));
+  it("shows an error message when the query fails", async () => {
+    mockUseCases.mockReturnValue({
+      data: undefined,
+      isLoading: false,
+      isError: true,
+      error: new Error("Netzwerkfehler"),
+    } as ReturnType<typeof useCases>);
+
     renderPage();
     await waitFor(() => {
       expect(screen.getByText(/Netzwerkfehler/i)).toBeTruthy();
@@ -112,26 +142,21 @@ describe("CasesPage", () => {
   });
 
   it("shows empty state when no cases exist", async () => {
-    mockGetCases.mockResolvedValue([]);
+    mockUseCases.mockReturnValue(emptyState as ReturnType<typeof useCases>);
     renderPage();
     await waitFor(() => {
-      // Should not show any case cards but page should be rendered
       expect(screen.queryByText("Datenschutzfall")).toBeNull();
     });
   });
 
-  it("calls getCases on mount", async () => {
-    mockGetCases.mockResolvedValue([]);
-    renderPage();
-    await waitFor(() => {
-      expect(mockGetCases).toHaveBeenCalledTimes(1);
-    });
-  });
-
   it("renders department badge for each case", async () => {
-    mockGetCases.mockResolvedValue([
-      makeFakeCase({ department: "Personalabteilung" }),
-    ]);
+    mockUseCases.mockReturnValue({
+      data: [makeFakeCase({ department: "Personalabteilung" })],
+      isLoading: false,
+      isError: false,
+      error: null,
+    } as ReturnType<typeof useCases>);
+
     renderPage();
     await waitFor(() => {
       expect(screen.getByText("Personalabteilung")).toBeTruthy();

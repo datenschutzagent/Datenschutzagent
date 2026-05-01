@@ -8,6 +8,7 @@ from pathlib import Path
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request, Response
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from slowapi import _rate_limit_exceeded_handler
@@ -121,6 +122,14 @@ async def lifespan(app: FastAPI):
         except Exception as exc:
             _startup_logger.error("Default user creation failed on startup: %s", exc)
             await session.rollback()
+    # OpenTelemetry (optional — activate by setting OTEL_EXPORTER_OTLP_ENDPOINT)
+    if settings.otel_exporter_endpoint:
+        from app.core.metrics import configure_opentelemetry, instrument_fastapi, instrument_sqlalchemy
+        from app.database import engine as _db_engine
+        if configure_opentelemetry(settings.otel_service_name, settings.otel_exporter_endpoint):
+            instrument_fastapi(app)
+            instrument_sqlalchemy(_db_engine.sync_engine)
+
     _startup_logger.info("Application startup complete")
     yield
     _startup_logger.info("Application shutting down")
@@ -161,9 +170,63 @@ app = FastAPI(
     openapi_tags=_OPENAPI_TAGS,
 )
 
+def _problem_detail(status_code: int, detail: str, error_code: str | None = None) -> JSONResponse:
+    """Return an RFC 7807 Problem Details JSON response."""
+    body: dict = {
+        "status": status_code,
+        "detail": detail,
+    }
+    if error_code:
+        body["type"] = f"urn:datenschutzagent:error:{error_code.lower()}"
+        body["code"] = error_code
+    return JSONResponse(
+        status_code=status_code,
+        content=body,
+        headers={"Content-Type": "application/problem+json"},
+    )
+
+
+async def _http_exception_handler(request: Request, exc) -> JSONResponse:
+    """Map FastAPI HTTPException to RFC 7807 Problem Details format."""
+    from fastapi import HTTPException as FastAPIHTTPException
+    from app.core.exceptions import ErrorCode
+
+    _status = exc.status_code
+    detail = exc.detail if isinstance(exc.detail, str) else str(exc.detail)
+
+    # Map well-known HTTP status codes to stable error codes.
+    _code_map: dict[int, str] = {
+        401: ErrorCode.AUTH_TOKEN_INVALID,
+        403: ErrorCode.PERMISSION_DENIED,
+        404: ErrorCode.NOT_FOUND,
+        409: ErrorCode.CONFLICT,
+        415: ErrorCode.UNSUPPORTED_MEDIA_TYPE,
+        422: ErrorCode.VALIDATION_ERROR,
+        429: ErrorCode.RATE_LIMIT_EXCEEDED,
+        503: ErrorCode.AUTH_OIDC_UNAVAILABLE,
+    }
+    error_code = _code_map.get(_status)
+    return _problem_detail(_status, detail, error_code)
+
+
+async def _validation_exception_handler(request: Request, exc: RequestValidationError) -> JSONResponse:
+    """Map Pydantic validation errors to RFC 7807 Problem Details."""
+    from app.core.exceptions import ErrorCode
+    errors = exc.errors()
+    detail = "; ".join(
+        f"{'.'.join(str(l) for l in e['loc'])}: {e['msg']}" for e in errors
+    )
+    return _problem_detail(422, detail, ErrorCode.VALIDATION_ERROR)
+
+
 # Rate limiter state & 429 handler
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
+# RFC 7807 Problem Details for HTTP and validation errors
+from fastapi import HTTPException as _FastAPIHTTPException  # noqa: E402
+app.add_exception_handler(_FastAPIHTTPException, _http_exception_handler)  # type: ignore[arg-type]
+app.add_exception_handler(RequestValidationError, _validation_exception_handler)  # type: ignore[arg-type]
 
 app.add_middleware(RequestIDMiddleware)
 app.add_middleware(
@@ -213,7 +276,6 @@ async def add_security_headers(request: Request, call_next) -> Response:
     response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
     response.headers["Permissions-Policy"] = "geolocation=(), camera=(), microphone=()"
     # Content-Security-Policy: restrict sources; adjust if you embed third-party resources.
-    # Note: 'unsafe-inline' for style-src is required by MUI/Emotion (CSS-in-JS runtime injection).
     response.headers["Content-Security-Policy"] = (
         "default-src 'self'; "
         "script-src 'self'; "
@@ -242,6 +304,55 @@ app.include_router(api_router, prefix=settings.api_v1_prefix)
 # Public routes (no auth required)
 app.include_router(auth_routes.router, prefix=f"{settings.api_v1_prefix}/auth", tags=["auth"])
 app.include_router(app_config_routes.router, prefix=settings.api_v1_prefix, tags=["config"])
+
+
+@app.get("/metrics", include_in_schema=False)
+async def prometheus_metrics(request: Request) -> Response:
+    """Prometheus metrics endpoint (IP-restricted; see METRICS_ALLOWED_IPS config)."""
+    if not settings.metrics_enabled:
+        raise HTTPException(status_code=404, detail="Metrics endpoint disabled")
+
+    client_ip = (request.client.host if request.client else "") or ""
+    allowed_ips: list[str] = settings.metrics_allowed_ips  # type: ignore[assignment]
+    if allowed_ips and client_ip not in allowed_ips:
+        raise HTTPException(status_code=403, detail="Forbidden")
+
+    from prometheus_client import generate_latest, CONTENT_TYPE_LATEST
+    from app.core.metrics import db_pool_checkedout, db_pool_total
+    from app.database import engine
+
+    # Refresh DB pool gauges just before generating output
+    try:
+        pool = engine.pool
+        db_pool_checkedout.set(pool.checkedout())
+        db_pool_total.set(pool.size())
+    except Exception:
+        pass
+
+    return Response(content=generate_latest(), media_type=CONTENT_TYPE_LATEST)
+
+
+@app.middleware("http")
+async def track_request_metrics(request: Request, call_next) -> Response:
+    """Record HTTP request duration in Prometheus histogram."""
+    if request.url.path in ("/health", "/metrics"):
+        return await call_next(request)
+    import time as _time
+    from app.core.metrics import http_request_duration_seconds
+    start = _time.monotonic()
+    response = await call_next(request)
+    # Collapse path parameters to avoid high-cardinality label explosion
+    # e.g. /api/v1/cases/abc-123 → /api/v1/cases/{id}
+    path = request.url.path
+    for segment in path.split("/"):
+        if len(segment) == 36 and segment.count("-") == 4:
+            path = path.replace(segment, "{id}", 1)
+    http_request_duration_seconds.labels(
+        method=request.method,
+        path=path,
+        status_code=str(response.status_code),
+    ).observe(_time.monotonic() - start)
+    return response
 
 
 @app.get("/health")
@@ -277,10 +388,13 @@ async def health():
     # exposing internal topology to unauthenticated callers.
     # In debug mode the full breakdown is returned for troubleshooting.
     if settings.debug:
+        from app.core.llm import get_circuit_breaker
+        cb = get_circuit_breaker()
         return {
             "status": "degraded" if degraded else "ok",
             "ollama": ollama_status,
             "postgres": pg_status,
             "redis": redis_status,
+            "llm_circuit_breaker": cb.state,
         }
     return {"status": "degraded" if degraded else "ok"}

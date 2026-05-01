@@ -45,6 +45,14 @@ cryptography>=44.0.0
 # Rate limiting
 slowapi>=0.1.9
 
+# Observability: Prometheus metrics + OpenTelemetry tracing
+prometheus-client>=0.21.0
+opentelemetry-sdk>=1.28.0
+opentelemetry-instrumentation-fastapi>=0.49b0
+opentelemetry-instrumentation-sqlalchemy>=0.49b0
+# Optional OTLP exporter — only needed when OTEL_EXPORTER_OTLP_ENDPOINT is configured:
+# opentelemetry-exporter-otlp-proto-http>=1.28.0
+
 # Structured JSON logging
 python-json-logger>=3.3.0
 

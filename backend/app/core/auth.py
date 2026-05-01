@@ -1,9 +1,10 @@
 """OAuth2/OIDC authentication: JWT validation and current user resolution."""
+import asyncio
 import json
 import logging
-import urllib.request
 from typing import Any
 
+import httpx
 import jwt
 from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
@@ -19,9 +20,30 @@ logger = logging.getLogger(__name__)
 # When OIDC is enabled, require Bearer token for protected routes.
 security = HTTPBearer(auto_error=False)
 
-# In-memory cache for JWKS (kid -> key). Refreshed when kid is missing.
+# In-memory JWKS cache (kid -> public key). Protected by _jwks_lock to prevent
+# concurrent refreshes from racing when multiple requests miss the cache at once.
 _jwks_cache: dict[str, Any] = {}
 _jwks_uri_cached: str | None = None
+_jwks_lock: asyncio.Lock | None = None
+
+# Shared httpx client — reused across requests for connection pooling.
+_http_client: httpx.AsyncClient | None = None
+
+_OIDC_TIMEOUT = httpx.Timeout(connect=5.0, read=10.0, write=5.0, pool=5.0)
+
+
+def _get_http_client() -> httpx.AsyncClient:
+    global _http_client
+    if _http_client is None or _http_client.is_closed:
+        _http_client = httpx.AsyncClient(timeout=_OIDC_TIMEOUT)
+    return _http_client
+
+
+def _get_jwks_lock() -> asyncio.Lock:
+    global _jwks_lock
+    if _jwks_lock is None:
+        _jwks_lock = asyncio.Lock()
+    return _jwks_lock
 
 
 def _oidc_discovery_url() -> str:
@@ -29,25 +51,25 @@ def _oidc_discovery_url() -> str:
     return f"{issuer}/.well-known/openid-configuration"
 
 
-def _get_jwks_uri() -> str:
-    """Fetch OIDC discovery and return jwks_uri."""
+async def _get_jwks_uri() -> str:
+    """Fetch OIDC discovery document and return jwks_uri."""
     url = _oidc_discovery_url()
     try:
-        req = urllib.request.Request(url, method="GET")
-        with urllib.request.urlopen(req, timeout=5) as resp:  # nosec B310 – URL from trusted config (OIDC_ISSUER_URL)
-            data = json.loads(resp.read().decode())
-            return data.get("jwks_uri") or ""
+        resp = await _get_http_client().get(url)
+        resp.raise_for_status()
+        data = resp.json()
+        return data.get("jwks_uri") or ""
     except Exception as e:
         logger.warning("OIDC discovery failed for %s: %s", url, e)
         return ""
 
 
-def _load_jwks(jwks_uri: str) -> dict[str, Any]:
+async def _load_jwks(jwks_uri: str) -> dict[str, Any]:
     """Fetch JWKS and return dict kid -> public key (for jwt.decode)."""
-    req = urllib.request.Request(jwks_uri, method="GET")
-    with urllib.request.urlopen(req, timeout=5) as resp:  # nosec B310 – URL from OIDC discovery (trusted issuer)
-        jwks = json.loads(resp.read().decode())
-    keys = {}
+    resp = await _get_http_client().get(jwks_uri)
+    resp.raise_for_status()
+    jwks = resp.json()
+    keys: dict[str, Any] = {}
     for jwk in jwks.get("keys", []):
         kid = jwk.get("kid")
         if not kid:
@@ -67,7 +89,7 @@ def _load_jwks(jwks_uri: str) -> dict[str, Any]:
     return keys
 
 
-def _get_signing_key(token: str):
+async def _get_signing_key(token: str):
     """Resolve signing key for token from JWKS (cache by kid and jwks_uri)."""
     global _jwks_cache, _jwks_uri_cached
     try:
@@ -77,36 +99,46 @@ def _get_signing_key(token: str):
     kid = unverified.get("kid")
     if not kid:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Token missing kid")
-    if kid not in _jwks_cache:
-        # Re-use cached jwks_uri to avoid fetching OIDC discovery on every cache miss
-        jwks_uri = _jwks_uri_cached or _get_jwks_uri()
+
+    if kid in _jwks_cache:
+        return _jwks_cache[kid]
+
+    # Acquire lock so only one coroutine refreshes JWKS at a time.
+    async with _get_jwks_lock():
+        # Re-check inside the lock in case another coroutine already refreshed.
+        if kid in _jwks_cache:
+            return _jwks_cache[kid]
+
+        jwks_uri = _jwks_uri_cached or await _get_jwks_uri()
         if not jwks_uri:
             raise HTTPException(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
                 detail="Could not obtain JWKS from issuer",
             )
         _jwks_uri_cached = jwks_uri
-        _jwks_cache = _load_jwks(jwks_uri)
+        _jwks_cache = await _load_jwks(jwks_uri)
         logger.debug("JWKS cache refreshed", extra={"kid": kid, "key_count": len(_jwks_cache)})
+
         if kid not in _jwks_cache:
-            # kid truly unknown even after refresh – key may have rotated; try fresh discovery
-            fresh_uri = _get_jwks_uri()
+            # kid unknown after refresh — key may have rotated; try fresh discovery once.
+            fresh_uri = await _get_jwks_uri()
             if fresh_uri and fresh_uri != jwks_uri:
                 logger.debug("JWKS key rotation detected, fetching fresh JWKS", extra={"kid": kid})
                 _jwks_uri_cached = fresh_uri
-                _jwks_cache = _load_jwks(fresh_uri)
+                _jwks_cache = await _load_jwks(fresh_uri)
             if kid not in _jwks_cache:
                 raise HTTPException(
                     status_code=status.HTTP_401_UNAUTHORIZED,
                     detail="Signing key not found",
                 )
+
     return _jwks_cache[kid]
 
 
 _security_audit_logger = logging.getLogger("app.security.audit")
 
 
-def _verify_jwt(token: str) -> dict[str, Any]:
+async def _verify_jwt(token: str) -> dict[str, Any]:
     """Verify JWT with JWKS from OIDC issuer. Returns payload (sub, email, preferred_username, etc.)."""
     issuer = (settings.oidc_issuer_url or "").rstrip("/")
     if not issuer:
@@ -114,7 +146,7 @@ def _verify_jwt(token: str) -> dict[str, Any]:
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="OIDC issuer not configured",
         )
-    key = _get_signing_key(token)
+    key = await _get_signing_key(token)
     try:
         algorithms = ["RS256", "RS384", "RS512", "ES256", "ES384", "ES512"]
         # Use oidc_audience if set; fall back to oidc_client_id to prevent cross-app token reuse
@@ -164,7 +196,7 @@ async def get_current_user_oidc(
             detail="Not authenticated",
             headers={"WWW-Authenticate": "Bearer"},
         )
-    payload = _verify_jwt(credentials.credentials)
+    payload = await _verify_jwt(credentials.credentials)
     sub = payload.get("sub")
     if not sub:
         raise HTTPException(

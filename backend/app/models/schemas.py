@@ -135,12 +135,12 @@ class CaseListResponse(BaseModel):
 
 # --- Case ---
 class CaseCreate(BaseModel):
-    title: str = Field(..., min_length=1)
-    department: str = Field(..., min_length=1)
-    case_type: str = Field(..., min_length=1)
+    title: str = Field(..., min_length=1, max_length=500)
+    department: str = Field(..., min_length=1, max_length=200)
+    case_type: str = Field(..., min_length=1, max_length=100)
     language: CaseLanguageEnum = "de"
-    created_by: str = Field(default="", min_length=0)
-    assignee: str = Field(default="", min_length=0)
+    created_by: str = Field(default="", max_length=200)
+    assignee: str = Field(default="", max_length=200)
     processing_context: str | None = Field(default=None, max_length=500)
     special_category_data: bool = False
     international_transfer: bool = False
@@ -149,13 +149,13 @@ class CaseCreate(BaseModel):
 
 
 class CaseUpdate(BaseModel):
-    title: str | None = None
-    department: str | None = None
-    case_type: str | None = None
+    title: str | None = Field(default=None, min_length=1, max_length=500)
+    department: str | None = Field(default=None, max_length=200)
+    case_type: str | None = Field(default=None, max_length=100)
     status: CaseStatusEnum | None = None
     language: CaseLanguageEnum | None = None
-    assignee: str | None = None
-    playbook_version: str | None = None
+    assignee: str | None = Field(default=None, max_length=200)
+    playbook_version: str | None = Field(default=None, max_length=50)
     processing_context: str | None = Field(default=None, max_length=500)
     special_category_data: bool | None = None
     international_transfer: bool | None = None
@@ -212,19 +212,19 @@ class CaseResponse(BaseModel):
 
 # --- Playbook ---
 class PlaybookCreate(BaseModel):
-    name: str = Field(..., min_length=1)
-    version: str = Field(..., min_length=1)
+    name: str = Field(..., min_length=1, max_length=200)
+    version: str = Field(..., min_length=1, max_length=50)
     content: dict[str, Any]
-    case_type: str | None = None
-    department: str | None = None
+    case_type: str | None = Field(default=None, max_length=100)
+    department: str | None = Field(default=None, max_length=200)
 
 
 class PlaybookUpdate(BaseModel):
-    name: str | None = None
-    version: str | None = None
+    name: str | None = Field(default=None, min_length=1, max_length=200)
+    version: str | None = Field(default=None, max_length=50)
     content: dict[str, Any] | None = None
-    case_type: str | None = None
-    department: str | None = None
+    case_type: str | None = Field(default=None, max_length=100)
+    department: str | None = Field(default=None, max_length=200)
     is_active: bool | None = None
 
 

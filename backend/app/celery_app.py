@@ -6,6 +6,7 @@ import uuid
 from uuid import UUID
 
 from celery import Celery
+from celery.exceptions import SoftTimeLimitExceeded
 from celery.schedules import crontab
 from sqlalchemy import create_engine, select, update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
@@ -22,6 +23,44 @@ from app.services.weaviate_service import index_document_chunks
 
 logger = logging.getLogger(__name__)
 
+# ---------------------------------------------------------------------------
+# Prometheus task-duration instrumentation via Celery signals
+# ---------------------------------------------------------------------------
+
+_task_start_times: dict[str, float] = {}
+
+
+def _connect_task_metrics() -> None:
+    """Wire up Celery signals to record per-task duration in Prometheus.
+
+    Note: metrics are recorded in the worker process. For the FastAPI /metrics
+    endpoint to expose them a Prometheus Pushgateway is required in multi-process
+    deployments. In single-process setups (e.g. development) they are visible directly.
+    """
+    from celery.signals import task_prerun, task_postrun
+
+    @task_prerun.connect
+    def _on_prerun(task_id: str, **kw) -> None:
+        _task_start_times[task_id] = time.monotonic()
+
+    @task_postrun.connect
+    def _on_postrun(task_id: str, task, state: str, **kw) -> None:
+        start = _task_start_times.pop(task_id, None)
+        if start is None:
+            return
+        try:
+            from app.core.metrics import celery_task_duration_seconds
+            task_name = task.name.rsplit(".", 1)[-1]
+            status = "success" if state == "SUCCESS" else "failure"
+            celery_task_duration_seconds.labels(
+                task_name=task_name, status=status
+            ).observe(time.monotonic() - start)
+        except Exception:
+            pass
+
+
+_connect_task_metrics()
+
 celery_app = Celery(
     "datenschutzagent",
     broker=settings.celery_broker_url,
@@ -32,18 +71,27 @@ celery_app.conf.update(
     accept_content=["json"],
     result_serializer="json",
     task_routes={"app.celery_app.extract_document_text": "extraction"},
+    # Prevent a hung task from blocking a worker indefinitely.
+    # soft_time_limit raises SoftTimeLimitExceeded inside the task (catchable);
+    # time_limit kills the worker process after an additional 60 s grace period.
+    task_soft_time_limit=660,   # 11 min: covers the longest run_checks jobs
+    task_time_limit=720,        # 12 min: hard kill after grace period
+    # On unexpected worker crash, reject (not ack) tasks so they are requeued
+    # by another worker rather than silently lost.
+    task_reject_on_worker_lost=True,
+    task_acks_late=True,        # ack only after the task function returns
     beat_schedule={
         "retention-scan-nightly": {
             "task": "app.celery_app.retention_scan_task",
-            "schedule": crontab(hour=2, minute=0),  # täglich um 02:00 Uhr
+            "schedule": crontab(hour=2, minute=0),
         },
         "deadline-notifications-daily": {
             "task": "app.celery_app.deadline_notifications_task",
-            "schedule": crontab(hour=7, minute=0),  # täglich um 07:00 Uhr
+            "schedule": crontab(hour=7, minute=0),
         },
         "periodic-recheck-daily": {
             "task": "app.celery_app.periodic_recheck_task",
-            "schedule": crontab(hour=3, minute=0),  # täglich um 03:00 Uhr
+            "schedule": crontab(hour=3, minute=0),
         },
     },
 )
@@ -61,7 +109,14 @@ _async_session_factory = None
 def _get_session_factory():
     global _engine, _session_factory
     if _session_factory is None:
-        _engine = create_engine(settings.database_sync_url, pool_pre_ping=True)
+        _engine = create_engine(
+            settings.database_sync_url,
+            pool_pre_ping=True,
+            pool_size=settings.db_pool_size,
+            max_overflow=settings.db_max_overflow,
+            pool_recycle=settings.db_pool_recycle_seconds,
+            pool_timeout=settings.db_pool_timeout_seconds,
+        )
         _session_factory = sessionmaker(bind=_engine, autocommit=False, autoflush=False)
     return _session_factory
 
@@ -69,7 +124,14 @@ def _get_session_factory():
 def _get_async_session_factory():
     global _async_engine, _async_session_factory
     if _async_session_factory is None:
-        _async_engine = create_async_engine(settings.database_url, pool_pre_ping=True)
+        _async_engine = create_async_engine(
+            settings.database_url,
+            pool_pre_ping=True,
+            pool_size=settings.db_pool_size,
+            max_overflow=settings.db_max_overflow,
+            pool_recycle=settings.db_pool_recycle_seconds,
+            pool_timeout=settings.db_pool_timeout_seconds,
+        )
         _async_session_factory = async_sessionmaker(
             _async_engine,
             class_=AsyncSession,
@@ -131,7 +193,7 @@ def _maybe_auto_run_checks(session: Session, case_id: uuid.UUID) -> None:
         )
         session.add(job)
         session.commit()
-        run_playbook_checks.delay(str(job_id))
+        run_playbook_checks.delay(str(job_id), None)
         logger.info(
             "auto_run_checks queued job %s for case %s (playbook: %s, strategies: %s)",
             job_id, case_id, best_playbook.name, strategies,
@@ -157,6 +219,14 @@ def extract_document_text(self, document_id: str) -> dict:
                 extra={"document_id": document_id, "error": "document_not_found"},
             )
             return {"ok": False, "error": "document_not_found"}
+        # Idempotency guard: skip if already extracted (prevents double-processing on worker restart).
+        if row.extraction_status not in ("pending", "failed"):
+            logger.info(
+                "extract_document_text skipped (already %s)",
+                row.extraction_status,
+                extra={"document_id": document_id},
+            )
+            return {"ok": True, "document_id": document_id, "skipped": True}
         if not row.storage_path:
             logger.error(
                 "extract_document_text failed",
@@ -186,6 +256,13 @@ def extract_document_text(self, document_id: str) -> dict:
         _maybe_auto_run_checks(session, row.case_id)
 
         return {"ok": True, "document_id": document_id}
+    except SoftTimeLimitExceeded:
+        _set_extraction_failed(session, uid, "soft_time_limit_exceeded")
+        logger.error(
+            "extract_document_text timed out",
+            extra={"document_id": document_id, "error": "soft_time_limit_exceeded"},
+        )
+        return {"ok": False, "error": "soft_time_limit_exceeded"}
     except FileNotFoundError:
         _set_extraction_failed(session, uid, "file_not_found")
         logger.error(
@@ -220,12 +297,15 @@ def _count_checks_total(playbook_content: dict, doc_count: int, strategies: list
     return (doc_checks * max(doc_count, 1) + case_checks) * n_strategies
 
 
-async def _run_checks_async(job_id: str) -> None:
+async def _run_checks_async(job_id: str, task_request_id: str | None = None) -> None:
     """Load job, run run_checks_impl, write activity log and update job.
 
     Uses the module-level shared async engine to avoid creating a new connection
     pool per task invocation (which would exhaust database connections under load).
     """
+    from app.core.request_id import request_id_var
+    request_id_var.set(task_request_id or str(uuid.uuid4()))
+
     session_factory = _get_async_session_factory()
     job_uuid = UUID(job_id)
 
@@ -327,18 +407,23 @@ async def _run_checks_async(job_id: str) -> None:
 
 
 @celery_app.task(name="app.celery_app.run_playbook_checks", bind=True)
-def run_playbook_checks(self, job_id: str) -> dict:
+def run_playbook_checks(self, job_id: str, task_request_id: str | None = None) -> dict:
     """
     Run playbook checks for a run_checks_jobs row. Loads job, runs run_checks_impl in async context,
     writes ActivityLog and updates job to completed/failed.
     """
-    logger.info("run_playbook_checks started", extra={"job_id": job_id, "celery_task_id": self.request.id})
+    logger.info("run_playbook_checks started", extra={"job_id": job_id, "celery_task_id": self.request.id, "request_id": task_request_id or "-"})
     t0 = time.monotonic()
     try:
-        asyncio.run(_run_checks_async(job_id))
+        asyncio.run(_run_checks_async(job_id, task_request_id))
         elapsed = round(time.monotonic() - t0, 2)
         logger.info("run_playbook_checks done", extra={"job_id": job_id, "elapsed_seconds": elapsed})
         return {"ok": True, "job_id": job_id}
+    except SoftTimeLimitExceeded:
+        elapsed = round(time.monotonic() - t0, 2)
+        logger.error("run_playbook_checks timed out", extra={"job_id": job_id, "elapsed_seconds": elapsed})
+        _set_run_checks_job_failed(job_id, "soft_time_limit_exceeded")
+        return {"ok": False, "error": "soft_time_limit_exceeded"}
     except Exception as e:
         elapsed = round(time.monotonic() - t0, 2)
         err_msg = str(e)[:490]
@@ -363,11 +448,14 @@ def _set_run_checks_job_failed(job_id: str, error_message: str) -> None:
         session.close()
 
 
-async def _build_dsb_report_async(job_id: str) -> None:
+async def _build_dsb_report_async(job_id: str, task_request_id: str | None = None) -> None:
     """Load DSB report job, run build_dsb_report, save report and update job.
 
     Uses the module-level shared async engine (same pool as _run_checks_async).
     """
+    from app.core.request_id import request_id_var
+    request_id_var.set(task_request_id or str(uuid.uuid4()))
+
     session_factory = _get_async_session_factory()
     async with session_factory() as session:
         result = await session.execute(select(DSBReportJobModel).where(DSBReportJobModel.id == UUID(job_id)))
@@ -385,15 +473,19 @@ async def _build_dsb_report_async(job_id: str) -> None:
 
 
 @celery_app.task(name="app.celery_app.build_dsb_report_task", bind=True)
-def build_dsb_report_task(self, job_id: str) -> dict:
+def build_dsb_report_task(self, job_id: str, task_request_id: str | None = None) -> dict:
     """
     Build DSB report for a dsb_report_jobs row. Runs build_dsb_report in async context and persists result.
     """
-    logger.info("build_dsb_report_task started", extra={"job_id": job_id})
+    logger.info("build_dsb_report_task started", extra={"job_id": job_id, "request_id": task_request_id or "-"})
     try:
-        asyncio.run(_build_dsb_report_async(job_id))
+        asyncio.run(_build_dsb_report_async(job_id, task_request_id))
         logger.info("build_dsb_report_task done", extra={"job_id": job_id})
         return {"ok": True, "job_id": job_id}
+    except SoftTimeLimitExceeded:
+        logger.error("build_dsb_report_task timed out", extra={"job_id": job_id})
+        _set_dsb_report_job_failed(job_id, "soft_time_limit_exceeded")
+        return {"ok": False, "error": "soft_time_limit_exceeded"}
     except Exception as e:
         err_msg = str(e)
         logger.error("build_dsb_report_task failed", extra={"job_id": job_id, "error": err_msg})
@@ -421,8 +513,11 @@ def _set_dsb_report_job_failed(job_id: str, error_message: str) -> None:
 # DSFA-Task
 # ---------------------------------------------------------------------------
 
-async def _build_dsfa_async(job_id: str) -> None:
+async def _build_dsfa_async(job_id: str, task_request_id: str | None = None) -> None:
     """Lädt DSFA-Job, generiert die DSFA via LLM und persistiert das Ergebnis."""
+    from app.core.request_id import request_id_var
+    request_id_var.set(task_request_id or str(uuid.uuid4()))
+
     session_factory = _get_async_session_factory()
     async with session_factory() as session:
         result = await session.execute(select(DSFAJobModel).where(DSFAJobModel.id == UUID(job_id)))
@@ -438,13 +533,17 @@ async def _build_dsfa_async(job_id: str) -> None:
 
 
 @celery_app.task(name="app.celery_app.build_dsfa_task", bind=True)
-def build_dsfa_task(self, job_id: str) -> dict:
+def build_dsfa_task(self, job_id: str, task_request_id: str | None = None) -> dict:
     """Generiert DSFA für einen dsfa_jobs-Eintrag asynchron."""
-    logger.info("build_dsfa_task started", extra={"job_id": job_id})
+    logger.info("build_dsfa_task started", extra={"job_id": job_id, "request_id": task_request_id or "-"})
     try:
-        asyncio.run(_build_dsfa_async(job_id))
+        asyncio.run(_build_dsfa_async(job_id, task_request_id))
         logger.info("build_dsfa_task done", extra={"job_id": job_id})
         return {"ok": True, "job_id": job_id}
+    except SoftTimeLimitExceeded:
+        logger.error("build_dsfa_task timed out", extra={"job_id": job_id})
+        _set_dsfa_job_failed(job_id, "soft_time_limit_exceeded")
+        return {"ok": False, "error": "soft_time_limit_exceeded"}
     except Exception as e:
         err_msg = str(e)
         logger.error("build_dsfa_task failed", extra={"job_id": job_id, "error": err_msg})
@@ -472,7 +571,13 @@ def _set_dsfa_job_failed(job_id: str, error_message: str) -> None:
 # Retention-Scan-Task (Celery Beat, nächtlich)
 # ---------------------------------------------------------------------------
 
-@celery_app.task(name="app.celery_app.retention_scan_task", bind=True)
+@celery_app.task(
+    name="app.celery_app.retention_scan_task",
+    bind=True,
+    autoretry_for=(Exception,),
+    max_retries=2,
+    default_retry_delay=60,
+)
 def retention_scan_task(self) -> dict:
     """Archiviert fällige Vorgänge gemäß Aufbewahrungsfrist. Läuft täglich via Celery Beat."""
     logger.info("retention_scan_task started")
@@ -480,10 +585,9 @@ def retention_scan_task(self) -> dict:
         result = asyncio.run(_retention_scan_async())
         logger.info("retention_scan_task done", extra={"archived": result.get("archived_count", 0)})
         return {"ok": True, **result}
-    except Exception as e:
-        err_msg = str(e)
-        logger.error("retention_scan_task failed", extra={"error": err_msg})
-        return {"ok": False, "error": err_msg}
+    except SoftTimeLimitExceeded:
+        logger.error("retention_scan_task timed out")
+        return {"ok": False, "error": "soft_time_limit_exceeded"}
 
 
 async def _retention_scan_async() -> dict:
@@ -499,7 +603,13 @@ async def _retention_scan_async() -> dict:
 # Deadline-Benachrichtigungs-Task (Celery Beat, täglich)
 # ---------------------------------------------------------------------------
 
-@celery_app.task(name="app.celery_app.deadline_notifications_task", bind=True)
+@celery_app.task(
+    name="app.celery_app.deadline_notifications_task",
+    bind=True,
+    autoretry_for=(Exception,),
+    max_retries=2,
+    default_retry_delay=60,
+)
 def deadline_notifications_task(self) -> dict:
     """Scannt Fristen und sendet E-Mail-Benachrichtigungen. Läuft täglich via Celery Beat."""
     logger.info("deadline_notifications_task started")
@@ -507,10 +617,9 @@ def deadline_notifications_task(self) -> dict:
         result = asyncio.run(_deadline_notifications_async())
         logger.info("deadline_notifications_task done", extra={"sent": result.get("sent", 0)})
         return {"ok": True, **result}
-    except Exception as e:
-        err_msg = str(e)
-        logger.error("deadline_notifications_task failed", extra={"error": err_msg})
-        return {"ok": False, "error": err_msg}
+    except SoftTimeLimitExceeded:
+        logger.error("deadline_notifications_task timed out")
+        return {"ok": False, "error": "soft_time_limit_exceeded"}
 
 
 async def _deadline_notifications_async() -> dict:
@@ -526,7 +635,13 @@ async def _deadline_notifications_async() -> dict:
 # Periodische Re-Check-Task (Celery Beat, täglich)
 # ---------------------------------------------------------------------------
 
-@celery_app.task(name="app.celery_app.periodic_recheck_task", bind=True)
+@celery_app.task(
+    name="app.celery_app.periodic_recheck_task",
+    bind=True,
+    autoretry_for=(Exception,),
+    max_retries=2,
+    default_retry_delay=60,
+)
 def periodic_recheck_task(self) -> dict:
     """Führt automatische Re-Checks für Vorgänge durch, deren recheck_interval_days abgelaufen ist."""
     logger.info("periodic_recheck_task started")
@@ -534,10 +649,9 @@ def periodic_recheck_task(self) -> dict:
         result = asyncio.run(_periodic_recheck_async())
         logger.info("periodic_recheck_task done", extra={"queued": result.get("queued", 0)})
         return {"ok": True, **result}
-    except Exception as e:
-        err_msg = str(e)
-        logger.error("periodic_recheck_task failed", extra={"error": err_msg})
-        return {"ok": False, "error": err_msg}
+    except SoftTimeLimitExceeded:
+        logger.error("periodic_recheck_task timed out")
+        return {"ok": False, "error": "soft_time_limit_exceeded"}
 
 
 async def _periodic_recheck_async() -> dict:

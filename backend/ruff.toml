@@ -10,15 +10,23 @@ select = [
     "I",   # isort
     "UP",  # pyupgrade
     "B",   # flake8-bugbear
+    "BLE", # flake8-blind-except: catches bare `except Exception` and `except BaseException`
     "SIM", # flake8-simplify
     "C4",  # flake8-comprehensions
     "RET", # flake8-return
 ]
 ignore = [
-    "E501",  # line too long (Black handles this)
-    "B008",  # do not perform function calls in default args (FastAPI Depends pattern)
+    "E501",   # line too long (Black handles this)
+    "B008",   # do not perform function calls in default args (FastAPI Depends pattern)
     "RET504", # unnecessary variable assignment before return
+    # BLE001 is enabled but suppressed in specific files where broad except is intentional
+    # (e.g. celery tasks that must not crash the worker, connection health checks).
 ]
 
 [lint.per-file-ignores]
 "tests/*" = ["S101", "S105"]  # assert and hardcoded passwords in tests are fine
+# Celery tasks and health checks legitimately use broad except to prevent worker crashes.
+"app/celery_app.py" = ["BLE001"]
+"app/services/connection_checks.py" = ["BLE001"]
+"app/services/run_checks_service.py" = ["BLE001"]
+"app/storage.py" = ["BLE001"]

@@ -117,6 +117,16 @@ class Settings(BaseSettings):
     # Empty = use profile.yaml or built-in DSGVO Art. 30 defaults.
     vvt_field_names: str = ""
 
+    # Database connection pool (SQLAlchemy). Tune based on expected concurrency and PostgreSQL max_connections.
+    # pool_size: number of persistent connections per process.
+    # max_overflow: additional connections beyond pool_size (borrowed temporarily).
+    # pool_recycle_seconds: close and reopen connections older than N seconds (prevents stale TCP).
+    # pool_timeout_seconds: seconds to wait for a connection before raising OperationalError.
+    db_pool_size: int = 5
+    db_max_overflow: int = 10
+    db_pool_recycle_seconds: int = 1800
+    db_pool_timeout_seconds: int = 30
+
     # Dokument-Upload: maximale Dateigröße in Bytes (Standard: 50 MB; via MAX_UPLOAD_SIZE_BYTES überschreibbar)
     max_upload_size_bytes: int = 52428800
 
@@ -142,10 +152,24 @@ class Settings(BaseSettings):
     # 0 = kein Limit (nicht empfohlen für lokales Ollama).
     max_concurrent_llm_calls: int = 2
 
-    # Timeout pro Prüfung in Sekunden (asyncio.wait_for um _do()).
-    # Muss >= ollama_timeout_seconds sein, damit der HTTP-Call noch sauber abbrechen kann.
-    # 0 = deaktiviert (nicht empfohlen bei lokalem Ollama, da hängende Requests den Job blockieren).
-    check_timeout_seconds: float = 180.0
+    # Timeout per LLM HTTP request (seconds). Applies to all providers (Ollama, OpenAI, Anthropic).
+    # Must be > ollama_timeout_seconds so the asyncio.wait_for wrapper never fires before the
+    # HTTP client surfaces its own timeout — a buffer of at least 10s is recommended.
+    # check_timeout_seconds is derived from this value and should not be set independently.
+    # 0 = disabled (not recommended for local Ollama; hanging requests block the worker).
+    llm_request_timeout_seconds: float = 120.0
+
+    @property
+    def check_timeout_seconds(self) -> float:
+        """Outer asyncio.wait_for timeout per check, always 10s above the LLM HTTP timeout."""
+        if self.llm_request_timeout_seconds <= 0:
+            return 0.0
+        return self.llm_request_timeout_seconds + 10.0
+
+    @property
+    def ollama_timeout_seconds(self) -> float:
+        """Ollama HTTP client timeout derived from llm_request_timeout_seconds."""
+        return self.llm_request_timeout_seconds
 
     # Standard-Strategien für automatische Re-Checks (auto_run_checks, periodic_recheck).
     # Kommagetrennt: "full_text", "rag" oder "full_text,rag"
@@ -154,7 +178,6 @@ class Settings(BaseSettings):
     # Ollama (extern gehostet, z. B. im lokalen Netzwerk)
     ollama_base_url: str = "http://localhost:11434"
     ollama_model: str = "llama3.2"
-    ollama_timeout_seconds: float = 120.0
     ollama_enabled: bool = True
 
     # OCR via Ollama Vision (gescannte PDFs; z. B. qwen2.5-vl, minicpm-v)
@@ -214,6 +237,11 @@ class Settings(BaseSettings):
     # only if you need to allow edge-case content that triggers false positives.
     prompt_injection_block: bool = True
 
+    # LLM Circuit Breaker: opens after N consecutive failures; resets after cooldown.
+    # Prevents a hung/down provider from burning all retry delays on every request.
+    llm_circuit_breaker_threshold: int = 5
+    llm_circuit_breaker_cooldown_seconds: float = 60.0
+
     # LLM-Provider (ollama | openai | anthropic)
     # Ollama-Konfiguration bleibt unverändert (ollama_base_url, ollama_model, etc.)
     llm_provider: str = "ollama"      # Aktiver Provider: "ollama", "openai" oder "anthropic"
@@ -236,6 +264,29 @@ class Settings(BaseSettings):
     # Leer lassen = Secrets werden unverschlüsselt gespeichert (Rückwärtskompatibilität).
     webhook_secret_encryption_key: SecretStr = SecretStr("")
 
+    # ---------------------------------------------------------------------------
+    # Observability: Prometheus metrics + optional OpenTelemetry tracing
+    # ---------------------------------------------------------------------------
+
+    # Expose /metrics endpoint for Prometheus scraping.
+    # Restrict access to a comma-separated list of trusted IPs (e.g. your Prometheus server).
+    # Empty list = endpoint disabled; "0.0.0.0" = unrestricted (not recommended for production).
+    metrics_enabled: bool = True
+    metrics_allowed_ips: str | list[str] = ["127.0.0.1", "::1"]
+
+    @field_validator("metrics_allowed_ips", mode="before")
+    @classmethod
+    def parse_metrics_allowed_ips(cls, v: str | list[str]) -> list[str]:
+        if isinstance(v, list):
+            return [x.strip() for x in v if x.strip()]
+        return [x.strip() for x in str(v).split(",") if x.strip()]
+
+    # OpenTelemetry (optional; disabled by default).
+    # Set OTEL_EXPORTER_OTLP_ENDPOINT to activate (e.g. http://localhost:4318/v1/traces).
+    # Requires: opentelemetry-exporter-otlp-proto-http (not in requirements.txt by default).
+    otel_service_name: str = "datenschutzagent"
+    otel_exporter_endpoint: str | None = None  # e.g. http://localhost:4318/v1/traces
+
     # Weaviate (optional; RAG document checks)
     weaviate_url: str = "http://localhost:8080"
     weaviate_api_key: SecretStr = SecretStr("")  # API-Key für Weaviate-Authentifizierung (WEAVIATE_API_KEY)
@@ -254,105 +305,100 @@ class Settings(BaseSettings):
     weaviate_legal_bases_top_k: int = 8
     ollama_embedding_model: str = "nomic-embed-text"
 
+    # ---------------------------------------------------------------------------
+    # Focused model validators (run in definition order by Pydantic).
+    # Each covers one concern so validators are independently readable and testable.
+    # ---------------------------------------------------------------------------
+
+    @staticmethod
+    def _redact_url(url: str) -> str:
+        try:
+            p = urllib.parse.urlparse(url)
+            netloc = p.netloc
+            if "@" in netloc:
+                netloc = f"***@{netloc.split('@', 1)[1]}"
+            return urllib.parse.urlunparse((p.scheme, netloc, p.path, p.params, p.query, p.fragment))
+        except Exception:
+            return "<unparseable>"
+
     @model_validator(mode="after")
-    def validate_storage_and_oidc(self) -> "Settings":
-        """Fail fast at startup when required settings are missing for selected backends."""
-        import logging as _logging
-        _log = _logging.getLogger("app.startup")
-
-        def _redact_url(url: str) -> str:
-            """Return a safe-to-log URL without userinfo (password)."""
-            try:
-                p = urllib.parse.urlparse(url)
-                netloc = p.netloc
-                if "@" in netloc:
-                    netloc = f"***@{netloc.split('@', 1)[1]}"
-                return urllib.parse.urlunparse((p.scheme, netloc, p.path, p.params, p.query, p.fragment))
-            except Exception:
-                return "<unparseable>"
-
-        # F5: DATABASE_URL must always be set explicitly — no default credentials.
+    def _validate_database(self) -> "Settings":
+        """F5: DATABASE_URL must be set — no default credentials."""
         if not self.database_url:
             raise ValueError(
                 "DATABASE_URL must be set. Example: "
                 "postgresql+asyncpg://user:password@host:5432/dbname"
             )
+        return self
 
-        # Celery broker URL: validate early with a helpful error message.
-        # Avoid logging secrets by redacting userinfo.
+    @model_validator(mode="after")
+    def _validate_celery_broker(self) -> "Settings":
+        """Validate CELERY_BROKER_URL format when Celery is enabled."""
         broker_url = (self.celery_broker_url or "").strip()
-        if self.celery_enabled and broker_url:
-            try:
-                p = urllib.parse.urlparse(broker_url)
-                if p.scheme not in ("redis", "rediss", "amqp", "pyamqp"):
-                    raise ValueError(f"unsupported scheme {p.scheme!r}")
-                if not p.hostname:
-                    raise ValueError("missing hostname")
-                # Accessing .port can raise ValueError if it is not an int.
-                _ = p.port  # noqa: F841
-            except Exception as exc:
-                safe = _redact_url(broker_url)
-                raise ValueError(
-                    "CELERY_BROKER_URL ist ungültig und kann nicht geparst werden. "
-                    "Erwartetes Format (Redis): redis://:PASSWORD@HOST:6379/0 "
-                    "(Passwort ggf. URL-encoden oder ein hex-Passwort verwenden). "
-                    f"Aktuell (redacted): {safe}. Fehler: {exc}"
-                ) from exc
-
-        # LLM timeout: check_timeout_seconds must be >= ollama_timeout_seconds
-        # so that the asyncio.wait_for wrapper around the HTTP call does not
-        # cancel the request before the HTTP client returns its own timeout error.
-        # Exception: 0 means "disabled" for either knob.
-        if (
-            self.llm_provider == "ollama"
-            and self.check_timeout_seconds > 0
-            and self.ollama_timeout_seconds > 0
-            and self.check_timeout_seconds < self.ollama_timeout_seconds
-        ):
+        if not self.celery_enabled or not broker_url:
+            return self
+        try:
+            p = urllib.parse.urlparse(broker_url)
+            if p.scheme not in ("redis", "rediss", "amqp", "pyamqp"):
+                raise ValueError(f"unsupported scheme {p.scheme!r}")
+            if not p.hostname:
+                raise ValueError("missing hostname")
+            _ = p.port  # noqa: F841 — raises ValueError for non-int port
+        except Exception as exc:
+            safe = self._redact_url(broker_url)
             raise ValueError(
-                f"CHECK_TIMEOUT_SECONDS ({self.check_timeout_seconds:.1f}s) must be "
-                f">= OLLAMA_TIMEOUT_SECONDS ({self.ollama_timeout_seconds:.1f}s). "
-                "Checks would be cancelled before the HTTP client can surface its own "
-                "timeout error. Increase CHECK_TIMEOUT_SECONDS or decrease OLLAMA_TIMEOUT_SECONDS."
-            )
+                "CELERY_BROKER_URL ist ungültig und kann nicht geparst werden. "
+                "Erwartetes Format (Redis): redis://:PASSWORD@HOST:6379/0 "
+                "(Passwort ggf. URL-encoden oder ein hex-Passwort verwenden). "
+                f"Aktuell (redacted): {safe}. Fehler: {exc}"
+            ) from exc
+        return self
 
+    @model_validator(mode="after")
+    def _validate_storage(self) -> "Settings":
+        """Require S3 credentials when storage_backend=minio."""
         if self.storage_backend == "minio":
             missing = [f for f in ("s3_endpoint_url", "s3_access_key", "s3_secret_key") if not getattr(self, f)]
             if missing:
                 raise ValueError(
-                    f"storage_backend=minio requires these env vars to be set: {', '.join(m.upper() for m in missing)}"
+                    f"storage_backend=minio requires: {', '.join(m.upper() for m in missing)}"
                 )
-        # Production-profile enforcement is handled further down, gated by
-        # APP_ENVIRONMENT. The older check that used DEBUG as a proxy for
-        # production was removed because it fired in test environments whenever
-        # DEBUG defaulted to false.
+        return self
+
+    @model_validator(mode="after")
+    def _validate_oidc(self) -> "Settings":
+        """F2: OIDC audience and webhook encryption must be set when OIDC is enabled."""
+        import logging as _logging
+        _log = _logging.getLogger("app.startup")
 
         if self.oidc_enabled:
             if not self.oidc_issuer_url:
                 raise ValueError("OIDC_ENABLED=true requires OIDC_ISSUER_URL to be set")
             if not self.oidc_client_id:
                 raise ValueError("OIDC_ENABLED=true requires OIDC_CLIENT_ID to be set")
-            # F2: OIDC_AUDIENCE must be set to prevent cross-application token reuse.
             if not self.oidc_audience:
                 raise ValueError(
                     "SECURITY: OIDC_ENABLED=true requires OIDC_AUDIENCE to be set. "
                     "Set it to the expected JWT audience claim (typically the client ID) "
                     "to prevent tokens issued for other applications from being accepted."
                 )
-
-        # F4: In production with OIDC, webhook secrets must be encrypted at rest.
-        if not self.webhook_secret_encryption_key.get_secret_value():
-            if self.oidc_enabled:
+            if not self.webhook_secret_encryption_key.get_secret_value():
                 raise ValueError(
                     "SECURITY: WEBHOOK_SECRET_ENCRYPTION_KEY must be set when OIDC is enabled. "
-                    "Generate a key with: "
-                    "python -c \"from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())\""
+                    "Generate: python -c \"from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())\""
                 )
+        elif not self.webhook_secret_encryption_key.get_secret_value():
             _log.warning(
-                "SECURITY: WEBHOOK_SECRET_ENCRYPTION_KEY not set — webhook secrets are stored "
-                "unencrypted in the database. Generate a key with: "
-                "python -c \"from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())\""
+                "SECURITY: WEBHOOK_SECRET_ENCRYPTION_KEY not set — webhook secrets stored unencrypted. "
+                "Generate: python -c \"from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())\""
             )
+        return self
+
+    @model_validator(mode="after")
+    def _validate_production_profile(self) -> "Settings":
+        """Hard-fail on misconfigured production deployments; warn in other envs."""
+        import logging as _logging
+        _log = _logging.getLogger("app.startup")
 
         if not self.debug:
             origins = self.cors_origins if isinstance(self.cors_origins, list) else []
@@ -360,40 +406,31 @@ class Settings(BaseSettings):
             if http_origins:
                 _log.warning(
                     "SECURITY: CORS_ORIGINS contains non-HTTPS origins in non-debug mode: %s. "
-                    "Use HTTPS-only origins in production.",
-                    http_origins,
+                    "Use HTTPS-only origins in production.", http_origins,
                 )
 
-        # Production profile: turn the earlier advisory warnings into hard
-        # failures so that a misconfigured deployment never boots. Development
-        # and test environments keep their lenient behaviour.
-        if self.app_environment == "production":
-            problems: list[str] = []
-            if not self.oidc_enabled:
-                problems.append("OIDC_ENABLED must be true")
-            if self.debug:
-                problems.append("DEBUG must be false")
-            if not self.webhook_secret_encryption_key.get_secret_value():
-                problems.append("WEBHOOK_SECRET_ENCRYPTION_KEY must be set")
-            origins = self.cors_origins if isinstance(self.cors_origins, list) else []
-            http_origins = [o for o in origins if o.startswith("http://")]
-            if http_origins:
-                problems.append(
-                    f"CORS_ORIGINS must use HTTPS only (rejected: {http_origins})"
-                )
-            trusted = self.trusted_proxies if isinstance(self.trusted_proxies, list) else []
-            if not trusted:
-                _log.warning(
-                    "SECURITY: APP_ENVIRONMENT=production but TRUSTED_PROXIES is empty. "
-                    "Set it to the CIDR range of your load balancer so X-Forwarded-For "
-                    "is honoured; otherwise rate limits apply to the LB IP as one source."
-                )
-            if problems:
-                raise ValueError(
-                    "SECURITY: APP_ENVIRONMENT=production requires: "
-                    + "; ".join(problems)
-                )
+        if self.app_environment != "production":
+            return self
 
+        problems: list[str] = []
+        if not self.oidc_enabled:
+            problems.append("OIDC_ENABLED must be true")
+        if self.debug:
+            problems.append("DEBUG must be false")
+        if not self.webhook_secret_encryption_key.get_secret_value():
+            problems.append("WEBHOOK_SECRET_ENCRYPTION_KEY must be set")
+        origins = self.cors_origins if isinstance(self.cors_origins, list) else []
+        http_origins = [o for o in origins if o.startswith("http://")]
+        if http_origins:
+            problems.append(f"CORS_ORIGINS must use HTTPS only (rejected: {http_origins})")
+        trusted = self.trusted_proxies if isinstance(self.trusted_proxies, list) else []
+        if not trusted:
+            _log.warning(
+                "SECURITY: APP_ENVIRONMENT=production but TRUSTED_PROXIES is empty. "
+                "Set it to the CIDR range of your load balancer."
+            )
+        if problems:
+            raise ValueError("SECURITY: APP_ENVIRONMENT=production requires: " + "; ".join(problems))
         return self
 
     @property

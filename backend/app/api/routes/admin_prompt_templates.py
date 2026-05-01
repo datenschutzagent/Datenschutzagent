@@ -92,7 +92,7 @@ async def create_prompt_template(
             try:
                 major, _, minor = last.partition(".")
                 version = f"{major}.{int(minor or 0) + 1}"
-            except Exception:
+            except (ValueError, AttributeError):
                 version = f"v-{datetime.utcnow().strftime('%Y%m%d-%H%M')}"
     else:
         existing = await db.execute(
