@@ -331,10 +331,13 @@ async def health():
     # exposing internal topology to unauthenticated callers.
     # In debug mode the full breakdown is returned for troubleshooting.
     if settings.debug:
+        from app.core.llm import get_circuit_breaker
+        cb = get_circuit_breaker()
         return {
             "status": "degraded" if degraded else "ok",
             "ollama": ollama_status,
             "postgres": pg_status,
             "redis": redis_status,
+            "llm_circuit_breaker": cb.state,
         }
     return {"status": "degraded" if degraded else "ok"}

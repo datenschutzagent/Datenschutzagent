@@ -6,6 +6,7 @@ import uuid
 from uuid import UUID
 
 from celery import Celery
+from celery.exceptions import SoftTimeLimitExceeded
 from celery.schedules import crontab
 from sqlalchemy import create_engine, select, update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
@@ -32,18 +33,27 @@ celery_app.conf.update(
     accept_content=["json"],
     result_serializer="json",
     task_routes={"app.celery_app.extract_document_text": "extraction"},
+    # Prevent a hung task from blocking a worker indefinitely.
+    # soft_time_limit raises SoftTimeLimitExceeded inside the task (catchable);
+    # time_limit kills the worker process after an additional 60 s grace period.
+    task_soft_time_limit=660,   # 11 min: covers the longest run_checks jobs
+    task_time_limit=720,        # 12 min: hard kill after grace period
+    # On unexpected worker crash, reject (not ack) tasks so they are requeued
+    # by another worker rather than silently lost.
+    task_reject_on_worker_lost=True,
+    task_acks_late=True,        # ack only after the task function returns
     beat_schedule={
         "retention-scan-nightly": {
             "task": "app.celery_app.retention_scan_task",
-            "schedule": crontab(hour=2, minute=0),  # täglich um 02:00 Uhr
+            "schedule": crontab(hour=2, minute=0),
         },
         "deadline-notifications-daily": {
             "task": "app.celery_app.deadline_notifications_task",
-            "schedule": crontab(hour=7, minute=0),  # täglich um 07:00 Uhr
+            "schedule": crontab(hour=7, minute=0),
         },
         "periodic-recheck-daily": {
             "task": "app.celery_app.periodic_recheck_task",
-            "schedule": crontab(hour=3, minute=0),  # täglich um 03:00 Uhr
+            "schedule": crontab(hour=3, minute=0),
         },
     },
 )
@@ -171,6 +181,14 @@ def extract_document_text(self, document_id: str) -> dict:
                 extra={"document_id": document_id, "error": "document_not_found"},
             )
             return {"ok": False, "error": "document_not_found"}
+        # Idempotency guard: skip if already extracted (prevents double-processing on worker restart).
+        if row.extraction_status not in ("pending", "failed"):
+            logger.info(
+                "extract_document_text skipped (already %s)",
+                row.extraction_status,
+                extra={"document_id": document_id},
+            )
+            return {"ok": True, "document_id": document_id, "skipped": True}
         if not row.storage_path:
             logger.error(
                 "extract_document_text failed",
@@ -200,6 +218,13 @@ def extract_document_text(self, document_id: str) -> dict:
         _maybe_auto_run_checks(session, row.case_id)
 
         return {"ok": True, "document_id": document_id}
+    except SoftTimeLimitExceeded:
+        _set_extraction_failed(session, uid, "soft_time_limit_exceeded")
+        logger.error(
+            "extract_document_text timed out",
+            extra={"document_id": document_id, "error": "soft_time_limit_exceeded"},
+        )
+        return {"ok": False, "error": "soft_time_limit_exceeded"}
     except FileNotFoundError:
         _set_extraction_failed(session, uid, "file_not_found")
         logger.error(
@@ -356,6 +381,11 @@ def run_playbook_checks(self, job_id: str, task_request_id: str | None = None) -
         elapsed = round(time.monotonic() - t0, 2)
         logger.info("run_playbook_checks done", extra={"job_id": job_id, "elapsed_seconds": elapsed})
         return {"ok": True, "job_id": job_id}
+    except SoftTimeLimitExceeded:
+        elapsed = round(time.monotonic() - t0, 2)
+        logger.error("run_playbook_checks timed out", extra={"job_id": job_id, "elapsed_seconds": elapsed})
+        _set_run_checks_job_failed(job_id, "soft_time_limit_exceeded")
+        return {"ok": False, "error": "soft_time_limit_exceeded"}
     except Exception as e:
         elapsed = round(time.monotonic() - t0, 2)
         err_msg = str(e)[:490]
@@ -414,6 +444,10 @@ def build_dsb_report_task(self, job_id: str, task_request_id: str | None = None)
         asyncio.run(_build_dsb_report_async(job_id, task_request_id))
         logger.info("build_dsb_report_task done", extra={"job_id": job_id})
         return {"ok": True, "job_id": job_id}
+    except SoftTimeLimitExceeded:
+        logger.error("build_dsb_report_task timed out", extra={"job_id": job_id})
+        _set_dsb_report_job_failed(job_id, "soft_time_limit_exceeded")
+        return {"ok": False, "error": "soft_time_limit_exceeded"}
     except Exception as e:
         err_msg = str(e)
         logger.error("build_dsb_report_task failed", extra={"job_id": job_id, "error": err_msg})
@@ -468,6 +502,10 @@ def build_dsfa_task(self, job_id: str, task_request_id: str | None = None) -> di
         asyncio.run(_build_dsfa_async(job_id, task_request_id))
         logger.info("build_dsfa_task done", extra={"job_id": job_id})
         return {"ok": True, "job_id": job_id}
+    except SoftTimeLimitExceeded:
+        logger.error("build_dsfa_task timed out", extra={"job_id": job_id})
+        _set_dsfa_job_failed(job_id, "soft_time_limit_exceeded")
+        return {"ok": False, "error": "soft_time_limit_exceeded"}
     except Exception as e:
         err_msg = str(e)
         logger.error("build_dsfa_task failed", extra={"job_id": job_id, "error": err_msg})
@@ -495,7 +533,13 @@ def _set_dsfa_job_failed(job_id: str, error_message: str) -> None:
 # Retention-Scan-Task (Celery Beat, nächtlich)
 # ---------------------------------------------------------------------------
 
-@celery_app.task(name="app.celery_app.retention_scan_task", bind=True)
+@celery_app.task(
+    name="app.celery_app.retention_scan_task",
+    bind=True,
+    autoretry_for=(Exception,),
+    max_retries=2,
+    default_retry_delay=60,
+)
 def retention_scan_task(self) -> dict:
     """Archiviert fällige Vorgänge gemäß Aufbewahrungsfrist. Läuft täglich via Celery Beat."""
     logger.info("retention_scan_task started")
@@ -503,10 +547,9 @@ def retention_scan_task(self) -> dict:
         result = asyncio.run(_retention_scan_async())
         logger.info("retention_scan_task done", extra={"archived": result.get("archived_count", 0)})
         return {"ok": True, **result}
-    except Exception as e:
-        err_msg = str(e)
-        logger.error("retention_scan_task failed", extra={"error": err_msg})
-        return {"ok": False, "error": err_msg}
+    except SoftTimeLimitExceeded:
+        logger.error("retention_scan_task timed out")
+        return {"ok": False, "error": "soft_time_limit_exceeded"}
 
 
 async def _retention_scan_async() -> dict:
@@ -522,7 +565,13 @@ async def _retention_scan_async() -> dict:
 # Deadline-Benachrichtigungs-Task (Celery Beat, täglich)
 # ---------------------------------------------------------------------------
 
-@celery_app.task(name="app.celery_app.deadline_notifications_task", bind=True)
+@celery_app.task(
+    name="app.celery_app.deadline_notifications_task",
+    bind=True,
+    autoretry_for=(Exception,),
+    max_retries=2,
+    default_retry_delay=60,
+)
 def deadline_notifications_task(self) -> dict:
     """Scannt Fristen und sendet E-Mail-Benachrichtigungen. Läuft täglich via Celery Beat."""
     logger.info("deadline_notifications_task started")
@@ -530,10 +579,9 @@ def deadline_notifications_task(self) -> dict:
         result = asyncio.run(_deadline_notifications_async())
         logger.info("deadline_notifications_task done", extra={"sent": result.get("sent", 0)})
         return {"ok": True, **result}
-    except Exception as e:
-        err_msg = str(e)
-        logger.error("deadline_notifications_task failed", extra={"error": err_msg})
-        return {"ok": False, "error": err_msg}
+    except SoftTimeLimitExceeded:
+        logger.error("deadline_notifications_task timed out")
+        return {"ok": False, "error": "soft_time_limit_exceeded"}
 
 
 async def _deadline_notifications_async() -> dict:
@@ -549,7 +597,13 @@ async def _deadline_notifications_async() -> dict:
 # Periodische Re-Check-Task (Celery Beat, täglich)
 # ---------------------------------------------------------------------------
 
-@celery_app.task(name="app.celery_app.periodic_recheck_task", bind=True)
+@celery_app.task(
+    name="app.celery_app.periodic_recheck_task",
+    bind=True,
+    autoretry_for=(Exception,),
+    max_retries=2,
+    default_retry_delay=60,
+)
 def periodic_recheck_task(self) -> dict:
     """Führt automatische Re-Checks für Vorgänge durch, deren recheck_interval_days abgelaufen ist."""
     logger.info("periodic_recheck_task started")
@@ -557,10 +611,9 @@ def periodic_recheck_task(self) -> dict:
         result = asyncio.run(_periodic_recheck_async())
         logger.info("periodic_recheck_task done", extra={"queued": result.get("queued", 0)})
         return {"ok": True, **result}
-    except Exception as e:
-        err_msg = str(e)
-        logger.error("periodic_recheck_task failed", extra={"error": err_msg})
-        return {"ok": False, "error": err_msg}
+    except SoftTimeLimitExceeded:
+        logger.error("periodic_recheck_task timed out")
+        return {"ok": False, "error": "soft_time_limit_exceeded"}
 
 
 async def _periodic_recheck_async() -> dict:

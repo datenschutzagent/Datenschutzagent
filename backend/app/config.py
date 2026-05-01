@@ -237,6 +237,11 @@ class Settings(BaseSettings):
     # only if you need to allow edge-case content that triggers false positives.
     prompt_injection_block: bool = True
 
+    # LLM Circuit Breaker: opens after N consecutive failures; resets after cooldown.
+    # Prevents a hung/down provider from burning all retry delays on every request.
+    llm_circuit_breaker_threshold: int = 5
+    llm_circuit_breaker_cooldown_seconds: float = 60.0
+
     # LLM-Provider (ollama | openai | anthropic)
     # Ollama-Konfiguration bleibt unverändert (ollama_base_url, ollama_model, etc.)
     llm_provider: str = "ollama"      # Aktiver Provider: "ollama", "openai" oder "anthropic"
@@ -277,88 +282,100 @@ class Settings(BaseSettings):
     weaviate_legal_bases_top_k: int = 8
     ollama_embedding_model: str = "nomic-embed-text"
 
+    # ---------------------------------------------------------------------------
+    # Focused model validators (run in definition order by Pydantic).
+    # Each covers one concern so validators are independently readable and testable.
+    # ---------------------------------------------------------------------------
+
+    @staticmethod
+    def _redact_url(url: str) -> str:
+        try:
+            p = urllib.parse.urlparse(url)
+            netloc = p.netloc
+            if "@" in netloc:
+                netloc = f"***@{netloc.split('@', 1)[1]}"
+            return urllib.parse.urlunparse((p.scheme, netloc, p.path, p.params, p.query, p.fragment))
+        except Exception:
+            return "<unparseable>"
+
     @model_validator(mode="after")
-    def validate_storage_and_oidc(self) -> "Settings":
-        """Fail fast at startup when required settings are missing for selected backends."""
-        import logging as _logging
-        _log = _logging.getLogger("app.startup")
-
-        def _redact_url(url: str) -> str:
-            """Return a safe-to-log URL without userinfo (password)."""
-            try:
-                p = urllib.parse.urlparse(url)
-                netloc = p.netloc
-                if "@" in netloc:
-                    netloc = f"***@{netloc.split('@', 1)[1]}"
-                return urllib.parse.urlunparse((p.scheme, netloc, p.path, p.params, p.query, p.fragment))
-            except Exception:
-                return "<unparseable>"
-
-        # F5: DATABASE_URL must always be set explicitly — no default credentials.
+    def _validate_database(self) -> "Settings":
+        """F5: DATABASE_URL must be set — no default credentials."""
         if not self.database_url:
             raise ValueError(
                 "DATABASE_URL must be set. Example: "
                 "postgresql+asyncpg://user:password@host:5432/dbname"
             )
+        return self
 
-        # Celery broker URL: validate early with a helpful error message.
-        # Avoid logging secrets by redacting userinfo.
+    @model_validator(mode="after")
+    def _validate_celery_broker(self) -> "Settings":
+        """Validate CELERY_BROKER_URL format when Celery is enabled."""
         broker_url = (self.celery_broker_url or "").strip()
-        if self.celery_enabled and broker_url:
-            try:
-                p = urllib.parse.urlparse(broker_url)
-                if p.scheme not in ("redis", "rediss", "amqp", "pyamqp"):
-                    raise ValueError(f"unsupported scheme {p.scheme!r}")
-                if not p.hostname:
-                    raise ValueError("missing hostname")
-                # Accessing .port can raise ValueError if it is not an int.
-                _ = p.port  # noqa: F841
-            except Exception as exc:
-                safe = _redact_url(broker_url)
-                raise ValueError(
-                    "CELERY_BROKER_URL ist ungültig und kann nicht geparst werden. "
-                    "Erwartetes Format (Redis): redis://:PASSWORD@HOST:6379/0 "
-                    "(Passwort ggf. URL-encoden oder ein hex-Passwort verwenden). "
-                    f"Aktuell (redacted): {safe}. Fehler: {exc}"
-                ) from exc
+        if not self.celery_enabled or not broker_url:
+            return self
+        try:
+            p = urllib.parse.urlparse(broker_url)
+            if p.scheme not in ("redis", "rediss", "amqp", "pyamqp"):
+                raise ValueError(f"unsupported scheme {p.scheme!r}")
+            if not p.hostname:
+                raise ValueError("missing hostname")
+            _ = p.port  # noqa: F841 — raises ValueError for non-int port
+        except Exception as exc:
+            safe = self._redact_url(broker_url)
+            raise ValueError(
+                "CELERY_BROKER_URL ist ungültig und kann nicht geparst werden. "
+                "Erwartetes Format (Redis): redis://:PASSWORD@HOST:6379/0 "
+                "(Passwort ggf. URL-encoden oder ein hex-Passwort verwenden). "
+                f"Aktuell (redacted): {safe}. Fehler: {exc}"
+            ) from exc
+        return self
 
+    @model_validator(mode="after")
+    def _validate_storage(self) -> "Settings":
+        """Require S3 credentials when storage_backend=minio."""
         if self.storage_backend == "minio":
             missing = [f for f in ("s3_endpoint_url", "s3_access_key", "s3_secret_key") if not getattr(self, f)]
             if missing:
                 raise ValueError(
-                    f"storage_backend=minio requires these env vars to be set: {', '.join(m.upper() for m in missing)}"
+                    f"storage_backend=minio requires: {', '.join(m.upper() for m in missing)}"
                 )
-        # Production-profile enforcement is handled further down, gated by
-        # APP_ENVIRONMENT. The older check that used DEBUG as a proxy for
-        # production was removed because it fired in test environments whenever
-        # DEBUG defaulted to false.
+        return self
+
+    @model_validator(mode="after")
+    def _validate_oidc(self) -> "Settings":
+        """F2: OIDC audience and webhook encryption must be set when OIDC is enabled."""
+        import logging as _logging
+        _log = _logging.getLogger("app.startup")
 
         if self.oidc_enabled:
             if not self.oidc_issuer_url:
                 raise ValueError("OIDC_ENABLED=true requires OIDC_ISSUER_URL to be set")
             if not self.oidc_client_id:
                 raise ValueError("OIDC_ENABLED=true requires OIDC_CLIENT_ID to be set")
-            # F2: OIDC_AUDIENCE must be set to prevent cross-application token reuse.
             if not self.oidc_audience:
                 raise ValueError(
                     "SECURITY: OIDC_ENABLED=true requires OIDC_AUDIENCE to be set. "
                     "Set it to the expected JWT audience claim (typically the client ID) "
                     "to prevent tokens issued for other applications from being accepted."
                 )
-
-        # F4: In production with OIDC, webhook secrets must be encrypted at rest.
-        if not self.webhook_secret_encryption_key.get_secret_value():
-            if self.oidc_enabled:
+            if not self.webhook_secret_encryption_key.get_secret_value():
                 raise ValueError(
                     "SECURITY: WEBHOOK_SECRET_ENCRYPTION_KEY must be set when OIDC is enabled. "
-                    "Generate a key with: "
-                    "python -c \"from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())\""
+                    "Generate: python -c \"from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())\""
                 )
+        elif not self.webhook_secret_encryption_key.get_secret_value():
             _log.warning(
-                "SECURITY: WEBHOOK_SECRET_ENCRYPTION_KEY not set — webhook secrets are stored "
-                "unencrypted in the database. Generate a key with: "
-                "python -c \"from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())\""
+                "SECURITY: WEBHOOK_SECRET_ENCRYPTION_KEY not set — webhook secrets stored unencrypted. "
+                "Generate: python -c \"from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())\""
             )
+        return self
+
+    @model_validator(mode="after")
+    def _validate_production_profile(self) -> "Settings":
+        """Hard-fail on misconfigured production deployments; warn in other envs."""
+        import logging as _logging
+        _log = _logging.getLogger("app.startup")
 
         if not self.debug:
             origins = self.cors_origins if isinstance(self.cors_origins, list) else []
@@ -366,40 +383,31 @@ class Settings(BaseSettings):
             if http_origins:
                 _log.warning(
                     "SECURITY: CORS_ORIGINS contains non-HTTPS origins in non-debug mode: %s. "
-                    "Use HTTPS-only origins in production.",
-                    http_origins,
+                    "Use HTTPS-only origins in production.", http_origins,
                 )
 
-        # Production profile: turn the earlier advisory warnings into hard
-        # failures so that a misconfigured deployment never boots. Development
-        # and test environments keep their lenient behaviour.
-        if self.app_environment == "production":
-            problems: list[str] = []
-            if not self.oidc_enabled:
-                problems.append("OIDC_ENABLED must be true")
-            if self.debug:
-                problems.append("DEBUG must be false")
-            if not self.webhook_secret_encryption_key.get_secret_value():
-                problems.append("WEBHOOK_SECRET_ENCRYPTION_KEY must be set")
-            origins = self.cors_origins if isinstance(self.cors_origins, list) else []
-            http_origins = [o for o in origins if o.startswith("http://")]
-            if http_origins:
-                problems.append(
-                    f"CORS_ORIGINS must use HTTPS only (rejected: {http_origins})"
-                )
-            trusted = self.trusted_proxies if isinstance(self.trusted_proxies, list) else []
-            if not trusted:
-                _log.warning(
-                    "SECURITY: APP_ENVIRONMENT=production but TRUSTED_PROXIES is empty. "
-                    "Set it to the CIDR range of your load balancer so X-Forwarded-For "
-                    "is honoured; otherwise rate limits apply to the LB IP as one source."
-                )
-            if problems:
-                raise ValueError(
-                    "SECURITY: APP_ENVIRONMENT=production requires: "
-                    + "; ".join(problems)
-                )
+        if self.app_environment != "production":
+            return self
 
+        problems: list[str] = []
+        if not self.oidc_enabled:
+            problems.append("OIDC_ENABLED must be true")
+        if self.debug:
+            problems.append("DEBUG must be false")
+        if not self.webhook_secret_encryption_key.get_secret_value():
+            problems.append("WEBHOOK_SECRET_ENCRYPTION_KEY must be set")
+        origins = self.cors_origins if isinstance(self.cors_origins, list) else []
+        http_origins = [o for o in origins if o.startswith("http://")]
+        if http_origins:
+            problems.append(f"CORS_ORIGINS must use HTTPS only (rejected: {http_origins})")
+        trusted = self.trusted_proxies if isinstance(self.trusted_proxies, list) else []
+        if not trusted:
+            _log.warning(
+                "SECURITY: APP_ENVIRONMENT=production but TRUSTED_PROXIES is empty. "
+                "Set it to the CIDR range of your load balancer."
+            )
+        if problems:
+            raise ValueError("SECURITY: APP_ENVIRONMENT=production requires: " + "; ".join(problems))
         return self
 
     @property
