@@ -21,12 +21,115 @@ from app.models.schemas import (
     DataBreachListResponse,
     DataBreachResponse,
     DataBreachUpdate,
+    DataBreachStatsResponse,
+    DataBreachMonthlyItem,
 )
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
 
 _NOTIFICATION_DEADLINE_HOURS = 72  # Art. 33 Abs. 1 DSGVO
+
+
+@router.get("/stats", response_model=DataBreachStatsResponse, summary="Datenpannen-Statistiken abrufen")
+async def get_data_breach_stats(
+    db: AsyncSession = Depends(get_db),
+    _user=require_roles("viewer", "editor", "admin"),
+):
+    """Aggregierte Datenpannen-Statistiken: 72h-Compliance, Risikoverteilung, Monatstrend."""
+    from sqlalchemy import text
+    result = await db.execute(text("""
+        WITH by_status AS (
+            SELECT status AS key1, COUNT(*) AS cnt FROM data_breaches GROUP BY status
+        ),
+        by_risk AS (
+            SELECT risk_level AS key1, COUNT(*) AS cnt FROM data_breaches WHERE risk_level IS NOT NULL GROUP BY risk_level
+        ),
+        by_type AS (
+            SELECT breach_type AS key1, COUNT(*) AS cnt FROM data_breaches GROUP BY breach_type
+        ),
+        notification AS (
+            SELECT
+                COUNT(*) FILTER (WHERE authority_notified_at IS NOT NULL) AS notified,
+                COUNT(*) FILTER (
+                    WHERE authority_notified_at IS NOT NULL
+                    AND authority_notified_at <= notification_deadline
+                ) AS on_time
+            FROM data_breaches
+            WHERE status IN ('reported_to_authority', 'reported_to_subjects', 'closed')
+        ),
+        persons AS (
+            SELECT AVG(affected_persons_count) AS avg_persons
+            FROM data_breaches
+            WHERE affected_persons_count IS NOT NULL
+        ),
+        monthly AS (
+            SELECT TO_CHAR(DATE_TRUNC('month', discovered_at), 'YYYY-MM') AS month,
+                   COUNT(*) AS cnt,
+                   COALESCE(SUM(affected_persons_count), 0) AS total_persons
+            FROM data_breaches
+            WHERE discovered_at >= NOW() - INTERVAL '6 months'
+            GROUP BY DATE_TRUNC('month', discovered_at)
+            ORDER BY 1 ASC
+        ),
+        total AS (
+            SELECT COUNT(*) AS cnt FROM data_breaches
+        )
+        SELECT 'status'  AS qname, key1, cnt, NULL::float, NULL::bigint FROM by_status
+        UNION ALL
+        SELECT 'risk',    key1, cnt, NULL, NULL FROM by_risk
+        UNION ALL
+        SELECT 'type',    key1, cnt, NULL, NULL FROM by_type
+        UNION ALL
+        SELECT 'notify',  NULL, notified, NULL, on_time FROM notification
+        UNION ALL
+        SELECT 'persons', NULL, NULL, avg_persons, NULL FROM persons
+        UNION ALL
+        SELECT 'monthly', month, cnt, NULL, total_persons FROM monthly
+        UNION ALL
+        SELECT 'total',   NULL, cnt, NULL, NULL FROM total
+    """))
+    rows = result.fetchall()
+
+    by_status: dict[str, int] = {}
+    by_risk_level: dict[str, int] = {}
+    by_breach_type: dict[str, int] = {}
+    monthly_trend: list[DataBreachMonthlyItem] = []
+    notification_compliance_rate: float | None = None
+    avg_affected_persons: float | None = None
+    total: int = 0
+
+    for row in rows:
+        qname, key1, cnt, f1, f2 = row
+        if qname == "status":
+            by_status[key1] = int(cnt or 0)
+        elif qname == "risk":
+            by_risk_level[key1] = int(cnt or 0)
+        elif qname == "type":
+            by_breach_type[key1] = int(cnt or 0)
+        elif qname == "notify":
+            notified = int(cnt or 0)
+            on_time = int(f2 or 0)
+            if notified > 0:
+                notification_compliance_rate = round(on_time / notified, 4)
+        elif qname == "persons":
+            avg_affected_persons = float(f1) if f1 is not None else None
+        elif qname == "monthly":
+            monthly_trend.append(DataBreachMonthlyItem(
+                month=key1, count=int(cnt or 0), total_persons=int(f2 or 0)
+            ))
+        elif qname == "total":
+            total = int(cnt or 0)
+
+    return DataBreachStatsResponse(
+        total=total,
+        by_status=by_status,
+        by_risk_level=by_risk_level,
+        by_breach_type=by_breach_type,
+        notification_compliance_rate=notification_compliance_rate,
+        avg_affected_persons=avg_affected_persons,
+        monthly_trend=monthly_trend,
+    )
 
 
 @router.get("", response_model=DataBreachListResponse, summary="Datenpannen auflisten")

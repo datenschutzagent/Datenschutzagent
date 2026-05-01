@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import { AppLayout } from "../components/app-layout";
 import { PageHeader } from "../components/page-header";
 import { Card, CardContent } from "../components/ui/card";
@@ -222,6 +222,28 @@ export function DSRPage() {
       && daysUntilDeadline(r.responseDeadline) < 0
   ).length;
 
+  const dsrAnalytics = useMemo(() => {
+    const responded = requests.filter((r) => r.respondedAt != null);
+    const responseTimes = responded.map((r) =>
+      (new Date(r.respondedAt!).getTime() - new Date(r.receivedAt).getTime()) / 86_400_000
+    );
+    const avgDays = responseTimes.length > 0
+      ? Math.round(responseTimes.reduce((a, b) => a + b, 0) / responseTimes.length)
+      : null;
+
+    const onTime = responded.filter(
+      (r) => new Date(r.respondedAt!).getTime() <= new Date(r.responseDeadline).getTime()
+    ).length;
+    const onTimeRate = responded.length > 0 ? Math.round((onTime / responded.length) * 100) : null;
+
+    const byType: Record<string, number> = {};
+    for (const r of requests) {
+      byType[r.requestType] = (byType[r.requestType] ?? 0) + 1;
+    }
+
+    return { avgDays, onTimeRate, byType, respondedCount: responded.length };
+  }, [requests]);
+
   return (
     <AppLayout>
       <PageHeader
@@ -260,6 +282,67 @@ export function DSRPage() {
           </CardContent>
         </Card>
       </div>
+
+      {/* Analytics row */}
+      {requests.length > 0 && (
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
+          <Card>
+            <CardContent className="pt-4 pb-3 px-4">
+              <div className="text-xs text-muted-foreground mb-1">On-Time-Rate (Art. 12 Abs. 3)</div>
+              {dsrAnalytics.onTimeRate == null ? (
+                <div className="text-sm text-muted-foreground">Noch keine Antworten</div>
+              ) : (
+                <>
+                  <div className={`text-2xl font-bold ${dsrAnalytics.onTimeRate >= 90 ? "text-green-600" : dsrAnalytics.onTimeRate >= 70 ? "text-yellow-600" : "text-red-600"}`}>
+                    {dsrAnalytics.onTimeRate}%
+                  </div>
+                  <div className="text-xs text-muted-foreground mt-0.5">
+                    {dsrAnalytics.respondedCount} Anfragen beantwortet
+                  </div>
+                </>
+              )}
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardContent className="pt-4 pb-3 px-4">
+              <div className="text-xs text-muted-foreground mb-1">Ø Antwortzeit</div>
+              {dsrAnalytics.avgDays == null ? (
+                <div className="text-sm text-muted-foreground">Keine Daten</div>
+              ) : (
+                <>
+                  <div className={`text-2xl font-bold ${dsrAnalytics.avgDays <= 30 ? "text-green-600" : "text-red-600"}`}>
+                    {dsrAnalytics.avgDays}d
+                  </div>
+                  <div className="text-xs text-muted-foreground mt-0.5">Frist: 30 Tage</div>
+                </>
+              )}
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardContent className="pt-4 pb-3 px-4">
+              <div className="text-xs text-muted-foreground mb-1">Anfragetypen</div>
+              <div className="space-y-1.5 mt-1">
+                {Object.entries(REQUEST_TYPE_LABELS).map(([key, label]) => {
+                  const count = dsrAnalytics.byType[key] ?? 0;
+                  if (count === 0) return null;
+                  const pct = total > 0 ? Math.round((count / total) * 100) : 0;
+                  return (
+                    <div key={key} className="flex items-center gap-2 text-xs">
+                      <span className="w-20 text-muted-foreground truncate" title={label}>{label.split(" ")[0]}</span>
+                      <div className="flex-1 bg-muted rounded-full h-1.5">
+                        <div className="bg-primary h-1.5 rounded-full" style={{ width: `${pct}%` }} />
+                      </div>
+                      <span className="w-4 text-right font-medium">{count}</span>
+                    </div>
+                  );
+                })}
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      )}
 
       {/* Toolbar */}
       <div className="flex flex-wrap items-center gap-3 mb-4">

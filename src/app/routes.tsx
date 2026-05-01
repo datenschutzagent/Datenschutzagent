@@ -14,6 +14,7 @@ import { AVVPage } from "./pages/avv-page";
 import { TOMPage } from "./pages/tom-page";
 import { PrivacyPolicyPage } from "./pages/privacy-policy-page";
 import { DSRPage } from "./pages/dsr-page";
+import { RiskDashboardPage } from "./pages/risk-dashboard-page";
 import { useAuthOptional } from "./contexts/AuthContext";
 
 function AuthGuard({ children }: { children: React.ReactNode }) {
@@ -153,6 +154,14 @@ export const router = createBrowserRouter([
     element: (
       <AuthGuard>
         <PrivacyPolicyPage />
+      </AuthGuard>
+    ),
+  },
+  {
+    path: "/risk-dashboard",
+    element: (
+      <AuthGuard>
+        <RiskDashboardPage />
       </AuthGuard>
     ),
   },

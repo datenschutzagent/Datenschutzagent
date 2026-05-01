@@ -14,6 +14,7 @@ interface NavItem {
 
 const NAV_ITEMS: NavItem[] = [
   { to: "/", label: "Vorgänge" },
+  { to: "/risk-dashboard", label: "Risiko-Dashboard" },
   { to: "/compliance", label: "Compliance" },
   { to: "/data-breaches", label: "Datenpannen" },
   { to: "/dsr", label: "Betroffenenrechte" },

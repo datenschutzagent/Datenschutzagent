@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import { AppLayout } from "../components/app-layout";
 import { PageHeader } from "../components/page-header";
 import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card";
@@ -227,6 +227,31 @@ export function DataBreachesPage() {
       && hoursUntilDeadline(b.notificationDeadline) < 0
   ).length;
 
+  const breachAnalytics = useMemo(() => {
+    const notified = breaches.filter(
+      (b) => ["reported_to_authority", "reported_to_subjects", "closed"].includes(b.status)
+        && b.authorityNotifiedAt != null
+    );
+    const onTime = notified.filter(
+      (b) => new Date(b.authorityNotifiedAt!).getTime() <= new Date(b.notificationDeadline).getTime()
+    );
+    const complianceRate = notified.length > 0 ? Math.round((onTime.length / notified.length) * 100) : null;
+
+    const notifyTimes = notified.map((b) =>
+      (new Date(b.authorityNotifiedAt!).getTime() - new Date(b.discoveredAt).getTime()) / 3_600_000
+    );
+    const avgHours = notifyTimes.length > 0
+      ? Math.round(notifyTimes.reduce((a, b) => a + b, 0) / notifyTimes.length)
+      : null;
+
+    const byType: Record<string, number> = {};
+    for (const b of breaches) {
+      byType[b.breachType] = (byType[b.breachType] ?? 0) + 1;
+    }
+
+    return { complianceRate, avgHours, byType, notifiedCount: notified.length };
+  }, [breaches]);
+
   return (
     <AppLayout>
       <PageHeader
@@ -265,6 +290,72 @@ export function DataBreachesPage() {
           </CardContent>
         </Card>
       </div>
+
+      {/* Analytics row */}
+      {breaches.length > 0 && (
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
+          <Card>
+            <CardHeader className="pb-1 pt-4 px-4">
+              <CardTitle className="text-xs font-medium text-muted-foreground">72h-Compliance-Rate</CardTitle>
+            </CardHeader>
+            <CardContent className="px-4 pb-4">
+              {breachAnalytics.complianceRate == null ? (
+                <div className="text-sm text-muted-foreground">Noch keine gemeldeten Pannen</div>
+              ) : (
+                <>
+                  <div className={`text-2xl font-bold ${breachAnalytics.complianceRate >= 90 ? "text-green-600" : breachAnalytics.complianceRate >= 70 ? "text-yellow-600" : "text-red-600"}`}>
+                    {breachAnalytics.complianceRate}%
+                  </div>
+                  <div className="text-xs text-muted-foreground mt-0.5">
+                    {breachAnalytics.notifiedCount} Meldungen gesamt
+                  </div>
+                </>
+              )}
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader className="pb-1 pt-4 px-4">
+              <CardTitle className="text-xs font-medium text-muted-foreground">Ø Zeit bis Behördenmeldung</CardTitle>
+            </CardHeader>
+            <CardContent className="px-4 pb-4">
+              {breachAnalytics.avgHours == null ? (
+                <div className="text-sm text-muted-foreground">Keine Daten</div>
+              ) : (
+                <>
+                  <div className={`text-2xl font-bold ${breachAnalytics.avgHours <= 72 ? "text-green-600" : "text-red-600"}`}>
+                    {breachAnalytics.avgHours}h
+                  </div>
+                  <div className="text-xs text-muted-foreground mt-0.5">
+                    Frist: 72h
+                  </div>
+                </>
+              )}
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader className="pb-1 pt-4 px-4">
+              <CardTitle className="text-xs font-medium text-muted-foreground">Pannenkategorie</CardTitle>
+            </CardHeader>
+            <CardContent className="px-4 pb-4 space-y-1.5">
+              {Object.entries(BREACH_TYPE_LABELS).map(([key, label]) => {
+                const count = breachAnalytics.byType[key] ?? 0;
+                const pct = total > 0 ? Math.round((count / total) * 100) : 0;
+                return (
+                  <div key={key} className="flex items-center gap-2 text-xs">
+                    <span className="w-24 text-muted-foreground">{label}</span>
+                    <div className="flex-1 bg-muted rounded-full h-1.5">
+                      <div className="bg-primary h-1.5 rounded-full" style={{ width: `${pct}%` }} />
+                    </div>
+                    <span className="w-4 text-right font-medium">{count}</span>
+                  </div>
+                );
+              })}
+            </CardContent>
+          </Card>
+        </div>
+      )}
 
       {/* Toolbar */}
       <div className="flex flex-wrap items-center gap-3 mb-4">

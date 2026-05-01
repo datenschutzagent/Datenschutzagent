@@ -565,12 +565,19 @@ class TopFailingCheck(BaseModel):
     severity_breakdown: dict[str, int] = Field(default_factory=dict)
 
 
+class ResolutionVelocityItem(BaseModel):
+    severity: str
+    avg_days_to_fix: float
+    sample_size: int
+
+
 class FindingStatsResponse(BaseModel):
     by_severity: dict[str, int] = Field(default_factory=dict)
     by_category: dict[str, int] = Field(default_factory=dict)
     by_department: list[FindingsByDepartment] = []
     top_failing_checks: list[TopFailingCheck] = []
     trend: list[FindingTrendItem] = []
+    resolution_velocity: list[ResolutionVelocityItem] = []
 
 
 # --- DSFA (Art. 35 DSGVO) ---
@@ -710,6 +717,49 @@ class RetentionPreviewResponse(BaseModel):
     items: list[RetentionPreviewItem] = []
 
 
+# --- DSR Statistiken ---
+class DSRMonthlyVolumeItem(BaseModel):
+    month: str
+    count: int
+
+
+class DSRStatsResponse(BaseModel):
+    total: int
+    by_type: dict[str, int] = Field(default_factory=dict)
+    by_status: dict[str, int] = Field(default_factory=dict)
+    avg_response_days: float | None = None
+    on_time_rate: float | None = None
+    overdue_count: int = 0
+    monthly_volume: list[DSRMonthlyVolumeItem] = []
+
+
+# --- Datenpannen Statistiken ---
+class DataBreachMonthlyItem(BaseModel):
+    month: str
+    count: int
+    total_persons: int
+
+
+class DataBreachStatsResponse(BaseModel):
+    total: int
+    by_status: dict[str, int] = Field(default_factory=dict)
+    by_risk_level: dict[str, int] = Field(default_factory=dict)
+    by_breach_type: dict[str, int] = Field(default_factory=dict)
+    notification_compliance_rate: float | None = None
+    avg_affected_persons: float | None = None
+    monthly_trend: list[DataBreachMonthlyItem] = []
+
+
+# --- AVV Statistiken ---
+class AVVStatsResponse(BaseModel):
+    total: int
+    by_status: dict[str, int] = Field(default_factory=dict)
+    expiring_soon: int = 0
+    expired: int = 0
+    avg_risk_score: float | None = None
+    by_risk_level: dict[str, int] = Field(default_factory=dict)
+
+
 # --- Notifications ---
 class NotificationTestResponse(BaseModel):
     smtp_enabled: bool
@@ -840,6 +890,9 @@ class AVVContractResponse(BaseModel):
     document_name: str | None = None
     notes: str | None = None
     check_result: dict[str, Any] | None = None
+    risk_score: int | None = None
+    risk_level: RiskLevelEnum | None = None
+    risk_assessed_at: datetime | None = None
     created_at: datetime
     updated_at: datetime
 

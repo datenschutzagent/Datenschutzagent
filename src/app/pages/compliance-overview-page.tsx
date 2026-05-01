@@ -7,16 +7,21 @@ import { Button } from "../components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../components/ui/select";
 import { Skeleton } from "../components/ui/skeleton";
 import { Link } from "react-router";
-import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from "recharts";
+import {
+  BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell,
+  AreaChart, Area, Legend,
+} from "recharts";
 import {
   listFindings,
   downloadAllFindingsExport,
   downloadBlob,
+  getFindingStats,
   type ApiFinding,
+  type FindingStatsResult,
 } from "../lib/api";
 import { severityColors, severityLabels, findingStatusLabels } from "../lib/mock-data";
 import type { FindingSeverity } from "../lib/mock-data";
-import { Download, Loader2, ShieldAlert, AlertTriangle, AlertCircle, Info } from "lucide-react";
+import { Download, Loader2, ShieldAlert, AlertTriangle, AlertCircle, Info, TrendingUp } from "lucide-react";
 import { toast } from "sonner";
 
 const SEVERITY_ORDER: FindingSeverity[] = ["critical", "high", "medium", "low", "info"];
@@ -37,6 +42,12 @@ function SeverityIcon({ severity }: { severity: FindingSeverity }) {
   }
 }
 
+function formatMonth(ym: string): string {
+  const [year, month] = ym.split("-");
+  const date = new Date(Number(year), Number(month) - 1, 1);
+  return date.toLocaleDateString("de-DE", { month: "short", year: "2-digit" });
+}
+
 export function ComplianceOverviewPage() {
   const [findings, setFindings] = useState<ApiFinding[]>([]);
   const [total, setTotal] = useState(0);
@@ -45,6 +56,7 @@ export function ComplianceOverviewPage() {
   const [severityFilter, setSeverityFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState("open");
   const [offset, setOffset] = useState(0);
+  const [stats, setStats] = useState<FindingStatsResult | null>(null);
   const PAGE_SIZE = 50;
 
   const loadFindings = async (newOffset = 0, sev = severityFilter, st = statusFilter) => {
@@ -70,13 +82,25 @@ export function ComplianceOverviewPage() {
     loadFindings(0, severityFilter, statusFilter);
   }, [severityFilter, statusFilter]);
 
-  const chartData = useMemo(() => {
+  useEffect(() => {
+    getFindingStats()
+      .then(setStats)
+      .catch(() => {/* stats sind optional */});
+  }, []);
+
+  const orgWideSeverityData = useMemo(() => {
+    if (!stats) return null;
     return SEVERITY_ORDER.map((sev) => ({
       name: severityLabels[sev],
-      count: findings.filter((f) => f.severity === sev).length,
+      count: stats.bySeverity[sev] ?? 0,
       severity: sev,
     }));
-  }, [findings]);
+  }, [stats]);
+
+  const trendData = useMemo(() => {
+    if (!stats?.trend?.length) return null;
+    return stats.trend.map((t) => ({ ...t, label: formatMonth(t.month) }));
+  }, [stats]);
 
   const handleExport = async () => {
     setExportLoading(true);
@@ -102,48 +126,190 @@ export function ComplianceOverviewPage() {
         description="Organisationsweite Findings über alle Vorgänge"
       />
 
-      {/* Summary chart */}
+      {/* Org-wide severity stats + trend */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
         <Card>
           <CardHeader>
-            <CardTitle className="text-base">Findings nach Schweregrad</CardTitle>
-            <CardDescription>Aktuelle Filterung ({total} Findings gesamt)</CardDescription>
+            <CardTitle className="text-base">Offene Findings nach Schweregrad</CardTitle>
+            <CardDescription>Org-weite Gesamtzahlen (alle Vorgänge)</CardDescription>
           </CardHeader>
           <CardContent>
-            <ResponsiveContainer width="100%" height={160}>
-              <BarChart data={chartData} margin={{ top: 4, right: 4, bottom: 4, left: -20 }}>
-                <XAxis dataKey="name" tick={{ fontSize: 11 }} />
-                <YAxis tick={{ fontSize: 11 }} />
-                <Tooltip formatter={(v: number) => [v, "Findings"]} />
-                <Bar dataKey="count" radius={[4, 4, 0, 0]}>
-                  {chartData.map((entry) => (
-                    <Cell key={entry.severity} fill={SEVERITY_CHART_COLORS[entry.severity] ?? "#6b7280"} />
-                  ))}
-                </Bar>
-              </BarChart>
-            </ResponsiveContainer>
+            {!stats ? (
+              <Skeleton className="h-40 w-full" />
+            ) : (
+              <ResponsiveContainer width="100%" height={160}>
+                <BarChart data={orgWideSeverityData!} margin={{ top: 4, right: 4, bottom: 4, left: -20 }}>
+                  <XAxis dataKey="name" tick={{ fontSize: 11 }} />
+                  <YAxis tick={{ fontSize: 11 }} />
+                  <Tooltip formatter={(v: number) => [v, "Findings"]} />
+                  <Bar dataKey="count" radius={[4, 4, 0, 0]}>
+                    {orgWideSeverityData!.map((entry) => (
+                      <Cell key={entry.severity} fill={SEVERITY_CHART_COLORS[entry.severity] ?? "#6b7280"} />
+                    ))}
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+            )}
           </CardContent>
         </Card>
 
         <Card>
           <CardHeader>
-            <CardTitle className="text-base">Schnellübersicht</CardTitle>
+            <CardTitle className="text-base flex items-center gap-2">
+              <TrendingUp className="size-4" />
+              6-Monats-Trend
+            </CardTitle>
+            <CardDescription>Neue Findings pro Monat nach Schweregrad</CardDescription>
           </CardHeader>
-          <CardContent className="space-y-2">
-            {SEVERITY_ORDER.map((sev) => {
-              const count = findings.filter((f) => f.severity === sev).length;
-              return (
-                <div key={sev} className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <Badge className={severityColors[sev]}>{severityLabels[sev]}</Badge>
-                  </div>
-                  <span className="text-sm font-medium">{count}</span>
-                </div>
-              );
-            })}
+          <CardContent>
+            {!stats ? (
+              <Skeleton className="h-40 w-full" />
+            ) : !trendData ? (
+              <div className="h-40 flex items-center justify-center text-sm text-muted-foreground">
+                Noch keine Trend-Daten verfügbar
+              </div>
+            ) : (
+              <ResponsiveContainer width="100%" height={160}>
+                <AreaChart data={trendData} margin={{ top: 4, right: 4, bottom: 4, left: -20 }}>
+                  <XAxis dataKey="label" tick={{ fontSize: 10 }} />
+                  <YAxis tick={{ fontSize: 10 }} />
+                  <Tooltip />
+                  <Legend wrapperStyle={{ fontSize: 10 }} />
+                  {(["critical", "high", "medium", "low"] as FindingSeverity[]).map((sev) => (
+                    <Area
+                      key={sev}
+                      type="monotone"
+                      dataKey={sev}
+                      name={severityLabels[sev]}
+                      stackId="1"
+                      stroke={SEVERITY_CHART_COLORS[sev]}
+                      fill={SEVERITY_CHART_COLORS[sev]}
+                      fillOpacity={0.6}
+                    />
+                  ))}
+                </AreaChart>
+              </ResponsiveContainer>
+            )}
           </CardContent>
         </Card>
       </div>
+
+      {/* Department breakdown + Top failing checks */}
+      {stats && (stats.byDepartment.length > 0 || stats.topFailingChecks.length > 0) && (
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
+          {stats.byDepartment.length > 0 && (
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base">Findings nach Abteilung</CardTitle>
+                <CardDescription>Offene Findings (top {stats.byDepartment.length})</CardDescription>
+              </CardHeader>
+              <CardContent className="p-0">
+                <div className="divide-y divide-border">
+                  {stats.byDepartment.slice(0, 8).map((dept) => (
+                    <div key={dept.department} className="flex items-center justify-between px-4 py-2.5 text-sm">
+                      <span className="font-medium truncate max-w-[160px]" title={dept.department}>
+                        {dept.department || "–"}
+                      </span>
+                      <div className="flex items-center gap-1.5 flex-shrink-0">
+                        {dept.critical > 0 && (
+                          <Badge className={`${severityColors.critical} text-xs px-1.5 py-0`}>{dept.critical}</Badge>
+                        )}
+                        {dept.high > 0 && (
+                          <Badge className={`${severityColors.high} text-xs px-1.5 py-0`}>{dept.high}</Badge>
+                        )}
+                        {dept.medium > 0 && (
+                          <Badge className={`${severityColors.medium} text-xs px-1.5 py-0`}>{dept.medium}</Badge>
+                        )}
+                        <span className="text-muted-foreground ml-1">{dept.total}</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
+          {stats.topFailingChecks.length > 0 && (
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base">Häufigste offene Checks</CardTitle>
+                <CardDescription>Top {stats.topFailingChecks.length} nach Häufigkeit</CardDescription>
+              </CardHeader>
+              <CardContent className="p-0">
+                <div className="divide-y divide-border">
+                  {stats.topFailingChecks.map((check, i) => (
+                    <div key={check.checkName} className="flex items-start justify-between px-4 py-2.5 text-sm gap-2">
+                      <div className="flex items-start gap-2 min-w-0">
+                        <span className="text-muted-foreground text-xs mt-0.5 w-4 flex-shrink-0">{i + 1}.</span>
+                        <div className="min-w-0">
+                          <p className="font-medium truncate" title={check.checkName}>{check.checkName}</p>
+                          <p className="text-xs text-muted-foreground">{check.category}</p>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-1.5 flex-shrink-0">
+                        {(check.severityBreakdown.critical ?? 0) > 0 && (
+                          <Badge className={`${severityColors.critical} text-xs px-1.5 py-0`}>
+                            {check.severityBreakdown.critical}
+                          </Badge>
+                        )}
+                        {(check.severityBreakdown.high ?? 0) > 0 && (
+                          <Badge className={`${severityColors.high} text-xs px-1.5 py-0`}>
+                            {check.severityBreakdown.high}
+                          </Badge>
+                        )}
+                        <span className="text-muted-foreground font-medium">{check.count}</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </CardContent>
+            </Card>
+          )}
+        </div>
+      )}
+
+      {/* Resolution velocity */}
+      {stats && stats.resolutionVelocity.length > 0 && (
+        <Card className="mb-6">
+          <CardHeader>
+            <CardTitle className="text-base">Behebungsgeschwindigkeit</CardTitle>
+            <CardDescription>Ø Tage vom Fund bis zur Behebung (nach Schweregrad)</CardDescription>
+          </CardHeader>
+          <CardContent className="p-0">
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-border bg-muted/40">
+                    <th className="text-left py-2 px-4 font-medium text-muted-foreground">Schweregrad</th>
+                    <th className="text-right py-2 px-4 font-medium text-muted-foreground">Ø Tage bis Behebung</th>
+                    <th className="text-right py-2 px-4 font-medium text-muted-foreground">Stichprobe</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {["critical", "high", "medium", "low", "info"]
+                    .map((sev) => stats.resolutionVelocity.find((v) => v.severity === sev))
+                    .filter(Boolean)
+                    .map((v) => (
+                      <tr key={v!.severity} className="border-b border-border last:border-0">
+                        <td className="py-2 px-4">
+                          <Badge className={severityColors[v!.severity as FindingSeverity]}>
+                            {severityLabels[v!.severity as FindingSeverity]}
+                          </Badge>
+                        </td>
+                        <td className="py-2 px-4 text-right font-mono font-semibold">
+                          {v!.avgDaysToFix}d
+                        </td>
+                        <td className="py-2 px-4 text-right text-muted-foreground">
+                          {v!.sampleSize}
+                        </td>
+                      </tr>
+                    ))}
+                </tbody>
+              </table>
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Filters + export */}
       <div className="flex flex-col sm:flex-row sm:flex-wrap sm:items-center gap-3 mb-4">
