@@ -4,6 +4,7 @@ from fastapi import APIRouter, Depends
 from app.api.routes import admin, admin_prompt_templates, cases, departments, documents, findings, legal_bases, playbooks, users, vvt_overview
 from app.api.routes import dsfa, dsr, data_breaches, avv, tom, case_templates
 from app.api.routes import privacy_policy, webhooks
+from app.api.routes import analytics
 from app.core.auth import get_current_user
 
 router = APIRouter(dependencies=[Depends(get_current_user)])
@@ -26,3 +27,4 @@ router.include_router(tom.router, prefix="/tom", tags=["tom"])
 router.include_router(case_templates.router, prefix="/case-templates", tags=["case-templates"])
 router.include_router(privacy_policy.router, prefix="/privacy-policies", tags=["privacy-policy"])
 router.include_router(webhooks.router, prefix="/admin/webhooks", tags=["admin"])
+router.include_router(analytics.router, prefix="/analytics", tags=["analytics"])

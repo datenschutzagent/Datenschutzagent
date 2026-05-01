@@ -270,6 +270,12 @@ export function AVVPage() {
                         {STATUS_LABELS[c.status] ?? c.status}
                       </span>
                       <span className="text-xs text-muted-foreground">{PARTNER_TYPE_LABELS[c.partnerType]}</span>
+                      {c.riskLevel && (
+                        <span className={`text-xs px-2 py-0.5 rounded-full font-medium flex items-center gap-1 ${RISK_LEVEL_COLORS[c.riskLevel] ?? ""}`}>
+                          <ShieldAlert className="size-3" />
+                          {c.riskScore != null ? `${c.riskScore}/100` : RISK_LEVEL_LABELS[c.riskLevel]}
+                        </span>
+                      )}
                     </div>
                     {c.department && <div className="text-xs text-muted-foreground mt-0.5">Abteilung: {c.department}</div>}
                   </div>
@@ -395,6 +401,19 @@ export function AVVPage() {
                   )}
                 </div>
 
+                {!riskAssessment && selected.riskLevel && (
+                  <div className="flex items-center gap-3 mb-3 p-2 rounded-md bg-muted/50">
+                    <span className="text-sm font-semibold">{selected.riskScore != null ? `${selected.riskScore}/100` : "–"}</span>
+                    <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${RISK_LEVEL_COLORS[selected.riskLevel] ?? ""}`}>
+                      {RISK_LEVEL_LABELS[selected.riskLevel]}
+                    </span>
+                    {selected.riskAssessedAt && (
+                      <span className="text-xs text-muted-foreground">
+                        Bewertet am {new Date(selected.riskAssessedAt).toLocaleDateString("de-DE")}
+                      </span>
+                    )}
+                  </div>
+                )}
                 {riskAssessment ? (
                   <div className="space-y-3">
                     <div className="flex items-center gap-3">

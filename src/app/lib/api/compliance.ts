@@ -253,6 +253,9 @@ export interface ApiAVVContract {
   documentName: string | null;
   notes: string | null;
   checkResult: Record<string, unknown> | null;
+  riskScore: number | null;
+  riskLevel: "low" | "medium" | "high" | "critical" | null;
+  riskAssessedAt: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -585,4 +588,63 @@ export interface AvvRiskAssessment {
 
 export async function assessAvvRisk(contractId: string): Promise<AvvRiskAssessment> {
   return request<AvvRiskAssessment>("POST", `/avv/${contractId}/risk-assessment`);
+}
+
+// ---------------------------------------------------------------------------
+// Stats-Endpunkte
+// ---------------------------------------------------------------------------
+
+export interface DSRMonthlyVolumeItem {
+  month: string;
+  count: number;
+}
+
+export interface DSRStats {
+  total: number;
+  byType: Record<string, number>;
+  byStatus: Record<string, number>;
+  avgResponseDays: number | null;
+  onTimeRate: number | null;
+  overdueCount: number;
+  monthlyVolume: DSRMonthlyVolumeItem[];
+}
+
+export async function getDSRStats(): Promise<DSRStats> {
+  const r = await request<Record<string, unknown>>("GET", "/dsr/stats");
+  return deepSnakeToCamel(r) as unknown as DSRStats;
+}
+
+export interface DataBreachMonthlyItem {
+  month: string;
+  count: number;
+  totalPersons: number;
+}
+
+export interface DataBreachStats {
+  total: number;
+  byStatus: Record<string, number>;
+  byRiskLevel: Record<string, number>;
+  byBreachType: Record<string, number>;
+  notificationComplianceRate: number | null;
+  avgAffectedPersons: number | null;
+  monthlyTrend: DataBreachMonthlyItem[];
+}
+
+export async function getDataBreachStats(): Promise<DataBreachStats> {
+  const r = await request<Record<string, unknown>>("GET", "/data-breaches/stats");
+  return deepSnakeToCamel(r) as unknown as DataBreachStats;
+}
+
+export interface AVVStats {
+  total: number;
+  byStatus: Record<string, number>;
+  expiringSoon: number;
+  expired: number;
+  avgRiskScore: number | null;
+  byRiskLevel: Record<string, number>;
+}
+
+export async function getAVVStats(): Promise<AVVStats> {
+  const r = await request<Record<string, unknown>>("GET", "/avv/stats");
+  return deepSnakeToCamel(r) as unknown as AVVStats;
 }

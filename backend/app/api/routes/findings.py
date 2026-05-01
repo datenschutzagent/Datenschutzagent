@@ -38,6 +38,7 @@ from app.models.schemas import (
     FindingsByDepartment,
     TopFailingCheck,
     FindingUpdate,
+    ResolutionVelocityItem,
 )
 
 router = APIRouter()
@@ -119,6 +120,20 @@ async def get_findings_stats(
         SELECT 'top_check', check_name, category, total, critical, high, medium, low, info                                      FROM top_checks
         UNION ALL
         SELECT 'trend', month, NULL, 0, critical, high, medium, low, info                                                       FROM trend
+        UNION ALL
+        SELECT 'velocity', severity, NULL,
+               ROUND(AVG(EXTRACT(EPOCH FROM (ff.fixed_at - f.created_at)) / 86400.0)::numeric, 1)::int,
+               COUNT(*), 0, 0, 0, 0
+        FROM findings f
+        JOIN (
+            SELECT (payload->>'finding_id')::uuid AS finding_id,
+                   MIN(al.created_at) AS fixed_at
+            FROM activity_log al
+            WHERE al.event_type = 'finding_status_updated'
+              AND al.payload->>'new_status' = 'fixed'
+            GROUP BY 1
+        ) ff ON ff.finding_id = f.id
+        GROUP BY f.severity
     """))
     rows = stats_result.fetchall()
 
@@ -127,6 +142,7 @@ async def get_findings_stats(
     by_department: list[FindingsByDepartment] = []
     top_failing_checks: list[TopFailingCheck] = []
     trend: list[FindingTrendItem] = []
+    resolution_velocity: list[ResolutionVelocityItem] = []
 
     for row in rows:
         qname, key1, key2, n, c2, c3, c4, c5, c6 = row
@@ -149,6 +165,12 @@ async def get_findings_stats(
             trend.append(FindingTrendItem(
                 month=key1, critical=c2, high=c3, medium=c4, low=c5, info=c6,
             ))
+        elif qname == "velocity":
+            resolution_velocity.append(ResolutionVelocityItem(
+                severity=key1,
+                avg_days_to_fix=float(n or 0),
+                sample_size=int(c2 or 0),
+            ))
 
     return FindingStatsResponse(
         by_severity=by_severity,
@@ -156,6 +178,7 @@ async def get_findings_stats(
         by_department=by_department,
         top_failing_checks=top_failing_checks,
         trend=trend,
+        resolution_velocity=resolution_velocity,
     )
 
 

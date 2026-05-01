@@ -15,10 +15,88 @@ from app.models.schemas import (
     AVVContractResponse,
     AVVContractUpdate,
     AVVListResponse,
+    AVVStatsResponse,
 )
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
+
+
+@router.get("/stats", response_model=AVVStatsResponse, summary="AVV-Statistiken abrufen")
+async def get_avv_stats(
+    db: AsyncSession = Depends(get_db),
+    _user=require_roles("viewer", "editor", "admin"),
+):
+    """Aggregierte AVV-Statistiken: Status-Verteilung, Ablaufrisiko, Risiko-Score-Verteilung."""
+    from datetime import date, timedelta
+    from sqlalchemy import text
+    today = date.today()
+    threshold_90 = today + timedelta(days=90)
+
+    result = await db.execute(text("""
+        WITH by_status AS (
+            SELECT status AS key1, COUNT(*) AS cnt FROM avv_contracts GROUP BY status
+        ),
+        by_risk AS (
+            SELECT risk_level AS key1, COUNT(*) AS cnt
+            FROM avv_contracts WHERE risk_level IS NOT NULL GROUP BY risk_level
+        ),
+        expiry AS (
+            SELECT
+                COUNT(*) FILTER (
+                    WHERE status = 'signed'
+                    AND expiry_date IS NOT NULL
+                    AND expiry_date <= :threshold_90
+                    AND expiry_date >= :today
+                ) AS expiring_soon,
+                COUNT(*) FILTER (WHERE status = 'expired') AS expired,
+                AVG(risk_score) FILTER (WHERE risk_score IS NOT NULL) AS avg_risk
+            FROM avv_contracts
+        ),
+        total AS (
+            SELECT COUNT(*) AS cnt FROM avv_contracts
+        )
+        SELECT 'status'  AS qname, key1, cnt, NULL::float FROM by_status
+        UNION ALL
+        SELECT 'risk',    key1, cnt, NULL FROM by_risk
+        UNION ALL
+        SELECT 'expiry',  NULL, expiring_soon, avg_risk FROM expiry
+        UNION ALL
+        SELECT 'expired', NULL, expired, NULL FROM expiry
+        UNION ALL
+        SELECT 'total',   NULL, cnt, NULL FROM total
+    """), {"today": today, "threshold_90": threshold_90})
+    rows = result.fetchall()
+
+    by_status: dict[str, int] = {}
+    by_risk_level: dict[str, int] = {}
+    expiring_soon: int = 0
+    expired: int = 0
+    avg_risk_score: float | None = None
+    total: int = 0
+
+    for row in rows:
+        qname, key1, cnt, f1 = row
+        if qname == "status":
+            by_status[key1] = int(cnt or 0)
+        elif qname == "risk":
+            by_risk_level[key1] = int(cnt or 0)
+        elif qname == "expiry":
+            expiring_soon = int(cnt or 0)
+            avg_risk_score = float(f1) if f1 is not None else None
+        elif qname == "expired":
+            expired = int(cnt or 0)
+        elif qname == "total":
+            total = int(cnt or 0)
+
+    return AVVStatsResponse(
+        total=total,
+        by_status=by_status,
+        expiring_soon=expiring_soon,
+        expired=expired,
+        avg_risk_score=round(avg_risk_score, 1) if avg_risk_score is not None else None,
+        by_risk_level=by_risk_level,
+    )
 
 
 @router.get("", response_model=AVVListResponse, summary="AVV-Verträge auflisten")

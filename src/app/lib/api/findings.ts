@@ -132,6 +132,85 @@ export async function createFindingComment(findingId: string, text: string): Pro
   };
 }
 
+// --- Findings stats ---
+
+export interface FindingTrendItem {
+  month: string;
+  critical: number;
+  high: number;
+  medium: number;
+  low: number;
+  info: number;
+}
+
+export interface FindingsByDepartment {
+  department: string;
+  total: number;
+  critical: number;
+  high: number;
+  medium: number;
+  low: number;
+  info: number;
+}
+
+export interface TopFailingCheck {
+  checkName: string;
+  category: string;
+  count: number;
+  severityBreakdown: Record<string, number>;
+}
+
+export interface ResolutionVelocityItem {
+  severity: string;
+  avgDaysToFix: number;
+  sampleSize: number;
+}
+
+export interface FindingStatsResult {
+  bySeverity: Record<string, number>;
+  byCategory: Record<string, number>;
+  byDepartment: FindingsByDepartment[];
+  topFailingChecks: TopFailingCheck[];
+  trend: FindingTrendItem[];
+  resolutionVelocity: ResolutionVelocityItem[];
+}
+
+export async function getFindingStats(): Promise<FindingStatsResult> {
+  const raw = await request<Record<string, unknown>>("GET", "/findings/stats");
+  return {
+    bySeverity: (raw.by_severity ?? {}) as Record<string, number>,
+    byCategory: (raw.by_category ?? {}) as Record<string, number>,
+    byDepartment: ((raw.by_department ?? []) as Record<string, unknown>[]).map((d) => ({
+      department: d.department as string,
+      total: Number(d.total ?? 0),
+      critical: Number(d.critical ?? 0),
+      high: Number(d.high ?? 0),
+      medium: Number(d.medium ?? 0),
+      low: Number(d.low ?? 0),
+      info: Number(d.info ?? 0),
+    })),
+    topFailingChecks: ((raw.top_failing_checks ?? []) as Record<string, unknown>[]).map((c) => ({
+      checkName: c.check_name as string,
+      category: c.category as string,
+      count: Number(c.count ?? 0),
+      severityBreakdown: (c.severity_breakdown ?? {}) as Record<string, number>,
+    })),
+    trend: ((raw.trend ?? []) as Record<string, unknown>[]).map((t) => ({
+      month: t.month as string,
+      critical: Number(t.critical ?? 0),
+      high: Number(t.high ?? 0),
+      medium: Number(t.medium ?? 0),
+      low: Number(t.low ?? 0),
+      info: Number(t.info ?? 0),
+    })),
+    resolutionVelocity: ((raw.resolution_velocity ?? []) as Record<string, unknown>[]).map((v) => ({
+      severity: v.severity as string,
+      avgDaysToFix: Number(v.avg_days_to_fix ?? 0),
+      sampleSize: Number(v.sample_size ?? 0),
+    })),
+  };
+}
+
 // --- Playbook coverage preview ---
 export interface PlaybookCoverageItem {
   name: string;

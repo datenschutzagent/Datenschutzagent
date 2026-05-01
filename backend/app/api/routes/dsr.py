@@ -21,12 +21,104 @@ from app.models.schemas import (
     DSRRequestCreate,
     DSRRequestResponse,
     DSRRequestUpdate,
+    DSRStatsResponse,
+    DSRMonthlyVolumeItem,
 )
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
 
 _DEFAULT_DEADLINE_DAYS = 30  # Art. 12 Abs. 3 DSGVO
+
+
+@router.get("/stats", response_model=DSRStatsResponse, summary="DSR-Statistiken abrufen")
+async def get_dsr_stats(
+    db: AsyncSession = Depends(get_db),
+    _user=require_roles("viewer", "editor", "admin"),
+):
+    """Aggregierte DSR-Statistiken: Antwortzeiten, On-Time-Rate, Typ- und Status-Verteilung."""
+    from sqlalchemy import text
+    result = await db.execute(text("""
+        WITH by_type AS (
+            SELECT request_type AS key1, COUNT(*) AS cnt FROM dsr_requests GROUP BY request_type
+        ),
+        by_status AS (
+            SELECT status AS key1, COUNT(*) AS cnt FROM dsr_requests GROUP BY status
+        ),
+        response_times AS (
+            SELECT
+                AVG(EXTRACT(EPOCH FROM (responded_at - received_at)) / 86400.0) AS avg_days,
+                COUNT(*) FILTER (WHERE responded_at <= response_deadline) AS on_time,
+                COUNT(*) AS total_responded
+            FROM dsr_requests
+            WHERE responded_at IS NOT NULL
+        ),
+        overdue AS (
+            SELECT COUNT(*) AS cnt
+            FROM dsr_requests
+            WHERE status NOT IN ('closed', 'response_sent', 'denied')
+            AND response_deadline < CURRENT_DATE
+        ),
+        monthly AS (
+            SELECT TO_CHAR(DATE_TRUNC('month', created_at), 'YYYY-MM') AS month,
+                   COUNT(*) AS cnt
+            FROM dsr_requests
+            WHERE created_at >= NOW() - INTERVAL '6 months'
+            GROUP BY DATE_TRUNC('month', created_at)
+            ORDER BY 1 ASC
+        ),
+        total AS (
+            SELECT COUNT(*) AS cnt FROM dsr_requests
+        )
+        SELECT 'type'     AS qname, key1, cnt, NULL::float, NULL::bigint, NULL::bigint FROM by_type
+        UNION ALL
+        SELECT 'status'   AS qname, key1, cnt, NULL, NULL, NULL FROM by_status
+        UNION ALL
+        SELECT 'response' AS qname, NULL, total_responded, avg_days, on_time, NULL FROM response_times
+        UNION ALL
+        SELECT 'overdue'  AS qname, NULL, cnt, NULL, NULL, NULL FROM overdue
+        UNION ALL
+        SELECT 'monthly'  AS qname, month, cnt, NULL, NULL, NULL FROM monthly
+        UNION ALL
+        SELECT 'total'    AS qname, NULL, cnt, NULL, NULL, NULL FROM total
+    """))
+    rows = result.fetchall()
+
+    by_type: dict[str, int] = {}
+    by_status: dict[str, int] = {}
+    monthly_volume: list[DSRMonthlyVolumeItem] = []
+    avg_days: float | None = None
+    on_time_rate: float | None = None
+    overdue_count: int = 0
+    total: int = 0
+
+    for row in rows:
+        qname, key1, cnt, f1, f2, _ = row
+        if qname == "type":
+            by_type[key1] = int(cnt or 0)
+        elif qname == "status":
+            by_status[key1] = int(cnt or 0)
+        elif qname == "response":
+            total_responded = int(cnt or 0)
+            if total_responded > 0:
+                avg_days = float(f1) if f1 is not None else None
+                on_time_rate = round(float(f2) / total_responded, 4) if f2 is not None else None
+        elif qname == "overdue":
+            overdue_count = int(cnt or 0)
+        elif qname == "monthly":
+            monthly_volume.append(DSRMonthlyVolumeItem(month=key1, count=int(cnt or 0)))
+        elif qname == "total":
+            total = int(cnt or 0)
+
+    return DSRStatsResponse(
+        total=total,
+        by_type=by_type,
+        by_status=by_status,
+        avg_response_days=avg_days,
+        on_time_rate=on_time_rate,
+        overdue_count=overdue_count,
+        monthly_volume=monthly_volume,
+    )
 
 
 @router.get("", response_model=DSRListResponse, summary="DSR-Anfragen auflisten")

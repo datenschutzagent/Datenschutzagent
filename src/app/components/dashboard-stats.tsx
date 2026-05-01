@@ -10,6 +10,8 @@ import {
   Calendar,
   AlertTriangle,
   Clock,
+  Globe,
+  ShieldAlert,
 } from "lucide-react";
 import { useState, useEffect, useMemo } from "react";
 import { Link } from "react-router";
@@ -109,6 +111,16 @@ export function DashboardStats({ cases: casesProp }: DashboardStatsProps = {}) {
     return { overdue, dueThisWeek, noDeadline };
   }, [cases]);
 
+  // Hochrisiko-Verarbeitungen
+  const specialCategoryCount = useMemo(
+    () => cases.filter((c) => c.specialCategoryData && c.status !== "completed").length,
+    [cases]
+  );
+  const intlTransferCount = useMemo(
+    () => cases.filter((c) => c.internationalTransfer && c.status !== "completed").length,
+    [cases]
+  );
+
   // Compliance-Score pro Abteilung
   const departmentScores = useMemo(() => {
     const depts = Array.from(new Set(cases.map((c) => c.department))).sort();
@@ -188,6 +200,43 @@ export function DashboardStats({ cases: casesProp }: DashboardStatsProps = {}) {
           </CardContent>
         </Card>
       </div>
+
+      {/* Hochrisiko-Verarbeitungen */}
+      {(specialCategoryCount > 0 || intlTransferCount > 0) && (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <Card className={specialCategoryCount > 0 ? "border-orange-200 dark:border-orange-800" : ""}>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <CardTitle className="text-sm font-medium">Art.-9-Verarbeitungen</CardTitle>
+              <ShieldAlert className="size-4 text-orange-600 dark:text-orange-400" />
+            </CardHeader>
+            <CardContent>
+              <div className={`text-2xl font-semibold ${specialCategoryCount > 0 ? "text-orange-600 dark:text-orange-400" : ""}`}>
+                {specialCategoryCount}
+              </div>
+              <p className="text-xs text-muted-foreground mt-1">Aktive Vorgänge mit besond. Kategorien</p>
+              <Link to="/cases?special_category=true" className="text-xs text-blue-600 dark:text-blue-400 hover:underline mt-1 inline-block">
+                Vorgänge anzeigen →
+              </Link>
+            </CardContent>
+          </Card>
+
+          <Card className={intlTransferCount > 0 ? "border-blue-200 dark:border-blue-800" : ""}>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <CardTitle className="text-sm font-medium">Drittland-Transfers</CardTitle>
+              <Globe className="size-4 text-blue-600 dark:text-blue-400" />
+            </CardHeader>
+            <CardContent>
+              <div className={`text-2xl font-semibold ${intlTransferCount > 0 ? "text-blue-600 dark:text-blue-400" : ""}`}>
+                {intlTransferCount}
+              </div>
+              <p className="text-xs text-muted-foreground mt-1">Aktive Vorgänge mit internationalem Transfer</p>
+              <Link to="/cases?international_transfer=true" className="text-xs text-blue-600 dark:text-blue-400 hover:underline mt-1 inline-block">
+                Vorgänge anzeigen →
+              </Link>
+            </CardContent>
+          </Card>
+        </div>
+      )}
 
       {/* Deadline overview */}
       {(deadlineStats.overdue.length > 0 || deadlineStats.dueThisWeek.length > 0) && (
