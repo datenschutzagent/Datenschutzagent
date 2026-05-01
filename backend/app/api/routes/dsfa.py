@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.auth import require_roles
 from app.core.rate_limit import limiter
+from app.core.request_id import get_request_id
 from app.database import get_db
 from app.models.db import (
     CaseModel,
@@ -84,7 +85,7 @@ async def generate_dsfa(
 
     if settings.celery_enabled:
         from app.celery_app import build_dsfa_task
-        task = build_dsfa_task.delay(str(job_id))
+        task = build_dsfa_task.delay(str(job_id), get_request_id())
         job.celery_task_id = task.id
         await db.flush()
     else:

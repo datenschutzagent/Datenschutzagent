@@ -117,6 +117,16 @@ class Settings(BaseSettings):
     # Empty = use profile.yaml or built-in DSGVO Art. 30 defaults.
     vvt_field_names: str = ""
 
+    # Database connection pool (SQLAlchemy). Tune based on expected concurrency and PostgreSQL max_connections.
+    # pool_size: number of persistent connections per process.
+    # max_overflow: additional connections beyond pool_size (borrowed temporarily).
+    # pool_recycle_seconds: close and reopen connections older than N seconds (prevents stale TCP).
+    # pool_timeout_seconds: seconds to wait for a connection before raising OperationalError.
+    db_pool_size: int = 5
+    db_max_overflow: int = 10
+    db_pool_recycle_seconds: int = 1800
+    db_pool_timeout_seconds: int = 30
+
     # Dokument-Upload: maximale Dateigröße in Bytes (Standard: 50 MB; via MAX_UPLOAD_SIZE_BYTES überschreibbar)
     max_upload_size_bytes: int = 52428800
 
@@ -142,10 +152,24 @@ class Settings(BaseSettings):
     # 0 = kein Limit (nicht empfohlen für lokales Ollama).
     max_concurrent_llm_calls: int = 2
 
-    # Timeout pro Prüfung in Sekunden (asyncio.wait_for um _do()).
-    # Muss >= ollama_timeout_seconds sein, damit der HTTP-Call noch sauber abbrechen kann.
-    # 0 = deaktiviert (nicht empfohlen bei lokalem Ollama, da hängende Requests den Job blockieren).
-    check_timeout_seconds: float = 180.0
+    # Timeout per LLM HTTP request (seconds). Applies to all providers (Ollama, OpenAI, Anthropic).
+    # Must be > ollama_timeout_seconds so the asyncio.wait_for wrapper never fires before the
+    # HTTP client surfaces its own timeout — a buffer of at least 10s is recommended.
+    # check_timeout_seconds is derived from this value and should not be set independently.
+    # 0 = disabled (not recommended for local Ollama; hanging requests block the worker).
+    llm_request_timeout_seconds: float = 120.0
+
+    @property
+    def check_timeout_seconds(self) -> float:
+        """Outer asyncio.wait_for timeout per check, always 10s above the LLM HTTP timeout."""
+        if self.llm_request_timeout_seconds <= 0:
+            return 0.0
+        return self.llm_request_timeout_seconds + 10.0
+
+    @property
+    def ollama_timeout_seconds(self) -> float:
+        """Ollama HTTP client timeout derived from llm_request_timeout_seconds."""
+        return self.llm_request_timeout_seconds
 
     # Standard-Strategien für automatische Re-Checks (auto_run_checks, periodic_recheck).
     # Kommagetrennt: "full_text", "rag" oder "full_text,rag"
@@ -154,7 +178,6 @@ class Settings(BaseSettings):
     # Ollama (extern gehostet, z. B. im lokalen Netzwerk)
     ollama_base_url: str = "http://localhost:11434"
     ollama_model: str = "llama3.2"
-    ollama_timeout_seconds: float = 120.0
     ollama_enabled: bool = True
 
     # OCR via Ollama Vision (gescannte PDFs; z. B. qwen2.5-vl, minicpm-v)
@@ -298,23 +321,6 @@ class Settings(BaseSettings):
                     "(Passwort ggf. URL-encoden oder ein hex-Passwort verwenden). "
                     f"Aktuell (redacted): {safe}. Fehler: {exc}"
                 ) from exc
-
-        # LLM timeout: check_timeout_seconds must be >= ollama_timeout_seconds
-        # so that the asyncio.wait_for wrapper around the HTTP call does not
-        # cancel the request before the HTTP client returns its own timeout error.
-        # Exception: 0 means "disabled" for either knob.
-        if (
-            self.llm_provider == "ollama"
-            and self.check_timeout_seconds > 0
-            and self.ollama_timeout_seconds > 0
-            and self.check_timeout_seconds < self.ollama_timeout_seconds
-        ):
-            raise ValueError(
-                f"CHECK_TIMEOUT_SECONDS ({self.check_timeout_seconds:.1f}s) must be "
-                f">= OLLAMA_TIMEOUT_SECONDS ({self.ollama_timeout_seconds:.1f}s). "
-                "Checks would be cancelled before the HTTP client can surface its own "
-                "timeout error. Increase CHECK_TIMEOUT_SECONDS or decrease OLLAMA_TIMEOUT_SECONDS."
-            )
 
         if self.storage_backend == "minio":
             missing = [f for f in ("s3_endpoint_url", "s3_access_key", "s3_secret_key") if not getattr(self, f)]

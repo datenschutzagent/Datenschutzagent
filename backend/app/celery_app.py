@@ -61,7 +61,14 @@ _async_session_factory = None
 def _get_session_factory():
     global _engine, _session_factory
     if _session_factory is None:
-        _engine = create_engine(settings.database_sync_url, pool_pre_ping=True)
+        _engine = create_engine(
+            settings.database_sync_url,
+            pool_pre_ping=True,
+            pool_size=settings.db_pool_size,
+            max_overflow=settings.db_max_overflow,
+            pool_recycle=settings.db_pool_recycle_seconds,
+            pool_timeout=settings.db_pool_timeout_seconds,
+        )
         _session_factory = sessionmaker(bind=_engine, autocommit=False, autoflush=False)
     return _session_factory
 
@@ -69,7 +76,14 @@ def _get_session_factory():
 def _get_async_session_factory():
     global _async_engine, _async_session_factory
     if _async_session_factory is None:
-        _async_engine = create_async_engine(settings.database_url, pool_pre_ping=True)
+        _async_engine = create_async_engine(
+            settings.database_url,
+            pool_pre_ping=True,
+            pool_size=settings.db_pool_size,
+            max_overflow=settings.db_max_overflow,
+            pool_recycle=settings.db_pool_recycle_seconds,
+            pool_timeout=settings.db_pool_timeout_seconds,
+        )
         _async_session_factory = async_sessionmaker(
             _async_engine,
             class_=AsyncSession,
@@ -131,7 +145,7 @@ def _maybe_auto_run_checks(session: Session, case_id: uuid.UUID) -> None:
         )
         session.add(job)
         session.commit()
-        run_playbook_checks.delay(str(job_id))
+        run_playbook_checks.delay(str(job_id), None)
         logger.info(
             "auto_run_checks queued job %s for case %s (playbook: %s, strategies: %s)",
             job_id, case_id, best_playbook.name, strategies,
@@ -220,12 +234,15 @@ def _count_checks_total(playbook_content: dict, doc_count: int, strategies: list
     return (doc_checks * max(doc_count, 1) + case_checks) * n_strategies
 
 
-async def _run_checks_async(job_id: str) -> None:
+async def _run_checks_async(job_id: str, task_request_id: str | None = None) -> None:
     """Load job, run run_checks_impl, write activity log and update job.
 
     Uses the module-level shared async engine to avoid creating a new connection
     pool per task invocation (which would exhaust database connections under load).
     """
+    from app.core.request_id import request_id_var
+    request_id_var.set(task_request_id or str(uuid.uuid4()))
+
     session_factory = _get_async_session_factory()
     job_uuid = UUID(job_id)
 
@@ -327,15 +344,15 @@ async def _run_checks_async(job_id: str) -> None:
 
 
 @celery_app.task(name="app.celery_app.run_playbook_checks", bind=True)
-def run_playbook_checks(self, job_id: str) -> dict:
+def run_playbook_checks(self, job_id: str, task_request_id: str | None = None) -> dict:
     """
     Run playbook checks for a run_checks_jobs row. Loads job, runs run_checks_impl in async context,
     writes ActivityLog and updates job to completed/failed.
     """
-    logger.info("run_playbook_checks started", extra={"job_id": job_id, "celery_task_id": self.request.id})
+    logger.info("run_playbook_checks started", extra={"job_id": job_id, "celery_task_id": self.request.id, "request_id": task_request_id or "-"})
     t0 = time.monotonic()
     try:
-        asyncio.run(_run_checks_async(job_id))
+        asyncio.run(_run_checks_async(job_id, task_request_id))
         elapsed = round(time.monotonic() - t0, 2)
         logger.info("run_playbook_checks done", extra={"job_id": job_id, "elapsed_seconds": elapsed})
         return {"ok": True, "job_id": job_id}
@@ -363,11 +380,14 @@ def _set_run_checks_job_failed(job_id: str, error_message: str) -> None:
         session.close()
 
 
-async def _build_dsb_report_async(job_id: str) -> None:
+async def _build_dsb_report_async(job_id: str, task_request_id: str | None = None) -> None:
     """Load DSB report job, run build_dsb_report, save report and update job.
 
     Uses the module-level shared async engine (same pool as _run_checks_async).
     """
+    from app.core.request_id import request_id_var
+    request_id_var.set(task_request_id or str(uuid.uuid4()))
+
     session_factory = _get_async_session_factory()
     async with session_factory() as session:
         result = await session.execute(select(DSBReportJobModel).where(DSBReportJobModel.id == UUID(job_id)))
@@ -385,13 +405,13 @@ async def _build_dsb_report_async(job_id: str) -> None:
 
 
 @celery_app.task(name="app.celery_app.build_dsb_report_task", bind=True)
-def build_dsb_report_task(self, job_id: str) -> dict:
+def build_dsb_report_task(self, job_id: str, task_request_id: str | None = None) -> dict:
     """
     Build DSB report for a dsb_report_jobs row. Runs build_dsb_report in async context and persists result.
     """
-    logger.info("build_dsb_report_task started", extra={"job_id": job_id})
+    logger.info("build_dsb_report_task started", extra={"job_id": job_id, "request_id": task_request_id or "-"})
     try:
-        asyncio.run(_build_dsb_report_async(job_id))
+        asyncio.run(_build_dsb_report_async(job_id, task_request_id))
         logger.info("build_dsb_report_task done", extra={"job_id": job_id})
         return {"ok": True, "job_id": job_id}
     except Exception as e:
@@ -421,8 +441,11 @@ def _set_dsb_report_job_failed(job_id: str, error_message: str) -> None:
 # DSFA-Task
 # ---------------------------------------------------------------------------
 
-async def _build_dsfa_async(job_id: str) -> None:
+async def _build_dsfa_async(job_id: str, task_request_id: str | None = None) -> None:
     """Lädt DSFA-Job, generiert die DSFA via LLM und persistiert das Ergebnis."""
+    from app.core.request_id import request_id_var
+    request_id_var.set(task_request_id or str(uuid.uuid4()))
+
     session_factory = _get_async_session_factory()
     async with session_factory() as session:
         result = await session.execute(select(DSFAJobModel).where(DSFAJobModel.id == UUID(job_id)))
@@ -438,11 +461,11 @@ async def _build_dsfa_async(job_id: str) -> None:
 
 
 @celery_app.task(name="app.celery_app.build_dsfa_task", bind=True)
-def build_dsfa_task(self, job_id: str) -> dict:
+def build_dsfa_task(self, job_id: str, task_request_id: str | None = None) -> dict:
     """Generiert DSFA für einen dsfa_jobs-Eintrag asynchron."""
-    logger.info("build_dsfa_task started", extra={"job_id": job_id})
+    logger.info("build_dsfa_task started", extra={"job_id": job_id, "request_id": task_request_id or "-"})
     try:
-        asyncio.run(_build_dsfa_async(job_id))
+        asyncio.run(_build_dsfa_async(job_id, task_request_id))
         logger.info("build_dsfa_task done", extra={"job_id": job_id})
         return {"ok": True, "job_id": job_id}
     except Exception as e:

@@ -8,6 +8,7 @@ from pathlib import Path
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request, Response
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from slowapi import _rate_limit_exceeded_handler
@@ -161,9 +162,63 @@ app = FastAPI(
     openapi_tags=_OPENAPI_TAGS,
 )
 
+def _problem_detail(status_code: int, detail: str, error_code: str | None = None) -> JSONResponse:
+    """Return an RFC 7807 Problem Details JSON response."""
+    body: dict = {
+        "status": status_code,
+        "detail": detail,
+    }
+    if error_code:
+        body["type"] = f"urn:datenschutzagent:error:{error_code.lower()}"
+        body["code"] = error_code
+    return JSONResponse(
+        status_code=status_code,
+        content=body,
+        headers={"Content-Type": "application/problem+json"},
+    )
+
+
+async def _http_exception_handler(request: Request, exc) -> JSONResponse:
+    """Map FastAPI HTTPException to RFC 7807 Problem Details format."""
+    from fastapi import HTTPException as FastAPIHTTPException
+    from app.core.exceptions import ErrorCode
+
+    _status = exc.status_code
+    detail = exc.detail if isinstance(exc.detail, str) else str(exc.detail)
+
+    # Map well-known HTTP status codes to stable error codes.
+    _code_map: dict[int, str] = {
+        401: ErrorCode.AUTH_TOKEN_INVALID,
+        403: ErrorCode.PERMISSION_DENIED,
+        404: ErrorCode.NOT_FOUND,
+        409: ErrorCode.CONFLICT,
+        415: ErrorCode.UNSUPPORTED_MEDIA_TYPE,
+        422: ErrorCode.VALIDATION_ERROR,
+        429: ErrorCode.RATE_LIMIT_EXCEEDED,
+        503: ErrorCode.AUTH_OIDC_UNAVAILABLE,
+    }
+    error_code = _code_map.get(_status)
+    return _problem_detail(_status, detail, error_code)
+
+
+async def _validation_exception_handler(request: Request, exc: RequestValidationError) -> JSONResponse:
+    """Map Pydantic validation errors to RFC 7807 Problem Details."""
+    from app.core.exceptions import ErrorCode
+    errors = exc.errors()
+    detail = "; ".join(
+        f"{'.'.join(str(l) for l in e['loc'])}: {e['msg']}" for e in errors
+    )
+    return _problem_detail(422, detail, ErrorCode.VALIDATION_ERROR)
+
+
 # Rate limiter state & 429 handler
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
+# RFC 7807 Problem Details for HTTP and validation errors
+from fastapi import HTTPException as _FastAPIHTTPException  # noqa: E402
+app.add_exception_handler(_FastAPIHTTPException, _http_exception_handler)  # type: ignore[arg-type]
+app.add_exception_handler(RequestValidationError, _validation_exception_handler)  # type: ignore[arg-type]
 
 app.add_middleware(RequestIDMiddleware)
 app.add_middleware(
@@ -213,7 +268,6 @@ async def add_security_headers(request: Request, call_next) -> Response:
     response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
     response.headers["Permissions-Policy"] = "geolocation=(), camera=(), microphone=()"
     # Content-Security-Policy: restrict sources; adjust if you embed third-party resources.
-    # Note: 'unsafe-inline' for style-src is required by MUI/Emotion (CSS-in-JS runtime injection).
     response.headers["Content-Security-Policy"] = (
         "default-src 'self'; "
         "script-src 'self'; "
