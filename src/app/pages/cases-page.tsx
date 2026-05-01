@@ -11,22 +11,27 @@ import { DashboardStats } from "../components/dashboard-stats";
 import { NewCaseDialog } from "../components/new-case-dialog";
 import { CasesSearchFilter, CasesFilters } from "../components/cases-search-filter";
 import { statusLabels, statusColors, priorityColors, priorityLabels } from "../lib/mock-data";
-import { getCases, archiveCase, unarchiveCase, canEdit, type ApiCase, type CasesFilter } from "../lib/api";
+import { unarchiveCase, canEdit, type CasesFilter } from "../lib/api";
 import { getStatsForCase, getDeadlineStatus, formatDeadline } from "../lib/case-utils";
 import { useAuthOptional } from "../contexts/AuthContext";
 import { useRunningChecks } from "../contexts/RunningChecksContext";
+import { useCases, useArchivedCases, useInvalidateCases } from "../lib/queries/casesQueries";
 import { Plus, FileText, CircleAlert, CheckCircle2, Clock, LayoutDashboard, Calendar, AlertTriangle, Loader2 } from "lucide-react";
 import { toast } from "sonner";
-import { useState, useMemo, useEffect } from "react";
+import { useState, useMemo } from "react";
+import { useQueryClient } from "@tanstack/react-query";
+import { casesKeys } from "../lib/queries/casesQueries";
+
+type TabValue = "list" | "dashboard" | "archived";
 
 export function CasesPage() {
   const navigate = useNavigate();
   const auth = useAuthOptional();
   const { isRunning } = useRunningChecks();
-  const [cases, setCases] = useState<ApiCase[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const queryClient = useQueryClient();
+  const invalidateCases = useInvalidateCases();
   const [isNewCaseDialogOpen, setIsNewCaseDialogOpen] = useState(false);
+  const [activeTab, setActiveTab] = useState<TabValue>("list");
   const [filters, setFilters] = useState<CasesFilters>({
     searchQuery: "",
     status: "all",
@@ -36,51 +41,41 @@ export function CasesPage() {
     tags: [],
   });
 
-  const loadCases = async (activeFilters?: CasesFilters) => {
-    setLoading(true);
-    setError(null);
-    try {
-      const f = activeFilters ?? filters;
-      const apiFilter: CasesFilter = {};
-      if (f.searchQuery) apiFilter.q = f.searchQuery;
-      if (f.status !== "all") apiFilter.status = f.status;
-      if (f.department !== "all") apiFilter.department = f.department;
-      if (f.hasDeadline === false) apiFilter.deadline_overdue = false;
-      else if (f.hasDeadline === true) apiFilter.deadline_overdue = true;
-      const list = await getCases(0, 500, apiFilter);
-      setCases(list);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Fehler beim Laden");
-    } finally {
-      setLoading(false);
-    }
-  };
+  const apiFilter = useMemo<CasesFilter>(() => {
+    const f: CasesFilter = {};
+    if (filters.searchQuery) f.q = filters.searchQuery;
+    if (filters.status !== "all") f.status = filters.status;
+    if (filters.department !== "all") f.department = filters.department;
+    if (filters.hasDeadline === false) f.deadline_overdue = false;
+    else if (filters.hasDeadline === true) f.deadline_overdue = true;
+    return f;
+  }, [filters]);
 
-  useEffect(() => {
-    loadCases();
-  }, []);
+  const { data: cases = [], isLoading, isError, error } = useCases(
+    activeTab !== "archived" ? apiFilter : undefined,
+  );
+  const { data: archivedCases = [], isLoading: isLoadingArchived } = useArchivedCases(
+    activeTab === "archived",
+  );
+
+  const displayedArchivedCases = useMemo(
+    () => archivedCases.filter((c) => c.archivedAt),
+    [archivedCases],
+  );
 
   const availableDepartments = useMemo(
-    () => [...new Set(cases.map(c => c.department))].sort(),
-    [cases]
+    () => [...new Set(cases.map((c) => c.department))].sort(),
+    [cases],
   );
 
-  const availableTags = useMemo(
-    () => [] as string[],
-    []
-  );
+  const availableTags = useMemo(() => [] as string[], []);
 
-  // Server-side filters handle q, status, department, deadline. Priority is client-only (no backend field yet).
   const filteredCases = useMemo(() => {
     if (filters.priority === "all") return cases;
     return cases.filter((c) => (c.priority ?? null) === filters.priority);
   }, [cases, filters.priority]);
 
-  const handleFiltersChange = (newFilters: CasesFilters) => {
-    setFilters(newFilters);
-    loadCases(newFilters);
-  };
-
+  const loading = activeTab === "archived" ? isLoadingArchived : isLoading;
 
   return (
     <AppLayout>
@@ -97,22 +92,11 @@ export function CasesPage() {
         }
       />
 
-      {/* Tabs for Dashboard vs List View vs Archiv */}
-      <Tabs defaultValue="list" className="space-y-6" onValueChange={(val) => {
-        if (val === "archived") {
-          setLoading(true);
-          getCases(0, 500, {}, true)
-            .then(setCases)
-            .catch((e) => {
-              logger.error("Archivierte Vorgänge konnten nicht geladen werden", {}, e);
-              toast.error("Archivierte Vorgänge konnten nicht geladen werden.");
-              setCases([]);
-            })
-            .finally(() => setLoading(false));
-        } else if (val === "list") {
-          loadCases();
-        }
-      }}>
+      <Tabs
+        defaultValue="list"
+        className="space-y-6"
+        onValueChange={(val) => setActiveTab(val as TabValue)}
+      >
         <TabsList>
           <TabsTrigger value="list" className="gap-2">
             <FileText className="size-4" />
@@ -130,19 +114,17 @@ export function CasesPage() {
 
         {/* List View */}
         <TabsContent value="list" className="space-y-6">
-          {/* Filters */}
           <Card>
             <CardContent className="pt-6">
               <CasesSearchFilter
                 filters={filters}
-                onFiltersChange={handleFiltersChange}
+                onFiltersChange={setFilters}
                 availableDepartments={availableDepartments}
                 availableTags={availableTags}
               />
             </CardContent>
           </Card>
 
-          {/* Loading State */}
           {loading && (
             <div className="space-y-4">
               {[1, 2, 3].map((i) => (
@@ -165,29 +147,33 @@ export function CasesPage() {
             </div>
           )}
 
-          {/* Error State */}
-          {!loading && error && (
+          {!loading && isError && (
             <Card>
               <CardContent className="py-12 text-center">
                 <CircleAlert className="size-12 text-red-500 dark:text-red-400 mx-auto mb-4" />
-                <p className="text-muted-foreground">{error}</p>
-                <Button className="mt-4" variant="outline" onClick={loadCases}>Erneut versuchen</Button>
+                <p className="text-muted-foreground">
+                  {error instanceof Error ? error.message : "Fehler beim Laden"}
+                </p>
+                <Button
+                  className="mt-4"
+                  variant="outline"
+                  onClick={() =>
+                    queryClient.invalidateQueries({ queryKey: casesKeys.list(apiFilter) })
+                  }
+                >
+                  Erneut versuchen
+                </Button>
               </CardContent>
             </Card>
           )}
 
-          {/* Cases List */}
-          {!loading && !error && (
+          {!loading && !isError && (
             <div className="space-y-4">
               {filteredCases.map((caseItem) => {
                 const stats = getStatsForCase(caseItem);
                 const deadlineStatus = getDeadlineStatus(caseItem.deadline);
                 return (
-                  <Link
-                    key={caseItem.id}
-                    to={`/cases/${caseItem.id}`}
-                    className="block"
-                  >
+                  <Link key={caseItem.id} to={`/cases/${caseItem.id}`} className="block">
                     <Card className="hover:shadow-md transition-shadow">
                       <CardHeader>
                         <div className="flex items-start justify-between">
@@ -198,7 +184,11 @@ export function CasesPage() {
                                 {statusLabels[caseItem.status]}
                               </Badge>
                               {(caseItem as { priority?: string }).priority && (
-                                <Badge className={priorityColors[(caseItem as { priority: string }).priority]}>
+                                <Badge
+                                  className={
+                                    priorityColors[(caseItem as { priority: string }).priority]
+                                  }
+                                >
                                   {priorityLabels[(caseItem as { priority: string }).priority]}
                                 </Badge>
                               )}
@@ -214,7 +204,10 @@ export function CasesPage() {
                               <span className="hidden sm:inline">&bull;</span>
                               <span>{caseItem.caseType}</span>
                               <span className="hidden sm:inline">&bull;</span>
-                              <span>Erstellt: {new Date(caseItem.createdAt).toLocaleDateString("de-DE")}</span>
+                              <span>
+                                Erstellt:{" "}
+                                {new Date(caseItem.createdAt).toLocaleDateString("de-DE")}
+                              </span>
                             </CardDescription>
                             {(caseItem as { tags?: string[] }).tags?.length ? (
                               <div className="flex flex-wrap gap-2 mt-2">
@@ -233,24 +226,32 @@ export function CasesPage() {
                           <div className="flex items-center gap-6 text-sm">
                             <div className="flex items-center gap-2">
                               <FileText className="size-4 text-muted-foreground/60" />
-                              <span className="text-muted-foreground">{caseItem.documents.length} Dokumente</span>
+                              <span className="text-muted-foreground">
+                                {caseItem.documents.length} Dokumente
+                              </span>
                             </div>
                             {stats.critical > 0 && (
                               <div className="flex items-center gap-2">
                                 <CircleAlert className="size-4 text-red-600 dark:text-red-400" />
-                                <span className="text-red-600 dark:text-red-400 font-medium">{stats.critical} kritisch</span>
+                                <span className="text-red-600 dark:text-red-400 font-medium">
+                                  {stats.critical} kritisch
+                                </span>
                               </div>
                             )}
                             {stats.high > 0 && (
                               <div className="flex items-center gap-2">
                                 <CircleAlert className="size-4 text-orange-600 dark:text-orange-400" />
-                                <span className="text-orange-600 dark:text-orange-400 font-medium">{stats.high} hoch</span>
+                                <span className="text-orange-600 dark:text-orange-400 font-medium">
+                                  {stats.high} hoch
+                                </span>
                               </div>
                             )}
                             {stats.fixed > 0 && (
                               <div className="flex items-center gap-2">
                                 <CheckCircle2 className="size-4 text-green-600 dark:text-green-400" />
-                                <span className="text-green-600 dark:text-green-400">{stats.fixed} behoben</span>
+                                <span className="text-green-600 dark:text-green-400">
+                                  {stats.fixed} behoben
+                                </span>
                               </div>
                             )}
                           </div>
@@ -263,7 +264,10 @@ export function CasesPage() {
                           <div className="mt-4">
                             <div className="flex items-center gap-2">
                               <Calendar className="size-4 text-muted-foreground/60" />
-                              <span className="text-muted-foreground">Fällig: {formatDeadline((caseItem as { deadline: string }).deadline)}</span>
+                              <span className="text-muted-foreground">
+                                Fällig:{" "}
+                                {formatDeadline((caseItem as { deadline: string }).deadline)}
+                              </span>
                             </div>
                             {deadlineStatus === "overdue" && (
                               <div className="mt-2">
@@ -309,11 +313,13 @@ export function CasesPage() {
         </TabsContent>
 
         <TabsContent value="archived" className="space-y-4">
-          {loading ? (
+          {isLoadingArchived ? (
             <div className="space-y-4">
-              {[1, 2, 3].map((i) => <Skeleton key={i} className="h-32 w-full" />)}
+              {[1, 2, 3].map((i) => (
+                <Skeleton key={i} className="h-32 w-full" />
+              ))}
             </div>
-          ) : cases.filter((c) => c.archivedAt).length === 0 ? (
+          ) : displayedArchivedCases.length === 0 ? (
             <Card>
               <CardContent className="py-12 text-center">
                 <Clock className="size-12 text-muted-foreground/30 mx-auto mb-4" />
@@ -322,17 +328,22 @@ export function CasesPage() {
             </Card>
           ) : (
             <div className="space-y-4">
-              {cases.filter((c) => c.archivedAt).map((c) => (
+              {displayedArchivedCases.map((c) => (
                 <Card key={c.id} className="opacity-75">
                   <CardHeader>
                     <div className="flex items-start justify-between gap-4">
                       <div>
                         <CardTitle className="text-base">{c.title}</CardTitle>
-                        <CardDescription>{c.department} · {c.caseType}</CardDescription>
+                        <CardDescription>
+                          {c.department} · {c.caseType}
+                        </CardDescription>
                       </div>
                       <div className="flex items-center gap-2 shrink-0">
                         <Badge variant="secondary" className="text-xs">
-                          Archiviert {c.archivedAt ? new Date(c.archivedAt).toLocaleDateString("de-DE") : ""}
+                          Archiviert{" "}
+                          {c.archivedAt
+                            ? new Date(c.archivedAt).toLocaleDateString("de-DE")
+                            : ""}
                         </Badge>
                         {canEdit(auth?.user ?? null) && (
                           <Button
@@ -342,9 +353,16 @@ export function CasesPage() {
                               try {
                                 await unarchiveCase(c.id);
                                 toast.success("Vorgang wiederhergestellt");
-                                loadCases();
+                                queryClient.invalidateQueries({
+                                  queryKey: casesKeys.archived(),
+                                });
                               } catch (e) {
                                 toast.error(e instanceof Error ? e.message : "Fehler");
+                                logger.error(
+                                  "Fehler beim Wiederherstellen des Vorgangs",
+                                  {},
+                                  e,
+                                );
                               }
                             }}
                           >
@@ -367,7 +385,7 @@ export function CasesPage() {
         onSuccess={(newCase) => {
           setIsNewCaseDialogOpen(false);
           toast.success("Vorgang wurde erfolgreich angelegt");
-          loadCases();
+          invalidateCases();
           navigate(`/cases/${newCase.id}`);
         }}
       />

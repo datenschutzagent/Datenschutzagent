@@ -7,6 +7,7 @@
  * - Provides helpers so any component can query running state without extra API calls.
  */
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { getRunningChecks, type RunningCheckJob } from "../lib/api";
 import { toast } from "sonner";
 
@@ -40,12 +41,48 @@ const POLL_INTERVAL_MS = 3_000;
 export function RunningChecksProvider({ children }: { children: React.ReactNode }) {
   const [jobs, setJobs] = useState<Map<string, RunningCheckJob>>(new Map());
   const prevStatusRef = useRef<Map<string, string>>(new Map());
-  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const mountedRef = useRef(true);
-
-  // -- helpers ---------------------------------------------------------------
 
   const runningCount = Array.from(jobs.values()).filter((j) => j.status === "running").length;
+
+  // -- React Query polling ---------------------------------------------------
+
+  const { data: serverJobs = [] } = useQuery({
+    queryKey: ["running-checks"],
+    queryFn: getRunningChecks,
+    refetchInterval: runningCount > 0 ? POLL_INTERVAL_MS : false,
+    staleTime: 0,
+    refetchOnWindowFocus: false,
+  });
+
+  // Merge server jobs into the local jobs Map whenever a poll completes
+  useEffect(() => {
+    setJobs((prev) => {
+      let changed = false;
+      const next = new Map(prev);
+      const seenCaseIds = new Set<string>();
+
+      for (const job of serverJobs) {
+        seenCaseIds.add(job.caseId);
+        const existing = prev.get(job.caseId);
+        if (!existing || existing.status !== job.status || existing.checksDone !== job.checksDone) {
+          next.set(job.caseId, job);
+          changed = true;
+        }
+      }
+
+      // Jobs that were "running" locally but are no longer on the server have completed
+      for (const [caseId, prevJob] of prev) {
+        if (prevJob.status === "running" && !seenCaseIds.has(caseId)) {
+          next.set(caseId, { ...prevJob, status: "completed" });
+          changed = true;
+        }
+      }
+
+      return changed ? next : prev;
+    });
+  }, [serverJobs]);
+
+  // -- helpers ---------------------------------------------------------------
 
   const registerJob = useCallback(
     (caseId: string, jobId: string, caseTitle: string, playbookName?: string) => {
@@ -75,10 +112,7 @@ export function RunningChecksProvider({ children }: { children: React.ReactNode 
     [jobs],
   );
 
-  const getJob = useCallback(
-    (caseId: string) => jobs.get(caseId),
-    [jobs],
-  );
+  const getJob = useCallback((caseId: string) => jobs.get(caseId), [jobs]);
 
   const dismissJob = useCallback(
     (caseId: string) => {
@@ -91,39 +125,6 @@ export function RunningChecksProvider({ children }: { children: React.ReactNode 
     [],
   );
 
-  // -- polling ---------------------------------------------------------------
-
-  const poll = useCallback(async () => {
-    try {
-      const running = await getRunningChecks();
-      if (!mountedRef.current) return;
-
-      setJobs((prev) => {
-        const next = new Map(prev);
-        const seenCaseIds = new Set<string>();
-
-        // Update/add jobs from backend
-        for (const job of running) {
-          seenCaseIds.add(job.caseId);
-          next.set(job.caseId, job);
-        }
-
-        // Check for jobs that were "running" in prev but are no longer in the response
-        // -> they completed or failed between polls
-        for (const [caseId, prevJob] of prev) {
-          if (prevJob.status === "running" && !seenCaseIds.has(caseId)) {
-            // Job is no longer running on the server — mark as completed
-            next.set(caseId, { ...prevJob, status: "completed" });
-          }
-        }
-
-        return next;
-      });
-    } catch {
-      // Transient network error — keep polling, don't clear state
-    }
-  }, []);
-
   // -- toast notifications ---------------------------------------------------
 
   useEffect(() => {
@@ -134,12 +135,12 @@ export function RunningChecksProvider({ children }: { children: React.ReactNode 
 
       if (prevStatus === "running" && job.status === "completed") {
         toast.success(`Prüfungen abgeschlossen: ${job.caseTitle}`, {
-          description: job.checksTotal > 0
-            ? `${job.checksTotal} Checks erfolgreich ausgeführt.`
-            : undefined,
+          description:
+            job.checksTotal > 0
+              ? `${job.checksTotal} Checks erfolgreich ausgeführt.`
+              : undefined,
           duration: 8000,
         });
-        // Auto-dismiss after 8 seconds
         setTimeout(() => dismissJob(caseId), 8000);
       }
 
@@ -148,49 +149,16 @@ export function RunningChecksProvider({ children }: { children: React.ReactNode 
           description: "Ein Fehler ist aufgetreten.",
           duration: 12000,
         });
-        // Auto-dismiss after 12 seconds
         setTimeout(() => dismissJob(caseId), 12000);
       }
     }
 
-    // Snapshot current statuses for next comparison
     const snapshot = new Map<string, string>();
     for (const [caseId, job] of jobs) {
       snapshot.set(caseId, job.status);
     }
     prevStatusRef.current = snapshot;
   }, [jobs, dismissJob]);
-
-  // -- interval management ---------------------------------------------------
-
-  useEffect(() => {
-    // Initial fetch on mount to discover already-running jobs
-    poll();
-
-    return () => {
-      mountedRef.current = false;
-    };
-  }, [poll]);
-
-  useEffect(() => {
-    if (runningCount > 0) {
-      if (!intervalRef.current) {
-        intervalRef.current = setInterval(poll, POLL_INTERVAL_MS);
-      }
-    } else {
-      if (intervalRef.current) {
-        clearInterval(intervalRef.current);
-        intervalRef.current = null;
-      }
-    }
-
-    return () => {
-      if (intervalRef.current) {
-        clearInterval(intervalRef.current);
-        intervalRef.current = null;
-      }
-    };
-  }, [runningCount, poll]);
 
   // -- context value ---------------------------------------------------------
 
