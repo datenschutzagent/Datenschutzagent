@@ -108,6 +108,9 @@ async def llm_retry_call(agent: Agent, user_content: str, output_type, *, reques
     success, records a success on the breaker; on exhaustion, records a
     failure and raises LLMRetryExhaustedError.
     """
+    from app.core.metrics import llm_call_duration_seconds
+    provider = settings.llm_provider.lower()
+
     cb = get_circuit_breaker()
     last_exc: Exception | None = None
     t0 = time.monotonic()
@@ -118,6 +121,7 @@ async def llm_retry_call(agent: Agent, user_content: str, output_type, *, reques
             logger.warning(
                 "LLM circuit breaker is OPEN — skipping call  [request_id=%s]", request_id
             )
+            llm_call_duration_seconds.labels(provider=provider, status="circuit_open").observe(0)
             raise LLMProviderError("LLM provider circuit breaker is open; provider assumed unavailable")
         if delay:
             await asyncio.sleep(delay)
@@ -129,6 +133,7 @@ async def llm_retry_call(agent: Agent, user_content: str, output_type, *, reques
                 attempt, LLM_RETRY_ATTEMPTS, elapsed, len(user_content), request_id,
             )
             cb.record_success()
+            llm_call_duration_seconds.labels(provider=provider, status="success").observe(elapsed)
             return result
         except Exception as exc:
             last_exc = exc
@@ -142,6 +147,7 @@ async def llm_retry_call(agent: Agent, user_content: str, output_type, *, reques
         elapsed, request_id,
     )
     cb.record_failure()
+    llm_call_duration_seconds.labels(provider=provider, status="error").observe(elapsed)
     raise LLMRetryExhaustedError(f"All {LLM_RETRY_ATTEMPTS} LLM retry attempts failed") from last_exc
 
 

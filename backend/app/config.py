@@ -264,6 +264,29 @@ class Settings(BaseSettings):
     # Leer lassen = Secrets werden unverschlüsselt gespeichert (Rückwärtskompatibilität).
     webhook_secret_encryption_key: SecretStr = SecretStr("")
 
+    # ---------------------------------------------------------------------------
+    # Observability: Prometheus metrics + optional OpenTelemetry tracing
+    # ---------------------------------------------------------------------------
+
+    # Expose /metrics endpoint for Prometheus scraping.
+    # Restrict access to a comma-separated list of trusted IPs (e.g. your Prometheus server).
+    # Empty list = endpoint disabled; "0.0.0.0" = unrestricted (not recommended for production).
+    metrics_enabled: bool = True
+    metrics_allowed_ips: str | list[str] = ["127.0.0.1", "::1"]
+
+    @field_validator("metrics_allowed_ips", mode="before")
+    @classmethod
+    def parse_metrics_allowed_ips(cls, v: str | list[str]) -> list[str]:
+        if isinstance(v, list):
+            return [x.strip() for x in v if x.strip()]
+        return [x.strip() for x in str(v).split(",") if x.strip()]
+
+    # OpenTelemetry (optional; disabled by default).
+    # Set OTEL_EXPORTER_OTLP_ENDPOINT to activate (e.g. http://localhost:4318/v1/traces).
+    # Requires: opentelemetry-exporter-otlp-proto-http (not in requirements.txt by default).
+    otel_service_name: str = "datenschutzagent"
+    otel_exporter_endpoint: str | None = None  # e.g. http://localhost:4318/v1/traces
+
     # Weaviate (optional; RAG document checks)
     weaviate_url: str = "http://localhost:8080"
     weaviate_api_key: SecretStr = SecretStr("")  # API-Key für Weaviate-Authentifizierung (WEAVIATE_API_KEY)

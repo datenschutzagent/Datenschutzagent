@@ -23,6 +23,44 @@ from app.services.weaviate_service import index_document_chunks
 
 logger = logging.getLogger(__name__)
 
+# ---------------------------------------------------------------------------
+# Prometheus task-duration instrumentation via Celery signals
+# ---------------------------------------------------------------------------
+
+_task_start_times: dict[str, float] = {}
+
+
+def _connect_task_metrics() -> None:
+    """Wire up Celery signals to record per-task duration in Prometheus.
+
+    Note: metrics are recorded in the worker process. For the FastAPI /metrics
+    endpoint to expose them a Prometheus Pushgateway is required in multi-process
+    deployments. In single-process setups (e.g. development) they are visible directly.
+    """
+    from celery.signals import task_prerun, task_postrun
+
+    @task_prerun.connect
+    def _on_prerun(task_id: str, **kw) -> None:
+        _task_start_times[task_id] = time.monotonic()
+
+    @task_postrun.connect
+    def _on_postrun(task_id: str, task, state: str, **kw) -> None:
+        start = _task_start_times.pop(task_id, None)
+        if start is None:
+            return
+        try:
+            from app.core.metrics import celery_task_duration_seconds
+            task_name = task.name.rsplit(".", 1)[-1]
+            status = "success" if state == "SUCCESS" else "failure"
+            celery_task_duration_seconds.labels(
+                task_name=task_name, status=status
+            ).observe(time.monotonic() - start)
+        except Exception:
+            pass
+
+
+_connect_task_metrics()
+
 celery_app = Celery(
     "datenschutzagent",
     broker=settings.celery_broker_url,

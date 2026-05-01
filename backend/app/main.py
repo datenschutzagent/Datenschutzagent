@@ -122,6 +122,14 @@ async def lifespan(app: FastAPI):
         except Exception as exc:
             _startup_logger.error("Default user creation failed on startup: %s", exc)
             await session.rollback()
+    # OpenTelemetry (optional — activate by setting OTEL_EXPORTER_OTLP_ENDPOINT)
+    if settings.otel_exporter_endpoint:
+        from app.core.metrics import configure_opentelemetry, instrument_fastapi, instrument_sqlalchemy
+        from app.database import engine as _db_engine
+        if configure_opentelemetry(settings.otel_service_name, settings.otel_exporter_endpoint):
+            instrument_fastapi(app)
+            instrument_sqlalchemy(_db_engine.sync_engine)
+
     _startup_logger.info("Application startup complete")
     yield
     _startup_logger.info("Application shutting down")
@@ -296,6 +304,55 @@ app.include_router(api_router, prefix=settings.api_v1_prefix)
 # Public routes (no auth required)
 app.include_router(auth_routes.router, prefix=f"{settings.api_v1_prefix}/auth", tags=["auth"])
 app.include_router(app_config_routes.router, prefix=settings.api_v1_prefix, tags=["config"])
+
+
+@app.get("/metrics", include_in_schema=False)
+async def prometheus_metrics(request: Request) -> Response:
+    """Prometheus metrics endpoint (IP-restricted; see METRICS_ALLOWED_IPS config)."""
+    if not settings.metrics_enabled:
+        raise HTTPException(status_code=404, detail="Metrics endpoint disabled")
+
+    client_ip = (request.client.host if request.client else "") or ""
+    allowed_ips: list[str] = settings.metrics_allowed_ips  # type: ignore[assignment]
+    if allowed_ips and client_ip not in allowed_ips:
+        raise HTTPException(status_code=403, detail="Forbidden")
+
+    from prometheus_client import generate_latest, CONTENT_TYPE_LATEST
+    from app.core.metrics import db_pool_checkedout, db_pool_total
+    from app.database import engine
+
+    # Refresh DB pool gauges just before generating output
+    try:
+        pool = engine.pool
+        db_pool_checkedout.set(pool.checkedout())
+        db_pool_total.set(pool.size())
+    except Exception:
+        pass
+
+    return Response(content=generate_latest(), media_type=CONTENT_TYPE_LATEST)
+
+
+@app.middleware("http")
+async def track_request_metrics(request: Request, call_next) -> Response:
+    """Record HTTP request duration in Prometheus histogram."""
+    if request.url.path in ("/health", "/metrics"):
+        return await call_next(request)
+    import time as _time
+    from app.core.metrics import http_request_duration_seconds
+    start = _time.monotonic()
+    response = await call_next(request)
+    # Collapse path parameters to avoid high-cardinality label explosion
+    # e.g. /api/v1/cases/abc-123 → /api/v1/cases/{id}
+    path = request.url.path
+    for segment in path.split("/"):
+        if len(segment) == 36 and segment.count("-") == 4:
+            path = path.replace(segment, "{id}", 1)
+    http_request_duration_seconds.labels(
+        method=request.method,
+        path=path,
+        status_code=str(response.status_code),
+    ).observe(_time.monotonic() - start)
+    return response
 
 
 @app.get("/health")
