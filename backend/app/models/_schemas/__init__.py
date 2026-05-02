@@ -1,36 +1,12 @@
-"""Backward-compatible re-export – alle bestehenden Imports bleiben gültig."""
-# noqa: F401, F403
-from app.models._schemas import (
-    T,
-    PaginatedResponse,
-    CaseStatusEnum,
-    DocumentTypeEnum,
-    DocumentFormatEnum,
-    FindingSeverityEnum,
-    FindingStatusEnum,
-    CaseLanguageEnum,
-    ExtractionMethodEnum,
-    ExtractionStatusEnum,
-    SourceStrategyEnum,
-    ApplicabilityEnum,
-    VVTFieldStatusEnum,
-    DSFAAssessmentEnum,
-    UserThemeEnum,
-    UserUILanguageEnum,
-    UserRoleEnum,
-    DSRRequestTypeEnum,
-    DSRStatusEnum,
-    DataBreachTypeEnum,
-    DataBreachStatusEnum,
-    RiskLevelEnum,
-    AVVPartnerTypeEnum,
-    AVVStatusEnum,
-    TOMCategoryEnum,
-    TOMStatusEnum,
+"""Re-export all schemas from submodules for backward compatibility."""
+from .common import *  # noqa: F401, F403
+from .document import (
     DocumentResponse,
     DocumentUpdate,
     DocumentCommentCreate,
     DocumentCommentResponse,
+)
+from .finding import (
     FindingResponse,
     FindingUpdate,
     FindingCommentCreate,
@@ -45,6 +21,8 @@ from app.models._schemas import (
     FindingStatsResponse,
     FindingChatMessageResponse,
     FindingChatMessageCreate,
+)
+from .case import (
     CaseCreate,
     CaseUpdate,
     RunChecksRequest,
@@ -67,14 +45,20 @@ from app.models._schemas import (
     RetentionPreviewItem,
     RetentionScanResponse,
     RetentionPreviewResponse,
+)
+from .playbook import (
     PlaybookCreate,
     PlaybookUpdate,
     PlaybookResponse,
     PlaybookRevisionResponse,
     PlaybookMatchResult,
+)
+from .legal_base import (
     LegalBaseCreate,
     LegalBaseUpdate,
     LegalBaseResponse,
+)
+from .report import (
     DSBReportSummary,
     DSBReportRisk,
     DSBReportResponse,
@@ -83,6 +67,8 @@ from app.models._schemas import (
     DSFAResponse,
     DSFAJobStatusResponse,
     DSFAFinalizeRequest,
+)
+from .admin import (
     UserPreferences,
     UserResponse,
     UserUpdate,
@@ -91,6 +77,8 @@ from app.models._schemas import (
     PromptTemplateUpdate,
     PromptTemplateKeyMeta,
     NotificationTestResponse,
+)
+from .compliance import (
     DSRRequestCreate,
     DSRRequestUpdate,
     DSRRequestResponse,
@@ -98,18 +86,18 @@ from app.models._schemas import (
     DSRListResponse,
     DSRMonthlyVolumeItem,
     DSRStatsResponse,
+    DataBreachMonthlyItem,
+    DataBreachStatsResponse,
     DataBreachCreate,
     DataBreachUpdate,
     DataBreachResponse,
     DataBreachListResponse,
     DataBreachActivityResponse,
-    DataBreachMonthlyItem,
-    DataBreachStatsResponse,
+    AVVStatsResponse,
     AVVContractCreate,
     AVVContractUpdate,
     AVVContractResponse,
     AVVListResponse,
-    AVVStatsResponse,
     TOMCreate,
     TOMUpdate,
     TOMResponse,
