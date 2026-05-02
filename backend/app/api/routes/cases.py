@@ -11,6 +11,8 @@ from uuid import UUID
 
 from docx import Document as DocxDocument
 
+from app.constants import CaseStatus, DocumentExtractionStatus, FindingStatus, JobStatus
+
 logger = logging.getLogger(__name__)
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
@@ -79,7 +81,7 @@ async def list_running_checks(db: AsyncSession = Depends(get_db)):
     result = await db.execute(
         select(RunChecksJobModel, CaseModel.title)
         .join(CaseModel, RunChecksJobModel.case_id == CaseModel.id)
-        .where(RunChecksJobModel.status == "running")
+        .where(RunChecksJobModel.status == JobStatus.RUNNING)
         .order_by(RunChecksJobModel.created_at.desc())
     )
     return [
@@ -151,7 +153,7 @@ async def list_cases(
         base_q = base_q.where(
             exists(select(FindingModel.id).where(
                 FindingModel.case_id == CaseModel.id,
-                FindingModel.status == "open",
+                FindingModel.status == FindingStatus.OPEN,
             ))
         )
     elif has_open_findings is False:
@@ -159,12 +161,12 @@ async def list_cases(
         base_q = base_q.where(
             ~exists(select(FindingModel.id).where(
                 FindingModel.case_id == CaseModel.id,
-                FindingModel.status == "open",
+                FindingModel.status == FindingStatus.OPEN,
             ))
         )
     if deadline_overdue is True:
         today = date_type.today()
-        base_q = base_q.where(CaseModel.deadline < today, CaseModel.status != "completed")
+        base_q = base_q.where(CaseModel.deadline < today, CaseModel.status != CaseStatus.COMPLETED)
     elif deadline_overdue is False:
         today = date_type.today()
         base_q = base_q.where((CaseModel.deadline >= today) | (CaseModel.deadline == None))  # noqa: E711
@@ -230,9 +232,9 @@ async def bulk_update_cases(
             changed["status"] = {"old": case.status, "new": new_status}
             case.status = new_status
             # completed_at automatisch setzen/löschen bei Statuswechsel
-            if new_status == "completed" and case.completed_at is None:
+            if new_status == CaseStatus.COMPLETED and case.completed_at is None:
                 case.completed_at = datetime.now(timezone.utc)
-            elif new_status != "completed":
+            elif new_status != CaseStatus.COMPLETED:
                 case.completed_at = None
         if archive is True and case.archived_at is None:
             case.archived_at = datetime.now(timezone.utc)
@@ -311,7 +313,7 @@ async def export_cases(
         "Offene Befunde", "Archiviert",
     ])
     for c in cases:
-        open_findings = sum(1 for f in c.findings if f.status == "open")
+        open_findings = sum(1 for f in c.findings if f.status == FindingStatus.OPEN)
         writer.writerow([
             str(c.id), c.title, c.department, c.case_type, c.status,
             c.created_by, c.assignee,
@@ -424,7 +426,7 @@ async def create_case(
         language=body.language,
         created_by=body.created_by,
         assignee=body.assignee,
-        status="intake",
+        status=CaseStatus.INTAKE,
         playbook_version="",
         processing_context=body.processing_context,
         special_category_data=body.special_category_data,
@@ -476,9 +478,9 @@ async def update_case(
         setattr(case, key, value)
     # completed_at automatisch setzen/löschen wenn Status auf "completed" geändert wird
     if "status" in update_data:
-        if update_data["status"] == "completed" and case.completed_at is None:
+        if update_data["status"] == CaseStatus.COMPLETED and case.completed_at is None:
             case.completed_at = datetime.now(timezone.utc)
-        elif update_data["status"] != "completed":
+        elif update_data["status"] != CaseStatus.COMPLETED:
             case.completed_at = None
     await db.flush()
     if changed:
@@ -587,7 +589,7 @@ async def clone_case(
         language=source.language,
         created_by=_user.display_name if isinstance(_user, UserModel) else "",
         assignee=source.assignee,
-        status="intake",
+        status=CaseStatus.INTAKE,
         playbook_version=source.playbook_version,
         processing_context=source.processing_context,
         special_category_data=source.special_category_data,
@@ -915,12 +917,12 @@ async def get_dsb_report_status(
         .limit(1)
     )
     job = job_result.scalar_one_or_none()
-    if job and job.status == "running":
-        return {"status": "running", "job_id": str(job.id), "error": None}
-    if job and job.status == "failed":
-        return {"status": "failed", "job_id": str(job.id), "error": job.error}
+    if job and job.status == JobStatus.RUNNING:
+        return {"status": JobStatus.RUNNING, "job_id": str(job.id), "error": None}
+    if job and job.status == JobStatus.FAILED:
+        return {"status": JobStatus.FAILED, "job_id": str(job.id), "error": job.error}
     if report_row:
-        return {"status": "completed", "job_id": None, "error": None}
+        return {"status": JobStatus.COMPLETED, "job_id": None, "error": None}
     return {"status": "no_report", "job_id": None, "error": None}
 
 
@@ -938,14 +940,14 @@ async def generate_dsb_report(
         raise HTTPException(status_code=404, detail="Case not found")
     use_async = settings.celery_enabled and bool((settings.celery_broker_url or "").strip())
     if use_async:
-        job = DSBReportJobModel(case_id=case_id, status="running")
+        job = DSBReportJobModel(case_id=case_id, status=JobStatus.RUNNING)
         db.add(job)
         await db.flush()
         await db.refresh(job)
         build_dsb_report_task.delay(str(job.id), get_request_id())
         return JSONResponse(
             status_code=202,
-            content={"job_id": str(job.id), "status": "running", "message": "Report wird erstellt."},
+            content={"job_id": str(job.id), "status": JobStatus.RUNNING, "message": "Report wird erstellt."},
         )
     report = await build_dsb_report(case_id, db)
     await save_report(case_id, report, db)
@@ -1022,7 +1024,7 @@ async def get_run_checks_status(
 
     # Determine if any document was re-uploaded after the last run-checks job
     documents_changed = False
-    if job and job.status == "completed":
+    if job and job.status == JobStatus.COMPLETED:
         max_reupload_result = await db.execute(
             select(func.max(DocumentModel.uploaded_at))
             .where(DocumentModel.case_id == case_id, DocumentModel.version > 1)
@@ -1102,7 +1104,7 @@ async def stream_run_checks_status(
                         "checks_done": job.checks_done,
                     }
 
-                is_terminal = not job or job.status in ("completed", "failed", "never_run")
+                is_terminal = not job or job.status in (JobStatus.COMPLETED, JobStatus.FAILED, "never_run")
                 event_type = "done" if is_terminal else "progress"
                 yield f"event: {event_type}\ndata: {_json.dumps(payload, default=str)}\n\n"
 
@@ -1159,7 +1161,7 @@ async def run_checks(
         select(RunChecksJobModel).where(
             RunChecksJobModel.case_id == case_id,
             RunChecksJobModel.playbook_id == body.playbook_id,
-            RunChecksJobModel.status == "running",
+            RunChecksJobModel.status == JobStatus.RUNNING,
         )
     )
     if running_job_result.scalar_one_or_none() is not None:
@@ -1171,7 +1173,7 @@ async def run_checks(
     if use_async:
         job = RunChecksJobModel(
             case_id=case_id,
-            status="running",
+            status=JobStatus.RUNNING,
             playbook_id=playbook.id,
             playbook_name=playbook.name,
             strategies=strategies,
@@ -1200,7 +1202,7 @@ async def run_checks(
             status_code=202,
             content={
                 "job_id": str(job.id),
-                "status": "running",
+                "status": JobStatus.RUNNING,
                 "message": "Playbook-Checks werden ausgeführt.",
             },
         )
@@ -1240,7 +1242,7 @@ async def get_case_risk_score(
 
     jobs_result = await db.execute(
         select(RunChecksJobModel)
-        .where(RunChecksJobModel.case_id == case_id, RunChecksJobModel.status == "completed")
+        .where(RunChecksJobModel.case_id == case_id, RunChecksJobModel.status == JobStatus.COMPLETED)
         .order_by(RunChecksJobModel.created_at.desc())
         .limit(limit)
     )
@@ -1292,7 +1294,7 @@ async def get_similar_cases(
         raise HTTPException(status_code=404, detail="Case not found")
 
     # Open finding check names for the current case
-    current_check_names = {f.check_name for f in case.findings if f.status == "open"}
+    current_check_names = {f.check_name for f in case.findings if f.status == FindingStatus.OPEN}
     if not current_check_names:
         return []
 
@@ -1320,7 +1322,7 @@ async def get_similar_cases(
     scored.sort(key=lambda x: x[0], reverse=True)
     results = []
     for overlap_score, cand in scored[:limit]:
-        resolution = {"fixed": 0, "accepted": 0, "overruled": 0}
+        resolution = {FindingStatus.FIXED: 0, FindingStatus.ACCEPTED: 0, FindingStatus.OVERRULED: 0}
         shared_check_names = sorted(current_check_names & {f.check_name for f in cand.findings})
         for f in cand.findings:
             if f.check_name in shared_check_names and f.status in resolution:

@@ -154,3 +154,41 @@ def test_cache_key_includes_org_profile_scope():
     finally:
         settings.org_profile = original
         check_runner._org_profile_hash_cached = None
+
+
+# ---------------------------------------------------------------------------
+# _cache_key — playbook_revision invalidation
+# ---------------------------------------------------------------------------
+
+
+def test_cache_key_differs_when_playbook_revision_changes():
+    """After a playbook update the cache key must change, causing a cache miss."""
+    case = uuid4()
+    playbook_id = uuid4()
+    key_v1 = _cache_key("sys", "user", case, playbook_revision=f"{playbook_id}:1.0")
+    key_v2 = _cache_key("sys", "user", case, playbook_revision=f"{playbook_id}:1.1")
+    assert key_v1 != key_v2
+
+
+def test_cache_key_stable_for_same_playbook_revision():
+    """Same playbook version must yield the same key on repeated calls."""
+    case = uuid4()
+    playbook_id = uuid4()
+    revision = f"{playbook_id}:2.3"
+    assert _cache_key("sys", "user", case, revision) == _cache_key("sys", "user", case, revision)
+
+
+def test_cache_key_empty_revision_differs_from_non_empty():
+    """A key with no revision must not collide with a versioned key."""
+    case = uuid4()
+    key_unversioned = _cache_key("sys", "user", case, "")
+    key_versioned = _cache_key("sys", "user", case, f"{uuid4()}:1.0")
+    assert key_unversioned != key_versioned
+
+
+def test_cache_key_revision_isolated_per_playbook():
+    """Same version string for two different playbooks must produce different keys."""
+    case = uuid4()
+    key_a = _cache_key("sys", "user", case, playbook_revision=f"{uuid4()}:1.0")
+    key_b = _cache_key("sys", "user", case, playbook_revision=f"{uuid4()}:1.0")
+    assert key_a != key_b

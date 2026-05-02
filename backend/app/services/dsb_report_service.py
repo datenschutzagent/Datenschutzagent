@@ -8,6 +8,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from app.constants import FindingStatus
 from app.models.db import ActivityLogModel, CaseModel, DSBReportModel
 
 logger = logging.getLogger(__name__)
@@ -163,7 +164,7 @@ async def build_dsb_report(case_id: UUID, db: AsyncSession) -> DSBReportResponse
     recommendations = list({f.recommendation for f in findings if f.recommendation and f.recommendation.strip()})
     open_questions = []
     for f in findings:
-        if f.status == "open" and f.recommendation and f.recommendation.strip():
+        if f.status == FindingStatus.OPEN and f.recommendation and f.recommendation.strip():
             open_questions.append(f.recommendation)
 
     next_steps = [

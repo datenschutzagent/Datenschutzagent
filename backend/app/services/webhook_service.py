@@ -26,6 +26,7 @@ from uuid import UUID
 import httpx
 
 from app.config import settings
+from app.constants import WebhookDeliveryStatus
 from app.core.crypto import decrypt_secret
 
 logger = logging.getLogger(__name__)
@@ -202,7 +203,7 @@ async def fire_event(event_type: str, payload: dict[str, Any], db) -> int:
             webhook_id=webhook.id,
             event_type=event_type,
             payload=full_payload,
-            status="success" if success else "failed",
+            status=WebhookDeliveryStatus.SUCCESS if success else WebhookDeliveryStatus.FAILED,
             http_status=http_status,
             error=error,
             attempts=attempts,

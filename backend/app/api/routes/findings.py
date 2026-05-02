@@ -12,6 +12,7 @@ from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from app.constants import FindingSeverity, FindingStatus
 from app.core.auth import require_roles
 from app.core.rate_limit import limiter
 from app.database import get_db
@@ -299,10 +300,12 @@ async def bulk_delete_findings(
 def _build_findings_docx(case_title: str, findings: list, docs_by_id: dict) -> bytes:
     """Build DOCX with structured findings report: title page, summary table, per-finding sections."""
     severity_labels = {
-        "critical": "Kritisch", "high": "Hoch", "medium": "Mittel", "low": "Niedrig", "info": "Info",
+        FindingSeverity.CRITICAL: "Kritisch", FindingSeverity.HIGH: "Hoch",
+        FindingSeverity.MEDIUM: "Mittel", FindingSeverity.LOW: "Niedrig", FindingSeverity.INFO: "Info",
     }
     status_labels = {
-        "open": "Offen", "accepted": "Akzeptiert", "overruled": "Überfahren", "fixed": "Behoben",
+        FindingStatus.OPEN: "Offen", FindingStatus.ACCEPTED: "Akzeptiert",
+        FindingStatus.OVERRULED: "Überfahren", FindingStatus.FIXED: "Behoben",
     }
 
     doc = DocxDocument()
@@ -431,17 +434,17 @@ async def export_findings(
         )
 
     severity_labels = {
-        "critical": "Kritisch",
-        "high": "Hoch",
-        "medium": "Mittel",
-        "low": "Niedrig",
-        "info": "Info",
+        FindingSeverity.CRITICAL: "Kritisch",
+        FindingSeverity.HIGH: "Hoch",
+        FindingSeverity.MEDIUM: "Mittel",
+        FindingSeverity.LOW: "Niedrig",
+        FindingSeverity.INFO: "Info",
     }
     status_labels = {
-        "open": "Offen",
-        "accepted": "Akzeptiert",
-        "overruled": "Überfahren",
-        "fixed": "Behoben",
+        FindingStatus.OPEN: "Offen",
+        FindingStatus.ACCEPTED: "Akzeptiert",
+        FindingStatus.OVERRULED: "Überfahren",
+        FindingStatus.FIXED: "Behoben",
     }
 
     buf = io.StringIO()

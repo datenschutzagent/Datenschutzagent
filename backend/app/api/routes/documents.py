@@ -10,6 +10,7 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.constants import DocumentExtractionStatus
 from app.core.auth import require_roles
 from app.core.rate_limit import limiter
 from app.models.db import UserModel
@@ -117,13 +118,13 @@ async def _process_one_upload(
     if async_extraction:
         text_content = None
         extraction_method = None
-        extraction_status = "pending"
+        extraction_status = DocumentExtractionStatus.PENDING
         extraction_error = None
     else:
         ext_result = extract_text(filename, content)
         text_content = ext_result.text
         extraction_method = ext_result.extraction_method
-        extraction_status = "done"
+        extraction_status = DocumentExtractionStatus.DONE
         extraction_error = None
     version = await _next_version_for_type(db, case_id, document_type)
     doc = DocumentModel(

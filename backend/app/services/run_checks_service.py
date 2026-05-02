@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.config import settings
+from app.constants import DocumentExtractionStatus, FindingStatus
 from app.models.db import CaseModel, FindingModel, LegalBaseModel, PlaybookModel
 from app.services.check_runner import (
     run_check,
@@ -104,7 +105,7 @@ async def _build_existing_findings_set(
     """Load existing (check_name, document_id) pairs for deduplication."""
     dedup_where = [FindingModel.case_id == case_id]
     if not skip_resolved:
-        dedup_where.append(FindingModel.status == "open")
+        dedup_where.append(FindingModel.status == FindingStatus.OPEN)
     result = await db.execute(
         select(FindingModel.check_name, FindingModel.document_id).where(*dedup_where)
     )
@@ -138,6 +139,7 @@ class _CheckRunState:
     case: CaseModel
     case_id: UUID
     case_language: str
+    playbook_revision: str
     playbook_legal_ids: list[UUID]
     legal_bases_by_id: dict[UUID, LegalBaseModel]
     existing_open: set[tuple]
@@ -177,7 +179,7 @@ class _CheckRunState:
             document_id=document_id,
             check_name=check_name,
             severity=severity,
-            status="open",
+            status=FindingStatus.OPEN,
             category=category,
             description=description,
             evidence=deduped,
@@ -238,7 +240,7 @@ async def _doc_check_full_text(state: _CheckRunState, doc_id: UUID, doc_text: st
         logger.info("run_check [full_text] start: '%s' doc=%s", name, doc_id)
         t_chk = time.monotonic()
         try:
-            result = await run_check(doc_text, instruction, language=state.case_language, legal_bases_context=legal_ctx or None, case_id=state.case_id)
+            result = await run_check(doc_text, instruction, language=state.case_language, legal_bases_context=legal_ctx or None, case_id=state.case_id, playbook_revision=state.playbook_revision)
         except Exception as e:
             logger.error("run_check [full_text] error: '%s' doc=%s: %s", name, doc_id, e)
             state.errors.append({"check": name, "scope": "document", "document_id": str(doc_id), "strategy": "full_text", "error": str(e)})
@@ -273,7 +275,7 @@ async def _doc_check_rag(state: _CheckRunState, doc_id: UUID, item: dict) -> Non
         t_chk = time.monotonic()
         rag_result = None
         try:
-            rag_result = await run_check_rag(doc_id, state.case_id, instruction, language=state.case_language, legal_bases_context=legal_ctx or None)
+            rag_result = await run_check_rag(doc_id, state.case_id, instruction, language=state.case_language, legal_bases_context=legal_ctx or None, playbook_revision=state.playbook_revision)
         except Exception as e:
             logger.error("run_check [rag] error: '%s' doc=%s: %s", name, doc_id, e)
             state.errors.append({"check": name, "scope": "document", "document_id": str(doc_id), "strategy": "rag", "error": str(e)})
@@ -286,7 +288,7 @@ async def _doc_check_rag(state: _CheckRunState, doc_id: UUID, item: dict) -> Non
                 state.errors.append({"check": name, "scope": "document", "document_id": str(doc_id), "strategy": "rag", "error": "Weaviate/chunks unavailable – falling back to full_text"})
             doc_text = next((d.content or "" for d in state.case.documents if d.id == doc_id), "")
             try:
-                fallback = await run_check(doc_text, instruction, language=state.case_language, legal_bases_context=legal_ctx or None, case_id=state.case_id)
+                fallback = await run_check(doc_text, instruction, language=state.case_language, legal_bases_context=legal_ctx or None, case_id=state.case_id, playbook_revision=state.playbook_revision)
                 if not fallback.is_compliant:
                     state.add_finding(
                         document_id=doc_id, check_name=name, category=category,
@@ -328,7 +330,7 @@ async def _case_check_full_text(state: _CheckRunState, doc_list: list[tuple], it
         logger.info("run_check [case/full_text] start: '%s'", name)
         t_chk = time.monotonic()
         try:
-            result = await run_cross_document_check(doc_list, instruction, language=state.case_language, legal_bases_context=legal_ctx or None, case_id=state.case_id)
+            result = await run_cross_document_check(doc_list, instruction, language=state.case_language, legal_bases_context=legal_ctx or None, case_id=state.case_id, playbook_revision=state.playbook_revision)
         except Exception as e:
             logger.error("run_check [case/full_text] error: '%s': %s", name, e)
             state.errors.append({"check": name, "scope": "case", "document_id": None, "strategy": "full_text", "error": str(e)})
@@ -362,7 +364,7 @@ async def _case_check_rag(state: _CheckRunState, doc_list: list[tuple], item: di
         t_chk = time.monotonic()
         rag_result = None
         try:
-            rag_result = await run_cross_document_check_rag(state.case_id, instruction, language=state.case_language, legal_bases_context=legal_ctx or None)
+            rag_result = await run_cross_document_check_rag(state.case_id, instruction, language=state.case_language, legal_bases_context=legal_ctx or None, playbook_revision=state.playbook_revision)
         except Exception as e:
             logger.error("run_check [case/rag] error: '%s': %s", name, e)
             state.errors.append({"check": name, "scope": "case", "document_id": None, "strategy": "rag", "error": str(e)})
@@ -374,7 +376,7 @@ async def _case_check_rag(state: _CheckRunState, doc_list: list[tuple], item: di
                 state.rag_weaviate_error_logged = True
                 state.errors.append({"check": name, "scope": "case", "document_id": None, "strategy": "rag", "error": "Weaviate/chunks unavailable – falling back to full_text"})
             try:
-                fallback = await run_cross_document_check(doc_list, instruction, language=state.case_language, legal_bases_context=legal_ctx or None, case_id=state.case_id)
+                fallback = await run_cross_document_check(doc_list, instruction, language=state.case_language, legal_bases_context=legal_ctx or None, case_id=state.case_id, playbook_revision=state.playbook_revision)
                 if not fallback.is_compliant:
                     state.add_finding(
                         document_id=None, check_name=name, category=category,
@@ -473,12 +475,14 @@ async def run_checks_impl(
         _load_applicable_legal_bases(db, all_ref_ids, case_department, case_case_type),
     )
 
+    playbook_revision = f"{playbook.id}:{playbook.version}"
     _max_concurrent = getattr(settings, "max_concurrent_llm_calls", 2)
     state = _CheckRunState(
         db=db,
         case=case,
         case_id=case_id,
         case_language=case_language,
+        playbook_revision=playbook_revision,
         playbook_legal_ids=playbook_legal_ids,
         legal_bases_by_id=legal_bases_by_id,
         existing_open=existing_open,
@@ -488,7 +492,7 @@ async def run_checks_impl(
     )
 
     # Filter to only documents with completed text extraction
-    extractable_docs = [doc for doc in case.documents if doc.extraction_status == "done"]
+    extractable_docs = [doc for doc in case.documents if doc.extraction_status == DocumentExtractionStatus.DONE]
     skipped_doc_count = len(case.documents) - len(extractable_docs)
     if skipped_doc_count:
         logger.warning("run_checks: skipping %d document(s) with extraction_status != 'done' for case %s", skipped_doc_count, case_id)

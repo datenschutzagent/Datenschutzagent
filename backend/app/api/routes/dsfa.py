@@ -9,6 +9,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.constants import JobStatus
 from app.core.auth import require_roles
 from app.core.rate_limit import limiter
 from app.core.request_id import get_request_id
@@ -78,7 +79,7 @@ async def generate_dsfa(
     job = DSFAJobModel(
         id=job_id,
         case_id=case_id,
-        status="running",
+        status=JobStatus.RUNNING,
     )
     db.add(job)
     await db.flush()
@@ -95,7 +96,7 @@ async def generate_dsfa(
     return DSFAJobStatusResponse(
         job_id=job_id,
         case_id=case_id,
-        status="running",
+        status=JobStatus.RUNNING,
         created_at=job.created_at,
         updated_at=job.updated_at,
     )
@@ -165,10 +166,10 @@ async def _run_dsfa_inline(job_id: UUID, db: AsyncSession) -> None:
         try:
             payload = await generate_dsfa(job.case_id, session)
             await save_dsfa(job.case_id, payload, session)
-            job.status = "completed"
+            job.status = JobStatus.COMPLETED
             await session.commit()
         except Exception as exc:
-            job.status = "failed"
+            job.status = JobStatus.FAILED
             job.error = str(exc)[:490]
             await session.commit()
             logger.error("DSFA inline generation failed for job %s: %s", job_id, exc)
