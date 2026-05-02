@@ -48,18 +48,20 @@ def _org_profile_hash() -> str:
     return _org_profile_hash_cached
 
 
-def _cache_key(system_prompt: str, user_content: str, case_id: UUID | None) -> str:
-    """SHA-256 hash of org+case+model+system+user prompt as a Redis key.
+def _cache_key(system_prompt: str, user_content: str, case_id: UUID | None, playbook_revision: str = "") -> str:
+    """SHA-256 hash of org+case+model+playbook_revision+system+user prompt as a Redis key.
 
     Scoping the key by ``org_profile`` and ``case_id`` prevents cross-case or
     cross-tenant cache reuse, which could otherwise leak or poison results when
     two contexts produce the same prompt bytes. The model identifier is
     included so that a model upgrade (e.g. llama3.2 → llama3.3) automatically
-    invalidates existing cache entries.
+    invalidates existing cache entries. ``playbook_revision`` (format
+    "<playbook_id>:<version>") ensures a cache miss whenever the playbook
+    content changes, so stale LLM responses are never returned after an update.
     """
     model_id = f"{settings.llm_provider}:{settings.ollama_model if settings.llm_provider == 'ollama' else settings.openai_model if settings.llm_provider == 'openai' else settings.anthropic_model}"
     case_part = str(case_id) if case_id is not None else "-"
-    raw = f"{_org_profile_hash()}\x00{case_part}\x00{model_id}\x00{system_prompt}\x00{user_content}"
+    raw = f"{_org_profile_hash()}\x00{case_part}\x00{model_id}\x00{playbook_revision}\x00{system_prompt}\x00{user_content}"
     digest = hashlib.sha256(raw.encode("utf-8")).hexdigest()
     return f"llm_cache:{digest}"
 
@@ -216,6 +218,7 @@ async def run_check(
     legal_bases_context: str | None = None,
     *,
     case_id: UUID | None = None,
+    playbook_revision: str = "",
 ) -> CheckResult:
     """Run a single check against a document using the LLM."""
     language_hint = _language_hint(language) if language else ""
@@ -237,7 +240,7 @@ async def run_check(
         },
     )
     agent = create_agent(system_prompt=system)
-    cache_key = _cache_key(system, user_content, case_id)
+    cache_key = _cache_key(system, user_content, case_id, playbook_revision)
     cached = await _cache_get(cache_key)
     if cached is not None:
         logger.info("LLM cache hit for check '%s'  [request_id=%s]", check_instruction[:60], get_request_id())
@@ -263,6 +266,7 @@ async def run_cross_document_check(
     legal_bases_context: str | None = None,
     *,
     case_id: UUID | None = None,
+    playbook_revision: str = "",
 ) -> CheckResult:
     """
     Run a single check across multiple documents (case-level / cross-document).
@@ -294,7 +298,7 @@ async def run_cross_document_check(
         },
     )
     agent = create_agent(system_prompt=system)
-    cache_key = _cache_key(system, user_content, case_id)
+    cache_key = _cache_key(system, user_content, case_id, playbook_revision)
     cached = await _cache_get(cache_key)
     if cached is not None:
         logger.info("LLM cache hit for cross-doc check '%s'  [request_id=%s]", check_instruction[:60], get_request_id())
@@ -319,6 +323,7 @@ async def run_check_rag(
     check_instruction: str,
     language: str | None = None,
     legal_bases_context: str | None = None,
+    playbook_revision: str = "",
 ) -> CheckResult | None:
     """
     Run a single check using RAG: embed check_instruction, retrieve relevant chunks for the document
@@ -346,7 +351,7 @@ async def run_check_rag(
         },
     )
     agent = create_agent(system_prompt=system)
-    cache_key = _cache_key(system, user_content, case_id)
+    cache_key = _cache_key(system, user_content, case_id, playbook_revision)
     cached = await _cache_get(cache_key)
     if cached is not None:
         logger.info("LLM cache hit for RAG check '%s'  [request_id=%s]", check_instruction[:60], get_request_id())
@@ -371,6 +376,7 @@ async def run_cross_document_check_rag(
     check_instruction: str,
     language: str | None = None,
     legal_bases_context: str | None = None,
+    playbook_revision: str = "",
 ) -> CheckResult | None:
     """
     Run a cross-document check using RAG: retrieve relevant chunks for the case from Weaviate,
@@ -400,7 +406,7 @@ async def run_cross_document_check_rag(
         },
     )
     agent = create_agent(system_prompt=system)
-    cache_key = _cache_key(system, user_content, case_id)
+    cache_key = _cache_key(system, user_content, case_id, playbook_revision)
     cached = await _cache_get(cache_key)
     if cached is not None:
         logger.info("LLM cache hit for cross-RAG check '%s'  [request_id=%s]", check_instruction[:60], get_request_id())
