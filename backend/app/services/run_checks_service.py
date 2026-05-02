@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.config import settings
+from app.constants import DocumentExtractionStatus, FindingStatus
 from app.models.db import CaseModel, FindingModel, LegalBaseModel, PlaybookModel
 from app.services.check_runner import (
     run_check,
@@ -104,7 +105,7 @@ async def _build_existing_findings_set(
     """Load existing (check_name, document_id) pairs for deduplication."""
     dedup_where = [FindingModel.case_id == case_id]
     if not skip_resolved:
-        dedup_where.append(FindingModel.status == "open")
+        dedup_where.append(FindingModel.status == FindingStatus.OPEN)
     result = await db.execute(
         select(FindingModel.check_name, FindingModel.document_id).where(*dedup_where)
     )
@@ -177,7 +178,7 @@ class _CheckRunState:
             document_id=document_id,
             check_name=check_name,
             severity=severity,
-            status="open",
+            status=FindingStatus.OPEN,
             category=category,
             description=description,
             evidence=deduped,
@@ -488,7 +489,7 @@ async def run_checks_impl(
     )
 
     # Filter to only documents with completed text extraction
-    extractable_docs = [doc for doc in case.documents if doc.extraction_status == "done"]
+    extractable_docs = [doc for doc in case.documents if doc.extraction_status == DocumentExtractionStatus.DONE]
     skipped_doc_count = len(case.documents) - len(extractable_docs)
     if skipped_doc_count:
         logger.warning("run_checks: skipping %d document(s) with extraction_status != 'done' for case %s", skipped_doc_count, case_id)

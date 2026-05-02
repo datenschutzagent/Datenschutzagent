@@ -8,6 +8,7 @@ import uuid
 from sqlalchemy import select
 
 from app.config import settings
+from app.constants import UserRole
 from app.database import async_session_factory
 from app.models.db import UserModel
 from app.services.connection_checks import check_all_connections
@@ -16,7 +17,7 @@ from app.services.connection_checks import check_all_connections
 logging.basicConfig(level=logging.WARNING, format="%(levelname)s %(name)s %(message)s")
 logger = logging.getLogger("app.cli")
 
-VALID_ROLES = ("viewer", "editor", "admin")
+VALID_ROLES = tuple(UserRole)
 DEFAULT_USER_ID_STR = "00000000-0000-4000-8000-000000000001"
 
 

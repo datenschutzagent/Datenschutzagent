@@ -5,6 +5,15 @@ from uuid import UUID
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
+from app.constants import (
+    CaseStatus,
+    CheckStrategy,
+    DocumentExtractionMethod,
+    DocumentExtractionStatus,
+    FindingSeverity,
+    FindingStatus,
+)
+
 T = TypeVar("T")
 
 
@@ -17,20 +26,30 @@ class PaginatedResponse(BaseModel, Generic[T]):
     limit: int = 100
 
 CaseStatusEnum = Literal[
-    "intake", "in_review", "questions_pending", "revision", "ready_for_decision", "completed"
+    CaseStatus.INTAKE, CaseStatus.IN_REVIEW, CaseStatus.QUESTIONS_PENDING,
+    CaseStatus.REVISION, CaseStatus.READY_FOR_DECISION, CaseStatus.COMPLETED,
 ]
 DocumentTypeEnum = Literal[
     "vvt", "screening", "info_sheet_de", "info_sheet_en", "dsfa", "avv", "other"
 ]
 DocumentFormatEnum = Literal["docx", "pdf", "xlsx", "doc"]
-FindingSeverityEnum = Literal["critical", "high", "medium", "low", "info"]
-FindingStatusEnum = Literal["open", "accepted", "overruled", "fixed"]
+FindingSeverityEnum = Literal[
+    FindingSeverity.CRITICAL, FindingSeverity.HIGH, FindingSeverity.MEDIUM,
+    FindingSeverity.LOW, FindingSeverity.INFO,
+]
+FindingStatusEnum = Literal[
+    FindingStatus.OPEN, FindingStatus.ACCEPTED, FindingStatus.OVERRULED, FindingStatus.FIXED,
+]
 CaseLanguageEnum = Literal["de", "en", "de_en"]
 
 
 # --- Document ---
-ExtractionMethodEnum = Literal["text", "ocr"]
-ExtractionStatusEnum = Literal["pending", "processing", "done", "failed"]
+ExtractionMethodEnum = Literal[DocumentExtractionMethod.TEXT, DocumentExtractionMethod.OCR]
+ExtractionStatusEnum = Literal[
+    DocumentExtractionStatus.PENDING, DocumentExtractionStatus.PROCESSING,
+    DocumentExtractionStatus.DONE, DocumentExtractionStatus.FAILED,
+]
+SourceStrategyEnum = Literal[CheckStrategy.FULL_TEXT, CheckStrategy.RAG]
 
 
 class DocumentResponse(BaseModel):
@@ -72,7 +91,6 @@ class DocumentCommentResponse(BaseModel):
 
 
 # --- Finding ---
-SourceStrategyEnum = Literal["full_text", "rag"]
 
 
 class FindingResponse(BaseModel):

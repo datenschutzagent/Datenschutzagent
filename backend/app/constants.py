@@ -56,3 +56,15 @@ class CheckStrategy(StrEnum):
 class LegalBaseApplicability(StrEnum):
     ALWAYS = "always"
     CONDITIONAL = "conditional"
+
+
+class JobStatus(StrEnum):
+    RUNNING = "running"
+    COMPLETED = "completed"
+    FAILED = "failed"
+
+
+class WebhookDeliveryStatus(StrEnum):
+    PENDING = "pending"
+    SUCCESS = "success"
+    FAILED = "failed"

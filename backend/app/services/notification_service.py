@@ -9,6 +9,7 @@ from sqlalchemy import and_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
+from app.constants import CaseStatus
 from app.models.db import (
     ActivityLogModel,
     AVVContractModel,
@@ -101,7 +102,7 @@ async def scan_and_notify_deadlines(db: AsyncSession) -> dict:
         select(CaseModel).where(
             and_(
                 CaseModel.archived_at == None,  # noqa: E711
-                CaseModel.status != "completed",
+                CaseModel.status != CaseStatus.COMPLETED,
                 CaseModel.deadline != None,  # noqa: E711
                 CaseModel.deadline <= warning_date,
                 CaseModel.deadline >= today,
@@ -148,7 +149,7 @@ async def scan_and_notify_deadlines(db: AsyncSession) -> dict:
         select(CaseModel).where(
             and_(
                 CaseModel.archived_at == None,  # noqa: E711
-                CaseModel.status != "completed",
+                CaseModel.status != CaseStatus.COMPLETED,
                 CaseModel.deadline != None,  # noqa: E711
                 CaseModel.deadline < today,
             )

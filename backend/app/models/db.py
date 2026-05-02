@@ -1,12 +1,19 @@
 """SQLAlchemy ORM models."""
 import uuid
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 from typing import Any
 
 from sqlalchemy import Boolean, Date, DateTime, ForeignKey, Index, Integer, String, Text
 from sqlalchemy.dialects.postgresql import ARRAY, JSONB, UUID as PG_UUID
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
-from datetime import timezone
+
+from app.constants import (
+    CaseStatus,
+    DocumentExtractionStatus,
+    FindingStatus,
+    UserRole,
+    WebhookDeliveryStatus,
+)
 
 
 class Base(DeclarativeBase):
@@ -28,7 +35,7 @@ class CaseModel(Base):
     title: Mapped[str] = mapped_column(String(500), nullable=False)
     department: Mapped[str] = mapped_column(String(200), nullable=False)
     case_type: Mapped[str] = mapped_column(String(100), nullable=False)
-    status: Mapped[str] = mapped_column(String(50), nullable=False, default="intake")
+    status: Mapped[str] = mapped_column(String(50), nullable=False, default=CaseStatus.INTAKE)
     language: Mapped[str] = mapped_column(String(20), nullable=False, default="de")
     created_by: Mapped[str] = mapped_column(String(200), nullable=False, default="")
     assignee: Mapped[str] = mapped_column(String(200), nullable=False, default="")
@@ -119,7 +126,7 @@ class DocumentModel(Base):
     storage_path: Mapped[str] = mapped_column(String(1000), nullable=False)  # path in MinIO or local FS
     content: Mapped[str] = mapped_column(Text, nullable=True)  # Extracted text content
     extraction_method: Mapped[str | None] = mapped_column(String(20), nullable=True)  # "text" | "ocr"
-    extraction_status: Mapped[str] = mapped_column(String(20), nullable=False, default="pending")  # pending | processing | done | failed
+    extraction_status: Mapped[str] = mapped_column(String(20), nullable=False, default=DocumentExtractionStatus.PENDING)
     extraction_error: Mapped[str | None] = mapped_column(Text, nullable=True)  # Error message when extraction_status=failed
     uploaded_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 
@@ -168,7 +175,7 @@ class FindingModel(Base):
     document_id: Mapped[uuid.UUID | None] = mapped_column(PG_UUID(as_uuid=True), ForeignKey("documents.id", ondelete="SET NULL"), nullable=True)
     check_name: Mapped[str] = mapped_column(String(300), nullable=False)
     severity: Mapped[str] = mapped_column(String(20), nullable=False)
-    status: Mapped[str] = mapped_column(String(20), nullable=False, default="open")
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default=FindingStatus.OPEN)
     category: Mapped[str] = mapped_column(String(100), nullable=False)
     description: Mapped[str] = mapped_column(Text, nullable=False)
     evidence: Mapped[list[str]] = mapped_column(ARRAY(Text), nullable=False, default=list)
@@ -199,7 +206,7 @@ class UserModel(Base):
     oidc_sub: Mapped[str | None] = mapped_column(String(500), nullable=True, unique=True)
     display_name: Mapped[str] = mapped_column(String(200), nullable=False, default="Standardnutzer")
     email: Mapped[str | None] = mapped_column(String(320), nullable=True)
-    role: Mapped[str] = mapped_column(String(20), nullable=False, default="viewer")  # viewer | editor | admin
+    role: Mapped[str] = mapped_column(String(20), nullable=False, default=UserRole.VIEWER)
     preferences: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
@@ -527,7 +534,7 @@ class WebhookDeliveryLogModel(Base):
     webhook_id: Mapped[uuid.UUID] = mapped_column(PG_UUID(as_uuid=True), ForeignKey("webhook_configs.id", ondelete="CASCADE"), nullable=False)
     event_type: Mapped[str] = mapped_column(String(80), nullable=False)
     payload: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
-    status: Mapped[str] = mapped_column(String(20), nullable=False, default="pending")  # pending | success | failed
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default=WebhookDeliveryStatus.PENDING)
     http_status: Mapped[int | None] = mapped_column(Integer, nullable=True)
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
     attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=0)

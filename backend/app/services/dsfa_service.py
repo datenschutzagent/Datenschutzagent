@@ -8,6 +8,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.constants import FindingSeverity, FindingStatus
 from app.core.llm import create_agent
 from app.core.prompt_security import sanitize_prompt_field
 from app.models.db import CaseModel, DSFAAssessmentModel, DSFAJobModel, FindingModel
@@ -72,8 +73,8 @@ async def generate_dsfa(case_id: UUID, db: AsyncSession) -> dict[str, Any]:
     findings_result = await db.execute(
         select(FindingModel).where(
             FindingModel.case_id == case_id,
-            FindingModel.severity.in_(["critical", "high"]),
-            FindingModel.status == "open",
+            FindingModel.severity.in_([FindingSeverity.CRITICAL, FindingSeverity.HIGH]),
+            FindingModel.status == FindingStatus.OPEN,
         ).limit(20)
     )
     findings = findings_result.scalars().all()
@@ -208,7 +209,7 @@ _DSFA_SCREENING_FACTORS = [
         "id": "critical_findings",
         "label": "Kritische Compliance-Befunde",
         "description": "Offene kritische oder hochschwere Befunde aus Playbook-Prüfungen.",
-        "check_fn": lambda case, findings: any(f.severity in ("critical", "high") and f.status == "open" for f in findings),
+        "check_fn": lambda case, findings: any(f.severity in (FindingSeverity.CRITICAL, FindingSeverity.HIGH) and f.status == FindingStatus.OPEN for f in findings),
     },
     {
         "id": "sensitive_purpose",
@@ -250,7 +251,7 @@ async def screen_dsfa_requirement(case_id: UUID, db: AsyncSession) -> dict[str, 
     findings_result = await db.execute(
         select(FindingModel).where(
             FindingModel.case_id == case_id,
-            FindingModel.status == "open",
+            FindingModel.status == FindingStatus.OPEN,
         )
     )
     findings = findings_result.scalars().all()

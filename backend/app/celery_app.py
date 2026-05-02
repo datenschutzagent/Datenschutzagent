@@ -13,6 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.config import settings
+from app.constants import CaseStatus, DocumentExtractionStatus, JobStatus
 from app.models.db import ActivityLogModel, CaseModel, DocumentModel, DSBReportJobModel, DSFAJobModel, PlaybookModel, RunChecksJobModel
 from app.services.run_checks_service import run_checks_impl
 from app.services.dsb_report_service import build_dsb_report, save_report
@@ -147,7 +148,7 @@ def _set_extraction_failed(session: Session, document_id: UUID, error_message: s
     try:
         row = session.execute(select(DocumentModel).where(DocumentModel.id == document_id)).scalar_one_or_none()
         if row:
-            row.extraction_status = "failed"
+            row.extraction_status = DocumentExtractionStatus.FAILED
             row.extraction_error = error_message
             session.commit()
     except Exception:
@@ -186,7 +187,7 @@ def _maybe_auto_run_checks(session: Session, case_id: uuid.UUID) -> None:
         job = RunChecksJobModel(
             id=job_id,
             case_id=case_id,
-            status="running",
+            status=JobStatus.RUNNING,
             playbook_id=best_playbook.id,
             playbook_name=best_playbook.name,
             strategies=strategies,
@@ -220,7 +221,7 @@ def extract_document_text(self, document_id: str) -> dict:
             )
             return {"ok": False, "error": "document_not_found"}
         # Idempotency guard: skip if already extracted (prevents double-processing on worker restart).
-        if row.extraction_status not in ("pending", "failed"):
+        if row.extraction_status not in (DocumentExtractionStatus.PENDING, DocumentExtractionStatus.FAILED):
             logger.info(
                 "extract_document_text skipped (already %s)",
                 row.extraction_status,
@@ -233,14 +234,14 @@ def extract_document_text(self, document_id: str) -> dict:
                 extra={"document_id": document_id, "error": "no_storage_path"},
             )
             return {"ok": False, "error": "no_storage_path"}
-        row.extraction_status = "processing"
+        row.extraction_status = DocumentExtractionStatus.PROCESSING
         row.extraction_error = None
         session.commit()
         content_bytes = get_file(row.storage_path)
         result = extract_text(row.name, content_bytes)
         row.content = result.text
         row.extraction_method = result.extraction_method
-        row.extraction_status = "done"
+        row.extraction_status = DocumentExtractionStatus.DONE
         row.extraction_error = None
         session.commit()
         if getattr(settings, "weaviate_indexing_enabled", False) and result.text:
@@ -331,7 +332,7 @@ async def _run_checks_async(job_id: str, task_request_id: str | None = None) -> 
                 extra={"job_id": job_id},
             )
             raise ValueError(f"run_checks job not found: {job_id}")
-        if job.status != "running":
+        if job.status != JobStatus.RUNNING:
             logger.warning(
                 "run_checks: job status is '%s', expected 'running' — skipping to avoid double-run",
                 job.status,
@@ -362,7 +363,7 @@ async def _run_checks_async(job_id: str, task_request_id: str | None = None) -> 
         doc_result = await session.execute(
             select(DocModel).where(
                 DocModel.case_id == case_id,
-                DocModel.extraction_status == "done",
+                DocModel.extraction_status == DocumentExtractionStatus.DONE,
             )
         )
         doc_count = len(doc_result.scalars().all())
@@ -398,7 +399,7 @@ async def _run_checks_async(job_id: str, task_request_id: str | None = None) -> 
             payload=activity_payload,
         )
         session.add(activity)
-        job.status = "completed"
+        job.status = JobStatus.COMPLETED
         job.findings_count = findings_added
         job.checks_done = job.checks_total  # ensure 100% at completion
         job.result_payload = activity_payload
@@ -438,7 +439,7 @@ def _set_run_checks_job_failed(job_id: str, error_message: str) -> None:
     try:
         row = session.execute(select(RunChecksJobModel).where(RunChecksJobModel.id == UUID(job_id))).scalar_one_or_none()
         if row:
-            row.status = "failed"
+            row.status = JobStatus.FAILED
             row.error = error_message
             session.commit()
     except Exception:
@@ -462,12 +463,12 @@ async def _build_dsb_report_async(job_id: str, task_request_id: str | None = Non
         job = result.scalar_one_or_none()
         if not job:
             raise ValueError("dsb_report job not found")
-        if job.status != "running":
+        if job.status != JobStatus.RUNNING:
             return
         case_id = job.case_id
         report = await build_dsb_report(case_id, session)
         await save_report(case_id, report, session)
-        job.status = "completed"
+        job.status = JobStatus.COMPLETED
         job.error = None
         await session.commit()
 
@@ -499,7 +500,7 @@ def _set_dsb_report_job_failed(job_id: str, error_message: str) -> None:
     try:
         row = session.execute(select(DSBReportJobModel).where(DSBReportJobModel.id == UUID(job_id))).scalar_one_or_none()
         if row:
-            row.status = "failed"
+            row.status = JobStatus.FAILED
             row.error = error_message
             session.commit()
     except Exception:
@@ -522,12 +523,12 @@ async def _build_dsfa_async(job_id: str, task_request_id: str | None = None) -> 
     async with session_factory() as session:
         result = await session.execute(select(DSFAJobModel).where(DSFAJobModel.id == UUID(job_id)))
         job = result.scalar_one_or_none()
-        if not job or job.status != "running":
+        if not job or job.status != JobStatus.RUNNING:
             return
         from app.services.dsfa_service import generate_dsfa, save_dsfa
         payload = await generate_dsfa(job.case_id, session)
         await save_dsfa(job.case_id, payload, session)
-        job.status = "completed"
+        job.status = JobStatus.COMPLETED
         job.error = None
         await session.commit()
 
@@ -557,7 +558,7 @@ def _set_dsfa_job_failed(job_id: str, error_message: str) -> None:
     try:
         row = session.execute(select(DSFAJobModel).where(DSFAJobModel.id == UUID(job_id))).scalar_one_or_none()
         if row:
-            row.status = "failed"
+            row.status = JobStatus.FAILED
             row.error = error_message
             session.commit()
     except Exception:
@@ -672,7 +673,7 @@ async def _periodic_recheck_async() -> dict:
                     CaseModel.recheck_interval_days != None,  # noqa: E711
                     CaseModel.recheck_interval_days > 0,
                     CaseModel.archived_at == None,  # noqa: E711
-                    CaseModel.status != "completed",
+                    CaseModel.status != CaseStatus.COMPLETED,
                 )
             )
         )
@@ -708,7 +709,7 @@ async def _periodic_recheck_async() -> dict:
             job = RunChecksJobModel(
                 id=job_id,
                 case_id=case.id,
-                status="running",
+                status=JobStatus.RUNNING,
                 playbook_id=best_playbook.id,
                 playbook_name=best_playbook.name,
                 strategies=recheck_strategies,
