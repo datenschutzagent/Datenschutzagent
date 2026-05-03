@@ -1,24 +1,48 @@
-"""Organisations-Risiko-Dashboard (cross-module analytics)."""
+"""Cross-Module-Analytics: org-Risiko, Pipeline (AVV/TOM/DSFA), Velocity, Maturity."""
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.auth import require_roles
 from app.database import get_db
-from app.models.schemas import FindingTrendItem
+from app.models.schemas import (
+    PipelineStatsResponse,
+    VelocityStatsResponse,
+    MaturityStatsResponse,
+)
+from app.services.analytics_service import (
+    pipeline_stats,
+    velocity_stats,
+    maturity_stats,
+)
 
 router = APIRouter()
 
 
 @router.get("/org-risk", summary="Organisations-Risikolage abrufen")
 async def get_org_risk_dashboard(
+    department: str | None = Query(default=None, description="Optional: Nur ein Department auswerten."),
     db: AsyncSession = Depends(get_db),
     _user=require_roles("viewer", "editor", "admin"),
 ):
     """Cross-module Risiko-Aggregation pro Abteilung und org-weite KPIs."""
-    result = await db.execute(text("""
+    params: dict = {}
+    dept_filter_findings = ""
+    dept_filter_breach = ""
+    dept_filter_dsr = ""
+    dept_filter_avv = ""
+    dept_filter_cases = ""
+    if department:
+        params["dept"] = department
+        dept_filter_findings = " AND c.department = :dept "
+        dept_filter_breach = " AND department = :dept "
+        dept_filter_dsr = " AND department = :dept "
+        dept_filter_avv = " AND department = :dept "
+        dept_filter_cases = " AND department = :dept "
+
+    result = await db.execute(text(f"""
         WITH dept_findings AS (
             SELECT c.department,
                    SUM(CASE WHEN f.severity = 'critical' THEN 1 ELSE 0 END) AS critical_open,
@@ -26,7 +50,7 @@ async def get_org_risk_dashboard(
                    COUNT(*) AS total_findings
             FROM findings f
             JOIN cases c ON c.id = f.case_id
-            WHERE f.status = 'open' AND c.department IS NOT NULL
+            WHERE f.status = 'open' AND c.department IS NOT NULL {dept_filter_findings}
             GROUP BY c.department
         ),
         dept_breaches AS (
@@ -35,7 +59,7 @@ async def get_org_risk_dashboard(
                    SUM(CASE WHEN risk_level IN ('high', 'critical') THEN 1 ELSE 0 END) AS high_risk_breaches
             FROM data_breaches
             WHERE status NOT IN ('closed', 'no_notification_required')
-              AND department IS NOT NULL
+              AND department IS NOT NULL {dept_filter_breach}
             GROUP BY department
         ),
         dept_dsr AS (
@@ -44,14 +68,14 @@ async def get_org_risk_dashboard(
             FROM dsr_requests
             WHERE status NOT IN ('response_sent', 'closed', 'denied')
               AND response_deadline < CURRENT_DATE
-              AND department IS NOT NULL
+              AND department IS NOT NULL {dept_filter_dsr}
             GROUP BY department
         ),
         dept_avv AS (
             SELECT COALESCE(department, 'Unbekannt') AS department,
                    AVG(risk_score)::float AS avg_avv_risk
             FROM avv_contracts
-            WHERE department IS NOT NULL AND risk_score IS NOT NULL
+            WHERE department IS NOT NULL AND risk_score IS NOT NULL {dept_filter_avv}
             GROUP BY department
         ),
         dept_cases AS (
@@ -60,7 +84,7 @@ async def get_org_risk_dashboard(
                    COUNT(*) FILTER (WHERE international_transfer)   AS intl_transfer_count,
                    COUNT(*) AS active_cases
             FROM cases
-            WHERE status != 'completed' AND department IS NOT NULL
+            WHERE status != 'completed' AND department IS NOT NULL {dept_filter_cases}
             GROUP BY department
         ),
         all_depts AS (
@@ -70,15 +94,16 @@ async def get_org_risk_dashboard(
             UNION SELECT department FROM dept_cases
         ),
         org_trend AS (
-            SELECT TO_CHAR(DATE_TRUNC('month', created_at), 'YYYY-MM') AS month,
-                   SUM(CASE WHEN severity = 'critical' THEN 1 ELSE 0 END) AS critical,
-                   SUM(CASE WHEN severity = 'high'     THEN 1 ELSE 0 END) AS high,
-                   SUM(CASE WHEN severity = 'medium'   THEN 1 ELSE 0 END) AS medium,
-                   SUM(CASE WHEN severity = 'low'      THEN 1 ELSE 0 END) AS low,
-                   SUM(CASE WHEN severity = 'info'     THEN 1 ELSE 0 END) AS info
-            FROM findings
-            WHERE created_at >= NOW() - INTERVAL '6 months'
-            GROUP BY DATE_TRUNC('month', created_at)
+            SELECT TO_CHAR(DATE_TRUNC('month', f.created_at), 'YYYY-MM') AS month,
+                   SUM(CASE WHEN f.severity = 'critical' THEN 1 ELSE 0 END) AS critical,
+                   SUM(CASE WHEN f.severity = 'high'     THEN 1 ELSE 0 END) AS high,
+                   SUM(CASE WHEN f.severity = 'medium'   THEN 1 ELSE 0 END) AS medium,
+                   SUM(CASE WHEN f.severity = 'low'      THEN 1 ELSE 0 END) AS low,
+                   SUM(CASE WHEN f.severity = 'info'     THEN 1 ELSE 0 END) AS info
+            FROM findings f
+            JOIN cases c ON c.id = f.case_id
+            WHERE f.created_at >= NOW() - INTERVAL '6 months' {dept_filter_findings}
+            GROUP BY DATE_TRUNC('month', f.created_at)
             ORDER BY 1 ASC
         )
         SELECT 'dept' AS qname,
@@ -101,7 +126,7 @@ async def get_org_risk_dashboard(
         SELECT 'trend', month,
                critical, high, medium, low, info, 0, 0, 0
         FROM org_trend
-    """))
+    """), params)
     rows = result.fetchall()
 
     dept_rows = []
@@ -152,6 +177,7 @@ async def get_org_risk_dashboard(
 
     return {
         "generated_at": datetime.now(timezone.utc).isoformat(),
+        "department_filter": department,
         "dept_risk": dept_rows,
         "top_risk_departments": top_risk_departments,
         "org_findings_trend": trend,
@@ -160,3 +186,45 @@ async def get_org_risk_dashboard(
         "total_overdue_dsr": total_overdue_dsr,
         "departments_at_risk": sum(1 for r in dept_rows if r["composite_risk_score"] >= 25),
     }
+
+
+@router.get(
+    "/pipeline",
+    response_model=PipelineStatsResponse,
+    summary="Lifecycle-Pipeline (AVV/TOM/DSFA) abrufen",
+)
+async def get_pipeline_stats(
+    department: str | None = Query(default=None),
+    db: AsyncSession = Depends(get_db),
+    _user=require_roles("viewer", "editor", "admin"),
+):
+    """AVV-Ablauf-Pipeline + TOM-Reviews + DSFA-Coverage fuer high-risk Cases."""
+    return PipelineStatsResponse(**await pipeline_stats(db, department=department))
+
+
+@router.get(
+    "/velocity",
+    response_model=VelocityStatsResponse,
+    summary="Bearbeitungs-Velocity (Time-to-X) abrufen",
+)
+async def get_velocity_stats(
+    department: str | None = Query(default=None),
+    db: AsyncSession = Depends(get_db),
+    _user=require_roles("viewer", "editor", "admin"),
+):
+    """DSR-MTTR + Breach-Notification-Speed + Findings-Resolution + Workflow-Funnels."""
+    return VelocityStatsResponse(**await velocity_stats(db, department=department))
+
+
+@router.get(
+    "/maturity",
+    response_model=MaturityStatsResponse,
+    summary="Compliance-Reife pro Abteilung abrufen",
+)
+async def get_maturity_stats(
+    department: str | None = Query(default=None),
+    db: AsyncSession = Depends(get_db),
+    _user=require_roles("viewer", "editor", "admin"),
+):
+    """Maturity-Score (5 Sub-Scores, gewichtet) + 6-Monats-Trend aus taeglichen Snapshots."""
+    return MaturityStatsResponse(**await maturity_stats(db, department=department))

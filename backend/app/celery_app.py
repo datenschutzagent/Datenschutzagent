@@ -94,6 +94,10 @@ celery_app.conf.update(
             "task": "app.celery_app.periodic_recheck_task",
             "schedule": crontab(hour=3, minute=0),
         },
+        "maturity-snapshot-daily": {
+            "task": "app.celery_app.maturity_snapshot_task",
+            "schedule": crontab(hour=4, minute=0),
+        },
     },
 )
 
@@ -734,3 +738,37 @@ async def _periodic_recheck_async() -> dict:
         await session.commit()
 
     return {"queued": queued_count}
+
+
+# ---------------------------------------------------------------------------
+# Maturity-Snapshot-Task (Celery Beat, taeglich)
+# ---------------------------------------------------------------------------
+
+
+@celery_app.task(
+    name="app.celery_app.maturity_snapshot_task",
+    bind=True,
+    autoretry_for=(Exception,),
+    max_retries=2,
+    default_retry_delay=60,
+)
+def maturity_snapshot_task(self) -> dict:
+    """Schreibt taeglich pro Department einen Maturity-Snapshot fuer den 6-Monats-Trend."""
+    logger.info("maturity_snapshot_task started")
+    try:
+        result = asyncio.run(_maturity_snapshot_async())
+        logger.info("maturity_snapshot_task done", extra={"departments": result.get("departments", 0)})
+        return {"ok": True, **result}
+    except SoftTimeLimitExceeded:
+        logger.error("maturity_snapshot_task timed out")
+        return {"ok": False, "error": "soft_time_limit_exceeded"}
+
+
+async def _maturity_snapshot_async() -> dict:
+    from app.services.analytics_service import write_maturity_snapshot
+
+    session_factory = _get_async_session_factory()
+    async with session_factory() as session:
+        count = await write_maturity_snapshot(session)
+        await session.commit()
+        return {"departments": count}

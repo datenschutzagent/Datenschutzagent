@@ -25,11 +25,13 @@ from app.models._db.compliance import (
     CaseTemplateModel,
 )
 from app.models._db.webhook import WebhookConfigModel, WebhookDeliveryLogModel
+from app.models._db.analytics import ComplianceMaturitySnapshotModel
 
 __all__ = [
     "Base",
     "ActivityLogModel",
     "AVVContractModel",
+    "ComplianceMaturitySnapshotModel",
     "CaseModel",
     "CaseTemplateModel",
     "DataBreachActivityLogModel",

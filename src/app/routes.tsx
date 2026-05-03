@@ -15,6 +15,9 @@ import { TOMPage } from "./pages/tom-page";
 import { PrivacyPolicyPage } from "./pages/privacy-policy-page";
 import { DSRPage } from "./pages/dsr-page";
 import { RiskDashboardPage } from "./pages/risk-dashboard-page";
+import { InsightsPipelinePage } from "./pages/insights-pipeline-page";
+import { InsightsVelocityPage } from "./pages/insights-velocity-page";
+import { InsightsMaturityPage } from "./pages/insights-maturity-page";
 import { useAuthOptional } from "./contexts/AuthContext";
 
 function AuthGuard({ children }: { children: React.ReactNode }) {
@@ -162,6 +165,30 @@ export const router = createBrowserRouter([
     element: (
       <AuthGuard>
         <RiskDashboardPage />
+      </AuthGuard>
+    ),
+  },
+  {
+    path: "/insights/pipeline",
+    element: (
+      <AuthGuard>
+        <InsightsPipelinePage />
+      </AuthGuard>
+    ),
+  },
+  {
+    path: "/insights/velocity",
+    element: (
+      <AuthGuard>
+        <InsightsVelocityPage />
+      </AuthGuard>
+    ),
+  },
+  {
+    path: "/insights/maturity",
+    element: (
+      <AuthGuard>
+        <InsightsMaturityPage />
       </AuthGuard>
     ),
   },
