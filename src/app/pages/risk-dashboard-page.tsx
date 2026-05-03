@@ -8,6 +8,7 @@ import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, Legend } f
 import { request } from "../lib/api/core";
 import { toast } from "sonner";
 import { AlertTriangle, ShieldAlert, Users, Globe, TrendingUp, Building2 } from "lucide-react";
+import { DepartmentDrilldownPanel } from "../components/department-drilldown-panel";
 
 interface DeptRiskRow {
   department: string;
@@ -91,6 +92,7 @@ export function RiskDashboardPage() {
   const [loading, setLoading] = useState(true);
   const [sortBy, setSortBy] = useState<keyof DeptRiskRow>("compositeRiskScore");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
+  const [drillDept, setDrillDept] = useState<string | null>(null);
 
   useEffect(() => {
     setLoading(true);
@@ -281,7 +283,9 @@ export function RiskDashboardPage() {
                       {sortedDepts.map((dept) => (
                         <tr
                           key={dept.department}
-                          className="border-b border-border last:border-0 hover:bg-muted/30 transition-colors"
+                          onClick={() => setDrillDept(dept.department)}
+                          className="border-b border-border last:border-0 hover:bg-muted/30 transition-colors cursor-pointer"
+                          title="Klicken für Detail-Drilldown"
                         >
                           <td className="py-2.5 px-3 font-medium max-w-[160px] truncate" title={dept.department}>
                             {dept.department}
@@ -399,6 +403,11 @@ export function RiskDashboardPage() {
           </p>
         </div>
       )}
+      <DepartmentDrilldownPanel
+        department={drillDept}
+        open={drillDept !== null}
+        onOpenChange={(o) => { if (!o) setDrillDept(null); }}
+      />
     </AppLayout>
   );
 }

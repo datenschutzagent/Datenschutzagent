@@ -4,17 +4,23 @@ import { AppHeaderUser } from "./app-header-user";
 import { GlobalChecksBanner } from "./global-checks-banner";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "./ui/sheet";
 import { Button } from "./ui/button";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "./ui/dropdown-menu";
 import { useAppConfig } from "../contexts/AppConfigContext";
-import { Menu } from "lucide-react";
+import { Menu, ChevronDown } from "lucide-react";
 
 interface NavItem {
   to: string;
   label: string;
 }
 
+interface NavGroup {
+  label: string;
+  basePath: string;
+  items: NavItem[];
+}
+
 const NAV_ITEMS: NavItem[] = [
   { to: "/", label: "Vorgänge" },
-  { to: "/risk-dashboard", label: "Risiko-Dashboard" },
   { to: "/compliance", label: "Compliance" },
   { to: "/data-breaches", label: "Datenpannen" },
   { to: "/dsr", label: "Betroffenenrechte" },
@@ -25,6 +31,17 @@ const NAV_ITEMS: NavItem[] = [
   { to: "/playbooks", label: "Playbooks" },
   { to: "/legal-bases", label: "Rechtsgrundlagen" },
 ];
+
+const INSIGHTS_GROUP: NavGroup = {
+  label: "Insights",
+  basePath: "/insights",
+  items: [
+    { to: "/risk-dashboard", label: "Risiko-Dashboard" },
+    { to: "/insights/pipeline", label: "Lifecycle-Pipeline" },
+    { to: "/insights/velocity", label: "Bearbeitungs-Velocity" },
+    { to: "/insights/maturity", label: "Compliance-Reife" },
+  ],
+};
 
 function isActive(pathname: string, to: string): boolean {
   if (to === "/") return pathname === "/";
@@ -81,6 +98,27 @@ export function AppLayout({ children, maxWidth = "max-w-7xl" }: AppLayoutProps) 
                   {item.label}
                 </Link>
               ))}
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <button
+                    type="button"
+                    className={
+                      INSIGHTS_GROUP.items.some((it) => isActive(location.pathname, it.to))
+                        ? "flex items-center gap-1 text-sm font-medium text-blue-600 dark:text-blue-400"
+                        : "flex items-center gap-1 text-sm font-medium text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100"
+                    }
+                  >
+                    {INSIGHTS_GROUP.label} <ChevronDown className="size-3.5" />
+                  </button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="min-w-[12rem]">
+                  {INSIGHTS_GROUP.items.map((item) => (
+                    <DropdownMenuItem key={item.to} asChild>
+                      <Link to={item.to} className="cursor-pointer">{item.label}</Link>
+                    </DropdownMenuItem>
+                  ))}
+                </DropdownMenuContent>
+              </DropdownMenu>
               <AppHeaderUser />
             </nav>
 
@@ -122,6 +160,26 @@ export function AppLayout({ children, maxWidth = "max-w-7xl" }: AppLayoutProps) 
                 {item.label}
               </Link>
             ))}
+            <div className="mt-2 pt-2 border-t border-slate-200 dark:border-slate-800">
+              <p className="px-3 text-xs font-medium uppercase text-slate-400 dark:text-slate-500 mb-1">
+                {INSIGHTS_GROUP.label}
+              </p>
+              {INSIGHTS_GROUP.items.map((item) => (
+                <Link
+                  key={item.to}
+                  to={item.to}
+                  onClick={() => setMobileMenuOpen(false)}
+                  className={`px-3 py-2 rounded-md text-sm font-medium transition-colors block ${
+                    isActive(location.pathname, item.to)
+                      ? "bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400"
+                      : "text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-slate-900 dark:hover:text-slate-100"
+                  }`}
+                  aria-current={isActive(location.pathname, item.to) ? "page" : undefined}
+                >
+                  {item.label}
+                </Link>
+              ))}
+            </div>
           </nav>
         </SheetContent>
       </Sheet>
