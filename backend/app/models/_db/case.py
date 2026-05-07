@@ -44,6 +44,12 @@ class CaseModel(Base):
 
     documents: Mapped[list["DocumentModel"]] = relationship("DocumentModel", back_populates="case", cascade="all, delete-orphan")
     findings: Mapped[list["FindingModel"]] = relationship("FindingModel", back_populates="case", cascade="all, delete-orphan")
+    privacy_policies: Mapped[list["PrivacyPolicyModel"]] = relationship(
+        "PrivacyPolicyModel",
+        back_populates="case",
+        cascade="all, delete-orphan",
+        order_by="desc(PrivacyPolicyModel.version)",
+    )
 
 
 class ActivityLogModel(Base):
