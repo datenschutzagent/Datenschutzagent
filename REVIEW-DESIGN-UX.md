@@ -71,11 +71,9 @@ Die Anwendung ist solide aufgebaut mit React, Radix UI, Tailwind CSS und einem k
 
 ## 3. Interaktionsdesign & UX-Flows
 
-### 3.1 Hardcodiertes Datum in Deadline-Berechnung (Bug)
+### 3.1 Hardcodiertes Datum in Deadline-Berechnung (Bug) — **bereits behoben**
 
-**Problem:** In `cases-page.tsx:87` wird `new Date("2026-02-06")` als "aktuelles Datum" hardcodiert statt `new Date()` zu verwenden. Deadlines werden dadurch falsch berechnet.
-
-**Vorschlag:** `const today = new Date();` verwenden.
+**Status:** Erledigt. `case-utils.ts:23` verwendet `Date.now()`; in `cases-page.tsx` ist kein hartcodiertes `2026-02-06` mehr enthalten. Verbleibende Vorkommen liegen ausschließlich in Mock-Daten und einem Test-Fixture und sind dort korrekt.
 
 ### 3.2 Loading-State kommt nach Content
 
@@ -225,7 +223,7 @@ Die Anwendung ist solide aufgebaut mit React, Radix UI, Tailwind CSS und einem k
 
 | Priorität | Nr.  | Thema                                  | Aufwand |
 |-----------|------|----------------------------------------|---------|
-| Kritisch  | 3.1  | Hardcodiertes Datum (Bug)              | Gering  |
+| Erledigt  | 3.1  | Hardcodiertes Datum (Bug)              | —       |
 | Kritisch  | 1.1  | Mobile Navigation                      | Mittel  |
 | Hoch      | 1.2  | Header-Duplikation extrahieren         | Mittel  |
 | Hoch      | 3.2  | Loading-State-Reihenfolge              | Gering  |

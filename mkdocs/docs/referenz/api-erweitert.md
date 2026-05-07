@@ -267,23 +267,30 @@ Dokumentation und Tracking von Sicherheits- und Datenschutzmaßnahmen.
 ## Privacy Policy Management (Datenschutzerklärungen)
 
 ### Overview
-Verwaltung von Datenschutzerklärungen und Transparenzinformationen.
+Datenschutzerklärungen sind **vorgangsspezifisch**: jede Erklärung gehört zu
+genau einem Case (Verarbeitungstätigkeit). Pro Case sind mehrere Versionen
+möglich; die Versionsnummer wird automatisch hochgezählt.
 
 | Methode | Pfad | Beschreibung |
 | :--- | :--- | :--- |
-| GET | `/api/v1/privacy-policies` | Datenschutzerklärungen auflisten |
-| POST | `/api/v1/privacy-policies` | Neue Erklärung erstellen |
-| GET | `/api/v1/privacy-policies/{id}` | Details einer Erklärung |
-| PATCH | `/api/v1/privacy-policies/{id}` | Erklärung aktualisieren |
-| GET | `/api/v1/privacy-policies/{id}/versions` | Versionsverlauf |
-| POST | `/api/v1/privacy-policies/{id}/publish` | Veröffentlichung (mit Datum) |
+| GET | `/api/v1/cases/{case_id}/privacy-policies` | Versionen für einen Vorgang auflisten |
+| POST | `/api/v1/cases/{case_id}/privacy-policies/generate` | Neue Version generieren (LLM, basiert auf Case-Daten) |
+| GET | `/api/v1/privacy-policies` | Globale read-only Übersicht aller Erklärungen |
+| GET | `/api/v1/privacy-policies/{id}` | Einzelne Erklärung abrufen |
+| PATCH | `/api/v1/privacy-policies/{id}` | Titel/Inhalt/Versionsnotiz bearbeiten |
+| DELETE | `/api/v1/privacy-policies/{id}` | Einzelne Version löschen (admin) |
+
+Wird ein Case gelöscht, werden alle zugehörigen Datenschutzerklärungen via
+`ON DELETE CASCADE` mit entfernt.
 
 ### Inhaltsbestandteile
-Eine Privacy Policy muss dokumentieren:
-- Verantwortliche (Art. 13/14 DSGVO)
-- Verarbeitungszwecke
-- Rechtsgrundlagen
-- Speicherdauer
+Eine Erklärung beschreibt **eine konkrete Verarbeitungstätigkeit** und enthält:
+- Verantwortlicher (Art. 13/14 DSGVO)
+- Verarbeitungszweck und Rechtsgrundlage genau dieser Tätigkeit
+- Kategorien personenbezogener Daten in dieser Verarbeitung
+- Empfänger / Auftragsverarbeiter (sofern relevant)
+- Speicherdauer (aus `retention_months` des Case)
+- Hinweise auf Art.-9-Daten und Drittlandtransfer, falls zutreffend
 - Betroffenenrechte (Auskunft, Berichtigung, Löschung, …)
 - Beschwerderecht bei Behörde
 

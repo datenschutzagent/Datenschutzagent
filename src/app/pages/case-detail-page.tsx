@@ -1,4 +1,4 @@
-import { useParams, Link, useNavigate } from "react-router";
+import { useParams, Link, useNavigate, useSearchParams } from "react-router";
 import { ErrorBoundary } from "../components/ErrorBoundary";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../components/ui/card";
 import { Badge } from "../components/ui/badge";
@@ -54,6 +54,7 @@ import {
 import { CaseOverviewTab } from "../components/case-detail/CaseOverviewTab";
 import { CaseDocumentsTab } from "../components/case-detail/CaseDocumentsTab";
 import { CaseFindingsTab } from "../components/case-detail/CaseFindingsTab";
+import { CasePrivacyPolicyTab } from "../components/case-detail/CasePrivacyPolicyTab";
 import { ArrowLeft, Download, MessageSquare, Loader2, CircleAlert } from "lucide-react";
 import { toast } from "sonner";
 import { useState, useEffect, useMemo, useRef } from "react";
@@ -63,6 +64,7 @@ import { useRunningChecks } from "../contexts/RunningChecksContext";
 export function CaseDetailPage() {
   const { caseId } = useParams();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const auth = useAuthOptional();
   const userCanEdit = canEdit(auth?.user ?? null);
   const appConfig = useAppConfig();
@@ -92,7 +94,7 @@ export function CaseDetailPage() {
     ? { done: currentJob.checksDone, total: currentJob.checksTotal }
     : { done: 0, total: 0 };
   const [findingStatusLoading, setFindingStatusLoading] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState("overview");
+  const [activeTab, setActiveTab] = useState(() => searchParams.get("tab") || "overview");
   const [documentsChangedSinceLastRun, setDocumentsChangedSinceLastRun] = useState(false);
   // Finding comment state
   const [findingComments, setFindingComments] = useState<ApiFindingComment[]>([]);
@@ -478,6 +480,7 @@ export function CaseDetailPage() {
             <TabsTrigger value="audit">Audit Trail</TabsTrigger>
             <TabsTrigger value="vvt">VVT Normalisierung</TabsTrigger>
             <TabsTrigger value="report">DSB-Report</TabsTrigger>
+            <TabsTrigger value="privacy-policy">Datenschutzerklärung</TabsTrigger>
             <TabsTrigger value="annotated">Annotierte Dokumente</TabsTrigger>
           </TabsList>
 
@@ -607,6 +610,13 @@ export function CaseDetailPage() {
             </ErrorBoundary>
             <ErrorBoundary>
               <DsfaScreeningCard caseId={caseData.id} />
+            </ErrorBoundary>
+          </TabsContent>
+
+          {/* Privacy Policy Tab */}
+          <TabsContent value="privacy-policy">
+            <ErrorBoundary>
+              <CasePrivacyPolicyTab caseData={caseData} canEdit={userCanEdit} />
             </ErrorBoundary>
           </TabsContent>
 

@@ -519,31 +519,36 @@ export async function applyCaseTemplate(body: CaseTemplateApply): Promise<ApiCas
 }
 
 // ---------------------------------------------------------------------------
-// Datenschutzerklärung (Privacy Policy)
+// Datenschutzerklärung (Privacy Policy) – vorgangsspezifisch
 // ---------------------------------------------------------------------------
 
 export interface ApiPrivacyPolicy {
   id: string;
+  case_id: string;
+  version: number;
   title: string;
   content_markdown: string;
   version_note: string | null;
-  org_name: string | null;
-  department: string | null;
   generated_at: string;
   created_by: string;
 }
 
+/** Globale read-only Übersicht aller Datenschutzerklärungen (alle Cases). */
 export async function listPrivacyPolicies(): Promise<ApiPrivacyPolicy[]> {
   return request<ApiPrivacyPolicy[]>("GET", "/privacy-policies");
 }
 
-export async function generatePrivacyPolicy(body: {
-  org_name?: string;
-  department?: string;
-  contact?: string;
-  notes?: string;
-}): Promise<ApiPrivacyPolicy> {
-  return request<ApiPrivacyPolicy>("POST", "/privacy-policies/generate", { body });
+/** Versionen einer Datenschutzerklärung für einen konkreten Vorgang. */
+export async function listPrivacyPoliciesForCase(caseId: string): Promise<ApiPrivacyPolicy[]> {
+  return request<ApiPrivacyPolicy[]>("GET", `/cases/${caseId}/privacy-policies`);
+}
+
+/** Neue, vorgangsspezifische Datenschutzerklärung generieren. */
+export async function generatePrivacyPolicyForCase(
+  caseId: string,
+  body: { contact?: string; notes?: string } = {}
+): Promise<ApiPrivacyPolicy> {
+  return request<ApiPrivacyPolicy>("POST", `/cases/${caseId}/privacy-policies/generate`, { body });
 }
 
 export async function getPrivacyPolicy(id: string): Promise<ApiPrivacyPolicy> {
