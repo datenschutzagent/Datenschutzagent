@@ -2,14 +2,14 @@
 import logging
 import smtplib
 import ssl
-from datetime import date, datetime, timedelta, timezone
+from datetime import UTC, date, datetime, timedelta
 from email.message import EmailMessage
 
 from sqlalchemy import and_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
-from app.constants import CaseStatus
+from app.constants import CaseStatus, FindingSeverity, FindingStatus
 from app.models.db import (
     ActivityLogModel,
     AVVContractModel,
@@ -18,6 +18,7 @@ from app.models.db import (
     DataBreachModel,
     DSRActivityLogModel,
     DSRRequestModel,
+    FindingModel,
     UserModel,
 )
 
@@ -26,6 +27,14 @@ from app.models.db import (
 _NOTIFICATION_COOLDOWN_HOURS = 20
 
 logger = logging.getLogger(__name__)
+
+
+def _user_accepts_notifications(user: UserModel | None) -> bool:
+    """Master-Switch je Nutzer (Item 15). Default true wenn das Attribut fehlt
+    (Backward-Compat für Tests mit alten Fixtures)."""
+    if user is None or not user.email:
+        return False
+    return bool(getattr(user, "notifications_enabled", True))
 
 
 def _send_email(to_address: str, subject: str, body: str) -> None:
@@ -84,17 +93,17 @@ async def scan_and_notify_deadlines(db: AsyncSession) -> dict:
     today = date.today()
     warning_date = today + timedelta(days=settings.notification_deadline_warning_days)
 
-    # Alle aktiven Nutzer mit E-Mail laden
+    # Alle aktiven Nutzer mit E-Mail laden, die Notifications nicht abbestellt haben.
     users_result = await db.execute(
         select(UserModel).where(UserModel.email != None)  # noqa: E711
     )
     users_by_name: dict[str, UserModel] = {}
     for u in users_result.scalars().all():
-        if u.email:
+        if _user_accepts_notifications(u):
             users_by_name[u.display_name.lower()] = u
 
     sent_count = 0
-    now_utc = datetime.now(timezone.utc)
+    now_utc = datetime.now(UTC)
     cooldown = timedelta(hours=_NOTIFICATION_COOLDOWN_HOURS)
 
     # Vorgänge mit bevorstehender Frist
@@ -315,7 +324,7 @@ async def scan_and_notify_deadlines(db: AsyncSession) -> dict:
         # Anti-Spam: nicht öfter als einmal pro Cooldown-Fenster benachrichtigen
         dsr_last = dsr.last_notified_at
         if dsr_last and dsr_last.tzinfo is None:
-            dsr_last = dsr_last.replace(tzinfo=timezone.utc)
+            dsr_last = dsr_last.replace(tzinfo=UTC)
         if dsr_last and (now_utc - dsr_last) < cooldown:
             continue
         days_left = (dsr.response_deadline - today).days
@@ -398,3 +407,196 @@ async def scan_and_notify_deadlines(db: AsyncSession) -> dict:
 
     logger.info("Deadline notification scan complete", extra={"sent": sent_count})
     return {"sent": sent_count}
+
+
+# ---------------------------------------------------------------------------
+# Item 15 — Neue Trigger
+# ---------------------------------------------------------------------------
+
+
+_SEVERITY_LABEL_DE = {
+    FindingSeverity.CRITICAL: "Kritisch",
+    FindingSeverity.HIGH: "Hoch",
+    FindingSeverity.MEDIUM: "Mittel",
+    FindingSeverity.LOW: "Niedrig",
+    FindingSeverity.INFO: "Info",
+}
+
+
+async def scan_and_notify_critical_findings(db: AsyncSession) -> dict:
+    """Sendet E-Mails für neue offene CRITICAL/HIGH-Findings, die noch nicht
+    benachrichtigt wurden (findings.last_notified_at IS NULL) oder deren
+    Cooldown abgelaufen ist.
+
+    Adressat ist der Case-Assignee.
+    """
+    if not settings.smtp_enabled:
+        logger.info("Critical-findings notifications skipped: SMTP not enabled")
+        return {"sent": 0, "skipped_no_smtp": True}
+
+    users_result = await db.execute(
+        select(UserModel).where(UserModel.email != None)  # noqa: E711
+    )
+    users_by_name: dict[str, UserModel] = {}
+    for u in users_result.scalars().all():
+        if _user_accepts_notifications(u):
+            users_by_name[u.display_name.lower()] = u
+
+    now_utc = datetime.now(UTC)
+    cooldown = timedelta(hours=_NOTIFICATION_COOLDOWN_HOURS)
+
+    findings_result = await db.execute(
+        select(FindingModel, CaseModel)
+        .join(CaseModel, FindingModel.case_id == CaseModel.id)
+        .where(
+            and_(
+                FindingModel.severity.in_([FindingSeverity.CRITICAL, FindingSeverity.HIGH]),
+                FindingModel.status == FindingStatus.OPEN,
+                CaseModel.archived_at == None,  # noqa: E711
+            )
+        )
+    )
+
+    sent_count = 0
+    for finding, case in findings_result.all():
+        # Cooldown: bereits benachrichtigt und Cooldown noch aktiv?
+        last = finding.last_notified_at
+        if last and last.tzinfo is None:
+            last = last.replace(tzinfo=UTC)
+        if last and (now_utc - last) < cooldown:
+            continue
+        if not case.assignee:
+            continue
+        recipient = users_by_name.get(case.assignee.lower())
+        if not recipient:
+            logger.info(
+                "critical_finding_notify skipped: assignee '%s' for finding %s has no notifiable user",
+                case.assignee, finding.id,
+            )
+            continue
+
+        severity_de = _SEVERITY_LABEL_DE.get(FindingSeverity(finding.severity), finding.severity)
+        subject = f"[Datenschutzagent] {severity_de}: Befund in '{case.title}'"
+        body = (
+            f"Guten Tag {recipient.display_name},\n\n"
+            f"im Vorgang '{case.title}' (Abteilung: {case.department or '–'}) gibt es einen "
+            f"offenen Befund mit Schweregrad {severity_de}:\n\n"
+            f"  Prüfung: {finding.check_name}\n"
+            f"  Beschreibung: {(finding.description or '')[:500]}\n"
+            f"  Kategorie: {finding.category}\n\n"
+            f"Bitte prüfen und beheben Sie den Befund zeitnah.\n\n"
+            f"-- Datenschutzagent"
+        )
+        try:
+            _send_email(recipient.email, subject, body)
+            finding.last_notified_at = now_utc
+            db.add(ActivityLogModel(
+                case_id=case.id,
+                event_type="notification_sent",
+                payload={
+                    "type": "critical_finding",
+                    "recipient": recipient.email,
+                    "finding_id": str(finding.id),
+                    "severity": finding.severity,
+                },
+            ))
+            sent_count += 1
+        except Exception as exc:  # noqa: BLE001 — never let one bad recipient kill the scan
+            logger.warning("Failed to send critical finding notification for finding %s: %s", finding.id, exc)
+
+    if sent_count > 0:
+        await db.flush()
+
+    logger.info("Critical-finding notification scan complete", extra={"sent": sent_count})
+    return {"sent": sent_count}
+
+
+async def scan_and_notify_maturity_decline(
+    db: AsyncSession,
+    *,
+    threshold_pct: float | None = None,
+    window_days: int | None = None,
+) -> dict:
+    """Sendet E-Mails an Admins, wenn der Compliance-Reife-Composite-Score
+    einer Abteilung im Trend-Fenster (default risk_velocity.window_days) um
+    mehr als die Signifikanz-Schwelle eingebrochen ist.
+
+    Adressaten: alle Admin-Nutzer mit E-Mail + Notifications aktiv.
+    Cooldown wird hier global pro Lauf gewährt (nicht pro Department), weil
+    Admin-Benachrichtigungen ohnehin nur einmal täglich ausgelöst werden sollten.
+    """
+    if not settings.smtp_enabled:
+        logger.info("Maturity-decline notifications skipped: SMTP not enabled")
+        return {"sent": 0, "skipped_no_smtp": True}
+
+    from app.services.analytics_service import compute_risk_velocity
+    from app.services.risk_config_loader import get_risk_config
+
+    cfg = get_risk_config().risk_velocity
+    if not cfg.enabled:
+        logger.info("Maturity-decline notifications skipped: risk_velocity disabled in config")
+        return {"sent": 0, "skipped_disabled": True}
+
+    velocity = await compute_risk_velocity(
+        db,
+        department=None,
+        window_days=window_days if window_days is not None else cfg.window_days,
+    )
+
+    effective_threshold = threshold_pct if threshold_pct is not None else cfg.significant_change_pct
+    declined = [
+        d for d in velocity.get("departments", [])
+        if d.get("trend") == "down" and d.get("delta") is not None and abs(d["delta"]) >= effective_threshold
+    ]
+    if not declined:
+        logger.info("Maturity-decline scan: no significant declines detected")
+        return {"sent": 0, "declines": 0}
+
+    # Admin-Empfänger laden.
+    admins_result = await db.execute(
+        select(UserModel).where(
+            and_(
+                UserModel.email != None,  # noqa: E711
+                UserModel.role == "admin",
+            )
+        )
+    )
+    recipients = [u for u in admins_result.scalars().all() if _user_accepts_notifications(u)]
+    if not recipients:
+        logger.info("Maturity-decline scan: no admin recipients available")
+        return {"sent": 0, "declines": len(declined), "skipped_no_recipients": True}
+
+    lines = ["Folgende Abteilungen zeigen einen signifikanten Rückgang der Compliance-Reife:\n"]
+    for d in declined:
+        lines.append(
+            f"  - {d['department']}: {d['previous_composite']} -> {d['current_composite']} "
+            f"(Delta {d['delta']:+.1f}, Fenster {velocity['window_days']}d)"
+        )
+    lines.append(
+        f"\nSchwelle: {effective_threshold} Punkte. "
+        "Details: /insights/velocity → Compliance-Reife-Trend."
+    )
+    body_text = "\n".join(lines)
+
+    sent_count = 0
+    for admin in recipients:
+        subject = (
+            f"[Datenschutzagent] Compliance-Reife eingebrochen "
+            f"({len(declined)} Abteilung{'en' if len(declined) > 1 else ''})"
+        )
+        body = (
+            f"Guten Tag {admin.display_name},\n\n"
+            f"{body_text}\n\n"
+            f"-- Datenschutzagent"
+        )
+        try:
+            _send_email(admin.email, subject, body)
+            sent_count += 1
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Failed to send maturity-decline notification to %s: %s", admin.email, exc)
+
+    logger.info(
+        "Maturity-decline notification scan complete",
+        extra={"sent": sent_count, "declines": len(declined)},
+    )
+    return {"sent": sent_count, "declines": len(declined), "departments": [d["department"] for d in declined]}

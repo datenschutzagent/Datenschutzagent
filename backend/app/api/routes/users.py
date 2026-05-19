@@ -38,6 +38,8 @@ async def update_me(
         existing = dict(current_user.preferences or {})
         existing.update(prefs)
         current_user.preferences = existing
+    if body.notifications_enabled is not None:
+        current_user.notifications_enabled = body.notifications_enabled
     await db.flush()
     await db.refresh(current_user)
     logger.info("User profile updated", extra={"user_id": str(current_user.id), "fields": list(body.model_fields_set)})

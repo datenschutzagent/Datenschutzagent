@@ -185,6 +185,42 @@ async def trigger_deadline_notifications(
     return result
 
 
+@router.post(
+    "/notifications/scan-critical-findings",
+    summary="Benachrichtigungen für neue CRITICAL/HIGH-Findings versenden",
+)
+@limiter.limit("5/minute")
+async def trigger_critical_finding_notifications(
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    _user=require_roles("admin"),
+):
+    """Scannt offene Findings mit Schwere CRITICAL/HIGH und informiert den
+    jeweiligen Case-Assignee (Cooldown 20h, User-Master-Switch wird beachtet)."""
+    logger.info("Admin: manual critical-findings notification scan triggered")
+    from app.services.notification_service import scan_and_notify_critical_findings
+    return await scan_and_notify_critical_findings(db)
+
+
+@router.post(
+    "/notifications/scan-maturity-decline",
+    summary="Admin-Warnung bei signifikantem Compliance-Reife-Rückgang",
+)
+@limiter.limit("5/minute")
+async def trigger_maturity_decline_notifications(
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    _user=require_roles("admin"),
+):
+    """Triggert einen Vergleich des aktuellen Composite-Scores gegen den
+    Snapshot vor `risk_velocity.window_days` Tagen. Bei Rückgängen ≥ der
+    Signifikanz-Schwelle wird eine E-Mail an alle aktiven Admin-Nutzer
+    versendet."""
+    logger.info("Admin: manual maturity-decline notification scan triggered")
+    from app.services.notification_service import scan_and_notify_maturity_decline
+    return await scan_and_notify_maturity_decline(db)
+
+
 # --- Risk-Config Management (Phase C / Item 13) -----------------------------
 
 

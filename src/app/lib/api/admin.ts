@@ -78,6 +78,7 @@ export interface ApiUser {
   email: string | null;
   role?: UserRole;
   preferences: UserPreferences | Record<string, unknown>;
+  notifications_enabled?: boolean;
   created_at: string;
   updated_at: string;
 }
@@ -96,6 +97,7 @@ export interface UserUpdateInput {
   display_name?: string;
   email?: string | null;
   preferences?: UserPreferences | Record<string, unknown>;
+  notifications_enabled?: boolean;
 }
 
 export async function getCurrentUser(): Promise<ApiUser> {

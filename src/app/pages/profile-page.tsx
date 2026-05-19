@@ -5,6 +5,7 @@ import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
 import { Label } from "../components/ui/label";
 import { RadioGroup, RadioGroupItem } from "../components/ui/radio-group";
+import { Switch } from "../components/ui/switch";
 import { usePreferences } from "../contexts/PreferencesContext";
 import { toast } from "sonner";
 import {
@@ -29,6 +30,7 @@ export function ProfilePage() {
   const [displayName, setDisplayName] = useState("");
   const [theme, setTheme] = useState<UserTheme>("system");
   const [language, setLanguage] = useState<UserUILanguage>("de");
+  const [notificationsEnabled, setNotificationsEnabled] = useState(true);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
 
@@ -38,6 +40,7 @@ export function ProfilePage() {
       const prefs = user.preferences && typeof user.preferences === "object" ? user.preferences : {};
       setTheme((prefs.theme as UserTheme) ?? "system");
       setLanguage((prefs.language as UserUILanguage) ?? "de");
+      setNotificationsEnabled(user.notifications_enabled ?? true);
     }
   }, [user]);
 
@@ -48,6 +51,7 @@ export function ProfilePage() {
       const body: UserUpdateInput = {
         display_name: displayName,
         preferences: { theme, language },
+        notifications_enabled: notificationsEnabled,
       };
       await updateCurrentUser(body);
       await refreshUser();
@@ -125,8 +129,23 @@ export function ProfilePage() {
               </RadioGroup>
             </div>
 
-            <div className="text-sm text-muted-foreground">
-              Benachrichtigungen: in Kürze verfügbar.
+            <div className="space-y-2 border-t pt-4">
+              <div className="flex items-start justify-between gap-4">
+                <div>
+                  <Label htmlFor="notifications-enabled" className="text-sm font-medium">
+                    E-Mail-Benachrichtigungen
+                  </Label>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Frist-Warnungen (Vorgänge, DSR, AVV), Datenpannen-Meldepflichten und
+                    neue kritische Befunde. Setzt eine konfigurierte SMTP-Verbindung voraus.
+                  </p>
+                </div>
+                <Switch
+                  id="notifications-enabled"
+                  checked={notificationsEnabled}
+                  onCheckedChange={setNotificationsEnabled}
+                />
+              </div>
             </div>
 
             {saveError && (
