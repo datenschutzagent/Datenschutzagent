@@ -1,0 +1,46 @@
+# Beispielprofil mit strengeren Schwellenwerten und gewichteten Dimensionen.
+# Demonstriert, wie eine Organisation das Standardverhalten anpassen kann.
+version: 1
+
+avv:
+  # Strenger als Standard: Stufen früher hochgesetzt.
+  level_thresholds:
+    - { max_score: 1.2, level: low }
+    - { max_score: 2.0, level: medium }
+    - { max_score: 3.0, level: high }
+    - { max_score: 5.0, level: critical }
+
+  # Drittland und Sub-AV-Risiko stärker gewichten als andere Dimensionen.
+  dimension_weights:
+    data_sensitivity: 1.0
+    access_scope: 1.0
+    third_country: 1.5
+    subprocessors: 1.3
+    contractual_safeguards: 1.0
+
+  min_confidence: 0.6
+
+dsfa_screening:
+  # DSFA bereits ab einem Faktor verpflichtend.
+  required_threshold: 1
+
+case_score:
+  severity_weights:
+    critical: 40
+    high: 20
+    medium: 8
+    low: 1
+    info: 0
+  max_score: 100
+
+maturity:
+  # AVV und DSFA stärker gewichtet als andere Dimensionen.
+  weights:
+    vvt: 0.15
+    dsfa: 0.25
+    avv: 0.25
+    tom: 0.20
+    velocity: 0.15
+  velocity:
+    optimal_days: 7
+    worst_days: 30

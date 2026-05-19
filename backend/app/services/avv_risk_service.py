@@ -19,6 +19,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.llm import create_agent
 from app.core.prompt_security import sanitize_prompt_field
 from app.models.db import AVVContractModel
+from app.services.risk_config_loader import get_risk_config
 
 logger = logging.getLogger(__name__)
 
@@ -62,14 +63,21 @@ class _AVVRiskResult(BaseModel):
     summary: str = Field(description="Kurze Zusammenfassung der Bewertung")
 
 
-def _risk_level_from_score(score: float) -> str:
-    if score <= 1.5:
-        return "low"
-    if score <= 2.5:
-        return "medium"
-    if score <= 3.5:
-        return "high"
-    return "critical"
+def _weighted_average(dimensions: list["_AVVRiskDimension"], weights: dict[str, float]) -> float:
+    """Weighted mean of dimension scores; falls back to arithmetic mean if no weights match."""
+    if not dimensions:
+        return 3.0
+    if not weights:
+        return sum(d.score for d in dimensions) / len(dimensions)
+    total_weight = 0.0
+    weighted_sum = 0.0
+    for d in dimensions:
+        w = weights.get(d.name, 1.0)
+        total_weight += w
+        weighted_sum += d.score * w
+    if total_weight <= 0:
+        return sum(d.score for d in dimensions) / len(dimensions)
+    return weighted_sum / total_weight
 
 
 async def assess_avv_risk(contract_id: UUID, db: AsyncSession) -> dict[str, Any]:
@@ -108,16 +116,16 @@ async def assess_avv_risk(contract_id: UUID, db: AsyncSession) -> dict[str, Any]
         raise
     data = llm_result.output
 
-    # Score normalisieren (Durchschnitt der Dimensionen, skaliert auf 0-100)
-    scores = [d.score for d in data.dimensions] if data.dimensions else [3]
-    avg_score = sum(scores) / len(scores)
-    risk_score = min(100, max(0, int((avg_score - 1) / 4 * 100)))
+    # Score normalisieren (gewichteter Durchschnitt der Dimensionen, skaliert auf 0-100)
+    avv_cfg = get_risk_config().avv
+    avg_score = _weighted_average(list(data.dimensions), avv_cfg.dimension_weights) if data.dimensions else 3.0
+    risk_score = avv_cfg.normalize_to_percent(avg_score)
 
-    # overall_risk_level normalisieren
-    valid_levels = {"low", "medium", "high", "critical"}
+    # overall_risk_level normalisieren — Config-Thresholds als Quelle der Wahrheit
+    valid_levels = {entry.level for entry in avv_cfg.level_thresholds}
     overall_level = data.overall_risk_level.lower().strip()
     if overall_level not in valid_levels:
-        overall_level = _risk_level_from_score(avg_score)
+        overall_level = avv_cfg.level_for_score(avg_score)
 
     assessment = {
         "dimensions": [

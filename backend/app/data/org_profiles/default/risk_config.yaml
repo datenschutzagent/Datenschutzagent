@@ -1,0 +1,75 @@
+# Konfiguration der Risikomodelle für das Standard-Profil.
+#
+# Alle Sektionen und Felder sind optional. Fehlt eine Sektion oder ein Feld,
+# greift der eingebaute Default — der in dieser Datei explizit dokumentiert ist
+# (= bisheriges hartkodiertes Verhalten).
+#
+# Schema-Version. Aktuelle Implementierung erwartet 1.
+version: 1
+
+# -----------------------------------------------------------------------------
+# AVV-Risiko (Art. 28 DSGVO) — backend/app/services/avv_risk_service.py
+# -----------------------------------------------------------------------------
+avv:
+  # Mapping vom Durchschnitt der Dimensions-Scores (1-5) auf das Risiko-Level.
+  # Die Liste muss nach max_score aufsteigend sortiert sein; der letzte Eintrag
+  # ist Catch-All für alles darüber.
+  level_thresholds:
+    - { max_score: 1.5, level: low }
+    - { max_score: 2.5, level: medium }
+    - { max_score: 3.5, level: high }
+    - { max_score: 5.0, level: critical }
+
+  # Lineare Skalierung des Durchschnitts auf 0..100:
+  # percent = (avg - score_min) / (score_max - score_min) * 100
+  score_normalization:
+    score_min: 1
+    score_max: 5
+
+  # Optional: Gewichtung einzelner Risiko-Dimensionen.
+  # Wenn leer (Default), wird das arithmetische Mittel verwendet.
+  dimension_weights: {}
+
+  # Mindest-Konfidenz des LLM-Outputs (0..1). Unter dieser Schwelle wird das
+  # Ergebnis in der API als low_confidence markiert. Defaultwert 0 = inaktiv.
+  min_confidence: 0.0
+
+# -----------------------------------------------------------------------------
+# DSFA-Screening (EDSA-9-Faktoren-Test) — dsfa_service.py
+# -----------------------------------------------------------------------------
+dsfa_screening:
+  # Mindestanzahl erfüllter Faktoren, ab der eine DSFA gemäß Art. 35 DSGVO
+  # verpflichtend ist. EDSA-Leitlinien empfehlen >= 2.
+  required_threshold: 2
+
+# -----------------------------------------------------------------------------
+# Case-Risiko-Score — backend/app/api/routes/cases.py
+# -----------------------------------------------------------------------------
+case_score:
+  # Strafpunkte pro Finding nach Severity-Level. Summe wird auf max_score
+  # gekappt.
+  severity_weights:
+    critical: 30
+    high: 15
+    medium: 5
+    low: 0
+    info: 0
+  max_score: 100
+
+# -----------------------------------------------------------------------------
+# Compliance-Reife-Score (Maturity) — backend/app/services/analytics_service.py
+# -----------------------------------------------------------------------------
+maturity:
+  # Gewichtung der fünf Sub-Scores; muss sich auf 1.0 summieren.
+  weights:
+    vvt: 0.20
+    dsfa: 0.20
+    avv: 0.20
+    tom: 0.20
+    velocity: 0.20
+
+  # Velocity (DSR-Antwortzeit): lineare Interpolation
+  # 100 Punkte bei <= optimal_days, 0 Punkte bei >= worst_days
+  velocity:
+    optimal_days: 14
+    worst_days: 60
