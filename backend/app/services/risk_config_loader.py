@@ -13,6 +13,7 @@ behaviour bit-for-bit.
 from __future__ import annotations
 
 import logging
+from datetime import UTC
 from functools import lru_cache
 from pathlib import Path
 from typing import Any
@@ -435,3 +436,50 @@ def get_risk_config(settings: Settings | None = None) -> RiskConfig:
 def reload_risk_config() -> None:
     """Invalidate the cache — call after editing risk_config.yaml at runtime."""
     _cached_config_for_key.cache_clear()
+
+
+def resolve_writable_risk_config_path(settings: Settings) -> Path:
+    """Return the YAML path used for *writing* — even if no file exists yet.
+
+    Used by the admin-API to persist changes; mirrors the read-side
+    resolution but always returns a concrete path (no None).
+    """
+    override = (getattr(settings, "risk_config_path", None) or "").strip()
+    if override:
+        path = Path(override)
+        if not path.is_absolute():
+            path = _DATA_DIR / path
+        return path
+    profile = (settings.org_profile or "default").strip() or "default"
+    return _DATA_DIR / "org_profiles" / profile / "risk_config.yaml"
+
+
+def save_risk_config(cfg: RiskConfig, settings: Settings | None = None) -> Path:
+    """Persist a validated RiskConfig to YAML and refresh the cache.
+
+    Writes a ``.bak.{timestamp}`` snapshot of the previous file before
+    overwriting, so an admin can recover from a bad change. Raises on
+    I/O errors so the caller can return 500 / 422 appropriately.
+
+    Returns the path that was written to.
+    """
+    from datetime import datetime
+
+    s = settings or default_settings
+    path = resolve_writable_risk_config_path(s)
+    path.parent.mkdir(parents=True, exist_ok=True)
+
+    if path.is_file():
+        ts = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
+        backup = path.with_suffix(path.suffix + f".bak.{ts}")
+        try:
+            backup.write_bytes(path.read_bytes())
+        except OSError as exc:
+            logger.warning("Failed to write risk_config backup at %s: %s", backup, exc)
+
+    payload = cfg.model_dump(mode="json")
+    with open(path, "w", encoding="utf-8") as f:
+        yaml.safe_dump(payload, f, allow_unicode=True, sort_keys=False, default_flow_style=False)
+
+    reload_risk_config()
+    return path

@@ -14,7 +14,12 @@ from app.core.auth import require_roles
 from app.core.rate_limit import limiter
 from app.database import get_db
 from app.models.db import UserModel
-from app.models.schemas import NotificationTestResponse, RetentionPreviewResponse, RetentionScanResponse, UserResponse
+from app.models.schemas import (
+    NotificationTestResponse,
+    RetentionPreviewResponse,
+    RetentionScanResponse,
+    UserResponse,
+)
 from app.services.connection_checks import check_all_connections
 
 router = APIRouter()
@@ -105,8 +110,9 @@ async def retention_preview(
     _user=require_roles("admin"),
 ):
     """Zeigt Vorgänge, die beim nächsten Retention-Scan archiviert würden (Dry-Run, keine Änderungen)."""
-    from app.services.retention_service import scan_cases_for_retention
     from uuid import UUID as _UUID
+
+    from app.services.retention_service import scan_cases_for_retention
     items_raw = await scan_cases_for_retention(db, dry_run=True)
     from app.models.schemas import RetentionPreviewItem
     items = [
@@ -131,8 +137,9 @@ async def trigger_retention_scan(
 ):
     """Führt sofort einen Retention-Scan durch und archiviert fällige Vorgänge."""
     logger.info("Admin: manual retention scan triggered")
-    from app.services.retention_service import scan_cases_for_retention
     from uuid import UUID as _UUID
+
+    from app.services.retention_service import scan_cases_for_retention
     items_raw = await scan_cases_for_retention(db, dry_run=False)
     from app.models.schemas import RetentionPreviewItem
     items = [
@@ -176,3 +183,192 @@ async def trigger_deadline_notifications(
     from app.services.notification_service import scan_and_notify_deadlines
     result = await scan_and_notify_deadlines(db)
     return result
+
+
+# --- Risk-Config Management (Phase C / Item 13) -----------------------------
+
+
+class RiskConfigUpdateRequest(BaseModel):
+    """Body for PUT /admin/risk-config — `config` is validated server-side."""
+
+    config: dict
+
+
+@router.get("/risk-config", summary="Aktive Risk-Config inkl. Profilpfad abrufen")
+def get_admin_risk_config(
+    _user=require_roles("viewer", "editor", "admin"),
+):
+    """Gibt die aktuell geladene Risk-Config zurück (inkl. Profil, YAML-Pfad
+    und ob es sich um Defaults handelt). Lesen darf jeder mit App-Zugang.
+    """
+    from app.services.risk_config_loader import (
+        get_risk_config,
+        resolve_risk_config_path,
+    )
+
+    cfg = get_risk_config()
+    path = resolve_risk_config_path(settings)
+    return {
+        "config": cfg.model_dump(mode="json"),
+        "profile": (settings.org_profile or "default").strip() or "default",
+        "path": str(path) if path else None,
+        "is_default": path is None,
+    }
+
+
+@router.put("/risk-config", summary="Risk-Config persistieren (YAML mit Backup)")
+@limiter.limit("10/minute")
+async def update_admin_risk_config(
+    request: Request,
+    body: RiskConfigUpdateRequest,
+    _user=require_roles("admin"),
+):
+    """Validiert die übergebene Config, persistiert sie als YAML
+    (vorheriger Stand als .bak.{timestamp} gesichert) und invalidiert
+    den LRU-Cache. Bei ungültigem Schema → 422.
+    """
+    from pydantic import ValidationError as _PydanticValidationError
+
+    from app.services.risk_config_loader import (
+        RiskConfig,
+        resolve_risk_config_path,
+        save_risk_config,
+    )
+
+    try:
+        cfg = RiskConfig.model_validate(body.config)
+    except _PydanticValidationError as exc:
+        raise HTTPException(status_code=422, detail=exc.errors()) from exc
+
+    try:
+        path = save_risk_config(cfg)
+    except OSError as exc:
+        logger.error("Failed to persist risk_config: %s", exc)
+        raise HTTPException(status_code=500, detail=f"Failed to write risk_config: {exc}") from exc
+
+    logger.info(
+        "Admin: risk_config updated",
+        extra={"path": str(path), "profile": settings.org_profile},
+    )
+    return {
+        "config": cfg.model_dump(mode="json"),
+        "profile": (settings.org_profile or "default").strip() or "default",
+        "path": str(resolve_risk_config_path(settings)),
+        "is_default": False,
+    }
+
+
+@router.post("/risk-config/reload", summary="Risk-Config-Cache invalidieren")
+def reload_admin_risk_config(
+    _user=require_roles("admin"),
+):
+    """Nützlich, wenn das YAML extern geändert wurde — leert den LRU-Cache,
+    damit die nächste Anfrage die Datei neu lädt.
+    """
+    from app.services.risk_config_loader import reload_risk_config
+    reload_risk_config()
+    logger.info("Admin: risk_config cache reloaded")
+    return {"reloaded": True}
+
+
+@router.post("/risk-config/preview", summary="Risk-Config Dry-Run gegen Beispieldaten")
+@limiter.limit("20/minute")
+async def preview_admin_risk_config(
+    request: Request,
+    body: RiskConfigUpdateRequest,
+    _user=require_roles("admin"),
+):
+    """Berechnet vorher/nachher-Vergleiche für ein paar synthetische
+    Beispiel-Cases — komplett ohne LLM-Aufrufe und ohne die echte
+    Konfiguration zu verändern.
+    """
+    from pydantic import ValidationError as _PydanticValidationError
+
+    from app.services.risk_config_loader import RiskConfig, get_risk_config
+
+    try:
+        new_cfg = RiskConfig.model_validate(body.config)
+    except _PydanticValidationError as exc:
+        raise HTTPException(status_code=422, detail=exc.errors()) from exc
+
+    current_cfg = get_risk_config()
+
+    # Synthetische Inputs für vorher/nachher-Vergleich.
+    samples = []
+
+    # Sample 1: AVV mit avg=2.0
+    samples.append({
+        "name": "AVV-Risikobewertung (avg=2.0 auf 1-5)",
+        "inputs": {"avg_score": 2.0},
+        "current": {
+            "level": current_cfg.avv.level_for_score(2.0),
+            "score_pct": current_cfg.avv.normalize_to_percent(2.0),
+        },
+        "preview": {
+            "level": new_cfg.avv.level_for_score(2.0),
+            "score_pct": new_cfg.avv.normalize_to_percent(2.0),
+        },
+    })
+
+    # Sample 2: AVV mit avg=3.5
+    samples.append({
+        "name": "AVV-Risikobewertung (avg=3.5 auf 1-5)",
+        "inputs": {"avg_score": 3.5},
+        "current": {
+            "level": current_cfg.avv.level_for_score(3.5),
+            "score_pct": current_cfg.avv.normalize_to_percent(3.5),
+        },
+        "preview": {
+            "level": new_cfg.avv.level_for_score(3.5),
+            "score_pct": new_cfg.avv.normalize_to_percent(3.5),
+        },
+    })
+
+    # Sample 3: Case-Score mit 2 critical, 3 high
+    def _case_score(cfg, c, h, m):
+        w = cfg.case_score.severity_weights
+        penalty = c * w.get("critical", 0) + h * w.get("high", 0) + m * w.get("medium", 0)
+        return min(cfg.case_score.max_score, penalty)
+
+    samples.append({
+        "name": "Case-Score (2 critical + 3 high + 5 medium)",
+        "inputs": {"critical": 2, "high": 3, "medium": 5},
+        "current": {"score": _case_score(current_cfg, 2, 3, 5)},
+        "preview": {"score": _case_score(new_cfg, 2, 3, 5)},
+    })
+
+    # Sample 4: DSFA-Screening mit 2 erfüllten Standard-Faktoren
+    samples.append({
+        "name": "DSFA-Screening (2 Faktoren, je Gewicht aus Config)",
+        "inputs": {"matched_factors": 2},
+        "current": {
+            "threshold": current_cfg.dsfa_screening.required_threshold,
+            "required": current_cfg.dsfa_screening.required_threshold <= 2.0,
+        },
+        "preview": {
+            "threshold": new_cfg.dsfa_screening.required_threshold,
+            "required": new_cfg.dsfa_screening.required_threshold <= 2.0,
+        },
+    })
+
+    # Sample 5: DSFA-Matrix Lookup für (3, 4)
+    samples.append({
+        "name": "DSFA-Matrix (Likelihood=3, Severity=4)",
+        "inputs": {"likelihood": 3, "severity": 4},
+        "current": {"risk_level": current_cfg.dsfa_assessment.risk_level_for(3, 4)},
+        "preview": {"risk_level": new_cfg.dsfa_assessment.risk_level_for(3, 4)},
+    })
+
+    # Sample 6: Velocity-Score (Median 25 Tage)
+    def _vel(cfg):
+        from app.services.analytics_service import _velocity_score
+        return round(_velocity_score(25.0, cfg.maturity.velocity.optimal_days, cfg.maturity.velocity.worst_days), 1)
+
+    samples.append({
+        "name": "Velocity-Score (Median 25 Tage)",
+        "inputs": {"median_days": 25},
+        "current": {"velocity_score": _vel(current_cfg)},
+        "preview": {"velocity_score": _vel(new_cfg)},
+    })
+
+    return {"samples": samples}
