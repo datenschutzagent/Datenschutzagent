@@ -89,6 +89,64 @@ dsfa_screening:
       keywords_processing_context: ["ki ", "künstliche intel", biometrie, iot, "internet of things", blockchain, neu]
 
 # -----------------------------------------------------------------------------
+# DSFA-Bewertung (ISO 27005 Likelihood × Severity) — dsfa_service.generate_dsfa
+# -----------------------------------------------------------------------------
+dsfa_assessment:
+  # Numerische Skala für Likelihood und Severity. Aktuell unterstützt: "1-5".
+  scale_type: "1-5"
+
+  # Lokalisierte Labels für die Skalenwerte (für UI-Anzeige).
+  scale_labels:
+    likelihood:
+      1: "sehr unwahrscheinlich"
+      2: "unwahrscheinlich"
+      3: "möglich"
+      4: "wahrscheinlich"
+      5: "sehr wahrscheinlich"
+    severity:
+      1: "vernachlässigbar"
+      2: "begrenzt"
+      3: "spürbar"
+      4: "erheblich"
+      5: "maximal"
+
+  # 5x5 Risk-Matrix: "{likelihood}_{severity}" -> risk_level (low|medium|high|critical).
+  # Diese Matrix entspricht der gängigen ISO-27005-Klassifikation.
+  matrix:
+    "1_1": low
+    "1_2": low
+    "1_3": low
+    "1_4": medium
+    "1_5": medium
+    "2_1": low
+    "2_2": low
+    "2_3": medium
+    "2_4": medium
+    "2_5": high
+    "3_1": low
+    "3_2": medium
+    "3_3": medium
+    "3_4": high
+    "3_5": high
+    "4_1": medium
+    "4_2": medium
+    "4_3": high
+    "4_4": high
+    "4_5": critical
+    "5_1": medium
+    "5_2": high
+    "5_3": high
+    "5_4": critical
+    "5_5": critical
+
+  # Bei welchem Residualrisiko-Level ist Art. 36 DSGVO Konsultation des DSB
+  # zwingend? Standard: high und critical.
+  dpo_consultation_required_when_residual_in: [high, critical]
+
+  # Mindest-Konfidenz des LLM. Default 0.0 = inaktiv.
+  min_confidence: 0.0
+
+# -----------------------------------------------------------------------------
 # Case-Risiko-Score — backend/app/api/routes/cases.py
 # -----------------------------------------------------------------------------
 case_score:

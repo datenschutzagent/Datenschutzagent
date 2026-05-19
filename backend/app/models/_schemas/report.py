@@ -47,15 +47,25 @@ class DSFARisk(BaseModel):
     likelihood: Literal["low", "medium", "high"]
     severity: Literal["low", "medium", "high"]
     mitigation: str
+    # Numerische Skala (1-5) und resultierendes Risiko-Level aus der
+    # ISO-27005-Matrix. Optional für Backward-Compatibility mit Legacy-Records,
+    # die noch keine numerischen Felder haben.
+    likelihood_score: int | None = None
+    severity_score: int | None = None
+    risk_level: Literal["low", "medium", "high", "critical"] | None = None
 
 
 class DSFAAssessmentPayload(BaseModel):
     necessity_assessment: str
     proportionality_assessment: str
     risks: list[DSFARisk] = []
-    residual_risk: Literal["low", "medium", "high"]
+    residual_risk: Literal["low", "medium", "high", "critical"]
     dpo_consultation_required: bool
     measures: list[str] = []
+    # Methodik-Metadaten (Phase B2).
+    confidence: float | None = None
+    low_confidence: bool | None = None
+    scale_version: str | None = None
 
 
 class DSFAResponse(BaseModel):

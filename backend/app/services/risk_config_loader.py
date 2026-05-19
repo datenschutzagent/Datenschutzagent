@@ -200,6 +200,89 @@ class DsfaScreeningConfig(BaseModel):
 
 
 # ---------------------------------------------------------------------------
+# Section: DSFA assessment (ISO 27005 Likelihood × Severity Matrix)
+# ---------------------------------------------------------------------------
+
+
+_VALID_RISK_LEVELS = {"low", "medium", "high", "critical"}
+
+
+def _default_dsfa_matrix() -> dict[str, str]:
+    """Standard ISO-27005-ähnliche 5x5-Matrix für Likelihood × Severity → Risikolevel."""
+    return {
+        "1_1": "low", "1_2": "low", "1_3": "low", "1_4": "medium", "1_5": "medium",
+        "2_1": "low", "2_2": "low", "2_3": "medium", "2_4": "medium", "2_5": "high",
+        "3_1": "low", "3_2": "medium", "3_3": "medium", "3_4": "high", "3_5": "high",
+        "4_1": "medium", "4_2": "medium", "4_3": "high", "4_4": "high", "4_5": "critical",
+        "5_1": "medium", "5_2": "high", "5_3": "high", "5_4": "critical", "5_5": "critical",
+    }
+
+
+def _default_dsfa_scale_labels() -> dict[str, dict[int, str]]:
+    return {
+        "likelihood": {
+            1: "sehr unwahrscheinlich",
+            2: "unwahrscheinlich",
+            3: "möglich",
+            4: "wahrscheinlich",
+            5: "sehr wahrscheinlich",
+        },
+        "severity": {
+            1: "vernachlässigbar",
+            2: "begrenzt",
+            3: "spürbar",
+            4: "erheblich",
+            5: "maximal",
+        },
+    }
+
+
+class DsfaAssessmentConfig(BaseModel):
+    scale_type: str = Field(default="1-5", description="Skala: '1-5' (heute) oder '1-3' (kompakt)")
+    scale_labels: dict[str, dict[int, str]] = Field(default_factory=_default_dsfa_scale_labels)
+    matrix: dict[str, str] = Field(default_factory=_default_dsfa_matrix)
+    dpo_consultation_required_when_residual_in: list[str] = Field(default_factory=lambda: ["high", "critical"])
+    min_confidence: float = Field(default=0.0, ge=0.0, le=1.0)
+
+    @field_validator("scale_type")
+    @classmethod
+    def _scale_type_known(cls, v: str) -> str:
+        if v not in {"1-3", "1-5"}:
+            raise ValueError("scale_type must be '1-3' or '1-5'")
+        return v
+
+    @field_validator("matrix")
+    @classmethod
+    def _matrix_complete(cls, v: dict[str, str], info) -> dict[str, str]:
+        scale_type = info.data.get("scale_type", "1-5")
+        size = 5 if scale_type == "1-5" else 3
+        expected = {f"{lik}_{sev}" for lik in range(1, size + 1) for sev in range(1, size + 1)}
+        actual = set(v.keys())
+        missing = expected - actual
+        if missing:
+            raise ValueError(f"matrix is missing cells: {sorted(missing)}")
+        extra = actual - expected
+        if extra:
+            raise ValueError(f"matrix has unexpected cells: {sorted(extra)}")
+        invalid = {k: lvl for k, lvl in v.items() if lvl not in _VALID_RISK_LEVELS}
+        if invalid:
+            raise ValueError(f"matrix has invalid risk levels: {invalid}")
+        return v
+
+    @field_validator("dpo_consultation_required_when_residual_in")
+    @classmethod
+    def _dpo_levels_valid(cls, v: list[str]) -> list[str]:
+        invalid = [lvl for lvl in v if lvl not in _VALID_RISK_LEVELS]
+        if invalid:
+            raise ValueError(f"dpo_consultation_required_when_residual_in has invalid levels: {invalid}")
+        return v
+
+    def risk_level_for(self, likelihood: int, severity: int) -> str:
+        """Look up the risk level for given numeric likelihood/severity (1-based)."""
+        return self.matrix[f"{likelihood}_{severity}"]
+
+
+# ---------------------------------------------------------------------------
 # Section: Case score
 # ---------------------------------------------------------------------------
 
@@ -262,6 +345,7 @@ class RiskConfig(BaseModel):
     version: int = 1
     avv: AvvRiskConfig = Field(default_factory=AvvRiskConfig)
     dsfa_screening: DsfaScreeningConfig = Field(default_factory=DsfaScreeningConfig)
+    dsfa_assessment: DsfaAssessmentConfig = Field(default_factory=DsfaAssessmentConfig)
     case_score: CaseScoreConfig = Field(default_factory=CaseScoreConfig)
     maturity: MaturityConfig = Field(default_factory=MaturityConfig)
     risk_velocity: RiskVelocityConfig = Field(default_factory=RiskVelocityConfig)

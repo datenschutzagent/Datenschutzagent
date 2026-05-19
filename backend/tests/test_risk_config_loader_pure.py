@@ -512,3 +512,201 @@ def test_avv_result_confidence_bounds():
             summary="",
             confidence=1.5,
         )
+
+
+# ---------------------------------------------------------------------------
+# DSFA-Assessment / ISO-27005 Matrix (Item 9)
+# ---------------------------------------------------------------------------
+
+
+def test_dsfa_assessment_default_matrix_complete():
+    """Default 5x5 matrix covers all 25 cells with valid risk levels."""
+    cfg = RiskConfig()
+    matrix = cfg.dsfa_assessment.matrix
+    assert len(matrix) == 25
+    for lik in range(1, 6):
+        for sev in range(1, 6):
+            assert f"{lik}_{sev}" in matrix
+            assert matrix[f"{lik}_{sev}"] in {"low", "medium", "high", "critical"}
+
+
+def test_dsfa_assessment_matrix_corners_match_iso27005():
+    cfg = RiskConfig()
+    m = cfg.dsfa_assessment.matrix
+    assert m["1_1"] == "low"        # minimum risk
+    assert m["5_5"] == "critical"   # maximum risk
+    assert m["3_3"] == "medium"     # midpoint
+
+
+def test_dsfa_matrix_validator_rejects_missing_cells():
+    """A matrix with missing cells must be rejected."""
+    from app.services.risk_config_loader import DsfaAssessmentConfig
+
+    with pytest.raises(Exception):
+        DsfaAssessmentConfig(scale_type="1-5", matrix={"1_1": "low"})
+
+
+def test_dsfa_matrix_validator_rejects_invalid_level():
+    """Cell with an unknown risk level must be rejected."""
+    from app.services.risk_config_loader import DsfaAssessmentConfig
+
+    bad_matrix = {f"{lik}_{sev}": "low" for lik in range(1, 6) for sev in range(1, 6)}
+    bad_matrix["3_3"] = "extreme"  # not a valid level
+    with pytest.raises(Exception):
+        DsfaAssessmentConfig(scale_type="1-5", matrix=bad_matrix)
+
+
+def test_dsfa_matrix_risk_level_for():
+    """risk_level_for() looks up cells correctly."""
+    cfg = RiskConfig().dsfa_assessment
+    assert cfg.risk_level_for(1, 1) == "low"
+    assert cfg.risk_level_for(5, 5) == "critical"
+    assert cfg.risk_level_for(4, 5) == "critical"
+
+
+def test_dsfa_example_profile_stricter_matrix():
+    """Example profile escalates earlier — 1_5 is high (default is medium)."""
+    s = Settings(org_profile="example")
+    cfg = load_risk_config(s)
+    assert cfg.dsfa_assessment.matrix["1_5"] == "high"
+    assert cfg.dsfa_assessment.matrix["3_3"] == "high"
+    # DPO consultation triggers already at medium.
+    assert "medium" in cfg.dsfa_assessment.dpo_consultation_required_when_residual_in
+
+
+# ---------------------------------------------------------------------------
+# DSFA Dual-Read (Item 10) — _normalize_dsfa_payload
+# ---------------------------------------------------------------------------
+
+
+def test_normalize_legacy_dsfa_payload_string_to_numeric():
+    """A v1 payload (string likelihood/severity) gets numeric fields added."""
+    from app.services.dsfa_service import _normalize_dsfa_payload
+
+    legacy = {
+        "necessity_assessment": "ok",
+        "proportionality_assessment": "ok",
+        "risks": [
+            {"description": "Risk A", "likelihood": "low", "severity": "high", "mitigation": "x"},
+            {"description": "Risk B", "likelihood": "medium", "severity": "medium", "mitigation": "y"},
+        ],
+        "residual_risk": "high",
+        "dpo_consultation_required": True,
+        "measures": [],
+    }
+    out = _normalize_dsfa_payload(legacy)
+    # First risk: low (1) × high (5) → matrix lookup
+    assert out["risks"][0]["likelihood_score"] == 1
+    assert out["risks"][0]["severity_score"] == 5
+    assert out["risks"][0]["risk_level"] in {"low", "medium", "high", "critical"}
+    # Second risk: medium (3) × medium (3) → "medium" with default matrix
+    assert out["risks"][1]["likelihood_score"] == 3
+    assert out["risks"][1]["severity_score"] == 3
+    # String fields preserved for backward compatibility
+    assert out["risks"][0]["likelihood"] == "low"
+    assert out["risks"][1]["severity"] == "medium"
+
+
+def test_normalize_numeric_dsfa_payload_passthrough():
+    """A v2 payload (numeric) remains numeric and adds string labels."""
+    from app.services.dsfa_service import _normalize_dsfa_payload
+
+    new = {
+        "risks": [
+            {
+                "description": "Risk X",
+                "likelihood_score": 4,
+                "severity_score": 5,
+                "likelihood": "high",
+                "severity": "high",
+                "risk_level": "critical",
+                "mitigation": "z",
+            }
+        ],
+        "scale_version": "v2_numeric",
+    }
+    out = _normalize_dsfa_payload(new)
+    r = out["risks"][0]
+    assert r["likelihood_score"] == 4
+    assert r["severity_score"] == 5
+    # risk_level recomputed deterministically from matrix → critical with default
+    assert r["risk_level"] == "critical"
+    assert out["residual_risk"] == "critical"
+    assert out["dpo_consultation_required"] is True
+
+
+def test_normalize_is_idempotent():
+    """Calling normalize twice yields identical output."""
+    from app.services.dsfa_service import _normalize_dsfa_payload
+
+    legacy = {
+        "risks": [
+            {"description": "x", "likelihood": "medium", "severity": "high", "mitigation": ""},
+        ],
+        "residual_risk": "high",
+        "dpo_consultation_required": True,
+    }
+    once = _normalize_dsfa_payload(legacy)
+    twice = _normalize_dsfa_payload(once)
+    assert once["risks"] == twice["risks"]
+    assert once["residual_risk"] == twice["residual_risk"]
+
+
+def test_normalize_recomputes_residual_from_risks():
+    """residual_risk is recomputed as the max level of contained risks.
+
+    Note: legacy "high" maps to score 5, and 5×5 in the default ISO-27005
+    matrix is "critical" — escalation is by design when moving from the
+    coarse 3-level scale to the 5×5 matrix.
+    """
+    from app.services.dsfa_service import _normalize_dsfa_payload
+
+    payload = {
+        "risks": [
+            {"description": "a", "likelihood": "low", "severity": "low", "mitigation": ""},
+            {"description": "b", "likelihood": "high", "severity": "high", "mitigation": ""},
+        ],
+        "residual_risk": "low",  # wrong on input — must be corrected
+    }
+    out = _normalize_dsfa_payload(payload)
+    # legacy high → score 5; 5×5 cell in default matrix = "critical"
+    assert out["residual_risk"] == "critical"
+
+
+def test_normalize_handles_empty_risks():
+    from app.services.dsfa_service import _normalize_dsfa_payload
+
+    out = _normalize_dsfa_payload({"risks": [], "residual_risk": "low"})
+    assert out["risks"] == []
+    assert out["residual_risk"] == "low"
+
+
+def test_normalize_handles_non_dict_input():
+    """Edge case: payload that is not a dict is returned as-is."""
+    from app.services.dsfa_service import _normalize_dsfa_payload
+
+    assert _normalize_dsfa_payload(None) is None  # type: ignore[arg-type]
+    assert _normalize_dsfa_payload("not a dict") == "not a dict"  # type: ignore[arg-type]
+
+
+def test_to_score_clamps_and_maps():
+    from app.services.dsfa_service import _to_score
+
+    assert _to_score("low") == 1
+    assert _to_score("medium") == 3
+    assert _to_score("high") == 5
+    assert _to_score("critical") == 5
+    assert _to_score(0) == 1
+    assert _to_score(7) == 5
+    assert _to_score(3) == 3
+    assert _to_score(None) == 3
+    assert _to_score(True) == 3  # bool is excluded
+    assert _to_score(3.6) == 4
+
+
+def test_to_label_inverse_of_to_score():
+    from app.services.dsfa_service import _to_label
+
+    assert _to_label(1) == "low"
+    assert _to_label(3) == "medium"
+    assert _to_label(5) == "high"

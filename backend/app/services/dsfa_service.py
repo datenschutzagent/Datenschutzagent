@@ -21,9 +21,16 @@ gemäß Art. 35 DSGVO auf Basis der bereitgestellten Informationen zum Verarbeit
 
 Analysiere:
 1. Notwendigkeit und Verhältnismäßigkeit der Verarbeitung
-2. Risiken für betroffene Personen (Eintrittswahrscheinlichkeit und Schwere)
+2. Risiken für betroffene Personen — bewerte für jedes Risiko:
+   - likelihood (Eintrittswahrscheinlichkeit) auf einer Skala von 1 (sehr unwahrscheinlich)
+     bis 5 (sehr wahrscheinlich)
+   - severity (Schwere) auf einer Skala von 1 (vernachlässigbar) bis 5 (maximal)
 3. Maßnahmen zur Risikobeherrschung
-4. Verbleibendes Restrisiko
+4. Bewerte am Ende deine eigene Konfidenz (0.0-1.0). Niedrige Konfidenz ist
+   akzeptabel, wenn Informationen unvollständig sind.
+
+Das Risikolevel (low/medium/high/critical) wird automatisch aus der
+Likelihood-×-Severity-Matrix abgeleitet — vergib also keine Levels selbst.
 
 Antworte ausschließlich auf Deutsch."""
 
@@ -44,10 +51,106 @@ _DSFA_USER_TEMPLATE = """Erstelle eine DSFA für den folgenden Verarbeitungsvorg
 Erstelle die DSFA strukturiert mit Bewertung von Notwendigkeit, Verhältnismäßigkeit, Risiken und Maßnahmen."""
 
 
+# Mapping zwischen alter String-Skala und neuer numerischer Skala (1-5).
+# 3 ist der Median; entspricht der ursprünglichen "medium"-Klassifikation.
+_LEVEL_TO_SCORE = {"low": 1, "medium": 3, "high": 5, "critical": 5}
+_SCORE_TO_LEVEL = {1: "low", 2: "low", 3: "medium", 4: "high", 5: "high"}
+
+_RESIDUAL_RANK = {"low": 0, "medium": 1, "high": 2, "critical": 3}
+
+# Marker für die Soft-Migration. Records ohne scale_version sind aus der
+# Zeit vor der numerischen Skala und werden beim Lesen normalisiert.
+DSFA_SCALE_VERSION_LEGACY = "v1_string"
+DSFA_SCALE_VERSION_NUMERIC = "v2_numeric"
+
+
+def _to_score(value) -> int:
+    """Normalize a likelihood/severity value to 1-5. Accepts int or legacy strings."""
+    if isinstance(value, bool):  # bool is a subclass of int — exclude explicitly
+        return 3
+    if isinstance(value, int):
+        return max(1, min(5, value))
+    if isinstance(value, float):
+        return max(1, min(5, int(round(value))))
+    if isinstance(value, str):
+        return _LEVEL_TO_SCORE.get(value.strip().lower(), 3)
+    return 3
+
+
+def _to_label(score: int) -> str:
+    """Map a 1-5 score to a coarse low/medium/high label (for backward-compat)."""
+    s = max(1, min(5, int(score)))
+    return _SCORE_TO_LEVEL[s]
+
+
+def _normalize_dsfa_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    """Normalize a DSFA payload so it always carries both string and numeric fields.
+
+    Handles three input shapes:
+      - Legacy v1 (string-only): likelihood/severity as 'low'/'medium'/'high'
+      - New v2 (numeric-only): likelihood/severity as int 1-5
+      - Mixed (numeric + string already present)
+
+    Output payload always contains for each risk:
+      - likelihood: legacy string (low/medium/high)
+      - severity: legacy string
+      - likelihood_score: int 1-5
+      - severity_score: int 1-5
+      - risk_level: low/medium/high/critical (deterministic from matrix if v2,
+        else derived from max(likelihood, severity))
+
+    Idempotent — safe to call on already-normalized payloads.
+    """
+    if not isinstance(payload, dict):
+        return payload
+    normalized = dict(payload)
+    cfg = get_risk_config().dsfa_assessment
+
+    raw_risks = normalized.get("risks") or []
+    new_risks = []
+    for r in raw_risks:
+        if not isinstance(r, dict):
+            new_risks.append(r)
+            continue
+        out = dict(r)
+        lik_score = _to_score(out.get("likelihood_score", out.get("likelihood")))
+        sev_score = _to_score(out.get("severity_score", out.get("severity")))
+        out["likelihood_score"] = lik_score
+        out["severity_score"] = sev_score
+        # Always re-derive the coarse string from the numeric score.
+        out["likelihood"] = _to_label(lik_score)
+        out["severity"] = _to_label(sev_score)
+        # Risk-level: prefer matrix lookup (v2); fall back to max of the two
+        # coarse labels for legacy records.
+        try:
+            out["risk_level"] = cfg.risk_level_for(lik_score, sev_score)
+        except KeyError:
+            out["risk_level"] = max(out["likelihood"], out["severity"], key=lambda lv: _RESIDUAL_RANK.get(lv, 0))
+        new_risks.append(out)
+    normalized["risks"] = new_risks
+
+    # Residualrisiko: bei Legacy-Records aus dem String-Feld lesen; sonst aus
+    # dem Maximum der Einzelrisiken neu berechnen.
+    if new_risks:
+        max_level = max(
+            (r.get("risk_level", "low") for r in new_risks if isinstance(r, dict)),
+            key=lambda lv: _RESIDUAL_RANK.get(lv, 0),
+            default="low",
+        )
+        normalized["residual_risk"] = max_level
+        normalized["dpo_consultation_required"] = max_level in cfg.dpo_consultation_required_when_residual_in
+    else:
+        # Keine Risiken: bestehende Werte erhalten, aber String normalisieren.
+        existing = (normalized.get("residual_risk") or "low").strip().lower()
+        normalized["residual_risk"] = existing if existing in _RESIDUAL_RANK else "low"
+
+    return normalized
+
+
 class _DSFARiskLLM(BaseModel):
     description: str = Field(description="Beschreibung des Risikos")
-    likelihood: str = Field(description="Eintrittswahrscheinlichkeit: low, medium oder high")
-    severity: str = Field(description="Schwere des Risikos: low, medium oder high")
+    likelihood: int = Field(description="Eintrittswahrscheinlichkeit 1-5", ge=1, le=5)
+    severity: int = Field(description="Schwere des Risikos 1-5", ge=1, le=5)
     mitigation: str = Field(description="Gegenmaßnahme zur Risikobeherrschung")
 
 
@@ -55,9 +158,13 @@ class _DSFAResult(BaseModel):
     necessity_assessment: str = Field(description="Bewertung der Notwendigkeit der Verarbeitung")
     proportionality_assessment: str = Field(description="Verhältnismäßigkeitsprüfung")
     risks: list[_DSFARiskLLM] = Field(description="Liste der identifizierten Risiken")
-    residual_risk: str = Field(description="Verbleibendes Restrisiko: low, medium oder high")
-    dpo_consultation_required: bool = Field(description="Ob DSB-Konsultation erforderlich ist")
     measures: list[str] = Field(description="Liste der ergriffenen/empfohlenen Maßnahmen")
+    confidence: float = Field(
+        default=0.7,
+        ge=0.0,
+        le=1.0,
+        description="Selbsteinschätzung der LLM-Konfidenz (0=unsicher, 1=sicher)",
+    )
 
 
 async def generate_dsfa(case_id: UUID, db: AsyncSession) -> dict[str, Any]:
@@ -119,30 +226,57 @@ async def generate_dsfa(case_id: UUID, db: AsyncSession) -> dict[str, Any]:
         raise
     data = result.output
 
-    # Normalisiere Werte (LLM könnte abweichende Strings liefern)
-    valid_levels = {"low", "medium", "high"}
+    # Matrix-Lookup pro Risiko: Likelihood × Severity → risk_level
+    # (deterministisch aus der Config, nicht aus LLM-Self-Report).
+    cfg = get_risk_config()
+    dsfa_cfg = cfg.dsfa_assessment
+    confidence = float(data.confidence)
+    low_confidence = confidence < dsfa_cfg.min_confidence
+    if low_confidence:
+        logger.warning(
+            "DSFA generation has low confidence",
+            extra={
+                "case_id": str(case_id),
+                "confidence": confidence,
+                "min_confidence": dsfa_cfg.min_confidence,
+            },
+        )
 
-    def _normalize_level(val: str) -> str:
-        v = str(val).strip().lower()
-        return v if v in valid_levels else "medium"
-
-    risks_payload = [
-        {
+    risks_payload = []
+    for r in data.risks:
+        lik = max(1, min(5, int(r.likelihood)))
+        sev = max(1, min(5, int(r.severity)))
+        risk_level = dsfa_cfg.risk_level_for(lik, sev)
+        risks_payload.append({
             "description": r.description,
-            "likelihood": _normalize_level(r.likelihood),
-            "severity": _normalize_level(r.severity),
+            "likelihood": _to_label(lik),
+            "severity": _to_label(sev),
+            "likelihood_score": lik,
+            "severity_score": sev,
+            "risk_level": risk_level,
             "mitigation": r.mitigation,
-        }
-        for r in data.risks
-    ]
+        })
+
+    # Residualrisiko = höchstes Einzelrisiko; DPO-Konsultation regelbasiert.
+    if risks_payload:
+        residual_risk = max(
+            (r["risk_level"] for r in risks_payload),
+            key=lambda lv: _RESIDUAL_RANK.get(lv, 0),
+        )
+    else:
+        residual_risk = "low"
+    dpo_required = residual_risk in dsfa_cfg.dpo_consultation_required_when_residual_in
 
     payload = {
         "necessity_assessment": data.necessity_assessment,
         "proportionality_assessment": data.proportionality_assessment,
         "risks": risks_payload,
-        "residual_risk": _normalize_level(data.residual_risk),
-        "dpo_consultation_required": bool(data.dpo_consultation_required),
+        "residual_risk": residual_risk,
+        "dpo_consultation_required": dpo_required,
         "measures": list(data.measures),
+        "confidence": confidence,
+        "low_confidence": low_confidence,
+        "scale_version": DSFA_SCALE_VERSION_NUMERIC,
     }
     logger.info(
         "DSFA generation complete",

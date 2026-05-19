@@ -41,6 +41,38 @@ dsfa_screening:
       label: "Kritische Compliance-Befunde"
       findings_severity: [critical, high]
 
+dsfa_assessment:
+  # Strengere Matrix: mittlere Likelihood/Severity schon "high" statt "medium".
+  scale_type: "1-5"
+  matrix:
+    "1_1": low
+    "1_2": low
+    "1_3": medium
+    "1_4": medium
+    "1_5": high
+    "2_1": low
+    "2_2": medium
+    "2_3": medium
+    "2_4": high
+    "2_5": high
+    "3_1": medium
+    "3_2": medium
+    "3_3": high
+    "3_4": high
+    "3_5": critical
+    "4_1": medium
+    "4_2": high
+    "4_3": high
+    "4_4": critical
+    "4_5": critical
+    "5_1": high
+    "5_2": high
+    "5_3": critical
+    "5_4": critical
+    "5_5": critical
+  dpo_consultation_required_when_residual_in: [medium, high, critical]
+  min_confidence: 0.6
+
 case_score:
   severity_weights:
     critical: 40
