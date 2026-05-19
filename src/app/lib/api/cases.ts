@@ -753,3 +753,30 @@ export interface DsfaResponse {
 export async function getDsfa(caseId: string): Promise<DsfaResponse> {
   return request<DsfaResponse>("GET", `/cases/${caseId}/dsfa`);
 }
+
+// --- DSFA Job-Status (async generation) ---
+
+export type DsfaJobStatus = "running" | "completed" | "failed" | "not_started";
+
+export interface DsfaJobStatusResponse {
+  job_id?: string;
+  case_id?: string;
+  status: DsfaJobStatus;
+  error?: string | null;
+  created_at?: string;
+  updated_at?: string;
+}
+
+export async function generateDsfa(caseId: string): Promise<DsfaJobStatusResponse> {
+  return request<DsfaJobStatusResponse>("POST", `/cases/${caseId}/dsfa/generate`);
+}
+
+export async function getDsfaJobStatus(caseId: string): Promise<DsfaJobStatusResponse> {
+  return request<DsfaJobStatusResponse>("GET", `/cases/${caseId}/dsfa/status`);
+}
+
+export async function finalizeDsfa(caseId: string, finalizedBy: string): Promise<DsfaResponse> {
+  return request<DsfaResponse>("PATCH", `/cases/${caseId}/dsfa/finalize`, {
+    body: { finalized_by: finalizedBy },
+  });
+}
