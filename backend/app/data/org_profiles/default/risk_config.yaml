@@ -38,9 +38,55 @@ avv:
 # DSFA-Screening (EDSA-9-Faktoren-Test) — dsfa_service.py
 # -----------------------------------------------------------------------------
 dsfa_screening:
-  # Mindestanzahl erfüllter Faktoren, ab der eine DSFA gemäß Art. 35 DSGVO
-  # verpflichtend ist. EDSA-Leitlinien empfehlen >= 2.
-  required_threshold: 2
+  # Gewichtete Mindestsumme, ab der eine DSFA gemäß Art. 35 DSGVO
+  # verpflichtend ist. EDSA-Leitlinien empfehlen >= 2 (bei allen
+  # Faktor-Gewichten = 1.0 entspricht das 2 erfüllten Faktoren).
+  required_threshold: 2.0
+  # 9-Faktoren-Test gemäß EDSA-Leitlinien. Jeder Faktor matcht, wenn eine
+  # seiner Bedingungen erfüllt ist:
+  #   case_flag                       — Attribut auf CaseModel ist truthy
+  #   keywords_processing_context     — Substring in case.processing_context
+  #   keywords_title                  — Substring in case.title
+  #   findings_severity               — offenes Finding mit dieser Severity
+  # Faktoren ohne weight verwenden 1.0.
+  factors:
+    - id: profiling
+      label: "Profiling oder automatisierte Entscheidung"
+      description: "Systematische und umfassende Bewertung persönlicher Aspekte durch automatisierte Verarbeitung (Art. 35 Abs. 3 lit. a)."
+      keywords_processing_context: [profil, scoring, automat, entscheid]
+      keywords_title: [profil, scoring]
+    - id: special_categories
+      label: "Besondere Kategorien personenbezogener Daten (Art. 9)"
+      description: "Verarbeitung von Gesundheitsdaten, biometrischen Daten, Daten zur Herkunft etc."
+      case_flag: special_category_data
+    - id: large_scale
+      label: "Umfangreiche Verarbeitung"
+      description: "Verarbeitung personenbezogener Daten in großem Umfang (viele Betroffene oder große Datenmenge)."
+      keywords_processing_context: [massendaten, großmaßst, umfangreich, viele betroffene, large scale]
+    - id: international_transfer
+      label: "Internationaler Datentransfer"
+      description: "Übermittlung in Drittländer ohne angemessenes Schutzniveau."
+      case_flag: international_transfer
+    - id: vulnerable_subjects
+      label: "Schutzbedürftige Betroffene"
+      description: "Kinder, Patienten, Mitarbeiter oder andere schutzbedürftige Personengruppen."
+      keywords_processing_context: [kind, patient, mitarbeiter, employee, schüler, student, vulnerable]
+    - id: systematic_monitoring
+      label: "Systematische Überwachung"
+      description: "Überwachung öffentlich zugänglicher Bereiche oder systematische Beobachtung."
+      keywords_processing_context: [überwach, kamera, tracking, monitoring, standort, location]
+    - id: critical_findings
+      label: "Kritische Compliance-Befunde"
+      description: "Offene kritische oder hochschwere Befunde aus Playbook-Prüfungen."
+      findings_severity: [critical, high]
+    - id: sensitive_purpose
+      label: "Sensibler Verarbeitungszweck"
+      description: "Verarbeitung für Strafverfolgung, Finanzdienstleistungen, Sozialhilfe oder ähnliches."
+      keywords_processing_context: [straf, justiz, finan, kredit, sozial, versicher, gesundheit]
+    - id: innovative_technology
+      label: "Neue oder innovative Technologie"
+      description: "Einsatz neuer Technologien (KI, Biometrie, IoT) mit unbekannten Risiken."
+      keywords_processing_context: ["ki ", "künstliche intel", biometrie, iot, "internet of things", blockchain, neu]
 
 # -----------------------------------------------------------------------------
 # Case-Risiko-Score — backend/app/api/routes/cases.py
@@ -73,3 +119,15 @@ maturity:
   velocity:
     optimal_days: 14
     worst_days: 60
+
+# -----------------------------------------------------------------------------
+# Risk-Velocity (historische Trend-Analyse) — analytics_service.compute_risk_velocity
+# -----------------------------------------------------------------------------
+risk_velocity:
+  # Aktiviert den /analytics/risk-velocity Endpoint
+  enabled: true
+  # Vergleichsfenster für Trend-Berechnung (Tage)
+  window_days: 90
+  # Mindest-Delta in Prozentpunkten, ab dem ein Trend als signifikant gilt
+  # (Pfeil hoch/runter statt "stabil"). Niedrigere Werte = sensitiver.
+  significant_change_pct: 15

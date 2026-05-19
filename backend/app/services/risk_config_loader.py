@@ -100,12 +100,103 @@ class AvvRiskConfig(BaseModel):
 
 
 # ---------------------------------------------------------------------------
-# Section: DSFA screening (kept minimal for Phase A — threshold only)
+# Section: DSFA screening
 # ---------------------------------------------------------------------------
 
 
+class DsfaScreeningFactor(BaseModel):
+    """Declarative spec for a DSFA-screening factor (EDSA 9-factor test).
+
+    Replaces the hardcoded lambdas in dsfa_service. A factor matches if any
+    of its conditions is met:
+      - ``case_flag`` is set on the case
+      - ``keywords_processing_context`` contains a substring of case.processing_context
+      - ``keywords_title`` contains a substring of case.title
+      - any open finding has a severity in ``findings_severity``
+    """
+
+    id: str
+    label: str
+    description: str = ""
+    weight: float = Field(default=1.0, ge=0.0)
+    keywords_processing_context: list[str] = Field(default_factory=list)
+    keywords_title: list[str] = Field(default_factory=list)
+    case_flag: str | None = None  # attribute name on CaseModel that must be truthy
+    findings_severity: list[str] = Field(default_factory=list)  # list of FindingSeverity values
+
+
+_DEFAULT_DSFA_FACTORS: list[dict[str, Any]] = [
+    {
+        "id": "profiling",
+        "label": "Profiling oder automatisierte Entscheidung",
+        "description": "Systematische und umfassende Bewertung persönlicher Aspekte durch automatisierte Verarbeitung (Art. 35 Abs. 3 lit. a).",
+        "keywords_processing_context": ["profil", "scoring", "automat", "entscheid"],
+        "keywords_title": ["profil", "scoring"],
+    },
+    {
+        "id": "special_categories",
+        "label": "Besondere Kategorien personenbezogener Daten (Art. 9)",
+        "description": "Verarbeitung von Gesundheitsdaten, biometrischen Daten, Daten zur Herkunft etc.",
+        "case_flag": "special_category_data",
+    },
+    {
+        "id": "large_scale",
+        "label": "Umfangreiche Verarbeitung",
+        "description": "Verarbeitung personenbezogener Daten in großem Umfang (viele Betroffene oder große Datenmenge).",
+        "keywords_processing_context": ["massendaten", "großmaßst", "umfangreich", "viele betroffene", "large scale"],
+    },
+    {
+        "id": "international_transfer",
+        "label": "Internationaler Datentransfer",
+        "description": "Übermittlung in Drittländer ohne angemessenes Schutzniveau.",
+        "case_flag": "international_transfer",
+    },
+    {
+        "id": "vulnerable_subjects",
+        "label": "Schutzbedürftige Betroffene",
+        "description": "Kinder, Patienten, Mitarbeiter oder andere schutzbedürftige Personengruppen.",
+        "keywords_processing_context": ["kind", "patient", "mitarbeiter", "employee", "schüler", "student", "vulnerable"],
+    },
+    {
+        "id": "systematic_monitoring",
+        "label": "Systematische Überwachung",
+        "description": "Überwachung öffentlich zugänglicher Bereiche oder systematische Beobachtung.",
+        "keywords_processing_context": ["überwach", "kamera", "tracking", "monitoring", "standort", "location"],
+    },
+    {
+        "id": "critical_findings",
+        "label": "Kritische Compliance-Befunde",
+        "description": "Offene kritische oder hochschwere Befunde aus Playbook-Prüfungen.",
+        "findings_severity": ["critical", "high"],
+    },
+    {
+        "id": "sensitive_purpose",
+        "label": "Sensibler Verarbeitungszweck",
+        "description": "Verarbeitung für Strafverfolgung, Finanzdienstleistungen, Sozialhilfe oder ähnliches.",
+        "keywords_processing_context": ["straf", "justiz", "finan", "kredit", "sozial", "versicher", "gesundheit"],
+    },
+    {
+        "id": "innovative_technology",
+        "label": "Neue oder innovative Technologie",
+        "description": "Einsatz neuer Technologien (KI, Biometrie, IoT) mit unbekannten Risiken.",
+        "keywords_processing_context": ["ki ", "künstliche intel", "biometrie", "iot", "internet of things", "blockchain", "neu"],
+    },
+]
+
+
 class DsfaScreeningConfig(BaseModel):
-    required_threshold: int = Field(default=2, ge=1)
+    required_threshold: float = Field(default=2.0, ge=0.0)
+    factors: list[DsfaScreeningFactor] = Field(
+        default_factory=lambda: [DsfaScreeningFactor.model_validate(f) for f in _DEFAULT_DSFA_FACTORS]
+    )
+
+    @field_validator("factors")
+    @classmethod
+    def _unique_ids(cls, v: list[DsfaScreeningFactor]) -> list[DsfaScreeningFactor]:
+        ids = [f.id for f in v]
+        if len(ids) != len(set(ids)):
+            raise ValueError("DSFA screening factor ids must be unique")
+        return v
 
 
 # ---------------------------------------------------------------------------
@@ -146,6 +237,23 @@ class MaturityConfig(BaseModel):
 
 
 # ---------------------------------------------------------------------------
+# Section: Risk velocity (trend analysis)
+# ---------------------------------------------------------------------------
+
+
+class RiskVelocityConfig(BaseModel):
+    enabled: bool = True
+    window_days: int = Field(default=90, ge=1)
+    significant_change_pct: float = Field(default=15.0, ge=0.0)
+
+    def classify_trend(self, delta_pct: float) -> str:
+        """Return 'up' | 'down' | 'stable' based on |delta| vs threshold."""
+        if abs(delta_pct) < self.significant_change_pct:
+            return "stable"
+        return "up" if delta_pct > 0 else "down"
+
+
+# ---------------------------------------------------------------------------
 # Top-level config
 # ---------------------------------------------------------------------------
 
@@ -156,6 +264,7 @@ class RiskConfig(BaseModel):
     dsfa_screening: DsfaScreeningConfig = Field(default_factory=DsfaScreeningConfig)
     case_score: CaseScoreConfig = Field(default_factory=CaseScoreConfig)
     maturity: MaturityConfig = Field(default_factory=MaturityConfig)
+    risk_velocity: RiskVelocityConfig = Field(default_factory=RiskVelocityConfig)
 
 
 # ---------------------------------------------------------------------------

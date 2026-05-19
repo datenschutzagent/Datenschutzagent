@@ -5,8 +5,14 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../co
 import { Skeleton } from "../components/ui/skeleton";
 import { BarChart, Bar, LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, Legend } from "recharts";
 import { toast } from "sonner";
-import { Clock, Zap, AlertCircle, GitBranch } from "lucide-react";
-import { fetchVelocityStats, type VelocityStats } from "../lib/api/insights";
+import { Clock, Zap, AlertCircle, GitBranch, TrendingUp, TrendingDown, Minus } from "lucide-react";
+import {
+  fetchRiskVelocity,
+  fetchVelocityStats,
+  type RiskTrend,
+  type RiskVelocityResponse,
+  type VelocityStats,
+} from "../lib/api/insights";
 
 function formatMonthLabel(ym: string): string {
   const [y, m] = ym.split("-");
@@ -22,9 +28,43 @@ const SEVERITY_LABEL: Record<string, string> = {
   critical: "Kritisch", high: "Hoch", medium: "Mittel", low: "Niedrig", info: "Info",
 };
 
+const SUBSCORE_LABEL: Record<string, string> = {
+  vvt: "VVT",
+  dsfa: "DSFA",
+  avv: "AVV",
+  tom: "TOM",
+  velocity: "Velocity",
+};
+
+function TrendIndicator({ trend, delta }: { trend: RiskTrend; delta: number | null }) {
+  if (trend === "unknown" || delta == null) {
+    return <span className="text-xs text-muted-foreground">Kein Vergleichswert</span>;
+  }
+  if (trend === "up") {
+    return (
+      <span className="text-xs text-green-600 dark:text-green-400 font-medium inline-flex items-center gap-1">
+        <TrendingUp className="size-3" /> +{delta.toFixed(1)}
+      </span>
+    );
+  }
+  if (trend === "down") {
+    return (
+      <span className="text-xs text-red-600 dark:text-red-400 font-medium inline-flex items-center gap-1">
+        <TrendingDown className="size-3" /> {delta.toFixed(1)}
+      </span>
+    );
+  }
+  return (
+    <span className="text-xs text-muted-foreground inline-flex items-center gap-1">
+      <Minus className="size-3" /> {delta.toFixed(1)}
+    </span>
+  );
+}
+
 export function InsightsVelocityPage() {
   const [data, setData] = useState<VelocityStats | null>(null);
   const [loading, setLoading] = useState(true);
+  const [riskVelocity, setRiskVelocity] = useState<RiskVelocityResponse | null>(null);
 
   useEffect(() => {
     setLoading(true);
@@ -32,6 +72,11 @@ export function InsightsVelocityPage() {
       .then(setData)
       .catch(() => toast.error("Velocity-Daten konnten nicht geladen werden."))
       .finally(() => setLoading(false));
+    fetchRiskVelocity()
+      .then(setRiskVelocity)
+      .catch(() => {
+        // Optional — silent fail; Karte zeigt dann nichts.
+      });
   }, []);
 
   const dsrTrend = useMemo(() => {
@@ -59,6 +104,62 @@ export function InsightsVelocityPage() {
         <Card><CardContent className="py-12 text-center text-muted-foreground">Keine Daten geladen.</CardContent></Card>
       ) : (
         <div className="space-y-6">
+          {/* Risk-Velocity (Compliance-Reife-Trend pro Abteilung) */}
+          {riskVelocity && riskVelocity.enabled && riskVelocity.departments.length > 0 && (
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base flex items-center gap-2">
+                  <TrendingUp className="size-4" /> Compliance-Reife-Trend
+                </CardTitle>
+                <CardDescription>
+                  Veränderung des Composite-Scores pro Abteilung gegenüber dem Wert vor {riskVelocity.windowDays} Tagen.
+                  Trend gilt als signifikant ab {riskVelocity.significantChangePct} Punkten Delta.
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="text-xs text-muted-foreground text-left border-b">
+                        <th className="py-2 pr-3 font-medium">Abteilung</th>
+                        <th className="py-2 pr-3 font-medium">Aktuell</th>
+                        <th className="py-2 pr-3 font-medium">Vorher</th>
+                        <th className="py-2 pr-3 font-medium">Trend</th>
+                        {Object.keys(SUBSCORE_LABEL).map((key) => (
+                          <th key={key} className="py-2 pr-3 font-medium hidden md:table-cell">
+                            {SUBSCORE_LABEL[key]}
+                          </th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {riskVelocity.departments.map((row) => (
+                        <tr key={row.department} className="border-b last:border-0">
+                          <td className="py-2 pr-3 font-medium">{row.department}</td>
+                          <td className="py-2 pr-3">{row.currentComposite.toFixed(1)}</td>
+                          <td className="py-2 pr-3 text-muted-foreground">
+                            {row.previousComposite != null ? row.previousComposite.toFixed(1) : "–"}
+                          </td>
+                          <td className="py-2 pr-3">
+                            <TrendIndicator trend={row.trend} delta={row.delta} />
+                          </td>
+                          {Object.keys(SUBSCORE_LABEL).map((key) => {
+                            const sub = row.subScores[key as keyof typeof row.subScores];
+                            return (
+                              <td key={key} className="py-2 pr-3 hidden md:table-cell">
+                                <TrendIndicator trend={sub.trend} delta={sub.delta} />
+                              </td>
+                            );
+                          })}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
           {/* DSR-MTTR */}
           <Card>
             <CardHeader>

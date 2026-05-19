@@ -311,3 +311,204 @@ def test_case_score_with_example_profile_weights():
     w = cfg.case_score.severity_weights
     # 1 critical: 40 (vs 30 default)
     assert min(cfg.case_score.max_score, 1 * w["critical"]) == 40
+
+
+# ---------------------------------------------------------------------------
+# DSFA screening factors (Item 8 — declarative spec)
+# ---------------------------------------------------------------------------
+
+
+def test_default_dsfa_factors_have_nine_entries():
+    """Built-in DSFA screening factors must reproduce the legacy 9-factor list."""
+    cfg = RiskConfig()
+    factor_ids = [f.id for f in cfg.dsfa_screening.factors]
+    assert factor_ids == [
+        "profiling",
+        "special_categories",
+        "large_scale",
+        "international_transfer",
+        "vulnerable_subjects",
+        "systematic_monitoring",
+        "critical_findings",
+        "sensitive_purpose",
+        "innovative_technology",
+    ]
+    # All default weights = 1.0
+    assert all(f.weight == 1.0 for f in cfg.dsfa_screening.factors)
+
+
+def test_dsfa_factor_unique_id_validator():
+    """Duplicate factor ids must be rejected by the loader."""
+    from app.services.risk_config_loader import DsfaScreeningConfig
+
+    with pytest.raises(Exception):
+        DsfaScreeningConfig(
+            factors=[
+                {"id": "foo", "label": "Foo"},
+                {"id": "foo", "label": "Foo again"},
+            ]
+        )
+
+
+def test_dsfa_factor_met_keyword_match():
+    """_factor_met handles keyword matches in processing_context (case-insensitive)."""
+    from app.services.dsfa_service import _factor_met
+    from app.services.risk_config_loader import DsfaScreeningFactor
+
+    class _Case:
+        processing_context = "Wir nutzen Profiling für Kundensegmente."
+        title = ""
+        special_category_data = False
+        international_transfer = False
+
+    factor = DsfaScreeningFactor(
+        id="profiling", label="Profiling", keywords_processing_context=["profil"]
+    )
+    assert _factor_met(factor, _Case(), []) is True
+
+
+def test_dsfa_factor_met_case_flag():
+    """_factor_met returns True when case_flag attribute is truthy."""
+    from app.services.dsfa_service import _factor_met
+    from app.services.risk_config_loader import DsfaScreeningFactor
+
+    class _Case:
+        processing_context = ""
+        title = ""
+        special_category_data = True
+        international_transfer = False
+
+    factor = DsfaScreeningFactor(
+        id="special_categories", label="Art. 9", case_flag="special_category_data"
+    )
+    assert _factor_met(factor, _Case(), []) is True
+
+    class _CaseNo:
+        processing_context = ""
+        title = ""
+        special_category_data = False
+        international_transfer = False
+
+    assert _factor_met(factor, _CaseNo(), []) is False
+
+
+def test_dsfa_factor_met_findings_severity():
+    """_factor_met returns True when any finding has matching severity."""
+    from app.services.dsfa_service import _factor_met
+    from app.services.risk_config_loader import DsfaScreeningFactor
+
+    class _Case:
+        processing_context = ""
+        title = ""
+        special_category_data = False
+        international_transfer = False
+
+    class _Finding:
+        def __init__(self, severity: str):
+            self.severity = severity
+
+    factor = DsfaScreeningFactor(
+        id="critical_findings", label="Critical findings", findings_severity=["critical", "high"]
+    )
+    assert _factor_met(factor, _Case(), [_Finding("critical")]) is True
+    assert _factor_met(factor, _Case(), [_Finding("low")]) is False
+    assert _factor_met(factor, _Case(), []) is False
+
+
+def test_dsfa_factor_met_no_conditions():
+    """Factor without any conditions never matches."""
+    from app.services.dsfa_service import _factor_met
+    from app.services.risk_config_loader import DsfaScreeningFactor
+
+    class _Case:
+        processing_context = "anything"
+        title = "anything"
+        special_category_data = True
+        international_transfer = True
+
+    factor = DsfaScreeningFactor(id="empty", label="Empty factor")
+    assert _factor_met(factor, _Case(), []) is False
+
+
+def test_dsfa_factor_weight_in_example_profile():
+    """Example profile's special_categories factor has weight 2.0."""
+    s = Settings(org_profile="example")
+    cfg = load_risk_config(s)
+    special = next(f for f in cfg.dsfa_screening.factors if f.id == "special_categories")
+    assert special.weight == 2.0
+
+
+# ---------------------------------------------------------------------------
+# Risk-velocity (Item 12)
+# ---------------------------------------------------------------------------
+
+
+def test_risk_velocity_config_defaults():
+    cfg = RiskConfig()
+    assert cfg.risk_velocity.enabled is True
+    assert cfg.risk_velocity.window_days == 90
+    assert cfg.risk_velocity.significant_change_pct == 15.0
+
+
+def test_risk_velocity_classify_trend():
+    cfg = RiskConfig()
+    rv = cfg.risk_velocity
+    # threshold = 15
+    assert rv.classify_trend(0.0) == "stable"
+    assert rv.classify_trend(14.9) == "stable"
+    assert rv.classify_trend(-14.9) == "stable"
+    assert rv.classify_trend(15.0) == "up"
+    assert rv.classify_trend(20.0) == "up"
+    assert rv.classify_trend(-15.0) == "down"
+    assert rv.classify_trend(-30.0) == "down"
+
+
+def test_classify_trend_helper_matches_config():
+    """Standalone helper in analytics_service uses the same logic."""
+    from app.services.analytics_service import _classify_trend
+
+    assert _classify_trend(5.0, 10.0) == "stable"
+    assert _classify_trend(10.0, 10.0) == "up"
+    assert _classify_trend(-10.0, 10.0) == "down"
+
+
+def test_risk_velocity_example_profile_overrides():
+    """Example profile shortens window to 60d and lowers threshold to 10%."""
+    s = Settings(org_profile="example")
+    cfg = load_risk_config(s)
+    assert cfg.risk_velocity.window_days == 60
+    assert cfg.risk_velocity.significant_change_pct == 10.0
+
+
+# ---------------------------------------------------------------------------
+# Confidence-Score (Item 11) — AVV LLM result schema
+# ---------------------------------------------------------------------------
+
+
+def test_avv_result_default_confidence():
+    """_AVVRiskResult must default confidence to 0.7 when LLM omits the field."""
+    from app.services.avv_risk_service import _AVVRiskDimension, _AVVRiskResult
+
+    result = _AVVRiskResult(
+        dimensions=[_AVVRiskDimension(name="Datensensitivität", score=3, rationale="")],
+        overall_risk_level="medium",
+        main_risks=[],
+        recommended_measures=[],
+        summary="",
+    )
+    assert result.confidence == 0.7
+
+
+def test_avv_result_confidence_bounds():
+    """confidence must be in [0, 1]."""
+    from app.services.avv_risk_service import _AVVRiskDimension, _AVVRiskResult
+
+    with pytest.raises(Exception):
+        _AVVRiskResult(
+            dimensions=[_AVVRiskDimension(name="x", score=3, rationale="")],
+            overall_risk_level="medium",
+            main_risks=[],
+            recommended_measures=[],
+            summary="",
+            confidence=1.5,
+        )

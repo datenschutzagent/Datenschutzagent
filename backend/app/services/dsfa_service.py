@@ -1,6 +1,6 @@
 """DSFA-Service: Datenschutz-Folgenabschätzung (Art. 35 DSGVO) per LLM generieren."""
 import logging
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID
 
@@ -11,8 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.constants import FindingSeverity, FindingStatus
 from app.core.llm import create_agent
 from app.core.prompt_security import sanitize_prompt_field
-from app.models.db import CaseModel, DSFAAssessmentModel, DSFAJobModel, FindingModel
-from app.models.schemas import DSFARisk
+from app.models.db import CaseModel, DSFAAssessmentModel, FindingModel
 from app.services.risk_config_loader import get_risk_config
 
 logger = logging.getLogger(__name__)
@@ -157,85 +156,40 @@ async def generate_dsfa(case_id: UUID, db: AsyncSession) -> dict[str, Any]:
     return payload
 
 
-_DSFA_SCREENING_FACTORS = [
-    {
-        "id": "profiling",
-        "label": "Profiling oder automatisierte Entscheidung",
-        "description": "Systematische und umfassende Bewertung persönlicher Aspekte durch automatisierte Verarbeitung (Art. 35 Abs. 3 lit. a).",
-        "check_fn": lambda case, findings: (
-            any(f in (case.processing_context or "").lower() for f in ["profil", "scoring", "automat", "entscheid"])
-            or any(f in (case.title or "").lower() for f in ["profil", "scoring"])
-        ),
-    },
-    {
-        "id": "special_categories",
-        "label": "Besondere Kategorien personenbezogener Daten (Art. 9)",
-        "description": "Verarbeitung von Gesundheitsdaten, biometrischen Daten, Daten zur Herkunft etc.",
-        "check_fn": lambda case, findings: case.special_category_data,
-    },
-    {
-        "id": "large_scale",
-        "label": "Umfangreiche Verarbeitung",
-        "description": "Verarbeitung personenbezogener Daten in großem Umfang (viele Betroffene oder große Datenmenge).",
-        "check_fn": lambda case, findings: any(
-            f in (case.processing_context or "").lower()
-            for f in ["massendaten", "großmaßst", "umfangreich", "viele betroffene", "large scale"]
-        ),
-    },
-    {
-        "id": "international_transfer",
-        "label": "Internationaler Datentransfer",
-        "description": "Übermittlung in Drittländer ohne angemessenes Schutzniveau.",
-        "check_fn": lambda case, findings: case.international_transfer,
-    },
-    {
-        "id": "vulnerable_subjects",
-        "label": "Schutzbedürftige Betroffene",
-        "description": "Kinder, Patienten, Mitarbeiter oder andere schutzbedürftige Personengruppen.",
-        "check_fn": lambda case, findings: any(
-            f in (case.processing_context or "").lower()
-            for f in ["kind", "patient", "mitarbeiter", "employee", "schüler", "student", "vulnerable"]
-        ),
-    },
-    {
-        "id": "systematic_monitoring",
-        "label": "Systematische Überwachung",
-        "description": "Überwachung öffentlich zugänglicher Bereiche oder systematische Beobachtung.",
-        "check_fn": lambda case, findings: any(
-            f in (case.processing_context or "").lower()
-            for f in ["überwach", "kamera", "tracking", "monitoring", "standort", "location"]
-        ),
-    },
-    {
-        "id": "critical_findings",
-        "label": "Kritische Compliance-Befunde",
-        "description": "Offene kritische oder hochschwere Befunde aus Playbook-Prüfungen.",
-        "check_fn": lambda case, findings: any(f.severity in (FindingSeverity.CRITICAL, FindingSeverity.HIGH) and f.status == FindingStatus.OPEN for f in findings),
-    },
-    {
-        "id": "sensitive_purpose",
-        "label": "Sensibler Verarbeitungszweck",
-        "description": "Verarbeitung für Strafverfolgung, Finanzdienstleistungen, Sozialhilfe oder ähnliches.",
-        "check_fn": lambda case, findings: any(
-            f in (case.processing_context or "").lower()
-            for f in ["straf", "justiz", "finan", "kredit", "sozial", "versicher", "gesundheit"]
-        ),
-    },
-    {
-        "id": "innovative_technology",
-        "label": "Neue oder innovative Technologie",
-        "description": "Einsatz neuer Technologien (KI, Biometrie, IoT) mit unbekannten Risiken.",
-        "check_fn": lambda case, findings: any(
-            f in (case.processing_context or "").lower()
-            for f in ["ki ", "künstliche intel", "biometrie", "iot", "internet of things", "blockchain", "neu"]
-        ),
-    },
-]
+def _factor_met(factor, case, findings) -> bool:
+    """Generic, declarative check for one DSFA-screening factor spec.
+
+    A factor matches when ANY of its conditions is satisfied:
+      - case_flag: attribute on case is truthy
+      - keywords_processing_context: substring in case.processing_context (case-insensitive)
+      - keywords_title: substring in case.title (case-insensitive)
+      - findings_severity: at least one open finding has matching severity
+
+    Replaces the hardcoded lambdas — see risk_config_loader.DsfaScreeningFactor
+    and risk_config.yaml.
+    """
+    if factor.case_flag:
+        if getattr(case, factor.case_flag, None):
+            return True
+    if factor.keywords_processing_context:
+        ctx = (case.processing_context or "").lower()
+        if any(kw in ctx for kw in factor.keywords_processing_context):
+            return True
+    if factor.keywords_title:
+        title = (case.title or "").lower()
+        if any(kw in title for kw in factor.keywords_title):
+            return True
+    if factor.findings_severity:
+        allowed = {s.lower() for s in factor.findings_severity}
+        if any((f.severity or "").lower() in allowed for f in findings):
+            return True
+    return False
+
 
 # Default-Schwelle (EDSA-Leitlinien). Wird zur Laufzeit aus
 # RiskConfig.dsfa_screening.required_threshold gelesen — siehe
 # risk_config_loader.py / risk_config.yaml.
-_DSFA_REQUIRED_THRESHOLD_DEFAULT = 2
+_DSFA_REQUIRED_THRESHOLD_DEFAULT = 2.0
 
 
 async def screen_dsfa_requirement(case_id: UUID, db: AsyncSession) -> dict[str, Any]:
@@ -260,46 +214,52 @@ async def screen_dsfa_requirement(case_id: UUID, db: AsyncSession) -> dict[str, 
     )
     findings = findings_result.scalars().all()
 
+    dsfa_cfg = get_risk_config().dsfa_screening
+    # Only OPEN findings matter for the "critical_findings" factor.
+    open_findings = [f for f in findings if f.status == FindingStatus.OPEN]
     factor_results = []
-    score = 0
-    for factor in _DSFA_SCREENING_FACTORS:
+    score = 0.0
+    for factor in dsfa_cfg.factors:
         try:
-            met = bool(factor["check_fn"](case, findings))
-        except Exception as exc:
-            logger.debug("DSFA screening factor '%s' check failed: %s", factor["id"], exc, extra={"case_id": str(case_id)})
+            met = _factor_met(factor, case, open_findings)
+        except Exception as exc:  # noqa: BLE001 — never let a single factor crash screening
+            logger.debug("DSFA screening factor '%s' check failed: %s", factor.id, exc, extra={"case_id": str(case_id)})
             met = False
         if met:
-            score += 1
+            score += factor.weight
         factor_results.append({
-            "id": factor["id"],
-            "label": factor["label"],
-            "description": factor["description"],
+            "id": factor.id,
+            "label": factor.label,
+            "description": factor.description,
             "met": met,
+            "weight": factor.weight,
         })
 
-    threshold = get_risk_config().dsfa_screening.required_threshold
+    threshold = dsfa_cfg.required_threshold
     required = score >= threshold
     logger.info(
         "DSFA screening complete",
         extra={"case_id": str(case_id), "score": score, "required": required, "threshold": threshold},
     )
 
+    score_fmt = f"{score:g}"  # 2.0 -> "2", 3.5 -> "3.5"
+    threshold_fmt = f"{threshold:g}"
     if score == 0:
         recommendation = "Keine Risikofaktoren identifiziert. DSFA aktuell nicht erforderlich."
     elif not required:
         recommendation = (
-            f"{score} Risikofaktor(en) identifiziert. DSFA empfohlen, aber gemäß "
-            f"Org-Konfiguration erst ab ≥{threshold} Faktoren verpflichtend. "
+            f"Gewichteter Score {score_fmt}. DSFA empfohlen, aber gemäß "
+            f"Org-Konfiguration erst ab ≥{threshold_fmt} verpflichtend. "
             f"Bitte regelmäßig neu bewerten."
         )
     elif score < 4:
         recommendation = (
-            f"{score} Risikofaktoren identifiziert. DSFA ist verpflichtend (Art. 35 DSGVO). "
+            f"Gewichteter Score {score_fmt}. DSFA ist verpflichtend (Art. 35 DSGVO). "
             f"Bitte umgehend durchführen."
         )
     else:
         recommendation = (
-            f"{score} Risikofaktoren identifiziert – hohes Datenschutzrisiko. "
+            f"Gewichteter Score {score_fmt} – hohes Datenschutzrisiko. "
             f"DSFA ist dringend erforderlich und sollte vor Beginn der Verarbeitung abgeschlossen sein."
         )
 
@@ -319,7 +279,7 @@ async def save_dsfa(case_id: UUID, payload: dict[str, Any], db: AsyncSession) ->
         case_id=case_id,
         status="draft",
         payload=payload,
-        generated_at=datetime.now(timezone.utc),
+        generated_at=datetime.now(UTC),
     )
     await db.merge(model)
     await db.flush()

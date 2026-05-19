@@ -21,8 +21,25 @@ avv:
   min_confidence: 0.6
 
 dsfa_screening:
-  # DSFA bereits ab einem Faktor verpflichtend.
-  required_threshold: 1
+  # Strengere Schwelle: DSFA bereits ab einem Faktor verpflichtend, aber
+  # special_categories (Art. 9) hat doppeltes Gewicht — d.h. dieser Faktor
+  # allein erfüllt die Pflicht.
+  required_threshold: 1.0
+  factors:
+    - id: profiling
+      label: "Profiling oder automatisierte Entscheidung"
+      keywords_processing_context: [profil, scoring, automat, entscheid]
+      keywords_title: [profil, scoring]
+    - id: special_categories
+      label: "Besondere Kategorien (Art. 9)"
+      case_flag: special_category_data
+      weight: 2.0
+    - id: international_transfer
+      label: "Internationaler Datentransfer"
+      case_flag: international_transfer
+    - id: critical_findings
+      label: "Kritische Compliance-Befunde"
+      findings_severity: [critical, high]
 
 case_score:
   severity_weights:
@@ -44,3 +61,8 @@ maturity:
   velocity:
     optimal_days: 7
     worst_days: 30
+
+risk_velocity:
+  enabled: true
+  window_days: 60      # kürzeres Fenster für sensibleren Trend
+  significant_change_pct: 10

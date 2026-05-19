@@ -6,14 +6,13 @@ Jede Funktion liefert ein typisiertes Dict, das direkt in eine Pydantic-Response
 from __future__ import annotations
 
 import statistics
-from datetime import date, datetime, timedelta, timezone
+from datetime import UTC, date, datetime, timedelta
 from typing import Any
 
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.services.risk_config_loader import get_risk_config
-
 
 # ---------------------------------------------------------------------------
 # Maturity-Score: Gewichtung der Sub-Scores.
@@ -236,7 +235,7 @@ async def pipeline_stats(db: AsyncSession, department: str | None = None) -> dic
     coverage_pct = (with_finalized / high_risk_total * 100.0) if high_risk_total > 0 else 100.0
 
     return {
-        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "generated_at": datetime.now(UTC).isoformat(),
         "department_filter": department,
         "avv": {
             "buckets": avv_buckets,
@@ -452,7 +451,7 @@ async def velocity_stats(db: AsyncSession, department: str | None = None) -> dic
     funnels = await _compute_funnels(db, department=department)
 
     return {
-        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "generated_at": datetime.now(UTC).isoformat(),
         "department_filter": department,
         "dsr": dsr_section,
         "breach": breach_section,
@@ -749,7 +748,7 @@ async def maturity_stats(db: AsyncSession, department: str | None = None) -> dic
         }
 
     return {
-        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "generated_at": datetime.now(UTC).isoformat(),
         "department_filter": department,
         "weights": get_risk_config().maturity.weights,
         "departments": departments,
@@ -795,3 +794,133 @@ async def write_maturity_snapshot(db: AsyncSession, snapshot_date: date | None =
         )
         inserted += 1
     return inserted
+
+
+# ---------------------------------------------------------------------------
+# Risk-Velocity (historische Trend-Analyse pro Sub-Score)
+# ---------------------------------------------------------------------------
+
+_RISK_VELOCITY_SUBSCORES = ("vvt", "dsfa", "avv", "tom", "velocity")
+
+
+def _classify_trend(delta_pct: float, threshold_pct: float) -> str:
+    """Return 'up' | 'down' | 'stable' depending on whether |delta| exceeds threshold."""
+    if abs(delta_pct) < threshold_pct:
+        return "stable"
+    return "up" if delta_pct > 0 else "down"
+
+
+async def compute_risk_velocity(
+    db: AsyncSession,
+    department: str | None = None,
+    window_days: int | None = None,
+) -> dict[str, Any]:
+    """Vergleicht aktuellen Composite/Sub-Score mit dem Wert vor window_days.
+
+    Datenquelle: `compliance_maturity_snapshots`. Pro Department wird der
+    jüngste Snapshot und der dem cutoff am nächsten liegende ältere Snapshot
+    geladen. Bewegungen über `risk_velocity.significant_change_pct` werden
+    als up/down klassifiziert, sonst stable.
+
+    Returns dict mit Feldern `generated_at`, `window_days`, `enabled`,
+    `significant_change_pct` und `departments` (Liste mit current/previous/
+    delta/trend pro Sub-Score).
+    """
+    rv_cfg = get_risk_config().risk_velocity
+    effective_window = window_days if window_days is not None else rv_cfg.window_days
+    today = date.today()
+    cutoff = today - timedelta(days=effective_window)
+
+    dept_filter = ""
+    params: dict[str, Any] = {"cutoff": cutoff}
+    if department:
+        dept_filter = " AND department = :dept "
+        params["dept"] = department
+
+    score_columns = ", ".join(f"{name}_score" if name != "velocity" else "velocity_score" for name in _RISK_VELOCITY_SUBSCORES)
+
+    # Jüngster Snapshot pro Department (immer im Vergleichsfenster).
+    current_q = text(f"""
+        SELECT DISTINCT ON (department) department, snapshot_date,
+            composite_score, {score_columns}
+        FROM compliance_maturity_snapshots
+        WHERE 1=1 {dept_filter}
+        ORDER BY department, snapshot_date DESC
+    """)
+    # Ältester Snapshot pro Department vor/an der cutoff-Linie.
+    previous_q = text(f"""
+        SELECT DISTINCT ON (department) department, snapshot_date,
+            composite_score, {score_columns}
+        FROM compliance_maturity_snapshots
+        WHERE snapshot_date <= :cutoff {dept_filter}
+        ORDER BY department, snapshot_date DESC
+    """)
+
+    current_rows = (await db.execute(current_q, {k: v for k, v in params.items() if k != "cutoff"})).fetchall()
+    previous_rows = (await db.execute(previous_q, params)).fetchall()
+
+    def _row_to_dict(row) -> dict[str, Any]:
+        dept, snap_date, composite = row[0], row[1], float(row[2])
+        sub = {name: float(row[3 + idx]) for idx, name in enumerate(_RISK_VELOCITY_SUBSCORES)}
+        return {"department": dept, "snapshot_date": snap_date, "composite_score": composite, "sub_scores": sub}
+
+    current_map = {r[0]: _row_to_dict(r) for r in current_rows}
+    previous_map = {r[0]: _row_to_dict(r) for r in previous_rows}
+
+    departments: list[dict[str, Any]] = []
+    for dept in sorted(current_map.keys()):
+        cur = current_map[dept]
+        prev = previous_map.get(dept)
+        if prev is None:
+            # Kein Vergleichswert vorhanden — Trend "unknown", stable.
+            departments.append({
+                "department": dept,
+                "current_composite": round(cur["composite_score"], 1),
+                "previous_composite": None,
+                "delta": None,
+                "trend": "unknown",
+                "significant": False,
+                "current_snapshot_date": cur["snapshot_date"].isoformat(),
+                "previous_snapshot_date": None,
+                "sub_scores": {
+                    name: {
+                        "current": round(cur["sub_scores"][name], 1),
+                        "previous": None,
+                        "delta": None,
+                        "trend": "unknown",
+                    }
+                    for name in _RISK_VELOCITY_SUBSCORES
+                },
+            })
+            continue
+
+        delta = cur["composite_score"] - prev["composite_score"]
+        sub_trends = {}
+        for name in _RISK_VELOCITY_SUBSCORES:
+            sub_delta = cur["sub_scores"][name] - prev["sub_scores"][name]
+            sub_trends[name] = {
+                "current": round(cur["sub_scores"][name], 1),
+                "previous": round(prev["sub_scores"][name], 1),
+                "delta": round(sub_delta, 1),
+                "trend": _classify_trend(sub_delta, rv_cfg.significant_change_pct),
+            }
+        departments.append({
+            "department": dept,
+            "current_composite": round(cur["composite_score"], 1),
+            "previous_composite": round(prev["composite_score"], 1),
+            "delta": round(delta, 1),
+            "trend": _classify_trend(delta, rv_cfg.significant_change_pct),
+            "significant": abs(delta) >= rv_cfg.significant_change_pct,
+            "current_snapshot_date": cur["snapshot_date"].isoformat(),
+            "previous_snapshot_date": prev["snapshot_date"].isoformat(),
+            "sub_scores": sub_trends,
+        })
+
+    return {
+        "generated_at": datetime.now(UTC).isoformat(),
+        "window_days": effective_window,
+        "enabled": rv_cfg.enabled,
+        "significant_change_pct": rv_cfg.significant_change_pct,
+        "department_filter": department,
+        "departments": departments,
+    }

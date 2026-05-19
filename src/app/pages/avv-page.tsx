@@ -416,7 +416,7 @@ export function AVVPage() {
                 )}
                 {riskAssessment ? (
                   <div className="space-y-3">
-                    <div className="flex items-center gap-3">
+                    <div className="flex items-center gap-3 flex-wrap">
                       <span className="text-lg font-bold">{riskAssessment.risk_score}/100</span>
                       <span className={`text-xs px-2 py-1 rounded-full font-medium ${RISK_LEVEL_COLORS[riskAssessment.risk_level] ?? ""}`}>
                         {RISK_LEVEL_LABELS[riskAssessment.risk_level]}
@@ -424,6 +424,21 @@ export function AVVPage() {
                       <span className="text-xs text-muted-foreground">
                         {new Date(riskAssessment.assessed_at).toLocaleDateString("de-DE")}
                       </span>
+                      {riskAssessment.assessment.low_confidence === true && (
+                        <span
+                          className="text-xs px-2 py-1 rounded-full font-medium bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300 flex items-center gap-1"
+                          title={
+                            "Selbsteinschätzung des LLM: " +
+                            (typeof riskAssessment.assessment.confidence === "number"
+                              ? `${Math.round(riskAssessment.assessment.confidence * 100)}%`
+                              : "niedrig") +
+                            ". Bitte Bewertung manuell prüfen."
+                          }
+                        >
+                          <ShieldAlert className="size-3" />
+                          Niedrige Konfidenz
+                        </span>
+                      )}
                     </div>
 
                     {riskAssessment.assessment.dimensions && (

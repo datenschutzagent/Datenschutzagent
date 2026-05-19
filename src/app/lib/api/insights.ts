@@ -222,3 +222,56 @@ export async function fetchMaturityStats(department?: string | null): Promise<Ma
   const raw = await request<Record<string, unknown>>("GET", buildPath("/analytics/maturity", department));
   return deepSnakeToCamel(raw) as unknown as MaturityStats;
 }
+
+// ---------------------------------------------------------------------------
+// Risk-Velocity (Compliance-Reife-Trend pro Department)
+// ---------------------------------------------------------------------------
+
+export type RiskTrend = "up" | "down" | "stable" | "unknown";
+
+export interface RiskVelocitySubScore {
+  current: number;
+  previous: number | null;
+  delta: number | null;
+  trend: RiskTrend;
+}
+
+export interface RiskVelocityRow {
+  department: string;
+  currentComposite: number;
+  previousComposite: number | null;
+  delta: number | null;
+  trend: RiskTrend;
+  significant: boolean;
+  currentSnapshotDate: string;
+  previousSnapshotDate: string | null;
+  subScores: {
+    vvt: RiskVelocitySubScore;
+    dsfa: RiskVelocitySubScore;
+    avv: RiskVelocitySubScore;
+    tom: RiskVelocitySubScore;
+    velocity: RiskVelocitySubScore;
+  };
+}
+
+export interface RiskVelocityResponse {
+  generatedAt: string;
+  windowDays: number;
+  enabled: boolean;
+  significantChangePct: number;
+  departmentFilter: string | null;
+  departments: RiskVelocityRow[];
+}
+
+export async function fetchRiskVelocity(opts?: {
+  department?: string | null;
+  windowDays?: number | null;
+}): Promise<RiskVelocityResponse> {
+  const params = new URLSearchParams();
+  if (opts?.department) params.set("department", opts.department);
+  if (opts?.windowDays != null) params.set("window_days", String(opts.windowDays));
+  const qs = params.toString();
+  const path = qs ? `/analytics/risk-velocity?${qs}` : "/analytics/risk-velocity";
+  const raw = await request<Record<string, unknown>>("GET", path);
+  return deepSnakeToCamel(raw) as unknown as RiskVelocityResponse;
+}

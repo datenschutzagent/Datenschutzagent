@@ -587,6 +587,8 @@ export interface AvvRiskAssessment {
     recommended_measures: string[];
     summary: string;
     avg_dimension_score: number;
+    confidence?: number;
+    low_confidence?: boolean;
   };
   assessed_at: string;
 }

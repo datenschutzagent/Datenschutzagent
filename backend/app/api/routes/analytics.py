@@ -1,5 +1,5 @@
 """Cross-Module-Analytics: org-Risiko, Pipeline (AVV/TOM/DSFA), Velocity, Maturity."""
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy import text
@@ -8,14 +8,15 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.auth import require_roles
 from app.database import get_db
 from app.models.schemas import (
+    MaturityStatsResponse,
     PipelineStatsResponse,
     VelocityStatsResponse,
-    MaturityStatsResponse,
 )
 from app.services.analytics_service import (
+    compute_risk_velocity,
+    maturity_stats,
     pipeline_stats,
     velocity_stats,
-    maturity_stats,
 )
 
 router = APIRouter()
@@ -176,7 +177,7 @@ async def get_org_risk_dashboard(
     top_risk_departments = [r["department"] for r in dept_rows[:5] if r["composite_risk_score"] > 0]
 
     return {
-        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "generated_at": datetime.now(UTC).isoformat(),
         "department_filter": department,
         "dept_risk": dept_rows,
         "top_risk_departments": top_risk_departments,
@@ -228,3 +229,28 @@ async def get_maturity_stats(
 ):
     """Maturity-Score (5 Sub-Scores, gewichtet) + 6-Monats-Trend aus taeglichen Snapshots."""
     return MaturityStatsResponse(**await maturity_stats(db, department=department))
+
+
+@router.get(
+    "/risk-velocity",
+    summary="Risiko-Trend pro Abteilung (Composite + Sub-Scores)",
+)
+async def get_risk_velocity(
+    department: str | None = Query(default=None, description="Optional: Nur ein Department auswerten."),
+    window_days: int | None = Query(
+        default=None,
+        ge=1,
+        le=365,
+        description="Vergleichsfenster in Tagen (überschreibt risk_velocity.window_days).",
+    ),
+    db: AsyncSession = Depends(get_db),
+    _user=require_roles("viewer", "editor", "admin"),
+):
+    """Vergleicht den aktuellen Compliance-Reife-Score gegen den Wert vor
+    `window_days` (Default aus `risk_config.yaml -> risk_velocity.window_days`).
+
+    Antwort enthält pro Department Composite-Score plus Trend (up/down/stable)
+    für jeden Sub-Score (vvt/dsfa/avv/tom/velocity). Datenquelle:
+    `compliance_maturity_snapshots`.
+    """
+    return await compute_risk_velocity(db, department=department, window_days=window_days)
