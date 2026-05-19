@@ -257,3 +257,57 @@ def test_reload_clears_cache():
     cache_info_after = rcl._cached_config_for_key.cache_info()
     assert cache_info_after.currsize == 0
     assert cache_info_before.currsize >= 0  # sanity check
+
+
+# ---------------------------------------------------------------------------
+# Velocity helper (analytics_service)
+# ---------------------------------------------------------------------------
+
+
+def test_velocity_score_matches_legacy_formula():
+    """Default 14d->100, 60d->0 must reproduce the legacy (60-d)/46*100 mapping."""
+    from app.services.analytics_service import _velocity_score
+
+    assert _velocity_score(14.0, 14, 60) == pytest.approx(100.0)
+    assert _velocity_score(60.0, 14, 60) == pytest.approx(0.0)
+    # Median 37d (midpoint): legacy gives 100 * (60-37)/46 ≈ 50.0
+    assert _velocity_score(37.0, 14, 60) == pytest.approx(50.0, abs=0.1)
+
+
+def test_velocity_score_clamps_to_range():
+    from app.services.analytics_service import _velocity_score
+
+    assert _velocity_score(0.0, 14, 60) == 100.0  # well below optimal
+    assert _velocity_score(120.0, 14, 60) == 0.0  # well above worst
+
+
+def test_velocity_score_handles_degenerate_span():
+    """worst == optimal would divide by zero — must clamp safely."""
+    from app.services.analytics_service import _velocity_score
+
+    assert _velocity_score(5.0, 10, 10) == 100.0  # under threshold
+    assert _velocity_score(15.0, 10, 10) == 0.0  # over threshold
+
+
+# ---------------------------------------------------------------------------
+# Case-score weighting (cases.py)
+# ---------------------------------------------------------------------------
+
+
+def test_case_score_with_default_weights():
+    """Default weights 30/15/5 reproduce the legacy formula and cap."""
+    cfg = RiskConfig()
+    w = cfg.case_score.severity_weights
+    # 1 critical: 30
+    assert min(cfg.case_score.max_score, 1 * w["critical"]) == 30
+    # 3 critical + 2 high + 5 medium: 90+30+25 = 145 -> capped to 100
+    assert min(cfg.case_score.max_score, 3 * w["critical"] + 2 * w["high"] + 5 * w["medium"]) == 100
+
+
+def test_case_score_with_example_profile_weights():
+    """Example profile uses higher weights — same finding counts produce higher scores."""
+    s = Settings(org_profile="example")
+    cfg = load_risk_config(s)
+    w = cfg.case_score.severity_weights
+    # 1 critical: 40 (vs 30 default)
+    assert min(cfg.case_score.max_score, 1 * w["critical"]) == 40

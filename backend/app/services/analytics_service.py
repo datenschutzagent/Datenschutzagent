@@ -12,9 +12,15 @@ from typing import Any
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.services.risk_config_loader import get_risk_config
+
 
 # ---------------------------------------------------------------------------
-# Maturity-Score: Gewichtung der Sub-Scores (transparent dokumentiert).
+# Maturity-Score: Gewichtung der Sub-Scores.
+#
+# Werte werden zur Laufzeit aus RiskConfig.maturity.weights gelesen, siehe
+# risk_config_loader.py / risk_config.yaml. Die Konstante hier ist nur ein
+# Fallback-Default, falls die Config nicht erreichbar ist (z.B. in Pure-Tests).
 # ---------------------------------------------------------------------------
 
 MATURITY_WEIGHTS: dict[str, float] = {
@@ -24,6 +30,14 @@ MATURITY_WEIGHTS: dict[str, float] = {
     "tom": 0.20,
     "velocity": 0.20,
 }
+
+
+def _velocity_score(median_days: float, optimal_days: int, worst_days: int) -> float:
+    """Linear interpolation: optimal_days -> 100, worst_days -> 0."""
+    span = worst_days - optimal_days
+    if span <= 0:
+        return 100.0 if median_days <= optimal_days else 0.0
+    return max(0.0, min(100.0, 100.0 * (worst_days - median_days) / span))
 
 
 # ---------------------------------------------------------------------------
@@ -619,7 +633,9 @@ async def compute_maturity_scores(db: AsyncSession) -> list[dict[str, Any]]:
         implemented = int(implemented or 0)
         tom_map[dept] = (implemented / total * 100.0) if total > 0 else 100.0
 
-    # 5) Velocity: Score 100 wenn Median DSR <= 14d und 0 wenn >= 60d (linear interpoliert).
+    # 5) Velocity: Score 100 bei Median DSR <= optimal_days, 0 bei >= worst_days
+    # (linear interpoliert). Schwellen aus RiskConfig.maturity.velocity.
+    maturity_cfg = get_risk_config().maturity
     vel_q = text("""
         SELECT department, EXTRACT(EPOCH FROM (responded_at - received_at))/86400.0 AS days
         FROM dsr_requests
@@ -637,10 +653,13 @@ async def compute_maturity_scores(db: AsyncSession) -> list[dict[str, Any]]:
         if med is None:
             vel_map[dept] = 100.0
         else:
-            # 14d -> 100, 60d -> 0
-            score = max(0.0, min(100.0, 100.0 * (60.0 - med) / 46.0))
-            vel_map[dept] = score
+            vel_map[dept] = _velocity_score(
+                med,
+                maturity_cfg.velocity.optimal_days,
+                maturity_cfg.velocity.worst_days,
+            )
 
+    weights = maturity_cfg.weights
     rows: list[dict[str, Any]] = []
     for dept in sorted(departments):
         sub = {
@@ -651,11 +670,11 @@ async def compute_maturity_scores(db: AsyncSession) -> list[dict[str, Any]]:
             "velocity_score": round(vel_map.get(dept, 100.0), 1),
         }
         composite = (
-            sub["vvt_score"] * MATURITY_WEIGHTS["vvt"]
-            + sub["dsfa_score"] * MATURITY_WEIGHTS["dsfa"]
-            + sub["avv_score"] * MATURITY_WEIGHTS["avv"]
-            + sub["tom_score"] * MATURITY_WEIGHTS["tom"]
-            + sub["velocity_score"] * MATURITY_WEIGHTS["velocity"]
+            sub["vvt_score"] * weights.get("vvt", MATURITY_WEIGHTS["vvt"])
+            + sub["dsfa_score"] * weights.get("dsfa", MATURITY_WEIGHTS["dsfa"])
+            + sub["avv_score"] * weights.get("avv", MATURITY_WEIGHTS["avv"])
+            + sub["tom_score"] * weights.get("tom", MATURITY_WEIGHTS["tom"])
+            + sub["velocity_score"] * weights.get("velocity", MATURITY_WEIGHTS["velocity"])
         )
         rows.append({
             "department": dept,
@@ -732,7 +751,7 @@ async def maturity_stats(db: AsyncSession, department: str | None = None) -> dic
     return {
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "department_filter": department,
-        "weights": MATURITY_WEIGHTS,
+        "weights": get_risk_config().maturity.weights,
         "departments": departments,
         "trend": trend,
         "improvers": [_to_imp(d) for d in improvers if d["delta_3m"] > 0],

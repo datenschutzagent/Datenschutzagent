@@ -13,6 +13,7 @@ from app.core.llm import create_agent
 from app.core.prompt_security import sanitize_prompt_field
 from app.models.db import CaseModel, DSFAAssessmentModel, DSFAJobModel, FindingModel
 from app.models.schemas import DSFARisk
+from app.services.risk_config_loader import get_risk_config
 
 logger = logging.getLogger(__name__)
 
@@ -231,7 +232,10 @@ _DSFA_SCREENING_FACTORS = [
     },
 ]
 
-_DSFA_REQUIRED_THRESHOLD = 2  # Mindestanzahl Faktoren für DSFA-Pflicht (EDSA-Leitlinien)
+# Default-Schwelle (EDSA-Leitlinien). Wird zur Laufzeit aus
+# RiskConfig.dsfa_screening.required_threshold gelesen — siehe
+# risk_config_loader.py / risk_config.yaml.
+_DSFA_REQUIRED_THRESHOLD_DEFAULT = 2
 
 
 async def screen_dsfa_requirement(case_id: UUID, db: AsyncSession) -> dict[str, Any]:
@@ -273,18 +277,20 @@ async def screen_dsfa_requirement(case_id: UUID, db: AsyncSession) -> dict[str, 
             "met": met,
         })
 
-    required = score >= _DSFA_REQUIRED_THRESHOLD
+    threshold = get_risk_config().dsfa_screening.required_threshold
+    required = score >= threshold
     logger.info(
         "DSFA screening complete",
-        extra={"case_id": str(case_id), "score": score, "required": required},
+        extra={"case_id": str(case_id), "score": score, "required": required, "threshold": threshold},
     )
 
     if score == 0:
         recommendation = "Keine Risikofaktoren identifiziert. DSFA aktuell nicht erforderlich."
-    elif score == 1:
+    elif not required:
         recommendation = (
-            f"1 Risikofaktor identifiziert. DSFA empfohlen, aber gemäß EDSA-Leitlinien "
-            f"erst ab ≥2 Faktoren verpflichtend. Bitte regelmäßig neu bewerten."
+            f"{score} Risikofaktor(en) identifiziert. DSFA empfohlen, aber gemäß "
+            f"Org-Konfiguration erst ab ≥{threshold} Faktoren verpflichtend. "
+            f"Bitte regelmäßig neu bewerten."
         )
     elif score < 4:
         recommendation = (
@@ -301,7 +307,7 @@ async def screen_dsfa_requirement(case_id: UUID, db: AsyncSession) -> dict[str, 
         "case_id": str(case_id),
         "required": required,
         "score": score,
-        "threshold": _DSFA_REQUIRED_THRESHOLD,
+        "threshold": threshold,
         "factors": factor_results,
         "recommendation": recommendation,
     }
