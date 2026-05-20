@@ -23,6 +23,7 @@ from sqlalchemy.orm import selectinload
 
 from app.config import settings
 from app.database import get_db
+from app.services.risk_config_loader import get_risk_config
 from app.models import CaseCreate, CaseListResponse, CaseModel, CaseResponse, CaseUpdate
 from app.models.db import (
     ActivityLogModel,
@@ -1248,16 +1249,27 @@ async def get_case_risk_score(
     )
     jobs = list(jobs_result.scalars().all())
 
+    case_score_cfg = get_risk_config().case_score
+
     def _score_from_payload(payload: dict | None, findings_count: int) -> tuple[int, int, int, int]:
-        """Extract (critical, high, medium, score) from result_payload or defaults."""
+        """Extract (critical, high, medium, score) from result_payload or defaults.
+
+        Severity weights and max score come from RiskConfig.case_score so that
+        each org-profile can tune the risk model without code changes.
+        """
         if payload:
             critical = int(payload.get("critical_findings", 0))
             high = int(payload.get("high_findings", 0))
             medium = int(payload.get("medium_findings", 0))
         else:
             critical = high = medium = 0
-        penalty = critical * 30 + high * 15 + medium * 5
-        score = min(100, penalty)
+        weights = case_score_cfg.severity_weights
+        penalty = (
+            critical * weights.get("critical", 0)
+            + high * weights.get("high", 0)
+            + medium * weights.get("medium", 0)
+        )
+        score = min(case_score_cfg.max_score, penalty)
         return critical, high, medium, score
 
     history: list[CaseRiskScoreHistoryItem] = []

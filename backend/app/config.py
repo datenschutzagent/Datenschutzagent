@@ -117,6 +117,12 @@ class Settings(BaseSettings):
     # Empty = use profile.yaml or built-in DSGVO Art. 30 defaults.
     vvt_field_names: str = ""
 
+    # Risk-model configuration YAML (thresholds, weights, scales for AVV/DSFA/Maturity).
+    # If set: absolute path or relative to app data dir.
+    # If empty: use data/org_profiles/{org_profile}/risk_config.yaml when present,
+    # otherwise built-in defaults equivalent to the legacy hardcoded values.
+    risk_config_path: str | None = None
+
     # Database connection pool (SQLAlchemy). Tune based on expected concurrency and PostgreSQL max_connections.
     # pool_size: number of persistent connections per process.
     # max_overflow: additional connections beyond pool_size (borrowed temporarily).

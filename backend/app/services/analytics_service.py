@@ -6,15 +6,20 @@ Jede Funktion liefert ein typisiertes Dict, das direkt in eine Pydantic-Response
 from __future__ import annotations
 
 import statistics
-from datetime import date, datetime, timedelta, timezone
+from datetime import UTC, date, datetime, timedelta
 from typing import Any
 
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.services.risk_config_loader import get_risk_config
 
 # ---------------------------------------------------------------------------
-# Maturity-Score: Gewichtung der Sub-Scores (transparent dokumentiert).
+# Maturity-Score: Gewichtung der Sub-Scores.
+#
+# Werte werden zur Laufzeit aus RiskConfig.maturity.weights gelesen, siehe
+# risk_config_loader.py / risk_config.yaml. Die Konstante hier ist nur ein
+# Fallback-Default, falls die Config nicht erreichbar ist (z.B. in Pure-Tests).
 # ---------------------------------------------------------------------------
 
 MATURITY_WEIGHTS: dict[str, float] = {
@@ -24,6 +29,14 @@ MATURITY_WEIGHTS: dict[str, float] = {
     "tom": 0.20,
     "velocity": 0.20,
 }
+
+
+def _velocity_score(median_days: float, optimal_days: int, worst_days: int) -> float:
+    """Linear interpolation: optimal_days -> 100, worst_days -> 0."""
+    span = worst_days - optimal_days
+    if span <= 0:
+        return 100.0 if median_days <= optimal_days else 0.0
+    return max(0.0, min(100.0, 100.0 * (worst_days - median_days) / span))
 
 
 # ---------------------------------------------------------------------------
@@ -222,7 +235,7 @@ async def pipeline_stats(db: AsyncSession, department: str | None = None) -> dic
     coverage_pct = (with_finalized / high_risk_total * 100.0) if high_risk_total > 0 else 100.0
 
     return {
-        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "generated_at": datetime.now(UTC).isoformat(),
         "department_filter": department,
         "avv": {
             "buckets": avv_buckets,
@@ -438,7 +451,7 @@ async def velocity_stats(db: AsyncSession, department: str | None = None) -> dic
     funnels = await _compute_funnels(db, department=department)
 
     return {
-        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "generated_at": datetime.now(UTC).isoformat(),
         "department_filter": department,
         "dsr": dsr_section,
         "breach": breach_section,
@@ -619,7 +632,9 @@ async def compute_maturity_scores(db: AsyncSession) -> list[dict[str, Any]]:
         implemented = int(implemented or 0)
         tom_map[dept] = (implemented / total * 100.0) if total > 0 else 100.0
 
-    # 5) Velocity: Score 100 wenn Median DSR <= 14d und 0 wenn >= 60d (linear interpoliert).
+    # 5) Velocity: Score 100 bei Median DSR <= optimal_days, 0 bei >= worst_days
+    # (linear interpoliert). Schwellen aus RiskConfig.maturity.velocity.
+    maturity_cfg = get_risk_config().maturity
     vel_q = text("""
         SELECT department, EXTRACT(EPOCH FROM (responded_at - received_at))/86400.0 AS days
         FROM dsr_requests
@@ -637,10 +652,13 @@ async def compute_maturity_scores(db: AsyncSession) -> list[dict[str, Any]]:
         if med is None:
             vel_map[dept] = 100.0
         else:
-            # 14d -> 100, 60d -> 0
-            score = max(0.0, min(100.0, 100.0 * (60.0 - med) / 46.0))
-            vel_map[dept] = score
+            vel_map[dept] = _velocity_score(
+                med,
+                maturity_cfg.velocity.optimal_days,
+                maturity_cfg.velocity.worst_days,
+            )
 
+    weights = maturity_cfg.weights
     rows: list[dict[str, Any]] = []
     for dept in sorted(departments):
         sub = {
@@ -651,11 +669,11 @@ async def compute_maturity_scores(db: AsyncSession) -> list[dict[str, Any]]:
             "velocity_score": round(vel_map.get(dept, 100.0), 1),
         }
         composite = (
-            sub["vvt_score"] * MATURITY_WEIGHTS["vvt"]
-            + sub["dsfa_score"] * MATURITY_WEIGHTS["dsfa"]
-            + sub["avv_score"] * MATURITY_WEIGHTS["avv"]
-            + sub["tom_score"] * MATURITY_WEIGHTS["tom"]
-            + sub["velocity_score"] * MATURITY_WEIGHTS["velocity"]
+            sub["vvt_score"] * weights.get("vvt", MATURITY_WEIGHTS["vvt"])
+            + sub["dsfa_score"] * weights.get("dsfa", MATURITY_WEIGHTS["dsfa"])
+            + sub["avv_score"] * weights.get("avv", MATURITY_WEIGHTS["avv"])
+            + sub["tom_score"] * weights.get("tom", MATURITY_WEIGHTS["tom"])
+            + sub["velocity_score"] * weights.get("velocity", MATURITY_WEIGHTS["velocity"])
         )
         rows.append({
             "department": dept,
@@ -730,9 +748,9 @@ async def maturity_stats(db: AsyncSession, department: str | None = None) -> dic
         }
 
     return {
-        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "generated_at": datetime.now(UTC).isoformat(),
         "department_filter": department,
-        "weights": MATURITY_WEIGHTS,
+        "weights": get_risk_config().maturity.weights,
         "departments": departments,
         "trend": trend,
         "improvers": [_to_imp(d) for d in improvers if d["delta_3m"] > 0],
@@ -776,3 +794,133 @@ async def write_maturity_snapshot(db: AsyncSession, snapshot_date: date | None =
         )
         inserted += 1
     return inserted
+
+
+# ---------------------------------------------------------------------------
+# Risk-Velocity (historische Trend-Analyse pro Sub-Score)
+# ---------------------------------------------------------------------------
+
+_RISK_VELOCITY_SUBSCORES = ("vvt", "dsfa", "avv", "tom", "velocity")
+
+
+def _classify_trend(delta_pct: float, threshold_pct: float) -> str:
+    """Return 'up' | 'down' | 'stable' depending on whether |delta| exceeds threshold."""
+    if abs(delta_pct) < threshold_pct:
+        return "stable"
+    return "up" if delta_pct > 0 else "down"
+
+
+async def compute_risk_velocity(
+    db: AsyncSession,
+    department: str | None = None,
+    window_days: int | None = None,
+) -> dict[str, Any]:
+    """Vergleicht aktuellen Composite/Sub-Score mit dem Wert vor window_days.
+
+    Datenquelle: `compliance_maturity_snapshots`. Pro Department wird der
+    jüngste Snapshot und der dem cutoff am nächsten liegende ältere Snapshot
+    geladen. Bewegungen über `risk_velocity.significant_change_pct` werden
+    als up/down klassifiziert, sonst stable.
+
+    Returns dict mit Feldern `generated_at`, `window_days`, `enabled`,
+    `significant_change_pct` und `departments` (Liste mit current/previous/
+    delta/trend pro Sub-Score).
+    """
+    rv_cfg = get_risk_config().risk_velocity
+    effective_window = window_days if window_days is not None else rv_cfg.window_days
+    today = date.today()
+    cutoff = today - timedelta(days=effective_window)
+
+    dept_filter = ""
+    params: dict[str, Any] = {"cutoff": cutoff}
+    if department:
+        dept_filter = " AND department = :dept "
+        params["dept"] = department
+
+    score_columns = ", ".join(f"{name}_score" if name != "velocity" else "velocity_score" for name in _RISK_VELOCITY_SUBSCORES)
+
+    # Jüngster Snapshot pro Department (immer im Vergleichsfenster).
+    current_q = text(f"""
+        SELECT DISTINCT ON (department) department, snapshot_date,
+            composite_score, {score_columns}
+        FROM compliance_maturity_snapshots
+        WHERE 1=1 {dept_filter}
+        ORDER BY department, snapshot_date DESC
+    """)
+    # Ältester Snapshot pro Department vor/an der cutoff-Linie.
+    previous_q = text(f"""
+        SELECT DISTINCT ON (department) department, snapshot_date,
+            composite_score, {score_columns}
+        FROM compliance_maturity_snapshots
+        WHERE snapshot_date <= :cutoff {dept_filter}
+        ORDER BY department, snapshot_date DESC
+    """)
+
+    current_rows = (await db.execute(current_q, {k: v for k, v in params.items() if k != "cutoff"})).fetchall()
+    previous_rows = (await db.execute(previous_q, params)).fetchall()
+
+    def _row_to_dict(row) -> dict[str, Any]:
+        dept, snap_date, composite = row[0], row[1], float(row[2])
+        sub = {name: float(row[3 + idx]) for idx, name in enumerate(_RISK_VELOCITY_SUBSCORES)}
+        return {"department": dept, "snapshot_date": snap_date, "composite_score": composite, "sub_scores": sub}
+
+    current_map = {r[0]: _row_to_dict(r) for r in current_rows}
+    previous_map = {r[0]: _row_to_dict(r) for r in previous_rows}
+
+    departments: list[dict[str, Any]] = []
+    for dept in sorted(current_map.keys()):
+        cur = current_map[dept]
+        prev = previous_map.get(dept)
+        if prev is None:
+            # Kein Vergleichswert vorhanden — Trend "unknown", stable.
+            departments.append({
+                "department": dept,
+                "current_composite": round(cur["composite_score"], 1),
+                "previous_composite": None,
+                "delta": None,
+                "trend": "unknown",
+                "significant": False,
+                "current_snapshot_date": cur["snapshot_date"].isoformat(),
+                "previous_snapshot_date": None,
+                "sub_scores": {
+                    name: {
+                        "current": round(cur["sub_scores"][name], 1),
+                        "previous": None,
+                        "delta": None,
+                        "trend": "unknown",
+                    }
+                    for name in _RISK_VELOCITY_SUBSCORES
+                },
+            })
+            continue
+
+        delta = cur["composite_score"] - prev["composite_score"]
+        sub_trends = {}
+        for name in _RISK_VELOCITY_SUBSCORES:
+            sub_delta = cur["sub_scores"][name] - prev["sub_scores"][name]
+            sub_trends[name] = {
+                "current": round(cur["sub_scores"][name], 1),
+                "previous": round(prev["sub_scores"][name], 1),
+                "delta": round(sub_delta, 1),
+                "trend": _classify_trend(sub_delta, rv_cfg.significant_change_pct),
+            }
+        departments.append({
+            "department": dept,
+            "current_composite": round(cur["composite_score"], 1),
+            "previous_composite": round(prev["composite_score"], 1),
+            "delta": round(delta, 1),
+            "trend": _classify_trend(delta, rv_cfg.significant_change_pct),
+            "significant": abs(delta) >= rv_cfg.significant_change_pct,
+            "current_snapshot_date": cur["snapshot_date"].isoformat(),
+            "previous_snapshot_date": prev["snapshot_date"].isoformat(),
+            "sub_scores": sub_trends,
+        })
+
+    return {
+        "generated_at": datetime.now(UTC).isoformat(),
+        "window_days": effective_window,
+        "enabled": rv_cfg.enabled,
+        "significant_change_pct": rv_cfg.significant_change_pct,
+        "department_filter": department,
+        "departments": departments,
+    }

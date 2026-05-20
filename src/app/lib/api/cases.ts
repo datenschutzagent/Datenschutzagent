@@ -712,3 +712,71 @@ export interface DsfaScreeningResult {
 export async function getDsfaScreening(caseId: string): Promise<DsfaScreeningResult> {
   return request<DsfaScreeningResult>("GET", `/cases/${caseId}/dsfa/screening`);
 }
+
+// ---------------------------------------------------------------------------
+// DSFA — vollständige Bewertung (Phase B2)
+// ---------------------------------------------------------------------------
+
+export interface DsfaRiskItem {
+  description: string;
+  likelihood: "low" | "medium" | "high";
+  severity: "low" | "medium" | "high";
+  mitigation: string;
+  likelihood_score?: number | null;
+  severity_score?: number | null;
+  risk_level?: "low" | "medium" | "high" | "critical" | null;
+}
+
+export interface DsfaPayload {
+  necessity_assessment: string;
+  proportionality_assessment: string;
+  risks: DsfaRiskItem[];
+  residual_risk: "low" | "medium" | "high" | "critical";
+  dpo_consultation_required: boolean;
+  measures: string[];
+  confidence?: number | null;
+  low_confidence?: boolean | null;
+  scale_version?: string | null;
+}
+
+export interface DsfaResponse {
+  case_id: string;
+  status: "draft" | "finalized";
+  payload: DsfaPayload;
+  generated_at: string;
+  finalized_at: string | null;
+  finalized_by: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export async function getDsfa(caseId: string): Promise<DsfaResponse> {
+  return request<DsfaResponse>("GET", `/cases/${caseId}/dsfa`);
+}
+
+// --- DSFA Job-Status (async generation) ---
+
+export type DsfaJobStatus = "running" | "completed" | "failed" | "not_started";
+
+export interface DsfaJobStatusResponse {
+  job_id?: string;
+  case_id?: string;
+  status: DsfaJobStatus;
+  error?: string | null;
+  created_at?: string;
+  updated_at?: string;
+}
+
+export async function generateDsfa(caseId: string): Promise<DsfaJobStatusResponse> {
+  return request<DsfaJobStatusResponse>("POST", `/cases/${caseId}/dsfa/generate`);
+}
+
+export async function getDsfaJobStatus(caseId: string): Promise<DsfaJobStatusResponse> {
+  return request<DsfaJobStatusResponse>("GET", `/cases/${caseId}/dsfa/status`);
+}
+
+export async function finalizeDsfa(caseId: string, finalizedBy: string): Promise<DsfaResponse> {
+  return request<DsfaResponse>("PATCH", `/cases/${caseId}/dsfa/finalize`, {
+    body: { finalized_by: finalizedBy },
+  });
+}

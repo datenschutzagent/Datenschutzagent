@@ -2,7 +2,7 @@
 import asyncio
 import logging
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -18,13 +18,13 @@ from app.models.db import (
     CaseModel,
     DSFAAssessmentModel,
     DSFAJobModel,
-    UserModel,
 )
 from app.models.schemas import (
     DSFAFinalizeRequest,
     DSFAJobStatusResponse,
     DSFAResponse,
 )
+from app.services.dsfa_service import _normalize_dsfa_payload
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -58,7 +58,11 @@ async def get_dsfa(
     dsfa = result.scalar_one_or_none()
     if not dsfa:
         raise HTTPException(status_code=404, detail="Keine DSFA für diesen Vorgang vorhanden. Bitte zuerst generieren.")
-    return DSFAResponse.model_validate(dsfa)
+    response = DSFAResponse.model_validate(dsfa)
+    # Soft-Migration: Legacy-Records (string-Skala) on-the-fly auf die
+    # numerische 1-5-Skala + Matrix normalisieren, ohne die DB anzufassen.
+    response.payload = _normalize_dsfa_payload(response.payload)
+    return response
 
 
 @router.post("/{case_id}/dsfa/generate", response_model=DSFAJobStatusResponse, status_code=202, summary="DSFA generieren")
@@ -146,17 +150,19 @@ async def finalize_dsfa(
         raise HTTPException(status_code=400, detail="DSFA ist bereits finalisiert")
 
     dsfa.status = "finalized"
-    dsfa.finalized_at = datetime.now(timezone.utc)
+    dsfa.finalized_at = datetime.now(UTC)
     dsfa.finalized_by = body.finalized_by
     await db.flush()
     await db.refresh(dsfa)
-    return DSFAResponse.model_validate(dsfa)
+    response = DSFAResponse.model_validate(dsfa)
+    response.payload = _normalize_dsfa_payload(response.payload)
+    return response
 
 
 async def _run_dsfa_inline(job_id: UUID, db: AsyncSession) -> None:
     """Synchroner Fallback für DSFA-Generierung ohne Celery."""
-    from app.services.dsfa_service import generate_dsfa, save_dsfa
     from app.database import async_session_factory
+    from app.services.dsfa_service import generate_dsfa, save_dsfa
 
     async with async_session_factory() as session:
         job_result = await session.execute(select(DSFAJobModel).where(DSFAJobModel.id == job_id))

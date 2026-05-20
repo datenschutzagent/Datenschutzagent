@@ -6,6 +6,7 @@ import { Button } from "../components/ui/button";
 import { AdminSystemTab } from "../components/admin/AdminSystemTab";
 import { AdminPromptsTab } from "../components/admin/AdminPromptsTab";
 import { AdminUsersTab } from "../components/admin/AdminUsersTab";
+import { AdminRiskConfigTab } from "../components/admin/AdminRiskConfigTab";
 import { useAuthOptional } from "../contexts/AuthContext";
 import { isAdmin } from "../lib/api";
 import { CircleAlert } from "lucide-react";
@@ -37,6 +38,7 @@ export function AdminPage() {
       <AdminSystemTab />
       <AdminPromptsTab />
       <AdminUsersTab />
+      <AdminRiskConfigTab />
     </AppLayout>
   );
 }

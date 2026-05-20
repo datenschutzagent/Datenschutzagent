@@ -21,6 +21,7 @@ class UserResponse(BaseModel):
     email: str | None = None
     role: UserRoleEnum = "viewer"
     preferences: dict[str, Any] = Field(default_factory=dict)
+    notifications_enabled: bool = True
     created_at: datetime
     updated_at: datetime
 
@@ -31,6 +32,7 @@ class UserUpdate(BaseModel):
     display_name: str | None = None
     email: str | None = None
     preferences: UserPreferences | dict[str, Any] | None = None
+    notifications_enabled: bool | None = None
 
 
 class PromptTemplateResponse(BaseModel):

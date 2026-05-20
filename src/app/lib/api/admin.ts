@@ -78,6 +78,7 @@ export interface ApiUser {
   email: string | null;
   role?: UserRole;
   preferences: UserPreferences | Record<string, unknown>;
+  notifications_enabled?: boolean;
   created_at: string;
   updated_at: string;
 }
@@ -96,6 +97,7 @@ export interface UserUpdateInput {
   display_name?: string;
   email?: string | null;
   preferences?: UserPreferences | Record<string, unknown>;
+  notifications_enabled?: boolean;
 }
 
 export async function getCurrentUser(): Promise<ApiUser> {
@@ -296,4 +298,38 @@ export async function testWebhook(id: string): Promise<{ success: boolean; http_
 
 export async function getWebhookEvents(): Promise<string[]> {
   return request<string[]>("GET", "/admin/webhooks/events");
+}
+
+// ---------------------------------------------------------------------------
+// Risk-Config admin endpoints (Phase C / Item 13)
+// ---------------------------------------------------------------------------
+
+import type {
+  AdminRiskConfigPreviewResponse,
+  AdminRiskConfigResponse,
+  RiskConfig,
+} from "./types/risk-config";
+
+export async function getAdminRiskConfig(): Promise<AdminRiskConfigResponse> {
+  return request<AdminRiskConfigResponse>("GET", "/admin/risk-config");
+}
+
+export async function updateAdminRiskConfig(
+  config: RiskConfig
+): Promise<AdminRiskConfigResponse> {
+  return request<AdminRiskConfigResponse>("PUT", "/admin/risk-config", {
+    body: { config },
+  });
+}
+
+export async function reloadAdminRiskConfig(): Promise<{ reloaded: boolean }> {
+  return request<{ reloaded: boolean }>("POST", "/admin/risk-config/reload");
+}
+
+export async function previewAdminRiskConfig(
+  config: RiskConfig
+): Promise<AdminRiskConfigPreviewResponse> {
+  return request<AdminRiskConfigPreviewResponse>("POST", "/admin/risk-config/preview", {
+    body: { config },
+  });
 }
