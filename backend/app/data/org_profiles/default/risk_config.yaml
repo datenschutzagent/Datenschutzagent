@@ -87,6 +87,28 @@ dsfa_screening:
       label: "Neue oder innovative Technologie"
       description: "Einsatz neuer Technologien (KI, Biometrie, IoT) mit unbekannten Risiken."
       keywords_processing_context: ["ki ", "künstliche intel", biometrie, iot, "internet of things", blockchain, neu]
+  # -------------------------------------------------------------------------
+  # Boolesche Override-Regeln (Phase 3). Werten den Faktoren-Match-Set aus
+  # und können die Threshold-Logik überstimmen.
+  #
+  # Operatoren: AND, OR, NOT (+ Klammern). Identifier = Faktor-IDs aus
+  # "factors" oben. Unbekannte IDs erzeugen ValidationError beim Laden.
+  #
+  # Actions:
+  #   require_dsfa   erzwingt required=true
+  #   skip_dsfa      erzwingt required=false (Veto)
+  # -------------------------------------------------------------------------
+  rules:
+    - id: profiling_plus_special_categories
+      label: "Profiling + besondere Kategorien"
+      description: "Beide Faktoren zusammen erfüllen automatisch das DSFA-Pflicht-Kriterium aus Art. 35 Abs. 3 lit. a + b."
+      expression: "profiling AND special_categories"
+      action: require_dsfa
+    - id: systematic_monitoring_in_public
+      label: "Systematische Überwachung in öffentlichem Raum"
+      description: "Erfüllt allein bereits Art. 35 Abs. 3 lit. c."
+      expression: "systematic_monitoring"
+      action: require_dsfa
 
 # -----------------------------------------------------------------------------
 # DSFA-Bewertung (ISO 27005 Likelihood × Severity) — dsfa_service.generate_dsfa

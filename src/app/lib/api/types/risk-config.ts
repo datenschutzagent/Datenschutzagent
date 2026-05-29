@@ -36,13 +36,24 @@ export interface DsfaScreeningFactor {
   findings_severity: string[];
 }
 
+export interface DsfaScreeningRule {
+  id: string;
+  label: string;
+  description: string;
+  expression: string;
+  action: "require_dsfa" | "skip_dsfa";
+}
+
 export interface DsfaScreeningConfig {
   required_threshold: number;
   factors: DsfaScreeningFactor[];
+  rules: DsfaScreeningRule[];
 }
 
+export type DsfaScaleType = "1-3" | "1-5" | "1-7";
+
 export interface DsfaAssessmentConfig {
-  scale_type: "1-3" | "1-5";
+  scale_type: DsfaScaleType;
   scale_labels: {
     likelihood: Record<number, string>;
     severity: Record<number, string>;

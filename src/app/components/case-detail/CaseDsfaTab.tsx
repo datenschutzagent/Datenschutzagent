@@ -417,13 +417,29 @@ function DsfaResult({ dsfa, caseId }: { dsfa: DsfaResponse; caseId: string }) {
         </div>
       )}
 
-      {/* Risk-Matrix 5x5 — zeigt residual + (gestrichelt) inherent */}
+      {/* Risk-Matrix (Größe 3/5/7) — zeigt residual + (gestrichelt) inherent */}
       {risks.length > 0 && (
         <div className="space-y-2">
           <h4 className="text-sm font-medium">Risk-Matrix (ISO 27005)</h4>
           <RiskMatrix2D
             risks={risks as DsfaRisk[]}
             inherentRisks={(payload.inherent_risks ?? []) as DsfaRisk[]}
+            size={(payload.scale_size as 3 | 5 | 7 | undefined) ?? 5}
+            matrix={payload.matrix ?? undefined}
+            likelihoodLabels={
+              payload.scale_labels?.likelihood
+                ? Object.fromEntries(
+                    Object.entries(payload.scale_labels.likelihood).map(([k, v]) => [Number(k), v]),
+                  )
+                : undefined
+            }
+            severityLabels={
+              payload.scale_labels?.severity
+                ? Object.fromEntries(
+                    Object.entries(payload.scale_labels.severity).map(([k, v]) => [Number(k), v]),
+                  )
+                : undefined
+            }
           />
         </div>
       )}

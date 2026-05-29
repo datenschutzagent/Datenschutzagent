@@ -61,6 +61,7 @@ function makeConfig(): RiskConfig {
       min_confidence: 0,
     },
     dsfa_screening: {
+      rules: [],
       required_threshold: 2.0,
       factors: [
         {

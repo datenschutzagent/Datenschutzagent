@@ -762,6 +762,14 @@ export interface DsfaPayload {
   /** Provenance of the underlying risk numbers — Phase 2. */
   source?: "llm" | "rules" | "hybrid" | null;
   scale_version?: string | null;
+  /** Matrix metadata — Phase 3 (variable scale sizes 3/5/7). */
+  scale_type?: "1-3" | "1-5" | "1-7" | null;
+  scale_size?: 3 | 5 | 7 | null;
+  matrix?: Record<string, "low" | "medium" | "high" | "critical"> | null;
+  scale_labels?: {
+    likelihood?: Record<string, string>;
+    severity?: Record<string, string>;
+  } | null;
 }
 
 export interface DsfaResponse {

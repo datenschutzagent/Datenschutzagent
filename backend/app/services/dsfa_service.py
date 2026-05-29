@@ -355,6 +355,15 @@ async def generate_dsfa(case_id: UUID, db: AsyncSession) -> dict[str, Any]:
         "confidence": confidence,
         "low_confidence": low_confidence,
         "scale_version": DSFA_SCALE_VERSION_NUMERIC,
+        # Matrix metadata so the UI can render the right grid without
+        # needing admin scope on the risk-config endpoint.
+        "scale_type": dsfa_cfg.scale_type,
+        "scale_size": dsfa_cfg.size,
+        "matrix": dict(dsfa_cfg.matrix),
+        "scale_labels": {
+            "likelihood": {str(k): v for k, v in dsfa_cfg.scale_labels.get("likelihood", {}).items()},
+            "severity": {str(k): v for k, v in dsfa_cfg.scale_labels.get("severity", {}).items()},
+        },
     }
     logger.info(
         "DSFA generation complete",
@@ -431,6 +440,7 @@ async def screen_dsfa_requirement(case_id: UUID, db: AsyncSession) -> dict[str, 
     open_findings = [f for f in findings if f.status == FindingStatus.OPEN]
     factor_results = []
     score = 0.0
+    matched_ids: set[str] = set()
     for factor in dsfa_cfg.factors:
         try:
             met = _factor_met(factor, case, open_findings)
@@ -439,6 +449,7 @@ async def screen_dsfa_requirement(case_id: UUID, db: AsyncSession) -> dict[str, 
             met = False
         if met:
             score += factor.weight
+            matched_ids.add(factor.id)
         factor_results.append({
             "id": factor.id,
             "label": factor.label,
@@ -449,6 +460,17 @@ async def screen_dsfa_requirement(case_id: UUID, db: AsyncSession) -> dict[str, 
 
     threshold = dsfa_cfg.required_threshold
     required = score >= threshold
+
+    # Boolean override rules (Phase 3). A rule with action=require_dsfa
+    # forces required=true; skip_dsfa forces required=false. Both produce
+    # an explanation line for the recommendation.
+    rule_results = _evaluate_screening_rules(dsfa_cfg.rules, matched_ids)
+    forced_required = any(r["matched"] and r["action"] == "require_dsfa" for r in rule_results)
+    forced_skip = any(r["matched"] and r["action"] == "skip_dsfa" for r in rule_results)
+    if forced_required:
+        required = True
+    elif forced_skip:
+        required = False
     logger.info(
         "DSFA screening complete",
         extra={"case_id": str(case_id), "score": score, "required": required, "threshold": threshold},
@@ -456,7 +478,19 @@ async def screen_dsfa_requirement(case_id: UUID, db: AsyncSession) -> dict[str, 
 
     score_fmt = f"{score:g}"  # 2.0 -> "2", 3.5 -> "3.5"
     threshold_fmt = f"{threshold:g}"
-    if score == 0:
+    if forced_required:
+        triggered = [r["label"] for r in rule_results if r["matched"] and r["action"] == "require_dsfa"]
+        recommendation = (
+            "DSFA ist verpflichtend gemäß Org-Regel "
+            f"({', '.join(triggered)}). Bitte umgehend durchführen."
+        )
+    elif forced_skip:
+        triggered = [r["label"] for r in rule_results if r["matched"] and r["action"] == "skip_dsfa"]
+        recommendation = (
+            "DSFA aktuell nicht erforderlich (Org-Regel: "
+            f"{', '.join(triggered)}). Trotzdem regelmäßig neu bewerten."
+        )
+    elif score == 0:
         recommendation = "Keine Risikofaktoren identifiziert. DSFA aktuell nicht erforderlich."
     elif not required:
         recommendation = (
@@ -481,8 +515,32 @@ async def screen_dsfa_requirement(case_id: UUID, db: AsyncSession) -> dict[str, 
         "score": score,
         "threshold": threshold,
         "factors": factor_results,
+        "rules": rule_results,
+        "rule_override": "require_dsfa" if forced_required else ("skip_dsfa" if forced_skip else None),
         "recommendation": recommendation,
     }
+
+
+def _evaluate_screening_rules(rules, matched_ids: set[str]) -> list[dict[str, Any]]:
+    """Evaluate the configured Boolean screening rules against the matched factor set."""
+    from app.services.boolean_rule_parser import evaluate, parse
+    out: list[dict[str, Any]] = []
+    for rule in rules:
+        try:
+            ast = parse(rule.expression)
+            matched = evaluate(ast, matched_ids)
+        except Exception as exc:  # noqa: BLE001 — never crash screening on a bad rule
+            logger.warning("DSFA screening rule '%s' failed to evaluate: %s", rule.id, exc)
+            matched = False
+        out.append({
+            "id": rule.id,
+            "label": rule.label,
+            "description": rule.description,
+            "expression": rule.expression,
+            "action": rule.action,
+            "matched": matched,
+        })
+    return out
 
 
 def _dsfa_fallback_result(case: CaseModel, findings) -> "_DSFAResult":
