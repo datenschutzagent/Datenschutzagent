@@ -73,6 +73,32 @@ export interface RiskVelocityConfig {
   significant_change_pct: number;
 }
 
+export interface MitigationReduction {
+  score_delta: number;
+  dimension_deltas: Record<string, number>;
+  likelihood_delta: number;
+  severity_delta: number;
+  applicable_risk_keywords: string[];
+}
+
+export interface MitigationCatalogEntry {
+  id: string;
+  label: string;
+  description: string;
+  applies_to: "avv" | "dsfa" | "both";
+  tom_category: string | null;
+  evidence_required: boolean;
+  reduction: MitigationReduction;
+}
+
+export interface MitigationCatalogConfig {
+  enabled: boolean;
+  min_likelihood: number;
+  min_severity: number;
+  min_avv_score: number;
+  catalog: MitigationCatalogEntry[];
+}
+
 export interface RiskConfig {
   version: number;
   avv: AvvRiskConfig;
@@ -81,6 +107,7 @@ export interface RiskConfig {
   case_score: CaseScoreConfig;
   maturity: MaturityConfig;
   risk_velocity: RiskVelocityConfig;
+  mitigations: MitigationCatalogConfig;
 }
 
 export interface AdminRiskConfigResponse {

@@ -3,6 +3,7 @@ from fastapi import APIRouter, Depends
 
 from app.api.routes import admin, admin_prompt_templates, cases, departments, documents, findings, legal_bases, playbooks, users, vvt_overview
 from app.api.routes import dsfa, dsr, data_breaches, avv, tom, case_templates
+from app.api.routes import mitigations
 from app.api.routes import privacy_policy, webhooks
 from app.api.routes import analytics
 from app.core.auth import get_current_user
@@ -29,3 +30,4 @@ router.include_router(privacy_policy.router, prefix="/privacy-policies", tags=["
 router.include_router(privacy_policy.case_scoped_router, prefix="/cases", tags=["privacy-policy"])
 router.include_router(webhooks.router, prefix="/admin/webhooks", tags=["admin"])
 router.include_router(analytics.router, prefix="/analytics", tags=["analytics"])
+router.include_router(mitigations.router, tags=["mitigations"])

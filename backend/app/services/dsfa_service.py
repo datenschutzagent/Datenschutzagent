@@ -11,7 +11,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.constants import FindingSeverity, FindingStatus
 from app.core.llm import create_agent
 from app.core.prompt_security import sanitize_prompt_field
-from app.models.db import CaseModel, DSFAAssessmentModel, FindingModel
+from app.models.db import CaseMitigationLinkModel, CaseModel, DSFAAssessmentModel, FindingModel
+from app.services.mitigation_service import apply_dsfa_mitigations
 from app.services.risk_config_loader import get_risk_config
 
 logger = logging.getLogger(__name__)
@@ -242,12 +243,12 @@ async def generate_dsfa(case_id: UUID, db: AsyncSession) -> dict[str, Any]:
             },
         )
 
-    risks_payload = []
+    inherent_risks_payload = []
     for r in data.risks:
         lik = max(1, min(5, int(r.likelihood)))
         sev = max(1, min(5, int(r.severity)))
         risk_level = dsfa_cfg.risk_level_for(lik, sev)
-        risks_payload.append({
+        inherent_risks_payload.append({
             "description": r.description,
             "likelihood": _to_label(lik),
             "severity": _to_label(sev),
@@ -257,23 +258,56 @@ async def generate_dsfa(case_id: UUID, db: AsyncSession) -> dict[str, Any]:
             "mitigation": r.mitigation,
         })
 
-    # Residualrisiko = höchstes Einzelrisiko; DPO-Konsultation regelbasiert.
-    if risks_payload:
-        residual_risk = max(
-            (r["risk_level"] for r in risks_payload),
+    # Inherent (vor Mitigation): höchstes Einzelrisiko.
+    if inherent_risks_payload:
+        inherent_residual = max(
+            (r["risk_level"] for r in inherent_risks_payload),
             key=lambda lv: _RESIDUAL_RANK.get(lv, 0),
         )
     else:
-        residual_risk = "low"
-    dpo_required = residual_risk in dsfa_cfg.dpo_consultation_required_when_residual_in
+        inherent_residual = "low"
+
+    # Residual via Mitigation-Katalog. Wenn keine Mitigations verknüpft sind
+    # ist residual == inherent — kompletter Backward-compat.
+    applied_ids = await _load_case_mitigation_ids(case_id, db)
+    if cfg.mitigations.enabled and applied_ids and inherent_risks_payload:
+        residual = apply_dsfa_mitigations(
+            inherent_risks=inherent_risks_payload,
+            applied_mitigation_ids=applied_ids,
+            catalog=cfg.mitigations,
+            dsfa_cfg=dsfa_cfg,
+        )
+        risks_payload = residual["residual_risks"]
+        residual_risk = residual["residual_overall_level"]
+        applied_effects = residual["applied_effects"]
+        dpo_required = residual["dpo_consultation_required"]
+    else:
+        # Keine Mitigations → spiegele inherent in residual + leeren Effekt-Trace.
+        risks_payload = [
+            {
+                **r,
+                "inherent_likelihood_score": r["likelihood_score"],
+                "inherent_severity_score": r["severity_score"],
+                "inherent_risk_level": r["risk_level"],
+                "applied_mitigation_ids": [],
+            }
+            for r in inherent_risks_payload
+        ]
+        residual_risk = inherent_residual
+        applied_effects = []
+        dpo_required = residual_risk in dsfa_cfg.dpo_consultation_required_when_residual_in
 
     payload = {
         "necessity_assessment": data.necessity_assessment,
         "proportionality_assessment": data.proportionality_assessment,
         "risks": risks_payload,
+        "inherent_risks": inherent_risks_payload,
+        "inherent_residual_risk": inherent_residual,
         "residual_risk": residual_risk,
         "dpo_consultation_required": dpo_required,
         "measures": list(data.measures),
+        "applied_mitigations": applied_ids,
+        "applied_effects": applied_effects,
         "confidence": confidence,
         "low_confidence": low_confidence,
         "scale_version": DSFA_SCALE_VERSION_NUMERIC,
@@ -405,6 +439,16 @@ async def screen_dsfa_requirement(case_id: UUID, db: AsyncSession) -> dict[str, 
         "factors": factor_results,
         "recommendation": recommendation,
     }
+
+
+async def _load_case_mitigation_ids(case_id: UUID, db: AsyncSession) -> list[str]:
+    """Return the catalog-ids of mitigations currently linked to a case (DSFA)."""
+    result = await db.execute(
+        select(CaseMitigationLinkModel.mitigation_id).where(
+            CaseMitigationLinkModel.case_id == case_id
+        )
+    )
+    return [row for row in result.scalars().all()]
 
 
 async def save_dsfa(case_id: UUID, payload: dict[str, Any], db: AsyncSession) -> DSFAAssessmentModel:

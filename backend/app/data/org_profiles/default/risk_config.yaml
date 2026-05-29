@@ -189,3 +189,100 @@ risk_velocity:
   # Mindest-Delta in Prozentpunkten, ab dem ein Trend als signifikant gilt
   # (Pfeil hoch/runter statt "stabil"). Niedrigere Werte = sensitiver.
   significant_change_pct: 15
+
+# -----------------------------------------------------------------------------
+# Mitigation-Katalog (TOM → Risk-Reduktion) — mitigation_service.py
+# -----------------------------------------------------------------------------
+# Jede Mitigation kann das inherent risk einer AVV-Bewertung und/oder DSFA
+# reduzieren. Die Verknüpfung zum konkreten Fall passiert über die Tabelle
+# `case_mitigation_link` (Endpoints unter /cases/{id}/mitigations).
+#
+# applies_to:        avv | dsfa | both
+# reduction:
+#   AVV-seitig:
+#     score_delta              negativer Float, wird auf das 1-5 Mittel addiert
+#     dimension_deltas         Map Dimension → negativer Delta (vor Mittelung)
+#   DSFA-seitig:
+#     likelihood_delta         negativer Int, pro Risiko vor Matrix-Lookup
+#     severity_delta           negativer Int, pro Risiko vor Matrix-Lookup
+#     applicable_risk_keywords leere Liste = jedes Risiko; sonst Substring-Match
+#
+# Floors (min_likelihood, min_severity, min_avv_score) verhindern, dass eine
+# Kombination das Restrisiko unter 1 / 1.0 drückt.
+mitigations:
+  enabled: true
+  min_likelihood: 1
+  min_severity: 1
+  min_avv_score: 1.0
+  catalog:
+    - id: encryption_at_rest
+      label: "Verschlüsselung ruhender Daten (AES-256)"
+      description: "Datenträger- und Datenbank-Verschlüsselung gemäß BSI TR-02102."
+      applies_to: both
+      tom_category: confidentiality
+      evidence_required: true
+      reduction:
+        score_delta: -0.5
+        severity_delta: -1
+        applicable_risk_keywords: [vertraulich, leak, leck, unbefugt, exfiltration]
+    - id: encryption_in_transit
+      label: "Transport-Verschlüsselung (TLS 1.2+)"
+      description: "End-to-End TLS für alle Schnittstellen, HSTS aktiv."
+      applies_to: both
+      tom_category: confidentiality
+      reduction:
+        score_delta: -0.3
+        dimension_deltas:
+          "Drittlandrisiko": -0.3
+    - id: rbac_least_privilege
+      label: "Rollen- und Berechtigungskonzept (Least Privilege)"
+      description: "Granulare Zugriffsrechte, regelmäßiges Recertification."
+      applies_to: both
+      tom_category: confidentiality
+      evidence_required: true
+      reduction:
+        likelihood_delta: -1
+        dimension_deltas:
+          "Zugriffsumfang": -1.0
+    - id: pseudonymization
+      label: "Pseudonymisierung personenbezogener Daten"
+      description: "Schlüssel getrennt gespeichert; Re-Identifikation nur mit Zusatzinfo."
+      applies_to: dsfa
+      tom_category: confidentiality
+      reduction:
+        severity_delta: -1
+        applicable_risk_keywords: [identif, profil, re-identif]
+    - id: data_minimization
+      label: "Datenminimierung / Speicherbegrenzung"
+      description: "Aufbewahrungsfristen + Löschkonzept implementiert."
+      applies_to: dsfa
+      tom_category: integrity
+      reduction:
+        likelihood_delta: -1
+        severity_delta: -1
+    - id: dpa_signed_eu_scc
+      label: "AVV mit EU-Standardvertragsklauseln"
+      description: "Aktueller AVV nach Art. 28 mit SCC bei Drittlandtransfer."
+      applies_to: avv
+      tom_category: organizational
+      reduction:
+        dimension_deltas:
+          "Vertragliche Absicherung": -1.5
+          "Drittlandrisiko": -0.5
+    - id: audit_logging
+      label: "Lückenlose Audit-Logs (manipulationssicher)"
+      description: "Sicherheitsrelevante Aktionen protokolliert; WORM-Speicher."
+      applies_to: both
+      tom_category: integrity
+      reduction:
+        likelihood_delta: -1
+        score_delta: -0.2
+    - id: backup_dr_tested
+      label: "Backup-/Wiederherstellungskonzept (regelmäßig getestet)"
+      description: "Nachweisbare Restore-Tests innerhalb der letzten 12 Monate."
+      applies_to: dsfa
+      tom_category: availability
+      evidence_required: true
+      reduction:
+        severity_delta: -1
+        applicable_risk_keywords: [verfügbar, ausfall, verlust, ransomware]

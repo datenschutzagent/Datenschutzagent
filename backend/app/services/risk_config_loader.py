@@ -338,6 +338,109 @@ class RiskVelocityConfig(BaseModel):
 
 
 # ---------------------------------------------------------------------------
+# Section: Mitigation catalog (TOM → Risk-Reduction mapping)
+# ---------------------------------------------------------------------------
+
+
+_VALID_MITIGATION_TARGETS = {"avv", "dsfa", "both"}
+
+
+class MitigationReduction(BaseModel):
+    """How a mitigation reduces inherent risk.
+
+    All fields are additive deltas (negative = reduction). Floors are
+    enforced separately by the mitigation engine so combinations cannot
+    drive the residual below 1.
+
+    AVV-side:
+      - ``score_delta``: applied to the 1-5 dimension average (e.g. -0.5).
+      - ``dimension_deltas``: per-dimension overrides applied before the
+        weighted mean. Keys match the German dimension names emitted by
+        the LLM (e.g. "Datensensitivität").
+
+    DSFA-side:
+      - ``likelihood_delta`` / ``severity_delta``: subtracted from each
+        matching risk before the matrix lookup.
+      - ``applicable_risk_keywords``: optional substring filter on the
+        risk description. Empty list = applies to every risk.
+    """
+
+    score_delta: float = Field(default=0.0, le=0.0, description="AVV: delta on 1-5 avg score (≤0)")
+    dimension_deltas: dict[str, float] = Field(
+        default_factory=dict,
+        description="AVV: per-dimension score delta (each value ≤0)",
+    )
+    likelihood_delta: int = Field(default=0, le=0, description="DSFA: likelihood delta per risk (≤0)")
+    severity_delta: int = Field(default=0, le=0, description="DSFA: severity delta per risk (≤0)")
+    applicable_risk_keywords: list[str] = Field(
+        default_factory=list,
+        description="DSFA: substring match on risk.description; empty = all risks",
+    )
+
+    @field_validator("dimension_deltas")
+    @classmethod
+    def _dim_deltas_non_positive(cls, v: dict[str, float]) -> dict[str, float]:
+        bad = {k: val for k, val in v.items() if val > 0}
+        if bad:
+            raise ValueError(f"dimension_deltas must be ≤ 0 (got positive: {bad})")
+        return v
+
+
+class MitigationConfig(BaseModel):
+    """One mitigation entry in the catalog.
+
+    Linked to a TOM via ``tom_category`` or a free-form ``id``. The id must
+    be globally unique within the catalog so it can be referenced from
+    the case-mitigation-link table without DB-level enums.
+    """
+
+    id: str = Field(..., min_length=1, max_length=80, description="Unique catalog id (slug)")
+    label: str = Field(..., min_length=1, max_length=200)
+    description: str = ""
+    applies_to: str = Field(default="both", description="avv | dsfa | both")
+    tom_category: str | None = Field(default=None, description="optional TOMCategoryEnum value")
+    reduction: MitigationReduction = Field(default_factory=MitigationReduction)
+    evidence_required: bool = Field(default=False, description="UI hint: require evidence_doc_id on link")
+
+    @field_validator("applies_to")
+    @classmethod
+    def _applies_to_known(cls, v: str) -> str:
+        if v not in _VALID_MITIGATION_TARGETS:
+            raise ValueError(f"applies_to must be one of {sorted(_VALID_MITIGATION_TARGETS)}")
+        return v
+
+
+class MitigationCatalogConfig(BaseModel):
+    """Container for the mitigation catalog with global floors and policy."""
+
+    enabled: bool = Field(default=True)
+    min_likelihood: int = Field(default=1, ge=1, le=5, description="DSFA floor after reductions")
+    min_severity: int = Field(default=1, ge=1, le=5, description="DSFA floor after reductions")
+    min_avv_score: float = Field(default=1.0, ge=1.0, le=5.0, description="AVV floor after reductions")
+    catalog: list[MitigationConfig] = Field(default_factory=list)
+
+    @field_validator("catalog")
+    @classmethod
+    def _unique_ids(cls, v: list[MitigationConfig]) -> list[MitigationConfig]:
+        ids = [m.id for m in v]
+        if len(ids) != len(set(ids)):
+            raise ValueError("mitigation catalog ids must be unique")
+        return v
+
+    def by_id(self, mitigation_id: str) -> MitigationConfig | None:
+        for entry in self.catalog:
+            if entry.id == mitigation_id:
+                return entry
+        return None
+
+    def applicable(self, target: str) -> list[MitigationConfig]:
+        """Return all mitigations that apply to a given target ('avv' or 'dsfa')."""
+        if target not in {"avv", "dsfa"}:
+            return []
+        return [m for m in self.catalog if m.applies_to in (target, "both")]
+
+
+# ---------------------------------------------------------------------------
 # Top-level config
 # ---------------------------------------------------------------------------
 
@@ -350,6 +453,7 @@ class RiskConfig(BaseModel):
     case_score: CaseScoreConfig = Field(default_factory=CaseScoreConfig)
     maturity: MaturityConfig = Field(default_factory=MaturityConfig)
     risk_velocity: RiskVelocityConfig = Field(default_factory=RiskVelocityConfig)
+    mitigations: MitigationCatalogConfig = Field(default_factory=MitigationCatalogConfig)
 
 
 # ---------------------------------------------------------------------------

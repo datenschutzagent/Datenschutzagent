@@ -5,7 +5,7 @@ import uuid
 from datetime import date, datetime, timezone
 from typing import TYPE_CHECKING, Any
 
-from sqlalchemy import Boolean, Date, DateTime, ForeignKey, Index, Integer, String, Text
+from sqlalchemy import Boolean, Date, DateTime, ForeignKey, Index, Integer, String, Text, UniqueConstraint
 from sqlalchemy.dialects.postgresql import ARRAY, JSONB, UUID as PG_UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -126,8 +126,13 @@ class AVVContractModel(Base):
     document_name: Mapped[str | None] = mapped_column(String(500), nullable=True)
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
     check_result: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
+    # ``risk_score``/``risk_level`` always represent the *residual* values so
+    # legacy callers keep working. Inherent (pre-mitigation) values are kept
+    # alongside for the risk-delta endpoint.
     risk_score: Mapped[int | None] = mapped_column(Integer, nullable=True)
     risk_level: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    inherent_risk_score: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    inherent_risk_level: Mapped[str | None] = mapped_column(String(20), nullable=True)
     risk_assessment: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
     risk_assessed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     last_notified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, default=None)
@@ -154,6 +159,56 @@ class TOMModel(Base):
     department_codes: Mapped[list[str] | None] = mapped_column(ARRAY(String), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+
+
+class CaseMitigationLinkModel(Base):
+    """Eine angewendete Mitigation (aus dem YAML-Katalog) für einen Case.
+
+    Wird in der DSFA-Generierung herangezogen, um inherent → residual zu
+    rechnen. Optional kann eine konkrete TOM (``tom_id``) und ein
+    Nachweisdokument (``evidence_doc_id``) referenziert werden.
+    """
+    __tablename__ = "case_mitigation_links"
+    __table_args__ = (
+        UniqueConstraint("case_id", "mitigation_id", name="uq_case_mitigation_links_case_mitigation"),
+        Index("ix_case_mitigation_links_case_id", "case_id"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(PG_UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    case_id: Mapped[uuid.UUID] = mapped_column(
+        PG_UUID(as_uuid=True), ForeignKey("cases.id", ondelete="CASCADE"), nullable=False
+    )
+    mitigation_id: Mapped[str] = mapped_column(String(80), nullable=False)
+    tom_id: Mapped[uuid.UUID | None] = mapped_column(
+        PG_UUID(as_uuid=True), ForeignKey("tom_measures.id", ondelete="SET NULL"), nullable=True
+    )
+    evidence_doc_id: Mapped[uuid.UUID | None] = mapped_column(
+        PG_UUID(as_uuid=True), ForeignKey("documents.id", ondelete="SET NULL"), nullable=True
+    )
+    applied_by: Mapped[str] = mapped_column(String(200), nullable=False, default="")
+    notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    applied_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+
+
+class AvvMitigationLinkModel(Base):
+    """Eine angewendete Mitigation (aus dem YAML-Katalog) für einen AVV-Vertrag."""
+    __tablename__ = "avv_mitigation_links"
+    __table_args__ = (
+        UniqueConstraint("avv_contract_id", "mitigation_id", name="uq_avv_mitigation_links_contract_mitigation"),
+        Index("ix_avv_mitigation_links_contract_id", "avv_contract_id"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(PG_UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    avv_contract_id: Mapped[uuid.UUID] = mapped_column(
+        PG_UUID(as_uuid=True), ForeignKey("avv_contracts.id", ondelete="CASCADE"), nullable=False
+    )
+    mitigation_id: Mapped[str] = mapped_column(String(80), nullable=False)
+    tom_id: Mapped[uuid.UUID | None] = mapped_column(
+        PG_UUID(as_uuid=True), ForeignKey("tom_measures.id", ondelete="SET NULL"), nullable=True
+    )
+    applied_by: Mapped[str] = mapped_column(String(200), nullable=False, default="")
+    notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    applied_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 
 
 class TOMAttachmentModel(Base):

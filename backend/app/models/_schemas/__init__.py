@@ -132,4 +132,12 @@ from .compliance import (
     CaseTemplateCreate,
     CaseTemplateResponse,
     CaseTemplateApplyRequest,
+    MitigationReductionResponse,
+    MitigationCatalogEntry,
+    MitigationCatalogResponse,
+    MitigationLinkRequest,
+    CaseMitigationLinkResponse,
+    AvvMitigationLinkResponse,
+    RiskDeltaSide,
+    RiskDeltaResponse,
 )

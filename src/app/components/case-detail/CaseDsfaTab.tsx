@@ -31,6 +31,7 @@ import {
 import { useAuthOptional } from "../../contexts/AuthContext";
 import { RiskMatrix2D, type DsfaRisk } from "../risk-matrix-2d";
 import { DsfaScreeningCard } from "./DsfaScreeningCard";
+import { RiskMitigationPanel } from "./risk-mitigation-panel";
 
 const RISK_LEVEL_LABEL: Record<string, string> = {
   low: "Niedrig",
@@ -218,7 +219,7 @@ export function CaseDsfaTab({ caseData, canEdit }: Props) {
               DSFA wird generiert. Die Karte aktualisiert sich automatisch, sobald der Job abgeschlossen ist.
             </p>
           )}
-          {dsfa && <DsfaResult dsfa={dsfa} />}
+          {dsfa && <DsfaResult dsfa={dsfa} caseId={caseData.id} />}
         </CardContent>
       </Card>
 
@@ -276,7 +277,7 @@ export function CaseDsfaTab({ caseData, canEdit }: Props) {
   );
 }
 
-function DsfaResult({ dsfa }: { dsfa: DsfaResponse }) {
+function DsfaResult({ dsfa, caseId }: { dsfa: DsfaResponse; caseId: string }) {
   const payload: DsfaPayload = dsfa.payload;
   const risks = payload.risks ?? [];
   const generatedAt = new Date(dsfa.generated_at).toLocaleString("de-DE");
@@ -397,16 +398,32 @@ function DsfaResult({ dsfa }: { dsfa: DsfaResponse }) {
         </div>
       )}
 
-      {/* Risk-Matrix 5x5 */}
+      {/* Risk-Matrix 5x5 — zeigt residual + (gestrichelt) inherent */}
       {risks.length > 0 && (
         <div className="space-y-2">
           <h4 className="text-sm font-medium">Risk-Matrix (ISO 27005)</h4>
-          <RiskMatrix2D risks={risks as DsfaRisk[]} />
+          <RiskMatrix2D
+            risks={risks as DsfaRisk[]}
+            inherentRisks={(payload.inherent_risks ?? []) as DsfaRisk[]}
+          />
         </div>
       )}
 
-      {/* Residualrisiko */}
-      <div className="flex items-center gap-2 text-sm">
+      {/* Residualrisiko + Inherent-Vergleich */}
+      <div className="flex flex-wrap items-center gap-2 text-sm">
+        {payload.inherent_residual_risk && payload.inherent_residual_risk !== payload.residual_risk && (
+          <>
+            <span className="font-medium">Inherent:</span>
+            <span
+              className={`text-xs px-2 py-0.5 rounded-full font-medium ${
+                RISK_LEVEL_COLORS[payload.inherent_residual_risk] ?? ""
+              }`}
+            >
+              {RISK_LEVEL_LABEL[payload.inherent_residual_risk] ?? payload.inherent_residual_risk}
+            </span>
+            <span className="text-muted-foreground">→</span>
+          </>
+        )}
         <span className="font-medium">Residualrisiko:</span>
         <span
           className={`text-xs px-2 py-0.5 rounded-full font-medium ${
@@ -416,6 +433,9 @@ function DsfaResult({ dsfa }: { dsfa: DsfaResponse }) {
           {RISK_LEVEL_LABEL[payload.residual_risk] ?? payload.residual_risk}
         </span>
       </div>
+
+      {/* Mitigation-Panel: TOM-Verknüpfungen und Risk-Reduktion */}
+      <RiskMitigationPanel target={{ kind: "case", id: caseId }} />
 
       {/* Maßnahmen */}
       {payload.measures.length > 0 && (

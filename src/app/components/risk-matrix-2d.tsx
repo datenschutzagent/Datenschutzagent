@@ -57,9 +57,13 @@ type Props = {
   matrix?: Record<string, string>;
   likelihoodLabels?: Record<number, string>;
   severityLabels?: Record<number, string>;
+  /** Optional inherent risks (pre-mitigation). When present, each cell gets a
+   * dashed inherent-count badge so the user can see how mitigations shifted
+   * the risks. */
+  inherentRisks?: DsfaRisk[];
 };
 
-export function RiskMatrix2D({ risks, matrix, likelihoodLabels, severityLabels }: Props) {
+export function RiskMatrix2D({ risks, matrix, likelihoodLabels, severityLabels, inherentRisks }: Props) {
   const cellMap = matrix ?? FALLBACK_MATRIX;
   const likLabels = likelihoodLabels ?? DEFAULT_LIKELIHOOD_LABELS;
   const sevLabels = severityLabels ?? DEFAULT_SEVERITY_LABELS;
@@ -76,6 +80,19 @@ export function RiskMatrix2D({ risks, matrix, likelihoodLabels, severityLabels }
     }
     return acc;
   }, [risks]);
+
+  const inherentGrouped = useMemo(() => {
+    if (!inherentRisks?.length) return {};
+    const acc: Record<string, DsfaRisk[]> = {};
+    for (const r of inherentRisks) {
+      const lik = r.likelihood_score ?? scoreFromLabel(r.likelihood);
+      const sev = r.severity_score ?? scoreFromLabel(r.severity);
+      const key = `${lik}_${sev}`;
+      if (!acc[key]) acc[key] = [];
+      acc[key].push(r);
+    }
+    return acc;
+  }, [inherentRisks]);
 
   return (
     <div className="space-y-3">
@@ -104,18 +121,36 @@ export function RiskMatrix2D({ risks, matrix, likelihoodLabels, severityLabels }
               const key = `${lik}_${sev}`;
               const level = cellMap[key] ?? "low";
               const items = grouped[key] ?? [];
+              const inherentItems = inherentGrouped[key] ?? [];
               const colour = LEVEL_BG[level] ?? "";
+              const tooltipLines: string[] = [];
+              if (items.length) {
+                tooltipLines.push(...items.map((r) => `• ${r.description}`));
+              }
+              if (inherentItems.length) {
+                tooltipLines.push(
+                  ...inherentItems.map((r) => `▢ inherent: ${r.description}`),
+                );
+              }
               return (
                 <div
                   key={key}
-                  className={`m-0.5 rounded border border-border min-h-[56px] flex items-center justify-center text-sm font-medium ${colour}`}
+                  className={`relative m-0.5 rounded border border-border min-h-[56px] flex items-center justify-center text-sm font-medium ${colour}`}
                   title={
-                    items.length
-                      ? items.map((r) => `• ${r.description}`).join("\n")
+                    tooltipLines.length
+                      ? tooltipLines.join("\n")
                       : `${level.toUpperCase()} (${lik}/${sev}) — keine Risiken`
                   }
                 >
                   {items.length > 0 ? items.length : ""}
+                  {inherentItems.length > 0 && (
+                    <span
+                      className="absolute top-1 right-1 text-[10px] px-1 rounded border border-dashed border-current opacity-70"
+                      aria-label={`${inherentItems.length} inherent (vor Mitigation)`}
+                    >
+                      ▢{inherentItems.length}
+                    </span>
+                  )}
                 </div>
               );
             })}

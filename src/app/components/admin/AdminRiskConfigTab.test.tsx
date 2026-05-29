@@ -95,6 +95,13 @@ function makeConfig(): RiskConfig {
       window_days: 90,
       significant_change_pct: 15,
     },
+    mitigations: {
+      enabled: true,
+      min_likelihood: 1,
+      min_severity: 1,
+      min_avv_score: 1.0,
+      catalog: [],
+    },
   };
 }
 
