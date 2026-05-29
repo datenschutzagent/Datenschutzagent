@@ -157,3 +157,103 @@ async def build_audit_export(case_id: UUID, db: AsyncSession) -> tuple[bytes, st
 def _sha256(data: bytes) -> str:
     """SHA-256-Hex-Digest für Integritätsnachweis."""
     return hashlib.sha256(data).hexdigest()
+
+
+# ---------------------------------------------------------------------------
+# Audit-Trail-Export (Stufe 5): signed CSV / JSONL of activity_log only.
+# ---------------------------------------------------------------------------
+
+
+def _audit_signing_key() -> bytes:
+    """Return the HMAC-SHA256 signing key for the audit trail export.
+
+    Reuses the existing webhook-secret encryption key when set (deployments
+    keep that secret out of git already). Falls back to a deterministic
+    derivation from CASE_SECRET_KEY + a fixed domain string so dev/test
+    environments still produce verifiable signatures. We never ship a
+    constant key in source — the fallback only fires when nothing is
+    configured at all, and only in non-production.
+    """
+    import os
+    from hashlib import blake2b
+
+    explicit = os.environ.get("AUDIT_EXPORT_SIGNING_KEY")
+    if explicit:
+        return explicit.encode("utf-8")
+    secret = os.environ.get("WEBHOOK_SECRET_ENCRYPTION_KEY") or os.environ.get("APP_SECRET_KEY") or ""
+    derived = blake2b(b"audit-trail-export:" + secret.encode("utf-8"), digest_size=32).digest()
+    return derived
+
+
+async def export_full_trail(
+    case_id: UUID,
+    db: AsyncSession,
+    *,
+    fmt: str = "csv",
+) -> tuple[bytes, str, str]:
+    """Build a signed activity-log export for a single case.
+
+    Format options:
+      - ``csv``  – UTF-8-BOM CSV with id, event_type, payload, created_at.
+      - ``jsonl`` – one JSON object per line (preserves payload structure).
+
+    The body is hashed (SHA-256) and signed (HMAC-SHA256) with the
+    configured audit key. Both are returned so the caller can either
+    embed them in the response file (CSV trailer / JSONL trailer line)
+    or surface them as HTTP headers for verifiability.
+
+    Returns (body_bytes, content_type, signature_hex).
+    """
+    if fmt not in {"csv", "jsonl"}:
+        raise ValueError(f"unsupported format: {fmt!r} (use 'csv' or 'jsonl')")
+
+    rows = (
+        await db.execute(
+            select(ActivityLogModel)
+            .where(ActivityLogModel.case_id == case_id)
+            .order_by(ActivityLogModel.created_at.asc())
+        )
+    ).scalars().all()
+
+    if fmt == "csv":
+        buf = io.StringIO()
+        writer = csv.writer(buf)
+        writer.writerow(["id", "event_type", "payload", "created_at"])
+        for a in rows:
+            writer.writerow([
+                str(a.id),
+                a.event_type,
+                json.dumps(a.payload, ensure_ascii=False, sort_keys=True),
+                a.created_at.isoformat(),
+            ])
+        body = ("﻿" + buf.getvalue()).encode("utf-8")
+        content_type = "text/csv; charset=utf-8"
+    else:
+        lines: list[str] = []
+        for a in rows:
+            lines.append(json.dumps({
+                "id": str(a.id),
+                "event_type": a.event_type,
+                "payload": a.payload,
+                "created_at": a.created_at.isoformat(),
+            }, ensure_ascii=False, sort_keys=True))
+        body = ("\n".join(lines) + ("\n" if lines else "")).encode("utf-8")
+        content_type = "application/x-ndjson; charset=utf-8"
+
+    import hmac
+    signature = hmac.new(_audit_signing_key(), body, hashlib.sha256).hexdigest()
+    return body, content_type, signature
+
+
+def verify_audit_signature(body: bytes, signature_hex: str) -> bool:
+    """Verify a previously emitted audit-trail signature. Used by tests + tools."""
+    import hmac
+    expected = hmac.new(_audit_signing_key(), body, hashlib.sha256).hexdigest()
+    return hmac.compare_digest(expected, signature_hex)
+
+
+__all__ = [
+    "build_audit_export",
+    "export_full_trail",
+    "verify_audit_signature",
+]

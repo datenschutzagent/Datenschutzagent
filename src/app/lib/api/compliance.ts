@@ -779,3 +779,92 @@ export async function getAvvRiskDelta(contractId: string): Promise<ApiRiskDelta>
   const r = await request<Record<string, unknown>>("GET", `/avv/${contractId}/risk-delta`);
   return deepSnakeToCamel(r) as unknown as ApiRiskDelta;
 }
+
+// ---------------------------------------------------------------------------
+// Stage 5: TOM-Gap-Analyse + ROPA-Export + Audit-Trail-Export
+// ---------------------------------------------------------------------------
+
+export interface ApiTomGapRequirement {
+  id: string;
+  label: string;
+  description: string;
+  category: string;
+  severity: "info" | "low" | "medium" | "high" | "critical";
+  met: boolean;
+  matchingToms: string[];
+}
+
+export interface ApiTomGapSummary {
+  total: number;
+  met: number;
+  missing: number;
+  coveragePct: number;
+  missingBySeverity: Record<string, number>;
+}
+
+export interface ApiTomGapResponse {
+  enabled: boolean;
+  requirements: ApiTomGapRequirement[];
+  summary: ApiTomGapSummary;
+}
+
+export async function getTomGaps(caseId?: string): Promise<ApiTomGapResponse> {
+  const path = caseId ? `/cases/${caseId}/tom-gaps` : "/tom-gaps";
+  const r = await request<Record<string, unknown>>("GET", path);
+  return deepSnakeToCamel(r) as unknown as ApiTomGapResponse;
+}
+
+/** Trigger a browser download for the ROPA export (CSV or DOCX). */
+export async function downloadRopaExport(
+  caseId: string,
+  fmt: "csv" | "docx" = "csv",
+): Promise<void> {
+  const url = `${API_BASE}${API_PREFIX}/cases/${caseId}/ropa-export?format=${fmt}`;
+  const res = await fetch(url, {
+    headers: authHeaders(),
+    credentials: "include",
+  });
+  if (!res.ok) {
+    const detail = await parseErrorResponse(res);
+    throw new Error(detail);
+  }
+  const blob = await res.blob();
+  const disposition = res.headers.get("Content-Disposition") || "";
+  const m = disposition.match(/filename="?([^";]+)"?/);
+  const filename = m?.[1] || `ROPA_${caseId}.${fmt}`;
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(a.href);
+}
+
+/** Trigger a browser download for the signed audit-trail export.
+ *
+ * Captures the ``X-Audit-Signature`` response header so the caller can
+ * display it alongside the file — useful for later verification. */
+export async function downloadAuditTrail(
+  caseId: string,
+  fmt: "csv" | "jsonl" = "csv",
+): Promise<{ filename: string; signature: string | null }> {
+  const url = `${API_BASE}${API_PREFIX}/cases/${caseId}/audit/export?format=${fmt}`;
+  const res = await fetch(url, {
+    headers: authHeaders(),
+    credentials: "include",
+  });
+  if (!res.ok) {
+    const detail = await parseErrorResponse(res);
+    throw new Error(detail);
+  }
+  const blob = await res.blob();
+  const disposition = res.headers.get("Content-Disposition") || "";
+  const m = disposition.match(/filename="?([^";]+)"?/);
+  const filename = m?.[1] || `audit_${caseId}.${fmt}`;
+  const signature = res.headers.get("X-Audit-Signature");
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(a.href);
+  return { filename, signature };
+}

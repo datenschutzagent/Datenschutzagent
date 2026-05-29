@@ -310,6 +310,51 @@ mitigations:
         applicable_risk_keywords: [verfügbar, ausfall, verlust, ransomware]
 
 # -----------------------------------------------------------------------------
+# TOM-Baseline (Art. 32 DSGVO): Pflicht-Maßnahmen pro Organisation.
+# -----------------------------------------------------------------------------
+# Wird vom tom_gap_service ausgewertet. Für jede Anforderung gilt:
+#  - Wenn mindestens eine TOM in der gegebenen Kategorie mit
+#    implementation_status='implemented' existiert → erfüllt.
+#  - keywords_title (optional) verschärft das Match: dann muss zusätzlich
+#    der TOM-Titel einen der Substrings (case-insensitive) enthalten.
+#  - Sonst: Lücke; severity bestimmt die UI-Priorisierung.
+tom_baseline:
+  enabled: true
+  requirements:
+    - id: encryption_at_rest
+      label: "Verschlüsselung ruhender Daten"
+      description: "Datenträger- und Datenbankverschlüsselung gemäß BSI TR-02102."
+      category: encryption
+      severity: high
+      keywords_title: [ruhend, "at rest", festplatten, datenbank]
+    - id: encryption_in_transit
+      label: "Transport-Verschlüsselung"
+      description: "TLS 1.2+ für alle externen Schnittstellen, HSTS aktiv."
+      category: encryption
+      severity: high
+      keywords_title: [transport, tls, "in transit", https]
+    - id: access_control_rbac
+      label: "Rollen- und Berechtigungskonzept"
+      description: "Need-to-know, regelmäßige Recertification."
+      category: access_control
+      severity: high
+    - id: backup_and_recovery
+      label: "Backup-/Wiederherstellungskonzept"
+      description: "Regelmäßige, getestete Backups gemäß Schutzbedarf."
+      category: availability
+      severity: high
+    - id: incident_response_plan
+      label: "Vorfallreaktionsplan"
+      description: "Dokumentierter Incident-Response-Prozess inkl. 72-Stunden-Meldekette."
+      category: incident_response
+      severity: high
+    - id: regular_testing
+      label: "Regelmäßige Wirksamkeitsprüfung der TOMs"
+      description: "Periodische Tests (Penetration, Restore, Audit) der Schutzmaßnahmen."
+      category: testing
+      severity: medium
+
+# -----------------------------------------------------------------------------
 # Confidence-Policy: Verhalten bei LLM-Versagen / niedriger Konfidenz
 # -----------------------------------------------------------------------------
 # Wird in avv_risk_service und dsfa_service ausgewertet. Strategie:

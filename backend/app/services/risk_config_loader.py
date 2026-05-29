@@ -688,6 +688,58 @@ class MitigationCatalogConfig(BaseModel):
 
 
 # ---------------------------------------------------------------------------
+# Section: TOM baseline (Art. 32 DSGVO — required organisational measures)
+# ---------------------------------------------------------------------------
+
+
+_VALID_TOM_BASELINE_SEVERITIES = {"info", "low", "medium", "high", "critical"}
+
+
+class TomBaselineRequirement(BaseModel):
+    """One TOM that MUST be implemented (or explicitly waived) per org policy.
+
+    Matched against the existing ``tom_measures`` table:
+      - if any TOM in ``category`` has ``implementation_status='implemented'``,
+        the requirement is considered met.
+      - otherwise the gap is reported with ``severity``.
+
+    ``id`` is a stable slug used in API responses and exports.
+    """
+
+    id: str = Field(..., min_length=1, max_length=80)
+    label: str = Field(..., min_length=1, max_length=200)
+    description: str = ""
+    category: str = Field(..., description="TOMCategoryEnum value, e.g. encryption")
+    severity: str = Field(default="high")
+    keywords_title: list[str] = Field(
+        default_factory=list,
+        description="If non-empty, at least one TOM in the category must match one of these substrings.",
+    )
+
+    @field_validator("severity")
+    @classmethod
+    def _severity_known(cls, v: str) -> str:
+        if v not in _VALID_TOM_BASELINE_SEVERITIES:
+            raise ValueError(f"severity must be one of {sorted(_VALID_TOM_BASELINE_SEVERITIES)}")
+        return v
+
+
+class TomBaselineConfig(BaseModel):
+    """Profile-specific catalog of mandatory TOMs."""
+
+    enabled: bool = Field(default=True)
+    requirements: list[TomBaselineRequirement] = Field(default_factory=list)
+
+    @field_validator("requirements")
+    @classmethod
+    def _unique_ids(cls, v: list[TomBaselineRequirement]) -> list[TomBaselineRequirement]:
+        ids = [r.id for r in v]
+        if len(ids) != len(set(ids)):
+            raise ValueError("tom_baseline requirement ids must be unique")
+        return v
+
+
+# ---------------------------------------------------------------------------
 # Top-level config
 # ---------------------------------------------------------------------------
 
@@ -702,6 +754,7 @@ class RiskConfig(BaseModel):
     risk_velocity: RiskVelocityConfig = Field(default_factory=RiskVelocityConfig)
     mitigations: MitigationCatalogConfig = Field(default_factory=MitigationCatalogConfig)
     confidence_policy: ConfidencePolicyConfig = Field(default_factory=ConfidencePolicyConfig)
+    tom_baseline: TomBaselineConfig = Field(default_factory=TomBaselineConfig)
 
 
 # ---------------------------------------------------------------------------

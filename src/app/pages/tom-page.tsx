@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { AppLayout } from "../components/app-layout";
 import { PageHeader } from "../components/page-header";
+import { TomBaselineGaps } from "../components/tom-baseline-gaps";
 import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card";
 import { Badge } from "../components/ui/badge";
 import { Button } from "../components/ui/button";
@@ -250,6 +251,11 @@ export function TOMPage() {
         title="TOM-Katalog"
         description="Art. 32 DSGVO – Technisch-Organisatorische Maßnahmen"
       />
+
+      {/* Baseline coverage (Art. 32 DSGVO mandatory TOMs) */}
+      <div className="mb-6">
+        <TomBaselineGaps />
+      </div>
 
       {/* Implementation progress */}
       {stats && (
