@@ -11,9 +11,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.constants import FindingSeverity, FindingStatus
 from app.core.llm import create_agent
 from app.core.prompt_security import sanitize_prompt_field
-from app.models.db import CaseMitigationLinkModel, CaseModel, DSFAAssessmentModel, FindingModel
+from app.models.db import ActivityLogModel, CaseMitigationLinkModel, CaseModel, DSFAAssessmentModel, FindingModel
 from app.services.mitigation_service import apply_dsfa_mitigations
 from app.services.risk_config_loader import get_risk_config
+from app.services.risk_fallback_service import compute_dsfa_fallback
 
 logger = logging.getLogger(__name__)
 
@@ -219,18 +220,41 @@ async def generate_dsfa(case_id: UUID, db: AsyncSession) -> dict[str, Any]:
         findings_info=sanitize_prompt_field(findings_info, max_chars=2000),
     )
 
+    cfg = get_risk_config()
+    dsfa_cfg = cfg.dsfa_assessment
+    policy = cfg.confidence_policy
+    source = "llm"
+    llm_failed = False
+
     agent = create_agent(_DSFA_SYSTEM_PROMPT)
     try:
         result = await agent.run(user_content, output_type=_DSFAResult)
+        data = result.output
     except Exception as exc:
         logger.error("DSFA LLM generation failed: %s", exc, extra={"case_id": str(case_id)})
-        raise
-    data = result.output
+        llm_failed = True
+        if not (policy.enabled and policy.uses_rule_fallback):
+            raise
+        data = _dsfa_fallback_result(case, findings)
+        source = "rules"
+
+    # If the LLM produced output below the policy threshold, swap in the
+    # heuristic. The "both" strategy emits an audit event but keeps the LLM result.
+    if not llm_failed and policy.enabled and policy.uses_rule_fallback:
+        if float(data.confidence) < policy.low_threshold:
+            logger.warning(
+                "DSFA LLM confidence below threshold — switching to rules fallback",
+                extra={
+                    "case_id": str(case_id),
+                    "llm_confidence": float(data.confidence),
+                    "low_threshold": policy.low_threshold,
+                },
+            )
+            data = _dsfa_fallback_result(case, findings)
+            source = "hybrid"
 
     # Matrix-Lookup pro Risiko: Likelihood × Severity → risk_level
     # (deterministisch aus der Config, nicht aus LLM-Self-Report).
-    cfg = get_risk_config()
-    dsfa_cfg = cfg.dsfa_assessment
     confidence = float(data.confidence)
     low_confidence = confidence < dsfa_cfg.min_confidence
     if low_confidence:
@@ -242,6 +266,25 @@ async def generate_dsfa(case_id: UUID, db: AsyncSession) -> dict[str, Any]:
                 "min_confidence": dsfa_cfg.min_confidence,
             },
         )
+
+    # Emit an audit-log entry when the policy demands escalation or when the
+    # source is non-LLM. Audit entry is best-effort — never lets the DSFA fail.
+    if source != "llm" or policy.emits_audit_event:
+        try:
+            db.add(ActivityLogModel(
+                case_id=case_id,
+                event_type=policy.escalation_event_type,
+                payload={
+                    "kind": "dsfa",
+                    "source": source,
+                    "llm_failed": llm_failed,
+                    "confidence": confidence,
+                    "low_threshold": policy.low_threshold,
+                    "strategy": policy.fallback_strategy,
+                },
+            ))
+        except Exception as exc:  # noqa: BLE001 — audit must never break DSFA
+            logger.debug("Audit-log emission for DSFA fallback failed: %s", exc, extra={"case_id": str(case_id)})
 
     inherent_risks_payload = []
     for r in data.risks:
@@ -308,6 +351,7 @@ async def generate_dsfa(case_id: UUID, db: AsyncSession) -> dict[str, Any]:
         "measures": list(data.measures),
         "applied_mitigations": applied_ids,
         "applied_effects": applied_effects,
+        "source": source,
         "confidence": confidence,
         "low_confidence": low_confidence,
         "scale_version": DSFA_SCALE_VERSION_NUMERIC,
@@ -439,6 +483,24 @@ async def screen_dsfa_requirement(case_id: UUID, db: AsyncSession) -> dict[str, 
         "factors": factor_results,
         "recommendation": recommendation,
     }
+
+
+def _dsfa_fallback_result(case: CaseModel, findings) -> "_DSFAResult":
+    """Build a ``_DSFAResult`` from the rule-based heuristic."""
+    critical_count = sum(
+        1 for f in findings
+        if (f.severity or "").lower() in {FindingSeverity.CRITICAL, FindingSeverity.HIGH}
+        and (f.status or "").lower() == FindingStatus.OPEN
+    )
+    raw = compute_dsfa_fallback(
+        case_title=case.title or "",
+        case_type=case.case_type or "",
+        processing_context=case.processing_context,
+        special_category_data=bool(case.special_category_data),
+        international_transfer=bool(case.international_transfer),
+        open_critical_findings=critical_count,
+    )
+    return _DSFAResult.model_validate(raw)
 
 
 async def _load_case_mitigation_ids(case_id: UUID, db: AsyncSession) -> list[str]:

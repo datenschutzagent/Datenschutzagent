@@ -255,6 +255,10 @@ export interface ApiAVVContract {
   checkResult: Record<string, unknown> | null;
   riskScore: number | null;
   riskLevel: "low" | "medium" | "high" | "critical" | null;
+  inherentRiskScore?: number | null;
+  inherentRiskLevel?: "low" | "medium" | "high" | "critical" | null;
+  riskSource?: "llm" | "rules" | "hybrid" | null;
+  riskConfidence?: number | null;
   riskAssessedAt: string | null;
   createdAt: string;
   updatedAt: string;

@@ -286,3 +286,24 @@ mitigations:
       reduction:
         severity_delta: -1
         applicable_risk_keywords: [verfügbar, ausfall, verlust, ransomware]
+
+# -----------------------------------------------------------------------------
+# Confidence-Policy: Verhalten bei LLM-Versagen / niedriger Konfidenz
+# -----------------------------------------------------------------------------
+# Wird in avv_risk_service und dsfa_service ausgewertet. Strategie:
+#   none      LLM-Exceptions schlagen durch; niedrige Konfidenz nur als Flag
+#             im Payload (Legacy-Verhalten).
+#   rules     Bei LLM-Exception ODER confidence < low_threshold wird der
+#             regelbasierte Fallback aus risk_fallback_service genutzt.
+#             Das Ergebnis-Source-Feld ist dann "rules" bzw. "hybrid".
+#   escalate  LLM-Ergebnis wird beibehalten, aber ein Audit-Event
+#             (DSFA: ActivityLog) wird geschrieben. Hard-Failures schlagen
+#             weiterhin durch.
+#   both      rules + escalate: Fallback aktiv UND Audit-Event.
+#
+# Default ist "rules" — d.h. das Tool bleibt auch ohne LLM bedienbar.
+confidence_policy:
+  enabled: true
+  low_threshold: 0.6
+  fallback_strategy: rules
+  escalation_event_type: risk.fallback_triggered

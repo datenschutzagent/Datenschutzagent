@@ -5,7 +5,7 @@ import uuid
 from datetime import date, datetime, timezone
 from typing import TYPE_CHECKING, Any
 
-from sqlalchemy import Boolean, Date, DateTime, ForeignKey, Index, Integer, String, Text, UniqueConstraint
+from sqlalchemy import Boolean, Date, DateTime, Float, ForeignKey, Index, Integer, String, Text, UniqueConstraint
 from sqlalchemy.dialects.postgresql import ARRAY, JSONB, UUID as PG_UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -133,6 +133,10 @@ class AVVContractModel(Base):
     risk_level: Mapped[str | None] = mapped_column(String(20), nullable=True)
     inherent_risk_score: Mapped[int | None] = mapped_column(Integer, nullable=True)
     inherent_risk_level: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    # Provenance of the last risk assessment: "llm" | "rules" | "hybrid".
+    risk_source: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    # Self-reported LLM confidence on [0.0, 1.0]; null for legacy records.
+    risk_confidence: Mapped[float | None] = mapped_column(Float, nullable=True)
     risk_assessment: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
     risk_assessed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     last_notified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, default=None)

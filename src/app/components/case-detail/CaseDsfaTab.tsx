@@ -30,6 +30,7 @@ import {
 } from "../../lib/api/cases";
 import { useAuthOptional } from "../../contexts/AuthContext";
 import { RiskMatrix2D, type DsfaRisk } from "../risk-matrix-2d";
+import { ConfidenceBadge } from "../ui/confidence-badge";
 import { DsfaScreeningCard } from "./DsfaScreeningCard";
 import { RiskMitigationPanel } from "./risk-mitigation-panel";
 
@@ -316,7 +317,25 @@ function DsfaResult({ dsfa, caseId }: { dsfa: DsfaResponse; caseId: string }) {
             <ShieldAlert className="size-3" /> Niedrige Konfidenz
           </span>
         )}
+        <ConfidenceBadge source={payload.source} confidence={payload.confidence} />
       </div>
+
+      {/* Rule-based / hybrid fallback banner */}
+      {(payload.source === "rules" || payload.source === "hybrid") && (
+        <Alert>
+          <ShieldAlert className="size-4" />
+          <AlertTitle>
+            {payload.source === "rules"
+              ? "Regelbasierter Fallback aktiv"
+              : "Hybrid-Bewertung (LLM + Regeln)"}
+          </AlertTitle>
+          <AlertDescription>
+            {payload.source === "rules"
+              ? "Diese DSFA wurde regelbasiert erzeugt — vermutlich war das LLM nicht verfügbar oder die Konfidenz lag unter der konfigurierten Schwelle. Eine manuelle Validierung wird empfohlen; bei Verfügbarkeit des LLM kann die DSFA neu generiert werden."
+              : "Die LLM-Konfidenz war unter der Schwelle, deshalb wurden die Risiken aus den Heuristiken übernommen. Bitte vor Finalisierung prüfen."}
+          </AlertDescription>
+        </Alert>
+      )}
 
       {/* DPO-Konsultation */}
       {payload.dpo_consultation_required && (

@@ -338,6 +338,51 @@ class RiskVelocityConfig(BaseModel):
 
 
 # ---------------------------------------------------------------------------
+# Section: Confidence policy (LLM fallback + escalation)
+# ---------------------------------------------------------------------------
+
+
+_VALID_FALLBACK_STRATEGIES = {"none", "rules", "escalate", "both"}
+
+
+class ConfidencePolicyConfig(BaseModel):
+    """Controls what happens when an LLM call fails or returns low-confidence.
+
+    Strategies:
+      - ``none``     — keep legacy behaviour (raise on LLM error, just flag low conf).
+      - ``rules``    — on LLM failure or confidence below ``low_threshold``, use the
+                       rule-based heuristics from ``risk_fallback_service`` instead.
+      - ``escalate`` — keep the LLM result but log an audit event and (DSFA-side)
+                       create a DSB-review task; raises on hard LLM failure.
+      - ``both``     — apply ``rules`` AND emit the escalation audit event.
+
+    ``low_threshold`` is compared against the LLM's self-reported confidence
+    (0..1). Setting it to 0.0 effectively disables the soft branch — only hard
+    LLM exceptions still trigger fallback (when strategy != none).
+    """
+
+    enabled: bool = Field(default=True)
+    low_threshold: float = Field(default=0.6, ge=0.0, le=1.0)
+    fallback_strategy: str = Field(default="rules")
+    escalation_event_type: str = Field(default="risk.fallback_triggered")
+
+    @field_validator("fallback_strategy")
+    @classmethod
+    def _strategy_known(cls, v: str) -> str:
+        if v not in _VALID_FALLBACK_STRATEGIES:
+            raise ValueError(f"fallback_strategy must be one of {sorted(_VALID_FALLBACK_STRATEGIES)}")
+        return v
+
+    @property
+    def emits_audit_event(self) -> bool:
+        return self.fallback_strategy in {"escalate", "both"}
+
+    @property
+    def uses_rule_fallback(self) -> bool:
+        return self.fallback_strategy in {"rules", "both"}
+
+
+# ---------------------------------------------------------------------------
 # Section: Mitigation catalog (TOM → Risk-Reduction mapping)
 # ---------------------------------------------------------------------------
 
@@ -454,6 +499,7 @@ class RiskConfig(BaseModel):
     maturity: MaturityConfig = Field(default_factory=MaturityConfig)
     risk_velocity: RiskVelocityConfig = Field(default_factory=RiskVelocityConfig)
     mitigations: MitigationCatalogConfig = Field(default_factory=MitigationCatalogConfig)
+    confidence_policy: ConfidencePolicyConfig = Field(default_factory=ConfidencePolicyConfig)
 
 
 # ---------------------------------------------------------------------------

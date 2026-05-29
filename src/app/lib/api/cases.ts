@@ -759,6 +759,8 @@ export interface DsfaPayload {
   applied_effects?: DsfaAppliedEffect[];
   confidence?: number | null;
   low_confidence?: boolean | null;
+  /** Provenance of the underlying risk numbers — Phase 2. */
+  source?: "llm" | "rules" | "hybrid" | null;
   scale_version?: string | null;
 }
 

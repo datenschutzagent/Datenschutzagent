@@ -20,7 +20,8 @@ from app.core.llm import create_agent
 from app.core.prompt_security import sanitize_prompt_field
 from app.models.db import AVVContractModel, AvvMitigationLinkModel
 from app.services.mitigation_service import apply_avv_mitigations
-from app.services.risk_config_loader import get_risk_config
+from app.services.risk_config_loader import ConfidencePolicyConfig, get_risk_config
+from app.services.risk_fallback_service import compute_avv_fallback
 
 logger = logging.getLogger(__name__)
 
@@ -116,27 +117,51 @@ async def assess_avv_risk(contract_id: UUID, db: AsyncSession) -> dict[str, Any]
         notes=sanitize_prompt_field(contract.notes or "Keine Notizen", max_chars=1000),
     )
 
+    cfg = get_risk_config()
+    avv_cfg = cfg.avv
+    policy = cfg.confidence_policy
+    source = "llm"
+    llm_failed = False
+    data: _AVVRiskResult
+
     agent = create_agent(_AVV_RISK_SYSTEM)
     try:
         llm_result = await agent.run(user_content, output_type=_AVVRiskResult)
+        data = llm_result.output
     except Exception as exc:
         logger.error(
             "AVV risk assessment LLM call failed: %s", exc,
             extra={"contract_id": str(contract_id)},
         )
-        raise
-    data = llm_result.output
+        llm_failed = True
+        if not (policy.enabled and policy.uses_rule_fallback):
+            # Legacy behaviour: bubble up the LLM error.
+            raise
+        data = _avv_fallback_result(contract)
+        source = "rules"
 
-    # Inherent Score: gewichteter Mittelwert der LLM-Dimensions-Scores (1-5)
-    # → 0-100 + level.
-    cfg = get_risk_config()
-    avv_cfg = cfg.avv
+    # If the LLM ran but is under-confident, optionally swap in the rule
+    # fallback. The "both" strategy logs an event but keeps the LLM result.
+    if not llm_failed and policy.enabled and policy.uses_rule_fallback:
+        if float(data.confidence) < policy.low_threshold:
+            logger.warning(
+                "AVV LLM confidence below threshold — switching to rules fallback",
+                extra={
+                    "contract_id": str(contract_id),
+                    "llm_confidence": float(data.confidence),
+                    "low_threshold": policy.low_threshold,
+                },
+            )
+            data = _avv_fallback_result(contract)
+            source = "hybrid"
+
+    # Inherent Score: gewichteter Mittelwert der Dimensions-Scores (1-5) → 0-100 + level.
     inherent_avg = _weighted_average(list(data.dimensions), avv_cfg.dimension_weights) if data.dimensions else 3.0
     inherent_pct = avv_cfg.normalize_to_percent(inherent_avg)
     inherent_level = avv_cfg.level_for_score(inherent_avg)
 
     # LLM-vorgeschlagenes Level wird nur akzeptiert, wenn es ein gültiges
-    # Config-Level ist und für den inherent score plausibel — sonst Config-Wahrheit.
+    # Config-Level ist — sonst Config-Wahrheit.
     valid_levels = {entry.level for entry in avv_cfg.level_thresholds}
     llm_level = (data.overall_risk_level or "").lower().strip()
     if llm_level not in valid_levels:
@@ -197,6 +222,8 @@ async def assess_avv_risk(contract_id: UUID, db: AsyncSession) -> dict[str, Any]
         },
         "applied_mitigations": applied_ids,
         "applied_effects": applied_effects,
+        # Source of the underlying risk numbers — relevant for audit reviews.
+        "source": source,
         # LLM context (unchanged shape for backward-compat consumers).
         "dimensions": inherent_dimensions,
         "main_risks": list(data.main_risks),
@@ -213,6 +240,8 @@ async def assess_avv_risk(contract_id: UUID, db: AsyncSession) -> dict[str, Any]
     contract.inherent_risk_level = inherent_level
     contract.risk_score = residual_pct
     contract.risk_level = residual_level
+    contract.risk_source = source
+    contract.risk_confidence = confidence
     contract.risk_assessment = assessment
     contract.risk_assessed_at = datetime.now(UTC)
     await db.flush()
@@ -234,9 +263,23 @@ async def assess_avv_risk(contract_id: UUID, db: AsyncSession) -> dict[str, Any]
         "risk_level": residual_level,
         "inherent_risk_score": inherent_pct,
         "inherent_risk_level": inherent_level,
+        "source": source,
+        "confidence": confidence,
         "assessment": assessment,
         "assessed_at": contract.risk_assessed_at.isoformat(),
     }
+
+
+def _avv_fallback_result(contract: AVVContractModel) -> _AVVRiskResult:
+    """Build an ``_AVVRiskResult`` from the rule-based heuristic."""
+    raw = compute_avv_fallback(
+        partner_name=contract.partner_name,
+        partner_type=contract.partner_type or "processor",
+        subject_matter=contract.subject_matter,
+        department=contract.department,
+        notes=contract.notes,
+    )
+    return _AVVRiskResult.model_validate(raw)
 
 
 async def _load_applied_mitigation_ids(contract_id: UUID, db: AsyncSession) -> list[str]:
@@ -247,3 +290,8 @@ async def _load_applied_mitigation_ids(contract_id: UUID, db: AsyncSession) -> l
         )
     )
     return [row for row in result.scalars().all()]
+
+
+# ConfidencePolicyConfig is re-exported for tests that want to construct
+# isolated policies without going through the full settings.
+__all__ = ["assess_avv_risk", "ConfidencePolicyConfig"]

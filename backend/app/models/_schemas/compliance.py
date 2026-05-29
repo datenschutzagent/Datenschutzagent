@@ -227,6 +227,8 @@ class AVVContractResponse(BaseModel):
     risk_level: RiskLevelEnum | None = None
     inherent_risk_score: int | None = None
     inherent_risk_level: RiskLevelEnum | None = None
+    risk_source: str | None = None
+    risk_confidence: float | None = None
     risk_assessed_at: datetime | None = None
     created_at: datetime
     updated_at: datetime
