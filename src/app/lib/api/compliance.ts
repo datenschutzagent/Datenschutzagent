@@ -255,6 +255,10 @@ export interface ApiAVVContract {
   checkResult: Record<string, unknown> | null;
   riskScore: number | null;
   riskLevel: "low" | "medium" | "high" | "critical" | null;
+  inherentRiskScore?: number | null;
+  inherentRiskLevel?: "low" | "medium" | "high" | "critical" | null;
+  riskSource?: "llm" | "rules" | "hybrid" | null;
+  riskConfidence?: number | null;
   riskAssessedAt: string | null;
   createdAt: string;
   updatedAt: string;
@@ -654,4 +658,213 @@ export interface AVVStats {
 export async function getAVVStats(): Promise<AVVStats> {
   const r = await request<Record<string, unknown>>("GET", "/avv/stats");
   return deepSnakeToCamel(r) as unknown as AVVStats;
+}
+
+// ---------------------------------------------------------------------------
+// Mitigation-Katalog & -Verknüpfungen (Art. 32 / Art. 35 DSGVO)
+// ---------------------------------------------------------------------------
+
+export interface ApiMitigationReduction {
+  scoreDelta: number;
+  dimensionDeltas: Record<string, number>;
+  likelihoodDelta: number;
+  severityDelta: number;
+  applicableRiskKeywords: string[];
+}
+
+export interface ApiMitigationCatalogEntry {
+  id: string;
+  label: string;
+  description: string;
+  appliesTo: "avv" | "dsfa" | "both";
+  tomCategory: string | null;
+  evidenceRequired: boolean;
+  reduction: ApiMitigationReduction;
+}
+
+export interface ApiMitigationCatalog {
+  enabled: boolean;
+  minLikelihood: number;
+  minSeverity: number;
+  minAvvScore: number;
+  catalog: ApiMitigationCatalogEntry[];
+}
+
+export interface ApiMitigationLink {
+  id: string;
+  mitigationId: string;
+  tomId: string | null;
+  appliedBy: string;
+  notes: string | null;
+  appliedAt: string;
+  catalogEntry: ApiMitigationCatalogEntry | null;
+}
+
+export interface ApiCaseMitigationLink extends ApiMitigationLink {
+  caseId: string;
+  evidenceDocId: string | null;
+}
+
+export interface ApiAvvMitigationLink extends ApiMitigationLink {
+  avvContractId: string;
+}
+
+export interface MitigationLinkRequest {
+  mitigation_id: string;
+  tom_id?: string | null;
+  evidence_doc_id?: string | null;
+  notes?: string | null;
+}
+
+export interface ApiRiskDeltaSide {
+  riskScore: number | null;
+  riskLevel: string | null;
+}
+
+export interface ApiRiskDelta {
+  targetType: "avv" | "dsfa";
+  targetId: string;
+  inherent: ApiRiskDeltaSide;
+  residual: ApiRiskDeltaSide;
+  appliedMitigations: string[];
+  appliedEffects: Record<string, unknown>[];
+  assessedAt: string | null;
+}
+
+export async function getMitigationCatalog(): Promise<ApiMitigationCatalog> {
+  const r = await request<Record<string, unknown>>("GET", "/mitigations/catalog");
+  return deepSnakeToCamel(r) as unknown as ApiMitigationCatalog;
+}
+
+export async function listCaseMitigations(caseId: string): Promise<ApiCaseMitigationLink[]> {
+  const r = await request<Record<string, unknown>[]>("GET", `/cases/${caseId}/mitigations`);
+  return (r ?? []).map((row) => deepSnakeToCamel(row) as unknown as ApiCaseMitigationLink);
+}
+
+export async function linkCaseMitigation(
+  caseId: string,
+  body: MitigationLinkRequest,
+): Promise<ApiCaseMitigationLink> {
+  const r = await request<Record<string, unknown>>("POST", `/cases/${caseId}/mitigations`, { body });
+  return deepSnakeToCamel(r) as unknown as ApiCaseMitigationLink;
+}
+
+export async function unlinkCaseMitigation(caseId: string, mitigationId: string): Promise<void> {
+  await request<void>("DELETE", `/cases/${caseId}/mitigations/${encodeURIComponent(mitigationId)}`);
+}
+
+export async function getCaseRiskDelta(caseId: string): Promise<ApiRiskDelta> {
+  const r = await request<Record<string, unknown>>("GET", `/cases/${caseId}/risk-delta`);
+  return deepSnakeToCamel(r) as unknown as ApiRiskDelta;
+}
+
+export async function listAvvMitigations(contractId: string): Promise<ApiAvvMitigationLink[]> {
+  const r = await request<Record<string, unknown>[]>("GET", `/avv/${contractId}/mitigations`);
+  return (r ?? []).map((row) => deepSnakeToCamel(row) as unknown as ApiAvvMitigationLink);
+}
+
+export async function linkAvvMitigation(
+  contractId: string,
+  body: MitigationLinkRequest,
+): Promise<ApiAvvMitigationLink> {
+  const r = await request<Record<string, unknown>>("POST", `/avv/${contractId}/mitigations`, { body });
+  return deepSnakeToCamel(r) as unknown as ApiAvvMitigationLink;
+}
+
+export async function unlinkAvvMitigation(contractId: string, mitigationId: string): Promise<void> {
+  await request<void>("DELETE", `/avv/${contractId}/mitigations/${encodeURIComponent(mitigationId)}`);
+}
+
+export async function getAvvRiskDelta(contractId: string): Promise<ApiRiskDelta> {
+  const r = await request<Record<string, unknown>>("GET", `/avv/${contractId}/risk-delta`);
+  return deepSnakeToCamel(r) as unknown as ApiRiskDelta;
+}
+
+// ---------------------------------------------------------------------------
+// Stage 5: TOM-Gap-Analyse + ROPA-Export + Audit-Trail-Export
+// ---------------------------------------------------------------------------
+
+export interface ApiTomGapRequirement {
+  id: string;
+  label: string;
+  description: string;
+  category: string;
+  severity: "info" | "low" | "medium" | "high" | "critical";
+  met: boolean;
+  matchingToms: string[];
+}
+
+export interface ApiTomGapSummary {
+  total: number;
+  met: number;
+  missing: number;
+  coveragePct: number;
+  missingBySeverity: Record<string, number>;
+}
+
+export interface ApiTomGapResponse {
+  enabled: boolean;
+  requirements: ApiTomGapRequirement[];
+  summary: ApiTomGapSummary;
+}
+
+export async function getTomGaps(caseId?: string): Promise<ApiTomGapResponse> {
+  const path = caseId ? `/cases/${caseId}/tom-gaps` : "/tom-gaps";
+  const r = await request<Record<string, unknown>>("GET", path);
+  return deepSnakeToCamel(r) as unknown as ApiTomGapResponse;
+}
+
+/** Trigger a browser download for the ROPA export (CSV or DOCX). */
+export async function downloadRopaExport(
+  caseId: string,
+  fmt: "csv" | "docx" = "csv",
+): Promise<void> {
+  const url = `${API_BASE}${API_PREFIX}/cases/${caseId}/ropa-export?format=${fmt}`;
+  const res = await fetch(url, {
+    headers: authHeaders(),
+    credentials: "include",
+  });
+  if (!res.ok) {
+    const detail = await parseErrorResponse(res);
+    throw new Error(detail);
+  }
+  const blob = await res.blob();
+  const disposition = res.headers.get("Content-Disposition") || "";
+  const m = disposition.match(/filename="?([^";]+)"?/);
+  const filename = m?.[1] || `ROPA_${caseId}.${fmt}`;
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(a.href);
+}
+
+/** Trigger a browser download for the signed audit-trail export.
+ *
+ * Captures the ``X-Audit-Signature`` response header so the caller can
+ * display it alongside the file — useful for later verification. */
+export async function downloadAuditTrail(
+  caseId: string,
+  fmt: "csv" | "jsonl" = "csv",
+): Promise<{ filename: string; signature: string | null }> {
+  const url = `${API_BASE}${API_PREFIX}/cases/${caseId}/audit/export?format=${fmt}`;
+  const res = await fetch(url, {
+    headers: authHeaders(),
+    credentials: "include",
+  });
+  if (!res.ok) {
+    const detail = await parseErrorResponse(res);
+    throw new Error(detail);
+  }
+  const blob = await res.blob();
+  const disposition = res.headers.get("Content-Disposition") || "";
+  const m = disposition.match(/filename="?([^";]+)"?/);
+  const filename = m?.[1] || `audit_${caseId}.${fmt}`;
+  const signature = res.headers.get("X-Audit-Signature");
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(a.href);
+  return { filename, signature };
 }

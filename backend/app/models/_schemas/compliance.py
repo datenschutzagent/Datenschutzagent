@@ -225,6 +225,10 @@ class AVVContractResponse(BaseModel):
     check_result: dict[str, Any] | None = None
     risk_score: int | None = None
     risk_level: RiskLevelEnum | None = None
+    inherent_risk_score: int | None = None
+    inherent_risk_level: RiskLevelEnum | None = None
+    risk_source: str | None = None
+    risk_confidence: float | None = None
     risk_assessed_at: datetime | None = None
     created_at: datetime
     updated_at: datetime
@@ -338,3 +342,86 @@ class CaseTemplateApplyRequest(BaseModel):
     title: str = Field(..., min_length=1, max_length=500)
     assignee: str = Field(default="", max_length=200)
     deadline: date | None = None
+
+
+# ---------------------------------------------------------------------------
+# Mitigation catalog: linking + delta
+# ---------------------------------------------------------------------------
+
+
+class MitigationReductionResponse(BaseModel):
+    score_delta: float = 0.0
+    dimension_deltas: dict[str, float] = Field(default_factory=dict)
+    likelihood_delta: int = 0
+    severity_delta: int = 0
+    applicable_risk_keywords: list[str] = Field(default_factory=list)
+
+
+class MitigationCatalogEntry(BaseModel):
+    id: str
+    label: str
+    description: str = ""
+    applies_to: str
+    tom_category: str | None = None
+    evidence_required: bool = False
+    reduction: MitigationReductionResponse
+
+
+class MitigationCatalogResponse(BaseModel):
+    enabled: bool
+    min_likelihood: int
+    min_severity: int
+    min_avv_score: float
+    catalog: list[MitigationCatalogEntry]
+
+
+class MitigationLinkRequest(BaseModel):
+    """Body for POST /cases/{id}/mitigations or /avv/{id}/mitigations."""
+    mitigation_id: str = Field(..., min_length=1, max_length=80)
+    tom_id: UUID | None = None
+    evidence_doc_id: UUID | None = None
+    notes: str | None = None
+
+
+class CaseMitigationLinkResponse(BaseModel):
+    id: UUID
+    case_id: UUID
+    mitigation_id: str
+    tom_id: UUID | None = None
+    evidence_doc_id: UUID | None = None
+    applied_by: str
+    notes: str | None = None
+    applied_at: datetime
+    catalog_entry: MitigationCatalogEntry | None = None
+
+    model_config = {"from_attributes": True}
+
+
+class AvvMitigationLinkResponse(BaseModel):
+    id: UUID
+    avv_contract_id: UUID
+    mitigation_id: str
+    tom_id: UUID | None = None
+    applied_by: str
+    notes: str | None = None
+    applied_at: datetime
+    catalog_entry: MitigationCatalogEntry | None = None
+
+    model_config = {"from_attributes": True}
+
+
+class RiskDeltaSide(BaseModel):
+    """One snapshot (inherent or residual) of a risk-bearing object."""
+    risk_score: int | None = None
+    risk_level: str | None = None
+
+
+class RiskDeltaResponse(BaseModel):
+    """Before/after view returned by /cases/{id}/risk-delta and /avv/{id}/risk-delta."""
+    target_type: str  # 'avv' | 'dsfa'
+    target_id: UUID
+    inherent: RiskDeltaSide
+    residual: RiskDeltaSide
+    applied_mitigations: list[str] = Field(default_factory=list)
+    applied_effects: list[dict[str, Any]] = Field(default_factory=list)
+    assessed_at: datetime | None = None

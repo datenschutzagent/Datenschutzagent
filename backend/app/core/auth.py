@@ -314,14 +314,24 @@ async def get_current_user(
     1. Session cookie (when ``auth_session_cookie_enabled=true`` and cookie set)
     2. OIDC Bearer token (when ``oidc_enabled=true``)
     3. ``CURRENT_USER_ID`` fallback / default user (when OIDC is disabled)
+
+    The resolved user is also stashed on ``request.state.current_user`` so
+    the per-user rate-limit keyfunc (``core/rate_limit.py``) can bucket
+    requests by user id instead of falling back to the source IP — see
+    Phase 4 hardening.
     """
     if settings.auth_session_cookie_enabled:
         user = await get_current_user_cookie(request=request, db=db)
         if user is not None:
+            request.state.current_user = user
             return user
     if settings.oidc_enabled:
-        return await get_current_user_oidc(credentials=credentials, db=db)
-    return await get_current_user_fallback(db=db)
+        user = await get_current_user_oidc(credentials=credentials, db=db)
+        request.state.current_user = user
+        return user
+    user = await get_current_user_fallback(db=db)
+    request.state.current_user = user
+    return user
 
 
 def require_roles(*allowed_roles: str):

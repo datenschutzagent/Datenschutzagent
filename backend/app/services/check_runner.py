@@ -10,7 +10,11 @@ from pydantic import BaseModel, Field
 
 from app.config import settings
 from app.core.llm import create_agent, llm_retry_call
-from app.core.prompt_security import sanitize_prompt_field
+from app.core.prompt_security import (
+    SYSTEM_PROMPT_SAFETY_PREAMBLE,
+    sanitize_prompt_field,
+    wrap_untrusted_content,
+)
 from app.core.request_id import get_request_id
 from app.models.schemas import FindingSeverityEnum
 from app.services.prompt_template_service import get_active_template, render
@@ -224,6 +228,8 @@ async def run_check(
     language_hint = _language_hint(language) if language else ""
     system_tpl = await get_active_template("check_full_text_document_system")
     system = render(system_tpl or DEFAULT_CHECK_FULL_TEXT_DOCUMENT_SYSTEM, {"language_hint": language_hint})
+    # Phase 4: tell the model up-front that marker-wrapped content is data.
+    system = SYSTEM_PROMPT_SAFETY_PREAMBLE + "\n\n" + system
     user_tpl = await get_active_template("check_full_text_document_user")
     limit = _context_chars_per_doc()
     if document_text and len(document_text) > limit:
@@ -235,7 +241,7 @@ async def run_check(
         user_tpl or DEFAULT_CHECK_FULL_TEXT_DOCUMENT_USER,
         {
             "requirement": sanitize_prompt_field(check_instruction, max_chars=_CHECK_INSTRUCTION_MAX_CHARS),
-            "document_text": sanitize_prompt_field(truncated_text, max_chars=limit),
+            "document_text": wrap_untrusted_content(truncated_text, max_chars=limit),
             "legal_bases_section": _legal_bases_section(legal_bases_context),
         },
     )
@@ -276,6 +282,7 @@ async def run_cross_document_check(
     language_hint = _language_hint(language) if language else ""
     system_tpl = await get_active_template("check_full_text_cross_system")
     system = render(system_tpl or DEFAULT_CHECK_FULL_TEXT_CROSS_SYSTEM, {"language_hint": language_hint})
+    system = SYSTEM_PROMPT_SAFETY_PREAMBLE + "\n\n" + system
     limit = _context_chars_per_doc()
     parts: List[str] = []
     for i, (doc_id, text) in enumerate(documents, 1):
@@ -285,8 +292,8 @@ async def run_cross_document_check(
             truncated = raw[:limit] + f"\n[... truncated, {len(raw)} chars total ...]"
         else:
             truncated = raw
-        sanitized = sanitize_prompt_field(truncated, max_chars=limit)
-        parts.append(f"--- Document {i} (id: {doc_id}) ---\n{sanitized}")
+        wrapped = wrap_untrusted_content(truncated, max_chars=limit)
+        parts.append(f"--- Document {i} (id: {doc_id}) ---\n{wrapped}")
     combined = "\n\n".join(parts)
     user_tpl = await get_active_template("check_full_text_cross_user")
     user_content = render(

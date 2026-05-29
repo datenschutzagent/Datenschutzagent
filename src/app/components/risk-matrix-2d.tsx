@@ -57,12 +57,27 @@ type Props = {
   matrix?: Record<string, string>;
   likelihoodLabels?: Record<number, string>;
   severityLabels?: Record<number, string>;
+  /** Matrix dimension (3, 5, or 7). Defaults to 5 — the historical size. */
+  size?: 3 | 5 | 7;
+  /** Optional inherent risks (pre-mitigation). When present, each cell gets a
+   * dashed inherent-count badge so the user can see how mitigations shifted
+   * the risks. */
+  inherentRisks?: DsfaRisk[];
 };
 
-export function RiskMatrix2D({ risks, matrix, likelihoodLabels, severityLabels }: Props) {
+export function RiskMatrix2D({
+  risks,
+  matrix,
+  likelihoodLabels,
+  severityLabels,
+  inherentRisks,
+  size = 5,
+}: Props) {
   const cellMap = matrix ?? FALLBACK_MATRIX;
   const likLabels = likelihoodLabels ?? DEFAULT_LIKELIHOOD_LABELS;
   const sevLabels = severityLabels ?? DEFAULT_SEVERITY_LABELS;
+  const cells = Array.from({ length: size }, (_, i) => i + 1);
+  const rowsTopDown = [...cells].reverse(); // highest likelihood on top
 
   // Group risks by their (likelihood_score, severity_score) cell.
   const grouped = useMemo(() => {
@@ -77,45 +92,75 @@ export function RiskMatrix2D({ risks, matrix, likelihoodLabels, severityLabels }
     return acc;
   }, [risks]);
 
+  const inherentGrouped = useMemo(() => {
+    if (!inherentRisks?.length) return {};
+    const acc: Record<string, DsfaRisk[]> = {};
+    for (const r of inherentRisks) {
+      const lik = r.likelihood_score ?? scoreFromLabel(r.likelihood);
+      const sev = r.severity_score ?? scoreFromLabel(r.severity);
+      const key = `${lik}_${sev}`;
+      if (!acc[key]) acc[key] = [];
+      acc[key].push(r);
+    }
+    return acc;
+  }, [inherentRisks]);
+
   return (
     <div className="space-y-3">
       <div className="text-xs text-muted-foreground">
-        Risikomatrix nach ISO 27005 (Likelihood × Severity). Klicke auf eine Zelle, um die zugeordneten
-        Risiken zu sehen.
+        Risikomatrix nach ISO 27005 (Likelihood × Severity, {size}×{size}). Hover über eine Zelle für Details.
       </div>
       <div className="inline-block">
         {/* Top axis: severity labels */}
-        <div className="grid" style={{ gridTemplateColumns: "120px repeat(5, 1fr)" }}>
+        <div className="grid" style={{ gridTemplateColumns: `120px repeat(${size}, 1fr)` }}>
           <div></div>
-          {[1, 2, 3, 4, 5].map((s) => (
+          {cells.map((s) => (
             <div key={`sev-h-${s}`} className="text-xs text-center text-muted-foreground px-2 py-1">
               {s}
               <div className="text-[10px] leading-tight">{sevLabels[s]}</div>
             </div>
           ))}
         </div>
-        {/* Rows: likelihood from 5 (top) to 1 (bottom) so that highest risk sits top-right */}
-        {[5, 4, 3, 2, 1].map((lik) => (
-          <div key={`row-${lik}`} className="grid" style={{ gridTemplateColumns: "120px repeat(5, 1fr)" }}>
+        {/* Rows: likelihood from N (top) to 1 (bottom) so highest risk sits top-right */}
+        {rowsTopDown.map((lik) => (
+          <div key={`row-${lik}`} className="grid" style={{ gridTemplateColumns: `120px repeat(${size}, 1fr)` }}>
             <div className="text-xs text-right pr-3 py-3 text-muted-foreground">
               {lik}: <span className="text-foreground">{likLabels[lik]}</span>
             </div>
-            {[1, 2, 3, 4, 5].map((sev) => {
+            {cells.map((sev) => {
               const key = `${lik}_${sev}`;
               const level = cellMap[key] ?? "low";
               const items = grouped[key] ?? [];
+              const inherentItems = inherentGrouped[key] ?? [];
               const colour = LEVEL_BG[level] ?? "";
+              const tooltipLines: string[] = [];
+              if (items.length) {
+                tooltipLines.push(...items.map((r) => `• ${r.description}`));
+              }
+              if (inherentItems.length) {
+                tooltipLines.push(
+                  ...inherentItems.map((r) => `▢ inherent: ${r.description}`),
+                );
+              }
               return (
                 <div
                   key={key}
-                  className={`m-0.5 rounded border border-border min-h-[56px] flex items-center justify-center text-sm font-medium ${colour}`}
+                  className={`relative m-0.5 rounded border border-border min-h-[56px] flex items-center justify-center text-sm font-medium ${colour}`}
                   title={
-                    items.length
-                      ? items.map((r) => `• ${r.description}`).join("\n")
+                    tooltipLines.length
+                      ? tooltipLines.join("\n")
                       : `${level.toUpperCase()} (${lik}/${sev}) — keine Risiken`
                   }
                 >
                   {items.length > 0 ? items.length : ""}
+                  {inherentItems.length > 0 && (
+                    <span
+                      className="absolute top-1 right-1 text-[10px] px-1 rounded border border-dashed border-current opacity-70"
+                      aria-label={`${inherentItems.length} inherent (vor Mitigation)`}
+                    >
+                      ▢{inherentItems.length}
+                    </span>
+                  )}
                 </div>
               );
             })}
@@ -129,7 +174,7 @@ export function RiskMatrix2D({ risks, matrix, likelihoodLabels, severityLabels }
           </div>
         ))}
         <div className="text-muted-foreground self-center ml-2">
-          Achsen: Y = Likelihood (1-5), X = Severity (1-5)
+          Achsen: Y = Likelihood (1-{size}), X = Severity (1-{size})
         </div>
       </div>
     </div>

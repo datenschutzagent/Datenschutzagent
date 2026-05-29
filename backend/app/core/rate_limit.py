@@ -65,4 +65,26 @@ def _trusted_forwarded_for(request: Request) -> str:
     return first_hop
 
 
-limiter = Limiter(key_func=_trusted_forwarded_for)
+def _user_aware_key(request: Request) -> str:
+    """Per-user rate-limit key with IP fallback.
+
+    Phase 4 hardening — IP-only buckets let a single authenticated user
+    inside a busy NAT (or a CI/test runner sharing a public IP) exhaust
+    the limit for everyone else behind the same address. We prefer:
+
+        1. ``user:<uuid>`` if the auth middleware attached a current_user
+           to ``request.state``.
+        2. ``ip:<trusted-x-forwarded-for>`` otherwise — same logic as
+           before so anonymous and pre-auth requests stay rate-limited.
+
+    The string prefix ensures user and IP buckets never collide even
+    if a UUID happens to look like an IPv4 address.
+    """
+    user = getattr(getattr(request, "state", None), "current_user", None)
+    user_id = getattr(user, "id", None)
+    if user_id:
+        return f"user:{user_id}"
+    return f"ip:{_trusted_forwarded_for(request)}"
+
+
+limiter = Limiter(key_func=_user_aware_key)

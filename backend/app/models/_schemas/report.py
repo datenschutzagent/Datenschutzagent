@@ -66,6 +66,10 @@ class DSFAAssessmentPayload(BaseModel):
     confidence: float | None = None
     low_confidence: bool | None = None
     scale_version: str | None = None
+    # Provenance — Phase 2 (Confidence-Policy). Indicates whether the
+    # underlying risk numbers came from the LLM, the rule-based fallback,
+    # or a mix.
+    source: Literal["llm", "rules", "hybrid"] | None = None
 
 
 class DSFAResponse(BaseModel):

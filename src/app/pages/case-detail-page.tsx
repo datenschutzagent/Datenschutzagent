@@ -26,6 +26,8 @@ import {
   getAuditTrailExportBlob,
   downloadAuditPackage,
   downloadBlob,
+  downloadAuditTrail,
+  downloadRopaExport,
   type ApiCase,
   type ApiFinding,
   type ApiFindingComment,
@@ -587,6 +589,44 @@ export function CaseDetailPage() {
                       }}
                     >
                       <Download className="size-4 mr-1" /> Audit-Paket (ZIP)
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      title="Signierter Audit-Trail (HMAC-SHA256). Die Signatur wird beim Download angezeigt — bewahren Sie sie getrennt vom File auf, um Manipulation später nachweisen zu können."
+                      onClick={async () => {
+                        try {
+                          const { filename, signature } = await downloadAuditTrail(caseData.id, "csv");
+                          if (signature) {
+                            toast.success(
+                              `${filename} exportiert. Signatur: ${signature.slice(0, 16)}…${signature.slice(-8)}`,
+                              { duration: 10000 },
+                            );
+                          } else {
+                            toast.success(`${filename} exportiert.`);
+                          }
+                        } catch {
+                          toast.error("Signierter Audit-Export fehlgeschlagen.");
+                        }
+                      }}
+                    >
+                      <Download className="size-4 mr-1" /> Signiert (CSV)
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      title="ROPA gemäß Art. 30 DSGVO als DOCX für die Vorlage bei der Aufsichtsbehörde"
+                      onClick={async () => {
+                        try {
+                          await downloadRopaExport(caseData.id, "docx");
+                          toast.success("ROPA exportiert.");
+                        } catch (err) {
+                          const msg = err instanceof Error ? err.message : String(err);
+                          toast.error(`ROPA-Export fehlgeschlagen: ${msg}`);
+                        }
+                      }}
+                    >
+                      <Download className="size-4 mr-1" /> ROPA (DOCX)
                     </Button>
                   </div>
                 </CardHeader>

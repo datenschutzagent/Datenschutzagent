@@ -727,16 +727,49 @@ export interface DsfaRiskItem {
   risk_level?: "low" | "medium" | "high" | "critical" | null;
 }
 
+export interface DsfaRiskItemWithMitigation extends DsfaRiskItem {
+  inherent_likelihood_score?: number | null;
+  inherent_severity_score?: number | null;
+  inherent_risk_level?: "low" | "medium" | "high" | "critical" | null;
+  applied_mitigation_ids?: string[] | null;
+}
+
+export interface DsfaAppliedEffect {
+  id: string;
+  label: string;
+  likelihood_delta?: number;
+  severity_delta?: number;
+  score_delta?: number;
+  applied_to_risks?: string[];
+}
+
 export interface DsfaPayload {
   necessity_assessment: string;
   proportionality_assessment: string;
-  risks: DsfaRiskItem[];
+  risks: DsfaRiskItemWithMitigation[];
+  /** Inherent risks before mitigation. Empty/missing when no mitigations are linked. */
+  inherent_risks?: DsfaRiskItem[];
+  /** Overall residual level after mitigation. */
   residual_risk: "low" | "medium" | "high" | "critical";
+  /** Overall inherent level (pre-mitigation). Falls back to residual_risk for legacy records. */
+  inherent_residual_risk?: "low" | "medium" | "high" | "critical";
   dpo_consultation_required: boolean;
   measures: string[];
+  applied_mitigations?: string[];
+  applied_effects?: DsfaAppliedEffect[];
   confidence?: number | null;
   low_confidence?: boolean | null;
+  /** Provenance of the underlying risk numbers — Phase 2. */
+  source?: "llm" | "rules" | "hybrid" | null;
   scale_version?: string | null;
+  /** Matrix metadata — Phase 3 (variable scale sizes 3/5/7). */
+  scale_type?: "1-3" | "1-5" | "1-7" | null;
+  scale_size?: 3 | 5 | 7 | null;
+  matrix?: Record<string, "low" | "medium" | "high" | "critical"> | null;
+  scale_labels?: {
+    likelihood?: Record<string, string>;
+    severity?: Record<string, string>;
+  } | null;
 }
 
 export interface DsfaResponse {

@@ -11,8 +11,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.constants import FindingSeverity, FindingStatus
 from app.core.llm import create_agent
 from app.core.prompt_security import sanitize_prompt_field
-from app.models.db import CaseModel, DSFAAssessmentModel, FindingModel
+from app.models.db import ActivityLogModel, CaseMitigationLinkModel, CaseModel, DSFAAssessmentModel, FindingModel
+from app.services.mitigation_service import apply_dsfa_mitigations
 from app.services.risk_config_loader import get_risk_config
+from app.services.risk_fallback_service import compute_dsfa_fallback
 
 logger = logging.getLogger(__name__)
 
@@ -218,18 +220,41 @@ async def generate_dsfa(case_id: UUID, db: AsyncSession) -> dict[str, Any]:
         findings_info=sanitize_prompt_field(findings_info, max_chars=2000),
     )
 
+    cfg = get_risk_config()
+    dsfa_cfg = cfg.dsfa_assessment
+    policy = cfg.confidence_policy
+    source = "llm"
+    llm_failed = False
+
     agent = create_agent(_DSFA_SYSTEM_PROMPT)
     try:
         result = await agent.run(user_content, output_type=_DSFAResult)
+        data = result.output
     except Exception as exc:
         logger.error("DSFA LLM generation failed: %s", exc, extra={"case_id": str(case_id)})
-        raise
-    data = result.output
+        llm_failed = True
+        if not (policy.enabled and policy.uses_rule_fallback):
+            raise
+        data = _dsfa_fallback_result(case, findings)
+        source = "rules"
+
+    # If the LLM produced output below the policy threshold, swap in the
+    # heuristic. The "both" strategy emits an audit event but keeps the LLM result.
+    if not llm_failed and policy.enabled and policy.uses_rule_fallback:
+        if float(data.confidence) < policy.low_threshold:
+            logger.warning(
+                "DSFA LLM confidence below threshold — switching to rules fallback",
+                extra={
+                    "case_id": str(case_id),
+                    "llm_confidence": float(data.confidence),
+                    "low_threshold": policy.low_threshold,
+                },
+            )
+            data = _dsfa_fallback_result(case, findings)
+            source = "hybrid"
 
     # Matrix-Lookup pro Risiko: Likelihood × Severity → risk_level
     # (deterministisch aus der Config, nicht aus LLM-Self-Report).
-    cfg = get_risk_config()
-    dsfa_cfg = cfg.dsfa_assessment
     confidence = float(data.confidence)
     low_confidence = confidence < dsfa_cfg.min_confidence
     if low_confidence:
@@ -242,12 +267,31 @@ async def generate_dsfa(case_id: UUID, db: AsyncSession) -> dict[str, Any]:
             },
         )
 
-    risks_payload = []
+    # Emit an audit-log entry when the policy demands escalation or when the
+    # source is non-LLM. Audit entry is best-effort — never lets the DSFA fail.
+    if source != "llm" or policy.emits_audit_event:
+        try:
+            db.add(ActivityLogModel(
+                case_id=case_id,
+                event_type=policy.escalation_event_type,
+                payload={
+                    "kind": "dsfa",
+                    "source": source,
+                    "llm_failed": llm_failed,
+                    "confidence": confidence,
+                    "low_threshold": policy.low_threshold,
+                    "strategy": policy.fallback_strategy,
+                },
+            ))
+        except Exception as exc:  # noqa: BLE001 — audit must never break DSFA
+            logger.debug("Audit-log emission for DSFA fallback failed: %s", exc, extra={"case_id": str(case_id)})
+
+    inherent_risks_payload = []
     for r in data.risks:
         lik = max(1, min(5, int(r.likelihood)))
         sev = max(1, min(5, int(r.severity)))
         risk_level = dsfa_cfg.risk_level_for(lik, sev)
-        risks_payload.append({
+        inherent_risks_payload.append({
             "description": r.description,
             "likelihood": _to_label(lik),
             "severity": _to_label(sev),
@@ -257,26 +301,69 @@ async def generate_dsfa(case_id: UUID, db: AsyncSession) -> dict[str, Any]:
             "mitigation": r.mitigation,
         })
 
-    # Residualrisiko = höchstes Einzelrisiko; DPO-Konsultation regelbasiert.
-    if risks_payload:
-        residual_risk = max(
-            (r["risk_level"] for r in risks_payload),
+    # Inherent (vor Mitigation): höchstes Einzelrisiko.
+    if inherent_risks_payload:
+        inherent_residual = max(
+            (r["risk_level"] for r in inherent_risks_payload),
             key=lambda lv: _RESIDUAL_RANK.get(lv, 0),
         )
     else:
-        residual_risk = "low"
-    dpo_required = residual_risk in dsfa_cfg.dpo_consultation_required_when_residual_in
+        inherent_residual = "low"
+
+    # Residual via Mitigation-Katalog. Wenn keine Mitigations verknüpft sind
+    # ist residual == inherent — kompletter Backward-compat.
+    applied_ids = await _load_case_mitigation_ids(case_id, db)
+    if cfg.mitigations.enabled and applied_ids and inherent_risks_payload:
+        residual = apply_dsfa_mitigations(
+            inherent_risks=inherent_risks_payload,
+            applied_mitigation_ids=applied_ids,
+            catalog=cfg.mitigations,
+            dsfa_cfg=dsfa_cfg,
+        )
+        risks_payload = residual["residual_risks"]
+        residual_risk = residual["residual_overall_level"]
+        applied_effects = residual["applied_effects"]
+        dpo_required = residual["dpo_consultation_required"]
+    else:
+        # Keine Mitigations → spiegele inherent in residual + leeren Effekt-Trace.
+        risks_payload = [
+            {
+                **r,
+                "inherent_likelihood_score": r["likelihood_score"],
+                "inherent_severity_score": r["severity_score"],
+                "inherent_risk_level": r["risk_level"],
+                "applied_mitigation_ids": [],
+            }
+            for r in inherent_risks_payload
+        ]
+        residual_risk = inherent_residual
+        applied_effects = []
+        dpo_required = residual_risk in dsfa_cfg.dpo_consultation_required_when_residual_in
 
     payload = {
         "necessity_assessment": data.necessity_assessment,
         "proportionality_assessment": data.proportionality_assessment,
         "risks": risks_payload,
+        "inherent_risks": inherent_risks_payload,
+        "inherent_residual_risk": inherent_residual,
         "residual_risk": residual_risk,
         "dpo_consultation_required": dpo_required,
         "measures": list(data.measures),
+        "applied_mitigations": applied_ids,
+        "applied_effects": applied_effects,
+        "source": source,
         "confidence": confidence,
         "low_confidence": low_confidence,
         "scale_version": DSFA_SCALE_VERSION_NUMERIC,
+        # Matrix metadata so the UI can render the right grid without
+        # needing admin scope on the risk-config endpoint.
+        "scale_type": dsfa_cfg.scale_type,
+        "scale_size": dsfa_cfg.size,
+        "matrix": dict(dsfa_cfg.matrix),
+        "scale_labels": {
+            "likelihood": {str(k): v for k, v in dsfa_cfg.scale_labels.get("likelihood", {}).items()},
+            "severity": {str(k): v for k, v in dsfa_cfg.scale_labels.get("severity", {}).items()},
+        },
     }
     logger.info(
         "DSFA generation complete",
@@ -353,6 +440,7 @@ async def screen_dsfa_requirement(case_id: UUID, db: AsyncSession) -> dict[str, 
     open_findings = [f for f in findings if f.status == FindingStatus.OPEN]
     factor_results = []
     score = 0.0
+    matched_ids: set[str] = set()
     for factor in dsfa_cfg.factors:
         try:
             met = _factor_met(factor, case, open_findings)
@@ -361,6 +449,7 @@ async def screen_dsfa_requirement(case_id: UUID, db: AsyncSession) -> dict[str, 
             met = False
         if met:
             score += factor.weight
+            matched_ids.add(factor.id)
         factor_results.append({
             "id": factor.id,
             "label": factor.label,
@@ -371,6 +460,17 @@ async def screen_dsfa_requirement(case_id: UUID, db: AsyncSession) -> dict[str, 
 
     threshold = dsfa_cfg.required_threshold
     required = score >= threshold
+
+    # Boolean override rules (Phase 3). A rule with action=require_dsfa
+    # forces required=true; skip_dsfa forces required=false. Both produce
+    # an explanation line for the recommendation.
+    rule_results = _evaluate_screening_rules(dsfa_cfg.rules, matched_ids)
+    forced_required = any(r["matched"] and r["action"] == "require_dsfa" for r in rule_results)
+    forced_skip = any(r["matched"] and r["action"] == "skip_dsfa" for r in rule_results)
+    if forced_required:
+        required = True
+    elif forced_skip:
+        required = False
     logger.info(
         "DSFA screening complete",
         extra={"case_id": str(case_id), "score": score, "required": required, "threshold": threshold},
@@ -378,7 +478,19 @@ async def screen_dsfa_requirement(case_id: UUID, db: AsyncSession) -> dict[str, 
 
     score_fmt = f"{score:g}"  # 2.0 -> "2", 3.5 -> "3.5"
     threshold_fmt = f"{threshold:g}"
-    if score == 0:
+    if forced_required:
+        triggered = [r["label"] for r in rule_results if r["matched"] and r["action"] == "require_dsfa"]
+        recommendation = (
+            "DSFA ist verpflichtend gemäß Org-Regel "
+            f"({', '.join(triggered)}). Bitte umgehend durchführen."
+        )
+    elif forced_skip:
+        triggered = [r["label"] for r in rule_results if r["matched"] and r["action"] == "skip_dsfa"]
+        recommendation = (
+            "DSFA aktuell nicht erforderlich (Org-Regel: "
+            f"{', '.join(triggered)}). Trotzdem regelmäßig neu bewerten."
+        )
+    elif score == 0:
         recommendation = "Keine Risikofaktoren identifiziert. DSFA aktuell nicht erforderlich."
     elif not required:
         recommendation = (
@@ -403,8 +515,60 @@ async def screen_dsfa_requirement(case_id: UUID, db: AsyncSession) -> dict[str, 
         "score": score,
         "threshold": threshold,
         "factors": factor_results,
+        "rules": rule_results,
+        "rule_override": "require_dsfa" if forced_required else ("skip_dsfa" if forced_skip else None),
         "recommendation": recommendation,
     }
+
+
+def _evaluate_screening_rules(rules, matched_ids: set[str]) -> list[dict[str, Any]]:
+    """Evaluate the configured Boolean screening rules against the matched factor set."""
+    from app.services.boolean_rule_parser import evaluate, parse
+    out: list[dict[str, Any]] = []
+    for rule in rules:
+        try:
+            ast = parse(rule.expression)
+            matched = evaluate(ast, matched_ids)
+        except Exception as exc:  # noqa: BLE001 — never crash screening on a bad rule
+            logger.warning("DSFA screening rule '%s' failed to evaluate: %s", rule.id, exc)
+            matched = False
+        out.append({
+            "id": rule.id,
+            "label": rule.label,
+            "description": rule.description,
+            "expression": rule.expression,
+            "action": rule.action,
+            "matched": matched,
+        })
+    return out
+
+
+def _dsfa_fallback_result(case: CaseModel, findings) -> "_DSFAResult":
+    """Build a ``_DSFAResult`` from the rule-based heuristic."""
+    critical_count = sum(
+        1 for f in findings
+        if (f.severity or "").lower() in {FindingSeverity.CRITICAL, FindingSeverity.HIGH}
+        and (f.status or "").lower() == FindingStatus.OPEN
+    )
+    raw = compute_dsfa_fallback(
+        case_title=case.title or "",
+        case_type=case.case_type or "",
+        processing_context=case.processing_context,
+        special_category_data=bool(case.special_category_data),
+        international_transfer=bool(case.international_transfer),
+        open_critical_findings=critical_count,
+    )
+    return _DSFAResult.model_validate(raw)
+
+
+async def _load_case_mitigation_ids(case_id: UUID, db: AsyncSession) -> list[str]:
+    """Return the catalog-ids of mitigations currently linked to a case (DSFA)."""
+    result = await db.execute(
+        select(CaseMitigationLinkModel.mitigation_id).where(
+            CaseMitigationLinkModel.case_id == case_id
+        )
+    )
+    return [row for row in result.scalars().all()]
 
 
 async def save_dsfa(case_id: UUID, payload: dict[str, Any], db: AsyncSession) -> DSFAAssessmentModel:

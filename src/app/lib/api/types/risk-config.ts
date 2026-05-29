@@ -36,13 +36,24 @@ export interface DsfaScreeningFactor {
   findings_severity: string[];
 }
 
+export interface DsfaScreeningRule {
+  id: string;
+  label: string;
+  description: string;
+  expression: string;
+  action: "require_dsfa" | "skip_dsfa";
+}
+
 export interface DsfaScreeningConfig {
   required_threshold: number;
   factors: DsfaScreeningFactor[];
+  rules: DsfaScreeningRule[];
 }
 
+export type DsfaScaleType = "1-3" | "1-5" | "1-7";
+
 export interface DsfaAssessmentConfig {
-  scale_type: "1-3" | "1-5";
+  scale_type: DsfaScaleType;
   scale_labels: {
     likelihood: Record<number, string>;
     severity: Record<number, string>;
@@ -73,6 +84,32 @@ export interface RiskVelocityConfig {
   significant_change_pct: number;
 }
 
+export interface MitigationReduction {
+  score_delta: number;
+  dimension_deltas: Record<string, number>;
+  likelihood_delta: number;
+  severity_delta: number;
+  applicable_risk_keywords: string[];
+}
+
+export interface MitigationCatalogEntry {
+  id: string;
+  label: string;
+  description: string;
+  applies_to: "avv" | "dsfa" | "both";
+  tom_category: string | null;
+  evidence_required: boolean;
+  reduction: MitigationReduction;
+}
+
+export interface MitigationCatalogConfig {
+  enabled: boolean;
+  min_likelihood: number;
+  min_severity: number;
+  min_avv_score: number;
+  catalog: MitigationCatalogEntry[];
+}
+
 export interface RiskConfig {
   version: number;
   avv: AvvRiskConfig;
@@ -81,6 +118,7 @@ export interface RiskConfig {
   case_score: CaseScoreConfig;
   maturity: MaturityConfig;
   risk_velocity: RiskVelocityConfig;
+  mitigations: MitigationCatalogConfig;
 }
 
 export interface AdminRiskConfigResponse {
