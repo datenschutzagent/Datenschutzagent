@@ -78,6 +78,15 @@ async def generate_dsfa(
     if case_result.scalar_one_or_none() is None:
         raise HTTPException(status_code=404, detail="Vorgang nicht gefunden")
 
+    # Concurrency: prevent two parallel DSFA generations for the same case
+    # racing each other and producing duplicate jobs.
+    from app.core.concurrency import try_acquire_dsfa_lock
+    if not await try_acquire_dsfa_lock(db, case_id):
+        raise HTTPException(
+            status_code=423,
+            detail="Eine DSFA-Generierung für diesen Vorgang läuft bereits.",
+        )
+
     from app.config import settings
     job_id = uuid.uuid4()
     job = DSFAJobModel(

@@ -1157,6 +1157,19 @@ async def run_checks(
     strategies = body.strategies or ["full_text"]
     use_async = settings.celery_enabled and bool((settings.celery_broker_url or "").strip())
 
+    # Concurrency hardening (Phase 4): take a Postgres advisory lock on
+    # (case_id, playbook_id) BEFORE the duplicate-job check. Without the
+    # lock two concurrent requests could both pass the SELECT and both
+    # insert a job (classic SELECT-then-INSERT race). 423 = "Locked"
+    # signals to the UI that the conflict is operational, not a 409
+    # "you sent the wrong thing".
+    from app.core.concurrency import try_acquire_run_checks_lock
+    if not await try_acquire_run_checks_lock(db, case_id, body.playbook_id):
+        raise HTTPException(
+            status_code=423,
+            detail="A check run for this case and playbook is currently being started by another request.",
+        )
+
     # Prevent duplicate concurrent runs: return 409 if a job is already running
     running_job_result = await db.execute(
         select(RunChecksJobModel).where(

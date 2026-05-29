@@ -141,9 +141,20 @@ export function CaseDsfaTab({ caseData, canEdit }: Props) {
       }, 2000);
     } catch (err) {
       setGenerating(false);
+      // 423 Locked = concurrent generation already running. Surface as
+      // info, not as an error — the other request will complete the work.
+      const status =
+        typeof err === "object" && err !== null && "status" in err
+          ? Number((err as { status?: number }).status)
+          : 0;
       const msg = err instanceof Error ? err.message : String(err);
-      setError(msg);
-      toast.error(`DSFA konnte nicht gestartet werden: ${msg}`);
+      if (status === 423) {
+        setError(null);
+        toast.info("Eine DSFA-Generierung läuft bereits. Bitte warten.");
+      } else {
+        setError(msg);
+        toast.error(`DSFA konnte nicht gestartet werden: ${msg}`);
+      }
     }
   }
 
