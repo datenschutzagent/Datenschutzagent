@@ -2,10 +2,8 @@ import { useEffect, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router";
 import { getAuthConfig, setAccessToken } from "../lib/api";
 import { startSessionCookie } from "../lib/api/admin";
-import { setSessionCookieMode } from "../lib/api/core";
+import { API_BASE, setSessionCookieMode } from "../lib/api/core";
 import { getStoredCodeVerifier, clearStoredCodeVerifier, setStoredToken } from "../lib/auth";
-
-const API_BASE = (import.meta as unknown as { env?: { VITE_API_URL?: string } }).env?.VITE_API_URL ?? "http://localhost:8002";
 
 /**
  * Exchange authorization code for tokens via the backend (proxy) or directly.

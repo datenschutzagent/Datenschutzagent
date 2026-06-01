@@ -5,7 +5,8 @@
 
 import { logger } from "../logger";
 
-export const API_BASE = (import.meta as unknown as { env?: { VITE_API_URL?: string } }).env?.VITE_API_URL ?? "http://localhost:8002";
+export const API_BASE =
+  (import.meta as unknown as { env?: { VITE_API_URL?: string } }).env?.VITE_API_URL ?? "";
 export const API_PREFIX = "/api/v1";
 
 /**

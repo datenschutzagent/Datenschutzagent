@@ -27,7 +27,7 @@ Die vollständige Dokumentation (Schnellstart, Benutzerhandbuch, Administration,
 ## Kurzüberblick
 
 - **Tech-Stack:** Frontend: React (Vite), Tailwind, Radix UI. Backend: FastAPI, PostgreSQL, optional Celery + Redis, optional Weaviate (RAG). LLM: Ollama (lokal oder im Netzwerk).
-- **Schnellstart:** `.env` aus `.env.example` anlegen, dann `docker compose up -d`. Frontend: Port 3002, Backend: Port 8002. Ollama separat betreiben und in `.env` unter `OLLAMA_BASE_URL` angeben.
+- **Schnellstart:** `.env` aus `.env.example` anlegen, dann `docker compose up -d`. Frontend: Port 3002 (API unter `/api/v1` am selben Origin), Backend direkt: Port 8002 (Swagger/Docs). Ollama separat betreiben und in `.env` unter `OLLAMA_BASE_URL` angeben.
 - **Tests:** Frontend: `npm run test`. Backend: im Verzeichnis `backend` mit `DATABASE_URL`: `pytest tests/ -v`.
 
 Alle weiteren Themen (Migrationen, OIDC, RBAC, CLI, Konfiguration) siehe [Dokumentation](#dokumentation).

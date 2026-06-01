@@ -25,6 +25,12 @@ export default defineConfig({
 
   server: {
     port: 3002,
+    proxy: {
+      "/api": {
+        target: "http://localhost:8002",
+        changeOrigin: true,
+      },
+    },
   },
 
   // File types to support raw imports. Never add .css, .tsx, or .ts files to this.

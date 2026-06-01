@@ -44,7 +44,7 @@ Die Anwendung wird über Umgebungsvariablen konfiguriert. Im Projektroot liegt e
 
 | Variable | Beschreibung |
 | :--- | :--- |
-| `VITE_API_URL` | Wird nur beim Bau des Frontend-Images genutzt (z. B. `http://localhost:8002`). |
+| `VITE_API_URL` | Wird nur beim Bau des Frontend-Images genutzt. **Standard (leer):** Same-Origin — die SPA ruft `/api/v1/...` über den Frontend-Port auf; Nginx proxied an den Backend-Container. Nur setzen, wenn Frontend und API auf getrennten Origins laufen. |
 
 ---
 

@@ -13,7 +13,7 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB:-datenschutzagent}"]
       interval: 5s
       timeout: 5s
       retries: 5
@@ -133,7 +133,7 @@ services:
       context: .
       dockerfile: Dockerfile.frontend
       args:
-        VITE_API_URL: ${VITE_API_URL:-http://localhost:8002}
+        VITE_API_URL: ${VITE_API_URL:-}
     ports:
       - "3002:80"
     depends_on:

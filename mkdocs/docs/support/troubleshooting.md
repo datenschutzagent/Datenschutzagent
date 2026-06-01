@@ -225,7 +225,24 @@ lsof -i :5173
 # Ctrl+Shift+Delete (Chrome)
 
 # 5. API-URL korrekt?
-# .env VITE_API_BASE_URL=http://localhost:8000
+# Docker: leer lassen (Same-Origin über Port 3002/api/v1)
+# npm run dev: Vite proxied /api an localhost:8002 (vite.config.ts)
+```
+
+### API-Aufrufe fehlgeschlagen (CSP / connect-src)
+
+**Problem:** In der Browser-Konsole erscheinen Meldungen wie „Content-Security-Policy … connect-src 'self' … blockiert … localhost:8002" oder `NetworkError when attempting to fetch resource`.
+
+**Ursache:** Das Frontend nutzt eine strikte CSP (`connect-src 'self'`). API-Aufrufe müssen über denselben Origin laufen (z. B. `http://localhost:3002/api/v1/...`), nicht direkt auf Port 8002.
+
+**Lösung:**
+```bash
+# 1. VITE_API_URL in .env leer lassen (Standard)
+# 2. Frontend-Image neu bauen
+docker compose build frontend && docker compose up -d
+
+# 3. Im Netzwerk-Tab prüfen: Requests gehen an :3002/api/v1/...
+# 4. Swagger/Docs weiterhin direkt: http://localhost:8002/docs
 ```
 
 ### API-Aufrufe fehlgeschlagen (CORS-Fehler)
