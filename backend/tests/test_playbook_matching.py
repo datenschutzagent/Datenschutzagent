@@ -259,3 +259,69 @@ def test_rank_returns_correct_priority_values():
     pb = make_playbook(content={"match": {"priority": 42}})
     ranked = rank_playbooks_for_selection([pb], department="IT")
     assert ranked[0][1] == 42
+
+
+# ---------------------------------------------------------------------------
+# Match block inherits playbook.department (Goethe-style playbooks)
+# ---------------------------------------------------------------------------
+
+
+def test_match_inherits_department_from_playbook_field():
+    pb = make_playbook(
+        name="FB 12 Playbook",
+        department="FB 12 – Informatik und Mathematik",
+        content={"match": {"org_profiles": ["goethe"]}},
+    )
+    assert playbook_selection_priority(
+        pb, department="FB 12 – Informatik und Mathematik", org_profile="goethe"
+    ) == 10
+    assert playbook_selection_priority(
+        pb, department="FB 01 – Rechtswissenschaft", org_profile="goethe"
+    ) is None
+
+
+def test_match_inherits_department_empty_playbook_department_stays_global():
+    pb = make_playbook(
+        name="Global Default",
+        department="",
+        content={"match": {"org_profiles": ["goethe"]}},
+    )
+    assert playbook_selection_priority(
+        pb, department="FB 12 – Informatik und Mathematik", org_profile="goethe"
+    ) == 0
+    assert playbook_selection_priority(
+        pb, department="FB 01 – Rechtswissenschaft", org_profile="goethe"
+    ) == 0
+
+
+def test_match_inherits_department_respects_explicit_priority():
+    pb = make_playbook(
+        department="FB 12 – Informatik und Mathematik",
+        content={"match": {"org_profiles": ["goethe"], "priority": 5}},
+    )
+    assert playbook_selection_priority(
+        pb, department="FB 12 – Informatik und Mathematik", org_profile="goethe"
+    ) == 5
+
+
+def test_rank_unit_specific_before_global_default():
+    unit_pb = make_playbook(
+        name="Unit Specific",
+        department="FB 12 – Informatik und Mathematik",
+        content={"match": {"org_profiles": ["goethe"]}},
+    )
+    global_pb = make_playbook(
+        name="Global Default",
+        department="",
+        content={"match": {}},
+    )
+    ranked = rank_playbooks_for_selection(
+        [global_pb, unit_pb],
+        department="FB 12 – Informatik und Mathematik",
+        org_profile="goethe",
+    )
+    assert len(ranked) == 2
+    assert ranked[0][0].name == "Unit Specific"
+    assert ranked[0][1] == 10
+    assert ranked[1][0].name == "Global Default"
+    assert ranked[1][1] == 0

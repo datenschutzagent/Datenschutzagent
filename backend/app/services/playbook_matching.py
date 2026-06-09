@@ -4,11 +4,25 @@ from typing import Any
 from app.models.db import PlaybookModel
 
 
+def _has_department_constraint(spec: dict[str, Any]) -> bool:
+    dvals = spec.get("department_values") or []
+    if isinstance(dvals, list) and any(v is not None and str(v).strip() for v in dvals):
+        return True
+    dcodes = spec.get("department_codes") or []
+    return isinstance(dcodes, list) and any(c is not None and str(c).strip() for c in dcodes)
+
+
 def _match_spec(playbook: PlaybookModel) -> dict[str, Any]:
     content = playbook.content if isinstance(playbook.content, dict) else {}
     spec = content.get("match")
     if isinstance(spec, dict) and spec:
-        return dict(spec)
+        spec = dict(spec)
+        dept = (playbook.department or "").strip()
+        if not _has_department_constraint(spec) and dept:
+            spec["department_values"] = [dept]
+            if "priority" not in spec:
+                spec["priority"] = 10
+        return spec
     return _legacy_spec(playbook)
 
 

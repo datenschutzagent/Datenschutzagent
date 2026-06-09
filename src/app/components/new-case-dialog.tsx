@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useCallback } from "react";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "./ui/dialog";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
@@ -62,6 +62,7 @@ export function NewCaseDialog({ open, onOpenChange, onSuccess }: NewCaseDialogPr
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [pendingFiles, setPendingFiles] = useState<File[]>([]);
   const [pendingDocumentType, setPendingDocumentType] = useState<DocumentType>("other");
+  const [selectedPlaybookId, setSelectedPlaybookId] = useState("");
   const [formData, setFormData] = useState({
     title: "",
     department: "",
@@ -93,9 +94,18 @@ export function NewCaseDialog({ open, onOpenChange, onSuccess }: NewCaseDialogPr
       specialCategoryData: t.specialCategoryData,
       internationalTransfer: t.internationalTransfer,
     }));
+    setSelectedPlaybookId("");
     setShowTemplates(false);
     toast.success(`Vorlage „${t.name}" angewendet`);
   }
+
+  const selectPlaybook = useCallback((playbook: ApiPlaybook) => {
+    setSelectedPlaybookId(playbook.id);
+    setFormData((f) => ({
+      ...f,
+      caseType: playbook.caseType ?? playbook.name,
+    }));
+  }, []);
 
   useEffect(() => {
     if (!open || step !== 2 || !formData.department) {
@@ -133,6 +143,22 @@ export function NewCaseDialog({ open, onOpenChange, onSuccess }: NewCaseDialogPr
     };
   }, [open, step, formData.department, formData.processingContext, playbooks]);
 
+  useEffect(() => {
+    if (step !== 2 || playbooksForStep2.length === 0) return;
+    if (
+      selectedPlaybookId &&
+      !playbooksForStep2.some((pb) => pb.id === selectedPlaybookId)
+    ) {
+      setSelectedPlaybookId("");
+      setFormData((f) => ({ ...f, caseType: "" }));
+      return;
+    }
+    if (playbooksForStep2.length !== 1) return;
+    const only = playbooksForStep2[0];
+    if (selectedPlaybookId === only.id) return;
+    selectPlaybook(only);
+  }, [step, playbooksForStep2, selectedPlaybookId, selectPlaybook]);
+
   const departments: string[] =
     departmentsFromApi.length > 0
       ? departmentsFromApi.map((d) => d.value)
@@ -164,6 +190,7 @@ export function NewCaseDialog({ open, onOpenChange, onSuccess }: NewCaseDialogPr
       setStep(1);
       setPendingFiles([]);
       setPendingDocumentType("other");
+      setSelectedPlaybookId("");
       setFormData({
         title: "",
         department: "",
@@ -200,7 +227,7 @@ export function NewCaseDialog({ open, onOpenChange, onSuccess }: NewCaseDialogPr
   };
 
   const canProceedToStep2 = formData.title && formData.department;
-  const canSubmit = formData.title && formData.department && formData.caseType;
+  const canSubmit = formData.title && formData.department && selectedPlaybookId;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -295,9 +322,10 @@ export function NewCaseDialog({ open, onOpenChange, onSuccess }: NewCaseDialogPr
               </Label>
               <Select
                 value={formData.department}
-                onValueChange={(value) =>
-                  setFormData({ ...formData, department: value, caseType: "" })
-                }
+                onValueChange={(value) => {
+                  setSelectedPlaybookId("");
+                  setFormData({ ...formData, department: value, caseType: "" });
+                }}
               >
                 <SelectTrigger id="department">
                   <SelectValue placeholder="Einheit auswählen" />
@@ -316,9 +344,10 @@ export function NewCaseDialog({ open, onOpenChange, onSuccess }: NewCaseDialogPr
               <Label htmlFor="processingContext">Verarbeitungskontext (optional)</Label>
               <Select
                 value={formData.processingContext}
-                onValueChange={(value) =>
-                  setFormData({ ...formData, processingContext: value, caseType: "" })
-                }
+                onValueChange={(value) => {
+                  setSelectedPlaybookId("");
+                  setFormData({ ...formData, processingContext: value, caseType: "" });
+                }}
               >
                 <SelectTrigger id="processingContext">
                   <SelectValue placeholder="Kontext wählen" />
@@ -422,12 +451,14 @@ export function NewCaseDialog({ open, onOpenChange, onSuccess }: NewCaseDialogPr
                 {selectedPlaybooks.map((playbook) => (
                   <div
                     key={playbook.id}
+                    data-testid={`playbook-option-${playbook.id}`}
+                    data-selected={selectedPlaybookId === playbook.id ? "true" : "false"}
                     className={`p-4 border rounded-lg cursor-pointer transition-all ${
-                      formData.caseType === (playbook.caseType ?? "")
+                      selectedPlaybookId === playbook.id
                         ? "border-blue-600 bg-blue-50 dark:bg-blue-950/30"
                         : "border-border hover:border-blue-300 dark:hover:border-blue-700"
                     }`}
-                    onClick={() => setFormData({ ...formData, caseType: playbook.caseType ?? playbook.name })}
+                    onClick={() => selectPlaybook(playbook)}
                   >
                     <div className="flex items-start justify-between">
                       <div className="flex-1">
@@ -440,7 +471,7 @@ export function NewCaseDialog({ open, onOpenChange, onSuccess }: NewCaseDialogPr
                           <span>{playbook.checks?.length ?? 0} Checks</span>
                         </div>
                       </div>
-                      {formData.caseType === (playbook.caseType ?? playbook.name) && (
+                      {selectedPlaybookId === playbook.id && (
                         <CheckCircle2 className="size-5 text-blue-600 flex-shrink-0" />
                       )}
                     </div>
