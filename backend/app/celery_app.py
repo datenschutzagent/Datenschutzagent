@@ -325,9 +325,10 @@ async def _run_checks_async(job_id: str, task_request_id: str | None = None) -> 
                 )
                 await psession.commit()
         except Exception as exc:
-            logger.debug("Progress update failed (non-critical): %s", exc)
+            logger.warning("Progress update failed (non-critical): %s", exc)
 
     async with session_factory() as session:
+        # Phase A: setup — commit checks_total before checks so progress updates are not blocked
         result = await session.execute(select(RunChecksJobModel).where(RunChecksJobModel.id == job_uuid))
         job = result.scalar_one_or_none()
         if not job:
@@ -360,7 +361,6 @@ async def _run_checks_async(job_id: str, task_request_id: str | None = None) -> 
             },
         )
 
-        # Load playbook to calculate checks_total; set it before running
         from app.models.db import PlaybookModel, DocumentModel as DocModel
         pb_result = await session.execute(select(PlaybookModel).where(PlaybookModel.id == playbook_id))
         playbook = pb_result.scalar_one_or_none()
@@ -375,7 +375,6 @@ async def _run_checks_async(job_id: str, task_request_id: str | None = None) -> 
         if playbook:
             checks_total = _count_checks_total(playbook.content, doc_count, strategies)
             job.checks_total = checks_total
-            await session.flush()
         logger.info(
             "run_checks: playbook and documents loaded",
             extra={
@@ -385,10 +384,16 @@ async def _run_checks_async(job_id: str, task_request_id: str | None = None) -> 
                 "checks_total": checks_total,
             },
         )
+        await session.commit()
 
-        findings_added, errors, activity_payload = await run_checks_impl(
-            session, case_id, playbook_id, strategies, on_check_done=_on_check_done, skip_resolved=True
-        )
+        # Phase B: run checks (findings only — job row lock released after Phase A commit)
+        try:
+            findings_added, errors, activity_payload = await run_checks_impl(
+                session, case_id, playbook_id, strategies, on_check_done=_on_check_done, skip_resolved=True
+            )
+        except Exception:
+            await session.rollback()
+            raise
         logger.info(
             "run_checks: impl returned",
             extra={
@@ -397,6 +402,10 @@ async def _run_checks_async(job_id: str, task_request_id: str | None = None) -> 
                 "error_count": len(errors),
             },
         )
+
+        # Phase C: finalize — reload job row (may be expired after long Phase B)
+        job_result = await session.execute(select(RunChecksJobModel).where(RunChecksJobModel.id == job_uuid))
+        job = job_result.scalar_one()
         activity = ActivityLogModel(
             case_id=case_id,
             event_type="run_checks",
@@ -405,7 +414,7 @@ async def _run_checks_async(job_id: str, task_request_id: str | None = None) -> 
         session.add(activity)
         job.status = JobStatus.COMPLETED
         job.findings_count = findings_added
-        job.checks_done = job.checks_total  # ensure 100% at completion
+        job.checks_done = checks_total
         job.result_payload = activity_payload
         job.error = None
         await session.commit()

@@ -196,19 +196,27 @@ class _CheckRunState:
 
 async def _run_with_limits(
     state: _CheckRunState,
-    coro: Awaitable,
+    coro: Awaitable[bool],
     label: str,
     error_scope: str,
     document_id: UUID | None,
     strategy: str,
 ) -> None:
-    """Run a coroutine with optional semaphore and per-check timeout."""
-    async def _guarded():
+    """Run a check coroutine with optional semaphore and per-check timeout.
+
+    The coroutine must return True when the check completed successfully (LLM ran to
+    completion). Progress callbacks run after the timeout window, not inside it.
+    """
+    completed = False
+
+    async def _guarded() -> None:
+        nonlocal completed
         try:
             if state.timeout:
-                await asyncio.wait_for(coro, timeout=state.timeout)
+                result = await asyncio.wait_for(coro, timeout=state.timeout)
             else:
-                await coro
+                result = await coro
+            completed = bool(result)
         except TimeoutError:
             logger.error("run_check timed out after %.0fs: %s", state.timeout, label)
             state.errors.append({
@@ -216,14 +224,18 @@ async def _run_with_limits(
                 "document_id": str(document_id) if document_id else None,
                 "strategy": strategy, "error": f"timed out after {state.timeout}s",
             })
-            if state.on_check_done:
-                await state.on_check_done()
 
     if state.semaphore:
         async with state.semaphore:
             await _guarded()
     else:
         await _guarded()
+
+    if completed and state.on_check_done:
+        try:
+            await state.on_check_done()
+        except Exception as exc:
+            logger.warning("Progress update failed (non-critical): %s", exc)
 
 
 async def _doc_check_full_text(state: _CheckRunState, doc_id: UUID, doc_text: str, item: dict) -> None:
@@ -236,7 +248,7 @@ async def _doc_check_full_text(state: _CheckRunState, doc_id: UUID, doc_text: st
     lb_ids = _legal_base_ids_for_check(item, state.playbook_legal_ids, state.legal_bases_by_id)
     legal_ctx = _legal_bases_context(lb_ids, instruction, settings.weaviate_legal_bases_top_k)
 
-    async def _execute():
+    async def _execute() -> bool:
         logger.info("run_check [full_text] start: '%s' doc=%s", name, doc_id)
         t_chk = time.monotonic()
         try:
@@ -244,7 +256,7 @@ async def _doc_check_full_text(state: _CheckRunState, doc_id: UUID, doc_text: st
         except Exception as e:
             logger.error("run_check [full_text] error: '%s' doc=%s: %s", name, doc_id, e)
             state.errors.append({"check": name, "scope": "document", "document_id": str(doc_id), "strategy": "full_text", "error": str(e)})
-            return
+            return False
         elapsed_chk = round(time.monotonic() - t_chk, 2)
         logger.info("run_check [full_text] done: '%s' doc=%s compliant=%s elapsed=%.2fs", name, doc_id, result.is_compliant, elapsed_chk)
         if not result.is_compliant:
@@ -254,8 +266,7 @@ async def _doc_check_full_text(state: _CheckRunState, doc_id: UUID, doc_text: st
                 evidence=result.evidence or [], recommendation=result.recommendation or "",
                 source_strategy="full_text",
             )
-        if state.on_check_done:
-            await state.on_check_done()
+        return True
 
     await _run_with_limits(state, _execute(), name, "document", doc_id, "full_text")
 
@@ -270,7 +281,7 @@ async def _doc_check_rag(state: _CheckRunState, doc_id: UUID, item: dict) -> Non
     lb_ids = _legal_base_ids_for_check(item, state.playbook_legal_ids, state.legal_bases_by_id)
     legal_ctx = _legal_bases_context(lb_ids, instruction, settings.weaviate_legal_bases_top_k)
 
-    async def _execute():
+    async def _execute() -> bool:
         logger.info("run_check [rag] start: '%s' doc=%s", name, doc_id)
         t_chk = time.monotonic()
         rag_result = None
@@ -298,10 +309,9 @@ async def _doc_check_rag(state: _CheckRunState, doc_id: UUID, item: dict) -> Non
                     )
             except Exception as e2:
                 state.errors.append({"check": name, "scope": "document", "document_id": str(doc_id), "strategy": "rag_fallback_full_text", "error": str(e2)})
+                return False
             logger.info("run_check [rag→full_text] done: '%s' doc=%s elapsed=%.2fs", name, doc_id, round(time.monotonic() - t_chk, 2))
-            if state.on_check_done:
-                await state.on_check_done()
-            return
+            return True
         logger.info("run_check [rag] done: '%s' doc=%s compliant=%s elapsed=%.2fs", name, doc_id, rag_result.is_compliant, round(time.monotonic() - t_chk, 2))
         if not rag_result.is_compliant:
             state.add_finding(
@@ -310,8 +320,7 @@ async def _doc_check_rag(state: _CheckRunState, doc_id: UUID, item: dict) -> Non
                 evidence=rag_result.evidence or [], recommendation=rag_result.recommendation or "",
                 source_strategy="rag",
             )
-        if state.on_check_done:
-            await state.on_check_done()
+        return True
 
     await _run_with_limits(state, _execute(), name, "document", doc_id, "rag")
 
@@ -326,7 +335,7 @@ async def _case_check_full_text(state: _CheckRunState, doc_list: list[tuple], it
     lb_ids = _legal_base_ids_for_check(item, state.playbook_legal_ids, state.legal_bases_by_id)
     legal_ctx = _legal_bases_context(lb_ids, instruction, settings.weaviate_legal_bases_top_k)
 
-    async def _execute():
+    async def _execute() -> bool:
         logger.info("run_check [case/full_text] start: '%s'", name)
         t_chk = time.monotonic()
         try:
@@ -334,7 +343,7 @@ async def _case_check_full_text(state: _CheckRunState, doc_list: list[tuple], it
         except Exception as e:
             logger.error("run_check [case/full_text] error: '%s': %s", name, e)
             state.errors.append({"check": name, "scope": "case", "document_id": None, "strategy": "full_text", "error": str(e)})
-            return
+            return False
         logger.info("run_check [case/full_text] done: '%s' compliant=%s elapsed=%.2fs", name, result.is_compliant, round(time.monotonic() - t_chk, 2))
         if not result.is_compliant:
             state.add_finding(
@@ -343,8 +352,7 @@ async def _case_check_full_text(state: _CheckRunState, doc_list: list[tuple], it
                 evidence=result.evidence or [], recommendation=result.recommendation or "",
                 source_strategy="full_text",
             )
-        if state.on_check_done:
-            await state.on_check_done()
+        return True
 
     await _run_with_limits(state, _execute(), name, "case", None, "full_text")
 
@@ -359,7 +367,7 @@ async def _case_check_rag(state: _CheckRunState, doc_list: list[tuple], item: di
     lb_ids = _legal_base_ids_for_check(item, state.playbook_legal_ids, state.legal_bases_by_id)
     legal_ctx = _legal_bases_context(lb_ids, instruction, settings.weaviate_legal_bases_top_k)
 
-    async def _execute():
+    async def _execute() -> bool:
         logger.info("run_check [case/rag] start: '%s'", name)
         t_chk = time.monotonic()
         rag_result = None
@@ -386,10 +394,9 @@ async def _case_check_rag(state: _CheckRunState, doc_list: list[tuple], item: di
                     )
             except Exception as e2:
                 state.errors.append({"check": name, "scope": "case", "document_id": None, "strategy": "rag_fallback_full_text", "error": str(e2)})
+                return False
             logger.info("run_check [case/rag→full_text] done: '%s' elapsed=%.2fs", name, round(time.monotonic() - t_chk, 2))
-            if state.on_check_done:
-                await state.on_check_done()
-            return
+            return True
         logger.info("run_check [case/rag] done: '%s' compliant=%s elapsed=%.2fs", name, rag_result.is_compliant, round(time.monotonic() - t_chk, 2))
         if not rag_result.is_compliant:
             state.add_finding(
@@ -398,8 +405,7 @@ async def _case_check_rag(state: _CheckRunState, doc_list: list[tuple], item: di
                 evidence=rag_result.evidence or [], recommendation=rag_result.recommendation or "",
                 source_strategy="rag",
             )
-        if state.on_check_done:
-            await state.on_check_done()
+        return True
 
     await _run_with_limits(state, _execute(), name, "case", None, "rag")
 

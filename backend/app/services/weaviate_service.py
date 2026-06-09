@@ -89,22 +89,42 @@ def chunk_text(
     return [c for c in chunks if c.strip()]
 
 
-def get_embedding(text: str) -> list[float]:
+_ollama_embed_client = None
+
+
+def _ollama_embed_host() -> str:
+    base = (settings.ollama_base_url or "").rstrip("/")
+    if base.endswith("/v1"):
+        base = base[:-3]
+    return base or "http://localhost:11434"
+
+
+def _get_ollama_embed_client():
+    """Return a process-wide shared Ollama client for embeddings."""
+    global _ollama_embed_client
+    if _ollama_embed_client is None:
+        try:
+            import ollama
+        except ImportError:
+            return None
+        _ollama_embed_client = ollama.Client(host=_ollama_embed_host())
+    return _ollama_embed_client
+
+
+def get_embedding(text: str, *, client=None) -> list[float]:
     """Get embedding vector for text via Ollama. Returns list of floats."""
     try:
-        import ollama
+        import ollama  # noqa: F401 — availability check
     except ImportError:
         logger.warning("ollama package not available for embeddings")
         return []
 
-    base = (settings.ollama_base_url or "").rstrip("/")
-    if base.endswith("/v1"):
-        base = base[:-3]
-    host = base or "http://localhost:11434"
+    embed_client = client if client is not None else _get_ollama_embed_client()
+    if embed_client is None:
+        return []
 
     try:
-        client = ollama.Client(host=host)
-        response = client.embed(model=settings.ollama_embedding_model, input=text)
+        response = embed_client.embed(model=settings.ollama_embedding_model, input=text)
         # response can be EmbedResponse with 'embeddings' (list of list) or single list
         if isinstance(response, dict):
             embs = response.get("embeddings")
@@ -357,8 +377,9 @@ def index_document_chunks(document_id: UUID, case_id: UUID, text: str) -> bool:
         if not chunks:
             return True
 
+        embed_client = _get_ollama_embed_client()
         for i, chunk in enumerate(chunks):
-            vector = get_embedding(chunk)
+            vector = get_embedding(chunk, client=embed_client)
             if not vector:
                 logger.warning("Skipping chunk %s for document %s (no embedding)", i, document_id)
                 continue

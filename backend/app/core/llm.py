@@ -12,7 +12,7 @@ import time
 
 import httpx
 from pydantic_ai import Agent
-from pydantic_ai.models.openai import OpenAIModel
+from pydantic_ai.models.openai import OpenAIChatModel
 from pydantic_ai.providers.openai import OpenAIProvider
 
 from app.config import settings
@@ -157,16 +157,34 @@ def _ollama_base_url() -> str:
     return f"{base}/v1" if not base.endswith("/v1") else base
 
 
-def get_ollama_model() -> OpenAIModel:
-    """Get configured Ollama model (OpenAI-compatible API) via Pydantic AI OpenAIModel."""
-    timeout = settings.ollama_timeout_seconds
-    http_client = httpx.AsyncClient(timeout=httpx.Timeout(timeout, connect=10.0))
-    provider = OpenAIProvider(base_url=_ollama_base_url(), http_client=http_client)
-    return OpenAIModel(settings.ollama_model, provider=provider)
+_ollama_http_client: httpx.AsyncClient | None = None
 
 
-def get_openai_model() -> OpenAIModel:
-    """Get configured OpenAI model via Pydantic AI OpenAIModel."""
+def _get_ollama_http_client() -> httpx.AsyncClient:
+    """Return a process-wide shared httpx client for Ollama (lazy init, one per worker)."""
+    global _ollama_http_client
+    if _ollama_http_client is None or _ollama_http_client.is_closed:
+        timeout = settings.ollama_timeout_seconds
+        _ollama_http_client = httpx.AsyncClient(timeout=httpx.Timeout(timeout, connect=10.0))
+    return _ollama_http_client
+
+
+async def aclose_ollama_http_client() -> None:
+    """Close the shared Ollama httpx client (app/test shutdown)."""
+    global _ollama_http_client
+    if _ollama_http_client is not None and not _ollama_http_client.is_closed:
+        await _ollama_http_client.aclose()
+    _ollama_http_client = None
+
+
+def get_ollama_model() -> OpenAIChatModel:
+    """Get configured Ollama model (OpenAI-compatible API) via Pydantic AI OpenAIChatModel."""
+    provider = OpenAIProvider(base_url=_ollama_base_url(), http_client=_get_ollama_http_client())
+    return OpenAIChatModel(settings.ollama_model, provider=provider)
+
+
+def get_openai_model() -> OpenAIChatModel:
+    """Get configured OpenAI model via Pydantic AI OpenAIChatModel."""
     api_key = settings.openai_api_key.get_secret_value()
     if not api_key:
         raise RuntimeError(
@@ -174,7 +192,7 @@ def get_openai_model() -> OpenAIModel:
             "Bitte in der .env-Datei setzen."
         )
     provider = OpenAIProvider(api_key=api_key)
-    return OpenAIModel(settings.openai_model, provider=provider)
+    return OpenAIChatModel(settings.openai_model, provider=provider)
 
 
 def get_anthropic_model():
