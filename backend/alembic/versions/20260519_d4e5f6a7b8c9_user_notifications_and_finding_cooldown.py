@@ -12,10 +12,10 @@ Revision ID: d4e5f6a7b8c9
 Revises: c3d4e5f6a7b8
 Create Date: 2026-05-19 00:00:00.000000
 """
+
 from __future__ import annotations
 
 from alembic import op
-
 
 revision: str = "d4e5f6a7b8c9"
 down_revision: str | None = "c3d4e5f6a7b8"
@@ -25,18 +25,24 @@ depends_on: str | tuple[str, ...] | None = None
 
 def upgrade() -> None:
     # User-Master-Switch für Benachrichtigungen.
-    op.execute("""
+    op.execute(
+        """
         ALTER TABLE IF EXISTS users
         ADD COLUMN IF NOT EXISTS notifications_enabled BOOLEAN NOT NULL DEFAULT true
-    """)
+    """
+    )
 
     # Cooldown-Marker für CRITICAL-Findings-Benachrichtigungen.
-    op.execute("""
+    op.execute(
+        """
         ALTER TABLE IF EXISTS findings
         ADD COLUMN IF NOT EXISTS last_notified_at TIMESTAMPTZ
-    """)
+    """
+    )
 
 
 def downgrade() -> None:
     op.execute("ALTER TABLE IF EXISTS findings DROP COLUMN IF EXISTS last_notified_at")
-    op.execute("ALTER TABLE IF EXISTS users DROP COLUMN IF EXISTS notifications_enabled")
+    op.execute(
+        "ALTER TABLE IF EXISTS users DROP COLUMN IF EXISTS notifications_enabled"
+    )

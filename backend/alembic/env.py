@@ -2,6 +2,7 @@
 Alembic's standard migration machinery works without async wrappers.
 The runtime (FastAPI) continues to use asyncpg via SQLAlchemy's async engine.
 """
+
 from __future__ import annotations
 
 import os

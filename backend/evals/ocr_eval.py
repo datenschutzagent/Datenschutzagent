@@ -8,6 +8,7 @@ reference via the character error rate (CER); the score is the character accurac
 Requires a reachable Ollama vision model (``OLLAMA_OCR_*``), so it is gated behind ``--ocr`` in
 ``evals.run`` and skipped when no provider is available — analogous to the ``--llm`` evals.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass

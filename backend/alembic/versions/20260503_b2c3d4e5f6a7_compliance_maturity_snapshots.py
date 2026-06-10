@@ -8,10 +8,10 @@ Revision ID: b2c3d4e5f6a7
 Revises: a1b2c3d4e5f6
 Create Date: 2026-05-03 12:00:00.000000
 """
+
 from __future__ import annotations
 
 from alembic import op
-
 
 revision: str = "b2c3d4e5f6a7"
 down_revision: str | None = "a1b2c3d4e5f6"
@@ -20,7 +20,8 @@ depends_on: str | tuple[str, ...] | None = None
 
 
 def upgrade() -> None:
-    op.execute("""
+    op.execute(
+        """
         CREATE TABLE IF NOT EXISTS compliance_maturity_snapshots (
             id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
             department      VARCHAR(200) NOT NULL,
@@ -33,15 +34,20 @@ def upgrade() -> None:
             composite_score DOUBLE PRECISION NOT NULL DEFAULT 0,
             created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
         )
-    """)
-    op.execute("""
+    """
+    )
+    op.execute(
+        """
         CREATE UNIQUE INDEX IF NOT EXISTS uq_maturity_dept_date
             ON compliance_maturity_snapshots (department, snapshot_date)
-    """)
-    op.execute("""
+    """
+    )
+    op.execute(
+        """
         CREATE INDEX IF NOT EXISTS ix_maturity_snapshot_date
             ON compliance_maturity_snapshots (snapshot_date)
-    """)
+    """
+    )
 
 
 def downgrade() -> None:

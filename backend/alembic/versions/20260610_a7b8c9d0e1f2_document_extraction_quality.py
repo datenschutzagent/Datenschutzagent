@@ -12,10 +12,10 @@ Revision ID: a7b8c9d0e1f2
 Revises: f6a7b8c9d0e1
 Create Date: 2026-06-10 00:00:00.000000
 """
+
 from __future__ import annotations
 
 from alembic import op
-
 
 revision: str = "a7b8c9d0e1f2"
 down_revision: str | None = "f6a7b8c9d0e1"
@@ -24,12 +24,24 @@ depends_on: str | tuple[str, ...] | None = None
 
 
 def upgrade() -> None:
-    op.execute("ALTER TABLE IF EXISTS documents ADD COLUMN IF NOT EXISTS extraction_char_count INTEGER")
-    op.execute("ALTER TABLE IF EXISTS documents ADD COLUMN IF NOT EXISTS extraction_page_count INTEGER")
-    op.execute("ALTER TABLE IF EXISTS documents ADD COLUMN IF NOT EXISTS extraction_ocr_ratio DOUBLE PRECISION")
+    op.execute(
+        "ALTER TABLE IF EXISTS documents ADD COLUMN IF NOT EXISTS extraction_char_count INTEGER"
+    )
+    op.execute(
+        "ALTER TABLE IF EXISTS documents ADD COLUMN IF NOT EXISTS extraction_page_count INTEGER"
+    )
+    op.execute(
+        "ALTER TABLE IF EXISTS documents ADD COLUMN IF NOT EXISTS extraction_ocr_ratio DOUBLE PRECISION"
+    )
 
 
 def downgrade() -> None:
-    op.execute("ALTER TABLE IF EXISTS documents DROP COLUMN IF EXISTS extraction_ocr_ratio")
-    op.execute("ALTER TABLE IF EXISTS documents DROP COLUMN IF EXISTS extraction_page_count")
-    op.execute("ALTER TABLE IF EXISTS documents DROP COLUMN IF EXISTS extraction_char_count")
+    op.execute(
+        "ALTER TABLE IF EXISTS documents DROP COLUMN IF EXISTS extraction_ocr_ratio"
+    )
+    op.execute(
+        "ALTER TABLE IF EXISTS documents DROP COLUMN IF EXISTS extraction_page_count"
+    )
+    op.execute(
+        "ALTER TABLE IF EXISTS documents DROP COLUMN IF EXISTS extraction_char_count"
+    )

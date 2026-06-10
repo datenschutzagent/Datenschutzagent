@@ -3,6 +3,7 @@
 Runs sample documents through the real ``extract_text`` and scores how much of the expected
 content and structure survived. No LLM required.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -58,11 +59,14 @@ class MinCharCount(Evaluator):
 
 def build_dataset() -> Dataset:
     cases = [
-        Case(name=s.key, inputs=s.key, expected_output=None)
-        for s in SAMPLES.values()
+        Case(name=s.key, inputs=s.key, expected_output=None) for s in SAMPLES.values()
     ]
     return Dataset(
         name="extraction_quality",
         cases=cases,
-        evaluators=[ExpectedTokensPresent(), ColumnStructurePreserved(), MinCharCount()],
+        evaluators=[
+            ExpectedTokensPresent(),
+            ColumnStructurePreserved(),
+            MinCharCount(),
+        ],
     )
