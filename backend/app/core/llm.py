@@ -9,11 +9,13 @@ import asyncio
 import logging
 import threading
 import time
+from typing import Callable
 
 import httpx
 from pydantic_ai import Agent
 from pydantic_ai.models.openai import OpenAIChatModel
 from pydantic_ai.providers.openai import OpenAIProvider
+from pydantic_ai.settings import ModelSettings
 
 from app.config import settings
 from app.core.exceptions import LLMProviderError, LLMRetryExhaustedError
@@ -108,7 +110,7 @@ async def llm_retry_call(agent: Agent, user_content: str, output_type, *, reques
     success, records a success on the breaker; on exhaustion, records a
     failure and raises LLMRetryExhaustedError.
     """
-    from app.core.metrics import llm_call_duration_seconds
+    from app.core.metrics import llm_call_duration_seconds, record_llm_usage
     provider = settings.llm_provider.lower()
 
     cb = get_circuit_breaker()
@@ -128,6 +130,11 @@ async def llm_retry_call(agent: Agent, user_content: str, output_type, *, reques
         try:
             result = await agent.run(user_content, output_type=output_type)
             elapsed = round(time.monotonic() - t0, 2)
+            # Token/cost accounting (best-effort; never breaks the request path).
+            try:
+                record_llm_usage(provider, get_active_model_name(), result.usage())
+            except Exception:  # pragma: no cover - defensive
+                pass
             logger.info(
                 "LLM call succeeded (attempt %d/%d) elapsed=%.2fs prompt_chars=%d  [request_id=%s]",
                 attempt, LLM_RETRY_ATTEMPTS, elapsed, len(user_content), request_id,
@@ -228,12 +235,51 @@ def get_active_model():
     return get_ollama_model()
 
 
-def create_agent(system_prompt: str) -> Agent:
-    """Create a new PydanticAI agent with the given system prompt using the active provider."""
-    return Agent(
+def get_active_model_name() -> str:
+    """Return the configured model identifier for the active provider (for logging/metrics)."""
+    provider = settings.llm_provider.lower()
+    if provider == "openai":
+        return settings.openai_model
+    if provider == "anthropic":
+        return settings.anthropic_model
+    return settings.ollama_model
+
+
+def default_model_settings() -> ModelSettings:
+    """Build ModelSettings from config: temperature (default 0.0 = deterministic) + optional max_tokens."""
+    kwargs: dict = {"temperature": settings.llm_temperature}
+    if settings.llm_max_tokens:
+        kwargs["max_tokens"] = settings.llm_max_tokens
+    return ModelSettings(**kwargs)
+
+
+def create_agent(
+    system_prompt: str,
+    *,
+    output_validator: Callable | None = None,
+    output_retries: int | None = None,
+    model_settings: ModelSettings | None = None,
+) -> Agent:
+    """Create a new PydanticAI agent with the given system prompt using the active provider.
+
+    Args:
+        system_prompt: System prompt for the agent.
+        output_validator: Optional Pydantic AI output validator (may raise ModelRetry to
+            request self-correction, e.g. for evidence grounding).
+        output_retries: How often the model may self-correct on output-validation failure.
+            Defaults to settings.llm_output_retries.
+        model_settings: Override sampling settings; defaults to default_model_settings()
+            (temperature from settings.llm_temperature, deterministic by default).
+    """
+    agent = Agent(
         model=get_active_model(),
         system_prompt=system_prompt,
+        model_settings=model_settings or default_model_settings(),
+        output_retries=output_retries if output_retries is not None else settings.llm_output_retries,
     )
+    if output_validator is not None:
+        agent.output_validator(output_validator)
+    return agent
 
 
 def get_llm_provider_info() -> dict:

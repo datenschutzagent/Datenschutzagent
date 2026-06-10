@@ -11,7 +11,7 @@ Usage in Celery workers:
 """
 import logging
 
-from prometheus_client import Histogram, Gauge
+from prometheus_client import Counter, Histogram, Gauge
 
 logger = logging.getLogger(__name__)
 
@@ -36,6 +36,41 @@ llm_call_duration_seconds = Histogram(
     ["provider", "status"],  # status: success | error | circuit_open
     buckets=[0.5, 1.0, 2.5, 5.0, 10.0, 30.0, 60.0, 120.0],
 )
+
+# Token usage per LLM call, split by direction (basis for cost monitoring).
+llm_tokens_total = Counter(
+    "llm_tokens_total",
+    "Total LLM tokens consumed",
+    ["provider", "model", "direction"],  # direction: input | output
+)
+
+
+def record_llm_usage(provider: str, model: str, usage) -> None:
+    """Increment token counters from a Pydantic AI RunResult.usage() object.
+
+    Tolerant of provider differences in attribute naming (input/request vs.
+    output/response tokens) and never raises — usage accounting must not break
+    the request path.
+    """
+    if usage is None:
+        return
+    try:
+        input_tokens = (
+            getattr(usage, "input_tokens", None)
+            or getattr(usage, "request_tokens", None)
+            or 0
+        )
+        output_tokens = (
+            getattr(usage, "output_tokens", None)
+            or getattr(usage, "response_tokens", None)
+            or 0
+        )
+        if input_tokens:
+            llm_tokens_total.labels(provider=provider, model=model, direction="input").inc(input_tokens)
+        if output_tokens:
+            llm_tokens_total.labels(provider=provider, model=model, direction="output").inc(output_tokens)
+    except Exception as exc:  # pragma: no cover - defensive
+        logger.debug("record_llm_usage failed: %s", exc)
 
 # ---------------------------------------------------------------------------
 # Celery metrics

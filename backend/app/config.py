@@ -153,6 +153,30 @@ class Settings(BaseSettings):
     max_context_chars_rag: int = 20000       # assembled RAG context limit
     max_context_chars_vvt: int = 25000       # VVT/ROPA normalization context limit (higher because ROPA docs can be large)
 
+    # LLM sampling / structured-output behaviour.
+    # temperature=0.0 makes extraction and compliance verdicts deterministic and reproducible
+    # (the single biggest lever for stable, higher-quality structured output).
+    # llm_output_retries: how often Pydantic AI re-asks the model when output validation
+    #   (schema or @output_validator, e.g. evidence grounding) fails — the validation error
+    #   is fed back so the model can self-correct.
+    # llm_max_tokens: optional hard cap on response tokens (None = provider default).
+    llm_temperature: float = 0.0
+    llm_output_retries: int = 2
+    llm_max_tokens: int | None = None
+
+    # Long documents: when extracted text exceeds the per-doc context limit, run the check
+    # over sentence-aware chunks (map-reduce) and aggregate, instead of silently truncating
+    # to the first N chars (which can yield false "compliant" verdicts). Disable to keep the
+    # legacy head-truncation behaviour.
+    long_doc_map_reduce_enabled: bool = True
+    long_doc_max_chunks: int = 6  # safety cap on map-reduce LLM calls per check
+
+    # Evidence grounding: verify that LLM-quoted evidence actually appears in the source text.
+    # When enabled, ungrounded (likely hallucinated) quotes trigger a Pydantic AI ModelRetry
+    # so the model re-answers with verbatim quotes; persistent failures lower the confidence.
+    evidence_grounding_enabled: bool = True
+    evidence_grounding_threshold: float = 0.85  # fuzzy-match ratio to count a quote as grounded
+
     # Maximale Anzahl gleichzeitiger LLM-Anfragen pro run_checks-Job.
     # Verhindert Überlastung von Ollama und Rate-Limit-Fehler bei OpenAI/Anthropic.
     # 0 = kein Limit (nicht empfohlen für lokales Ollama).
@@ -192,6 +216,12 @@ class Settings(BaseSettings):
     ocr_min_chars_per_page: int = 50  # below this avg chars/page → use OCR fallback
     ocr_dpi: int = 150  # resolution for PDF page images sent to vision model
     ocr_max_pages: int = 200  # max pages to process with OCR (prevents memory exhaustion)
+    # Per-page OCR: decide page-by-page whether to OCR (handles mixed PDFs with both digital
+    # and scanned pages) instead of an all-or-nothing per-document decision.
+    ocr_per_page: bool = True
+    # Number of PDF pages OCR'd concurrently against the Ollama vision endpoint. Higher =
+    # faster on multi-page scans but more load on the vision model; keep modest for local Ollama.
+    ocr_concurrency: int = 4
 
     # Current user (optional UUID; if unset, default user is used for GET/PATCH /me when OIDC is disabled)
     current_user_id: str | None = None
