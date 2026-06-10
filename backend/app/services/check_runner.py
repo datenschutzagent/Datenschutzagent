@@ -620,13 +620,15 @@ async def run_check_rag(
     language_hint = _language_hint(language) if language else ""
     system_tpl = await get_active_template("check_rag_document_system")
     system = render(system_tpl or DEFAULT_CHECK_RAG_DOCUMENT_SYSTEM, {"language_hint": language_hint})
-    system = system + CHECK_OUTPUT_GUIDANCE
+    # Same injection hardening as the full-text paths: marker-wrapped excerpts are data.
+    system = SYSTEM_PROMPT_SAFETY_PREAMBLE + "\n\n" + system + CHECK_OUTPUT_GUIDANCE
     user_tpl = await get_active_template("check_rag_document_user")
     user_content = render(
         user_tpl or DEFAULT_CHECK_RAG_DOCUMENT_USER,
         {
             "requirement": sanitize_prompt_field(check_instruction, max_chars=_CHECK_INSTRUCTION_MAX_CHARS),
-            "excerpts": sanitize_prompt_field(combined, max_chars=rag_limit),
+            # Headroom keeps the appended "[... truncated ...]" suffix intact.
+            "excerpts": wrap_untrusted_content(combined, max_chars=rag_limit + 100),
             "legal_bases_section": _legal_bases_section(legal_bases_context),
         },
     )
@@ -673,13 +675,15 @@ async def run_cross_document_check_rag(
     language_hint = _language_hint(language) if language else ""
     system_tpl = await get_active_template("check_rag_cross_system")
     system = render(system_tpl or DEFAULT_CHECK_RAG_CROSS_SYSTEM, {"language_hint": language_hint})
-    system = system + CHECK_OUTPUT_GUIDANCE
+    # Same injection hardening as the full-text paths: marker-wrapped excerpts are data.
+    system = SYSTEM_PROMPT_SAFETY_PREAMBLE + "\n\n" + system + CHECK_OUTPUT_GUIDANCE
     user_tpl = await get_active_template("check_rag_cross_user")
     user_content = render(
         user_tpl or DEFAULT_CHECK_RAG_CROSS_USER,
         {
             "requirement": sanitize_prompt_field(check_instruction, max_chars=_CHECK_INSTRUCTION_MAX_CHARS),
-            "excerpts": sanitize_prompt_field(combined, max_chars=cross_rag_limit),
+            # Headroom keeps the appended "[... truncated ...]" suffix intact.
+            "excerpts": wrap_untrusted_content(combined, max_chars=cross_rag_limit + 100),
             "legal_bases_section": _legal_bases_section(legal_bases_context),
         },
     )
