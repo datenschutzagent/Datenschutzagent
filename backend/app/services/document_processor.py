@@ -15,6 +15,7 @@ import logging
 import shutil
 import subprocess
 import tempfile
+import time
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
@@ -50,12 +51,16 @@ class ExtractionResult:
         char_count: Length of the extracted text (quality signal).
         page_count: Number of pages (PDF) or 0 for non-paged formats.
         ocr_page_ratio: Fraction of pages extracted via OCR (0.0 = fully digital).
+        ocr_low_quality_pages: Number of pages that were OCR'd but still recovered almost no text
+            (below ``ocr_min_chars_per_page``) — i.e. likely lost despite OCR. A downstream quality
+            signal so reviewers can spot scans that did not extract cleanly.
     """
     text: str
     extraction_method: Literal["text", "ocr"]
     char_count: int = 0
     page_count: int = 0
     ocr_page_ratio: float = 0.0
+    ocr_low_quality_pages: int = 0
 
 
 OCR_PROMPT = (
@@ -122,33 +127,46 @@ def _pdf_markdown_pages(content: bytes) -> list[str] | None:
 
 
 def _ocr_pages(content: bytes, page_indices: list[int]) -> dict[int, str]:
-    """OCR the given PDF pages concurrently via Ollama Vision. Returns {page_index: text}."""
+    """OCR the given PDF pages concurrently via Ollama Vision. Returns {page_index: text}.
+
+    Each page is retried up to ``ocr_retry_attempts`` times on a transient error or an empty
+    response (with a short backoff) instead of silently losing the page on the first hiccup.
+    OCR runs at temperature 0 for reproducible output.
+    """
     chat_url = _ollama_chat_api_url()
     timeout = httpx.Timeout(settings.ollama_timeout_seconds, connect=10.0)
     dpi = getattr(settings, "ocr_dpi", 150)
     concurrency = max(1, getattr(settings, "ocr_concurrency", 4))
+    attempts = max(1, getattr(settings, "ocr_retry_attempts", 2))
 
     def _ocr_one(i: int) -> tuple[int, str]:
-        try:
-            png_bytes = _pdf_page_to_png_bytes(content, i, dpi=dpi)
-            payload = {
-                "model": settings.ollama_ocr_model,
-                "messages": [
-                    {
-                        "role": "user",
-                        "content": OCR_PROMPT,
-                        "images": [base64.b64encode(png_bytes).decode()],
-                    }
-                ],
-                "stream": False,
-            }
-            resp = httpx.post(chat_url, json=payload, timeout=timeout)
-            resp.raise_for_status()
-            data = resp.json()
-            return i, ((data.get("message") or {}).get("content") or "").strip()
-        except Exception as exc:
-            logger.warning("Ollama OCR failed for page %s: %s", i + 1, exc)
-            return i, ""
+        png_bytes = _pdf_page_to_png_bytes(content, i, dpi=dpi)
+        payload = {
+            "model": settings.ollama_ocr_model,
+            "messages": [
+                {
+                    "role": "user",
+                    "content": OCR_PROMPT,
+                    "images": [base64.b64encode(png_bytes).decode()],
+                }
+            ],
+            "stream": False,
+            "options": {"temperature": 0},
+        }
+        for attempt in range(1, attempts + 1):
+            try:
+                resp = httpx.post(chat_url, json=payload, timeout=timeout)
+                resp.raise_for_status()
+                data = resp.json()
+                text = ((data.get("message") or {}).get("content") or "").strip()
+                if text:
+                    return i, text
+                logger.warning("Ollama OCR returned empty text for page %s (attempt %d/%d)", i + 1, attempt, attempts)
+            except Exception as exc:
+                logger.warning("Ollama OCR failed for page %s (attempt %d/%d): %s", i + 1, attempt, attempts, exc)
+            if attempt < attempts:
+                time.sleep(attempt)  # simple linear backoff: 1s, 2s, ...
+        return i, ""
 
     results: dict[int, str] = {}
     with ThreadPoolExecutor(max_workers=concurrency) as pool:
@@ -216,23 +234,35 @@ def extract_text_from_pdf(content: bytes) -> ExtractionResult:
 
     parts: list[str] = []
     used_ocr = 0
+    low_quality = 0
     for i in range(num_pages):
         ocr_text = ocr_results.get(i, "")
         if i in ocr_pages and ocr_text.strip():
             parts.append(ocr_text)
             used_ocr += 1
+            page_text = ocr_text
         else:
             # Digital (or OCR-failed) page → layout-preserving Markdown, fall back to plain text.
             digital_md = page_md[i] if (page_md is not None and i < len(page_md)) else ""
-            parts.append(digital_md or (page_digital[i] or ""))
+            page_text = digital_md or (page_digital[i] or "")
+            parts.append(page_text)
+        # A page we intended to OCR that still has almost no text was likely lost despite OCR.
+        if i in ocr_pages and len(page_text.strip()) < min_chars:
+            low_quality += 1
     text = "\n\n".join(p for p in parts if p)
     method = EXTRACTION_METHOD_OCR if used_ocr > 0 else EXTRACTION_METHOD_TEXT
+    if low_quality:
+        logger.warning(
+            "OCR recovered little/no text on %d of %d page(s) — extraction may be incomplete",
+            low_quality, num_pages,
+        )
     return ExtractionResult(
         text=text,
         extraction_method=method,
         char_count=len(text),
         page_count=num_pages,
         ocr_page_ratio=(used_ocr / num_pages) if num_pages else 0.0,
+        ocr_low_quality_pages=low_quality,
     )
 
 
@@ -441,14 +471,45 @@ def _decode_text_bytes(content: bytes) -> str:
         return ""
 
 
+# Map a file extension to the PyMuPDF image filetype it understands.
+_IMAGE_EXT_TO_FITZ = {"jpg": "jpg", "jpeg": "jpg", "png": "png", "tif": "tiff", "tiff": "tiff"}
+
+
+def extract_text_from_image(content: bytes, filetype: str) -> ExtractionResult:
+    """Extract text from a standalone scanned image (JPG/PNG/TIFF) via the PDF/OCR path.
+
+    The image is converted to a (possibly multi-page, for TIFF) PDF with PyMuPDF and run through
+    :func:`extract_text_from_pdf`, so it reuses the whole per-page Ollama Vision OCR pipeline
+    (retries, quality signal, ocr_page_ratio). An image has no digital text layer, so every page
+    is sparse → OCR. With OCR disabled the result is empty text (a warning is logged), consistent
+    with how fully scanned PDFs behave today.
+    """
+    try:
+        with fitz.open(stream=content, filetype=filetype) as img_doc:
+            pdf_bytes = img_doc.convert_to_pdf()
+    except Exception:
+        logger.exception("Image→PDF conversion failed", extra={"filetype": filetype})
+        return ExtractionResult(text="", extraction_method=EXTRACTION_METHOD_OCR)
+    if not settings.ollama_ocr_enabled:
+        logger.warning("Image upload but OCR is disabled — returning empty text (filetype=%s)", filetype)
+    return extract_text_from_pdf(pdf_bytes)
+
+
 def extract_text(filename: str, content: bytes) -> ExtractionResult:
     """
     Dispatcher for text extraction. Returns ExtractionResult with text and
-    extraction_method ("text" or "ocr" for PDFs that used Ollama Vision).
+    extraction_method ("text" or "ocr" for PDFs/images that used Ollama Vision).
     """
     filename_lower = filename.lower()
     if filename_lower.endswith(".pdf"):
         return extract_text_from_pdf(content)
+    ext = filename_lower.rsplit(".", 1)[-1] if "." in filename_lower else ""
+    if ext in _IMAGE_EXT_TO_FITZ:
+        try:
+            return extract_text_from_image(content, _IMAGE_EXT_TO_FITZ[ext])
+        except Exception:
+            logger.exception("Image text extraction failed", extra={"filename": filename})
+            raise
     if filename_lower.endswith(".docx"):
         try:
             text = extract_text_from_docx(content)
