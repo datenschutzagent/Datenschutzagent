@@ -153,6 +153,15 @@ class Settings(BaseSettings):
     max_context_chars_rag: int = 20000       # assembled RAG context limit
     max_context_chars_vvt: int = 25000       # VVT/ROPA normalization context limit (higher because ROPA docs can be large)
 
+    # Optional token-based context budget (heuristic, no tokenizer dependency).
+    # > 0: ALL three max_context_chars_* limits are overridden by ONE derived character limit
+    #      (budget × llm_chars_per_token) — useful to match the context window of local
+    #      vLLM/llama.cpp models, where overflow is silently truncated.
+    # 0 (default): legacy character limits above apply unchanged.
+    llm_context_token_budget: int = 0
+    # Heuristic characters per token: ~3.5 for German prose, ~4 for English. Must be > 0.
+    llm_chars_per_token: float = 3.5
+
     # LLM sampling / structured-output behaviour.
     # temperature=0.0 makes extraction and compliance verdicts deterministic and reproducible
     # (the single biggest lever for stable, higher-quality structured output).
@@ -188,15 +197,24 @@ class Settings(BaseSettings):
     long_doc_map_reduce_enabled: bool = True
     long_doc_max_chunks: int = 6  # safety cap on map-reduce LLM calls per check
 
+    # VVT/ROPA normalization on large documents: when the extracted text exceeds
+    # max_context_chars_vvt, extract over sentence-aware fragments (map-reduce) and merge the
+    # per-fragment fields, instead of hard truncation (which silently drops every processing
+    # activity beyond the cut-off). Disable to keep the legacy truncation behaviour.
+    vvt_map_reduce_enabled: bool = True
+    vvt_max_chunks: int = 8  # safety cap on map-reduce LLM calls per VVT normalization
+
     # Evidence grounding: verify that LLM-quoted evidence actually appears in the source text.
     # When enabled, ungrounded (likely hallucinated) quotes trigger a Pydantic AI ModelRetry
     # so the model re-answers with verbatim quotes; persistent failures lower the confidence.
     evidence_grounding_enabled: bool = True
     evidence_grounding_threshold: float = 0.85  # fuzzy-match ratio to count a quote as grounded
 
-    # Maximale Anzahl gleichzeitiger LLM-Anfragen pro run_checks-Job.
-    # Verhindert Überlastung von Ollama und Rate-Limit-Fehler bei OpenAI/Anthropic.
-    # 0 = kein Limit (nicht empfohlen für lokales Ollama).
+    # Maximale Anzahl gleichzeitiger LLM-Anfragen. Global pro Event-Loop (FastAPI-Worker bzw.
+    # Celery-Task) in llm_retry_call durchgesetzt — deckt damit auch verschachtelte Parallelität
+    # (Map-Reduce-Fragmente, Self-Consistency-Samples, VVT-Fragmente) ab, zusätzlich zum
+    # Per-Job-Semaphor in run_checks. Verhindert Überlastung von Ollama und Rate-Limit-Fehler
+    # bei OpenAI/Anthropic. 0 = kein Limit (nicht empfohlen für lokales Ollama).
     max_concurrent_llm_calls: int = 2
 
     # Timeout per LLM HTTP request (seconds). Applies to all providers (Ollama, OpenAI, Anthropic).
@@ -227,9 +245,17 @@ class Settings(BaseSettings):
     ollama_model: str = "llama3.2"
     ollama_enabled: bool = True
 
-    # OCR via Ollama Vision (gescannte PDFs; z. B. qwen2.5-vl, minicpm-v)
+    # OCR via Vision-LLM (gescannte PDFs; z. B. qwen2.5-vl, minicpm-v). Der OCR-Aufruf nutzt das
+    # OpenAI-kompatible Chat-Completions-Format (Bild als Base64-Data-URI) und funktioniert damit
+    # gegen Ollama (/v1), vLLM und llama.cpp gleichermaßen.
     ollama_ocr_model: str = "qwen2.5-vl"
     ollama_ocr_enabled: bool = True
+    # OCR-Endpoint-Override: eigener OpenAI-kompatibler Vision-Server (das Vision-Modell läuft oft
+    # auf einem anderen Server als das Text-Modell). Leer = vom aktiven Provider abgeleitet:
+    # openai_compatible → LLM_BASE_URL, sonst OLLAMA_BASE_URL. "/v1" wird ergänzt, wenn es fehlt.
+    ocr_base_url: str = ""
+    ocr_api_key: SecretStr = SecretStr("")  # optional; leer = LLM_API_KEY (openai_compatible) bzw. ohne Auth
+    ocr_model: str = ""                     # leer = OLLAMA_OCR_MODEL
     ocr_min_chars_per_page: int = 50  # below this avg chars/page → use OCR fallback
     # Resolution for PDF page images sent to the vision model. ~300 DPI is the established OCR
     # standard; 150 noticeably degrades recognition of small print and stamps on scans.
@@ -310,13 +336,31 @@ class Settings(BaseSettings):
     llm_circuit_breaker_threshold: int = 5
     llm_circuit_breaker_cooldown_seconds: float = 60.0
 
-    # LLM-Provider (ollama | openai | anthropic)
+    # LLM-Provider (ollama | openai | anthropic | openai_compatible)
     # Ollama-Konfiguration bleibt unverändert (ollama_base_url, ollama_model, etc.)
-    llm_provider: str = "ollama"      # Aktiver Provider: "ollama", "openai" oder "anthropic"
+    llm_provider: str = "ollama"      # Aktiver Provider: "ollama", "openai", "anthropic" oder "openai_compatible"
     openai_api_key: SecretStr = SecretStr("")  # OpenAI API-Key (wenn llm_provider=openai)
     openai_model: str = "gpt-4o-mini"
     anthropic_api_key: SecretStr = SecretStr("")  # Anthropic API-Key (wenn llm_provider=anthropic)
     anthropic_model: str = "claude-3-5-haiku-latest"  # Anthropic-Modell
+
+    # Custom OpenAI-kompatibler Server (llama.cpp "llama-server", vLLM, LiteLLM, TGI, ...).
+    # Nur wirksam bei LLM_PROVIDER=openai_compatible. Die Basis-URL darf mit oder ohne "/v1"
+    # angegeben werden (fehlendes "/v1" wird ergänzt).
+    llm_base_url: str = ""            # z. B. http://localhost:8000/v1 (vLLM) oder http://localhost:8080 (llama.cpp)
+    llm_api_key: SecretStr = SecretStr("")  # optional, z. B. für vLLM --api-key; leer = ohne Auth
+    llm_model: str = ""               # served model name, z. B. "Qwen/Qwen2.5-14B-Instruct"
+
+    # Strukturierte Ausgabe: wie Pydantic-AI das Output-Schema durchsetzt.
+    #   tool     – Tool-/Function-Calling (Standard; bisheriges Verhalten, von allen Providern unterstützt)
+    #   native   – response_format mit JSON-Schema → constrained decoding. Empfohlen für lokale
+    #              OpenAI-kompatible Server (vLLM guided decoding, llama.cpp json_schema/GBNF, Ollama
+    #              structured outputs): das Modell KANN kein schema-ungültiges JSON erzeugen, was bei
+    #              kleinen lokalen Modellen die Schema-Fehlerrate praktisch eliminiert.
+    #   prompted – Schema nur im Prompt beschreiben (Fallback für Server ohne beide Mechanismen).
+    # Bei LLM_PROVIDER=anthropic wird "native" ignoriert (kein JSON-Schema-response_format; Tool-
+    # Calling ist dort der native Mechanismus).
+    llm_structured_output_mode: Literal["tool", "native", "prompted"] = "tool"
 
     # Webhook-Benachrichtigungen (ausgehend)
     webhook_max_retries: int = 3          # Anzahl Wiederholungsversuche bei Fehler
@@ -371,7 +415,19 @@ class Settings(BaseSettings):
     weaviate_chunk_overlap_chars: int = 100
     weaviate_top_k: int = 5
     weaviate_legal_bases_top_k: int = 8
+    # Hybrid retrieval (BM25 + Vektor): exakte Treffer juristischer Fachbegriffe ("Art. 28",
+    # "Auftragsverarbeitung") schlagen reine Semantik oft. Fällt pro Query auf reine
+    # Vektorsuche zurück, wenn der Weaviate-Server Hybrid nicht unterstützt.
+    weaviate_hybrid_enabled: bool = True
+    # 0.0 = reines BM25 (Keyword), 1.0 = reiner Vektor; 0.5 = ausgewogen.
+    weaviate_hybrid_alpha: float = 0.5
     ollama_embedding_model: str = "nomic-embed-text"
+    # Embedding-Endpoint-Override: OpenAI-kompatible /v1/embeddings-API (vLLM, llama.cpp,
+    # TEI/Infinity). Leer = nativer Ollama-Client unter OLLAMA_BASE_URL (bisheriges Verhalten).
+    # Damit sind auch stärkere multilinguale Embedder (bge-m3, multilingual-e5) nutzbar.
+    embedding_base_url: str = ""
+    embedding_api_key: SecretStr = SecretStr("")  # optional; leer = ohne Auth
+    embedding_model: str = ""                     # leer = OLLAMA_EMBEDDING_MODEL
 
     # ---------------------------------------------------------------------------
     # Focused model validators (run in definition order by Pydantic).
@@ -420,6 +476,30 @@ class Settings(BaseSettings):
                 "(Passwort ggf. URL-encoden oder ein hex-Passwort verwenden). "
                 f"Aktuell (redacted): {safe}. Fehler: {exc}"
             ) from exc
+        return self
+
+    @model_validator(mode="after")
+    def _validate_chars_per_token(self) -> Settings:
+        """llm_chars_per_token must be positive — it divides character lengths."""
+        if self.llm_chars_per_token <= 0:
+            raise ValueError("LLM_CHARS_PER_TOKEN must be > 0 (heuristic characters per token).")
+        return self
+
+    @model_validator(mode="after")
+    def _validate_openai_compatible(self) -> Settings:
+        """LLM_PROVIDER=openai_compatible requires a base URL and a served model name."""
+        if (self.llm_provider or "").lower() != "openai_compatible":
+            return self
+        if not self.llm_base_url.strip():
+            raise ValueError(
+                "LLM_PROVIDER=openai_compatible erfordert LLM_BASE_URL "
+                "(z. B. http://localhost:8000/v1 für vLLM, http://localhost:8080 für llama.cpp)."
+            )
+        if not self.llm_model.strip():
+            raise ValueError(
+                "LLM_PROVIDER=openai_compatible erfordert LLM_MODEL "
+                "(served model name, z. B. Qwen/Qwen2.5-14B-Instruct)."
+            )
         return self
 
     @model_validator(mode="after")

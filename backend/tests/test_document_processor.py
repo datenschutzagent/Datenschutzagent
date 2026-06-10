@@ -174,11 +174,18 @@ class TestStructurePreservation:
         # evidence like "Spalte C" remains meaningful.
         content = _make_xlsx_bytes({"VVT": [["Zweck", None, "Rechtsgrundlage"], ["Lohn", None, "Art. 6"]]})
         text = extract_text_from_xlsx(content)
-        # Column-letter header row present
-        assert "| A | B | C |" in text
-        # Row keeps the empty middle column → 'Zweck' in A, '' in B, 'Rechtsgrundlage' in C
-        assert "| Zweck |  | Rechtsgrundlage |" in text
-        assert "| Lohn |  | Art. 6 |" in text
+        # Column-letter header row present (with the leading row-number column)
+        assert "| Zeile | A | B | C |" in text
+        # Rows carry their 1-based number and keep the empty middle column.
+        assert "| 1 | Zweck |  | Rechtsgrundlage |" in text
+        assert "| 2 | Lohn |  | Art. 6 |" in text
+
+    def test_xlsx_rows_are_numbered_sequentially(self):
+        content = _make_xlsx_bytes({"Daten": [["a"], ["b"], ["c"]]})
+        text = extract_text_from_xlsx(content)
+        assert "| 1 | a |" in text
+        assert "| 2 | b |" in text
+        assert "| 3 | c |" in text
 
     def test_docx_table_rendered_as_markdown(self):
         content = _make_docx_bytes([], table_rows=[["Feld", "Wert"], ["Zweck", "Lohnabrechnung"]])
@@ -186,6 +193,71 @@ class TestStructurePreservation:
         assert "| Feld | Wert |" in text
         assert "| --- | --- |" in text
         assert "| Zweck | Lohnabrechnung |" in text
+
+
+def _make_pdf_bytes(pages: list[list[str]]) -> bytes:
+    """Build a digital (text-layer) PDF with one entry per page; empty list = blank page."""
+    import fitz
+
+    doc = fitz.open()
+    for lines in pages:
+        page = doc.new_page()
+        y = 72.0
+        for line in lines:
+            page.insert_text((72, y), line, fontsize=11)
+            y += 18
+    data = doc.tobytes()
+    doc.close()
+    return data
+
+
+# Enough text per page to stay above ocr_min_chars_per_page (default 50) → no OCR triggered.
+_PAGE1_LINES = ["Datenschutzhinweise zur Lohnabrechnung im Sinne der DSGVO," , "Verantwortlicher ist die Muster GmbH mit Sitz in Frankfurt am Main."]
+_PAGE2_LINES = ["Speicherdauer: zehn Jahre gemaess HGB und Abgabenordnung.", "Eine Uebermittlung in Drittlaender findet nicht statt, Stand 2026."]
+
+
+class TestPdfPageAnchors:
+    def test_multi_page_pdf_carries_page_anchors(self):
+        result = extract_text("hinweis.pdf", _make_pdf_bytes([_PAGE1_LINES, _PAGE2_LINES]))
+        assert "[Seite 1]" in result.text
+        assert "[Seite 2]" in result.text
+        # Content sits under the right anchor.
+        assert result.text.index("[Seite 1]") < result.text.index("Muster GmbH")
+        assert result.text.index("Muster GmbH") < result.text.index("[Seite 2]")
+        assert result.text.index("[Seite 2]") < result.text.index("zehn Jahre")
+        assert result.page_count == 2
+
+    def test_single_page_pdf_has_no_anchor(self):
+        result = extract_text("hinweis.pdf", _make_pdf_bytes([_PAGE1_LINES]))
+        assert "[Seite" not in result.text
+        assert "Muster GmbH" in result.text
+
+    def test_ocr_merged_pages_keep_anchors(self, monkeypatch):
+        import app.services.document_processor as dp
+
+        monkeypatch.setattr(dp.settings, "ollama_ocr_enabled", True, raising=False)
+        monkeypatch.setattr(dp.settings, "ocr_per_page", True, raising=False)
+        ocr_text = "OCR-Inhalt der gescannten Seite zwei mit ausreichend vielen Zeichen fuer die Schwelle."
+        monkeypatch.setattr(dp, "_ocr_pages", lambda content, targets: dict.fromkeys(targets, ocr_text))
+
+        # Page 1 digital, page 2 blank (sparse → OCR).
+        result = extract_text("scan.pdf", _make_pdf_bytes([_PAGE1_LINES, []]))
+        assert result.extraction_method == "ocr"
+        assert "[Seite 1]" in result.text and "[Seite 2]" in result.text
+        assert result.text.index("[Seite 2]") < result.text.index("OCR-Inhalt")
+
+    def test_assemble_pages_skips_empty_but_keeps_real_page_numbers(self):
+        import app.services.document_processor as dp
+
+        text = dp._assemble_pages(["Erste Seite", "", "Dritte Seite"], 3)
+        assert "[Seite 1]" in text
+        assert "[Seite 2]" not in text  # empty page emits no anchor
+        assert "[Seite 3]" in text  # numbering reflects the real page index
+
+    def test_assemble_pages_single_page_unanchored(self):
+        import app.services.document_processor as dp
+
+        assert dp._assemble_pages(["Inhalt"], 1) == "Inhalt"
 
 
 class TestLegacyDoc:
@@ -199,6 +271,8 @@ class TestLegacyDoc:
 
 
 class _FakeResp:
+    """OpenAI-compatible chat-completions response shape (works for Ollama /v1, vLLM, llama.cpp)."""
+
     def __init__(self, content: str):
         self._content = content
 
@@ -206,7 +280,7 @@ class _FakeResp:
         return None
 
     def json(self):
-        return {"message": {"content": self._content}}
+        return {"choices": [{"message": {"content": self._content}}]}
 
 
 class TestOcrRetry:
@@ -259,6 +333,68 @@ class TestOcrRetry:
         result = dp._ocr_pages(b"fakepdf", [0])
         assert result == {0: "Treffer"}
         assert calls["n"] == 2
+
+
+class TestOcrEndpointResolution:
+    """OCR runs against the OpenAI-compatible chat-completions API of a configurable backend."""
+
+    def test_default_is_ollama_v1(self, monkeypatch):
+        monkeypatch.setattr(dp.settings, "ocr_base_url", "", raising=False)
+        monkeypatch.setattr(dp.settings, "llm_provider", "ollama", raising=False)
+        monkeypatch.setattr(dp.settings, "ollama_base_url", "http://localhost:11434", raising=False)
+        url, headers = dp._ocr_chat_endpoint()
+        assert url == "http://localhost:11434/v1/chat/completions"
+        assert headers == {}
+
+    def test_explicit_override_with_api_key(self, monkeypatch):
+        from pydantic import SecretStr
+
+        monkeypatch.setattr(dp.settings, "ocr_base_url", "http://vision:8000/v1/", raising=False)
+        monkeypatch.setattr(dp.settings, "ocr_api_key", SecretStr("s3cret"), raising=False)
+        url, headers = dp._ocr_chat_endpoint()
+        assert url == "http://vision:8000/v1/chat/completions"
+        assert headers == {"Authorization": "Bearer s3cret"}
+
+    def test_openai_compatible_provider_is_used_when_no_override(self, monkeypatch):
+        from pydantic import SecretStr
+
+        monkeypatch.setattr(dp.settings, "ocr_base_url", "", raising=False)
+        monkeypatch.setattr(dp.settings, "ocr_api_key", SecretStr(""), raising=False)
+        monkeypatch.setattr(dp.settings, "llm_provider", "openai_compatible", raising=False)
+        monkeypatch.setattr(dp.settings, "llm_base_url", "http://vllm:8000", raising=False)
+        monkeypatch.setattr(dp.settings, "llm_api_key", SecretStr("vllm-key"), raising=False)
+        url, headers = dp._ocr_chat_endpoint()
+        assert url == "http://vllm:8000/v1/chat/completions"
+        assert headers == {"Authorization": "Bearer vllm-key"}
+
+    def test_ocr_model_falls_back_to_legacy_setting(self, monkeypatch):
+        monkeypatch.setattr(dp.settings, "ocr_model", "", raising=False)
+        monkeypatch.setattr(dp.settings, "ollama_ocr_model", "qwen2.5-vl", raising=False)
+        assert dp._ocr_model_name() == "qwen2.5-vl"
+        monkeypatch.setattr(dp.settings, "ocr_model", "Qwen/Qwen2.5-VL-7B-Instruct", raising=False)
+        assert dp._ocr_model_name() == "Qwen/Qwen2.5-VL-7B-Instruct"
+
+    def test_payload_uses_openai_multimodal_format(self, monkeypatch):
+        monkeypatch.setattr(dp, "_pdf_page_to_png_bytes", lambda content, i, dpi=150: b"img")
+        monkeypatch.setattr(dp.time, "sleep", lambda _s: None)
+        monkeypatch.setattr(dp.settings, "ocr_retry_attempts", 1, raising=False)
+        captured = {}
+
+        def _capture(url, json=None, headers=None, timeout=None):
+            captured["url"] = url
+            captured["payload"] = json
+            return _FakeResp("Erkannter Inhalt der gescannten Seite")
+
+        monkeypatch.setattr(dp.httpx, "post", _capture)
+        result = dp._ocr_pages(b"fakepdf", [0])
+        assert result == {0: "Erkannter Inhalt der gescannten Seite"}
+        msg = captured["payload"]["messages"][0]
+        parts = msg["content"]
+        assert {p["type"] for p in parts} == {"text", "image_url"}
+        image_part = next(p for p in parts if p["type"] == "image_url")
+        assert image_part["image_url"]["url"].startswith("data:image/png;base64,")
+        assert captured["payload"]["temperature"] == 0
+        assert captured["url"].endswith("/chat/completions")
 
 
 class TestOcrQualitySignal:
@@ -406,3 +542,114 @@ class TestImageMagicBytes:
         with pytest.raises(HTTPException) as exc:
             verify(b"%PDF-1.7 ...", "png", "fake.png")
         assert exc.value.status_code == 415
+
+
+def _make_pptx_bytes(slides: list[dict]) -> bytes:
+    """Build an in-memory PPTX. Each slide dict: {"text": str|None, "table": rows|None, "notes": str|None}."""
+    import pptx
+    from pptx.util import Inches
+
+    prs = pptx.Presentation()
+    blank = prs.slide_layouts[6]
+    for spec in slides:
+        slide = prs.slides.add_slide(blank)
+        if spec.get("text"):
+            box = slide.shapes.add_textbox(Inches(1), Inches(1), Inches(8), Inches(2))
+            box.text_frame.text = spec["text"]
+        if spec.get("table"):
+            rows = spec["table"]
+            table = slide.shapes.add_table(len(rows), len(rows[0]), Inches(1), Inches(3), Inches(8), Inches(2)).table
+            for r, row in enumerate(rows):
+                for c, val in enumerate(row):
+                    table.cell(r, c).text = val
+        if spec.get("notes"):
+            slide.notes_slide.notes_text_frame.text = spec["notes"]
+    buf = io.BytesIO()
+    prs.save(buf)
+    return buf.getvalue()
+
+
+class TestExtractTextFromPptx:
+    def test_multi_slide_anchors_with_empty_first_slide(self):
+        from app.services.document_processor import extract_text_from_pptx
+
+        content = _make_pptx_bytes([{}, {"text": "Löschkonzept nach sechs Monaten"}])
+        text = extract_text_from_pptx(content)
+        assert "[Folie 1]" not in text  # empty slide emits no anchor …
+        assert "[Folie 2]" in text      # … but numbering reflects the real slide index
+        assert "Löschkonzept" in text
+
+    def test_single_slide_has_no_anchor(self):
+        from app.services.document_processor import extract_text_from_pptx
+
+        text = extract_text_from_pptx(_make_pptx_bytes([{"text": "TOM-Übersicht"}]))
+        assert "[Folie" not in text
+        assert "TOM-Übersicht" in text
+
+    def test_notes_and_table_extracted(self):
+        from app.services.document_processor import extract_text_from_pptx
+
+        content = _make_pptx_bytes([
+            {"table": [["Maßnahme", "Status"], ["Pseudo|nymisierung", "umgesetzt"]], "notes": "AVV liegt vor."},
+            {"text": "Zweite Folie"},
+        ])
+        text = extract_text_from_pptx(content)
+        assert "| Maßnahme | Status |" in text
+        assert "Pseudo\\|nymisierung" in text  # pipe escaped like DOCX/XLSX cells
+        assert "--- Notizen ---" in text
+        assert "AVV liegt vor." in text
+
+    def test_dispatcher_routes_pptx(self):
+        result = extract_text("folien.pptx", _make_pptx_bytes([{"text": "Inhalt der Präsentation"}]))
+        assert result.extraction_method == EXTRACTION_METHOD_TEXT
+        assert "Inhalt der Präsentation" in result.text
+
+    def test_corrupt_pptx_raises(self):
+        import zipfile
+
+        with pytest.raises(zipfile.BadZipFile):
+            extract_text("kaputt.pptx", b"PK\x03\x04 not a real pptx")
+
+
+class TestExtractTextFromCsv:
+    def test_semicolon_delimiter_sniffed(self):
+        from app.services.document_processor import extract_text_from_csv
+
+        text = extract_text_from_csv("Zweck;Rechtsgrundlage\nLohn;Art. 6\n".encode())
+        assert "| Zeile | A | B |" in text
+        assert "| 1 | Zweck | Rechtsgrundlage |" in text
+        assert "| 2 | Lohn | Art. 6 |" in text
+
+    def test_comma_and_tab_delimiters(self):
+        from app.services.document_processor import extract_text_from_csv
+
+        comma = extract_text_from_csv(b"a,b\nc,d\n")
+        assert "| 1 | a | b |" in comma
+        tab = extract_text_from_csv(b"a\tb\nc\td\n")
+        assert "| 1 | a | b |" in tab
+
+    def test_cp1252_umlauts_and_bom(self):
+        from app.services.document_processor import extract_text_from_csv
+
+        cp = extract_text_from_csv("Tätigkeit;Dauer\nLöschung;6 Monate\n".encode("cp1252"))
+        assert "Tätigkeit" in cp and "Löschung" in cp
+        bom = extract_text_from_csv("﻿Spalte1;Spalte2\n".encode("utf-8"))
+        assert "| 1 | Spalte1 | Spalte2 |" in bom  # BOM must not stick to the first cell
+
+    def test_ragged_rows_padded_and_pipes_escaped(self):
+        from app.services.document_processor import extract_text_from_csv
+
+        text = extract_text_from_csv(b"a;b;c\nx\nmit|pipe;y;z\n")
+        assert "| 2 | x |  |  |" in text
+        assert "mit\\|pipe" in text
+
+    def test_empty_csv_returns_empty(self):
+        from app.services.document_processor import extract_text_from_csv
+
+        assert extract_text_from_csv(b"") == ""
+        assert extract_text_from_csv(b"   \n  ") == ""
+
+    def test_dispatcher_routes_csv(self):
+        result = extract_text("export.csv", b"Zweck;Dauer\nLohn;10 Jahre\n")
+        assert result.extraction_method == EXTRACTION_METHOD_TEXT
+        assert "| Zeile | A | B |" in result.text

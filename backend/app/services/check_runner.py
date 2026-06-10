@@ -11,17 +11,18 @@ from pydantic_ai import ModelRetry
 
 from app.config import settings
 from app.core.grounding import grounding_ratio, partition_grounded
-from app.core.llm import create_agent, llm_retry_call
+from app.core.llm import create_agent, gather_all, get_active_model_name, llm_retry_call
 from app.core.prompt_security import (
     SYSTEM_PROMPT_SAFETY_PREAMBLE,
     sanitize_prompt_field,
     wrap_untrusted_content,
 )
 from app.core.request_id import get_request_id
+from app.core.tokens import effective_context_chars
 from app.models.schemas import FindingSeverityEnum
 from app.services.document_processor import detect_language
 from app.services.prompt_template_service import get_active_template, render
-from app.services.weaviate_service import chunk_text, truncate_sentence_aware
+from app.services.weaviate_service import build_context_windows, truncate_sentence_aware
 
 # Max chars for a check instruction (playbook requirement text). Defense-in-depth
 # even though playbooks are admin-controlled — imported playbooks may be less trusted.
@@ -61,13 +62,14 @@ def _cache_key(system_prompt: str, user_content: str, case_id: UUID | None, play
 
     Scoping the key by ``org_profile`` and ``case_id`` prevents cross-case or
     cross-tenant cache reuse, which could otherwise leak or poison results when
-    two contexts produce the same prompt bytes. The model identifier is
-    included so that a model upgrade (e.g. llama3.2 → llama3.3) automatically
-    invalidates existing cache entries. ``playbook_revision`` (format
-    "<playbook_id>:<version>") ensures a cache miss whenever the playbook
-    content changes, so stale LLM responses are never returned after an update.
+    two contexts produce the same prompt bytes. The model identifier (provider +
+    active model + structured-output mode) is included so that a model upgrade
+    (e.g. llama3.2 → llama3.3) or an output-mode switch automatically invalidates
+    existing cache entries. ``playbook_revision`` (format "<playbook_id>:<version>")
+    ensures a cache miss whenever the playbook content changes, so stale LLM
+    responses are never returned after an update.
     """
-    model_id = f"{settings.llm_provider}:{settings.ollama_model if settings.llm_provider == 'ollama' else settings.openai_model if settings.llm_provider == 'openai' else settings.anthropic_model}"
+    model_id = f"{settings.llm_provider}:{get_active_model_name()}:{settings.llm_structured_output_mode}"
     case_part = str(case_id) if case_id is not None else "-"
     raw = f"{_org_profile_hash()}\x00{case_part}\x00{model_id}\x00{playbook_revision}\x00{system_prompt}\x00{user_content}"
     digest = hashlib.sha256(raw.encode("utf-8")).hexdigest()
@@ -110,6 +112,9 @@ CHECK_OUTPUT_GUIDANCE = (
     "For compliant results use severity 'info'.\n"
     "Evidence MUST be verbatim quotes copied from the provided document — never paraphrase or "
     "invent quotes. If you cannot quote supporting text, return an empty evidence list.\n"
+    "The document text may contain page/slide anchors ('[Seite N]'/'[Folie N]') and "
+    "row-numbered tables (leading 'Zeile' column): cite these locations in "
+    "description/recommendation (e.g. 'Seite 3', 'Zeile 12'), but keep evidence quotes verbatim.\n"
     "Set confidence (0.0-1.0) to reflect how certain you are given the available text.\n\n"
     "Examples of the expected judgement (illustrative, not about the current document):\n"
     "- Requirement 'must state a concrete retention period' + document says "
@@ -245,13 +250,13 @@ async def _cache_set(key: str, result: CheckResult) -> None:
         logger.warning("LLM cache SET failed: %s", exc, extra={"cache_key": key})
 
 def _context_chars_per_doc() -> int:
-    """Return configured per-document character limit for LLM context."""
-    return getattr(settings, "max_context_chars_per_doc", 15000)
+    """Per-document character limit for LLM context (honors the optional token budget)."""
+    return effective_context_chars("per_doc")
 
 
 def _rag_context_chars() -> int:
-    """Return configured RAG context character limit."""
-    return getattr(settings, "max_context_chars_rag", 20000)
+    """RAG context character limit (honors the optional token budget)."""
+    return effective_context_chars("rag")
 
 
 
@@ -343,25 +348,9 @@ _FRAGMENT_SYSTEM_SUFFIX = (
 )
 
 
-# Re-exported for callers/tests; canonical implementation lives in weaviate_service.
+# Re-exported for callers/tests; canonical implementations live in weaviate_service.
 _truncate_sentence_aware = truncate_sentence_aware
-
-
-def _build_context_windows(text: str, limit: int, max_windows: int) -> list[str]:
-    """Group sentence-aware chunks into <= max_windows windows of up to ``limit`` chars each."""
-    windows: list[str] = []
-    current = ""
-    for chunk in chunk_text(text or ""):
-        if current and len(current) + len(chunk) + 2 > limit:
-            windows.append(current)
-            current = chunk
-            if len(windows) >= max_windows:
-                return windows
-        else:
-            current = f"{current}\n\n{chunk}" if current else chunk
-    if current and len(windows) < max_windows:
-        windows.append(current)
-    return windows[:max_windows]
+_build_context_windows = build_context_windows
 
 
 def _aggregate_check_results(results: list[CheckResult]) -> CheckResult:
@@ -446,10 +435,13 @@ async def _llm_check_call(
             output_validator=_make_grounding_validator(source_text),
             temperature=temp,
         )
-        samples: list[CheckResult] = []
-        for _ in range(n):
-            result = await llm_retry_call(agent, user_content, output_type=CheckResult, request_id=get_request_id())
-            samples.append(_apply_grounding(result.output, source_text))
+        # Sample concurrently — the global LLM semaphore (max_concurrent_llm_calls) caps the
+        # actual provider load; sharing one agent across runs is safe (stateless per run).
+        results = await gather_all(
+            llm_retry_call(agent, user_content, output_type=CheckResult, request_id=get_request_id())
+            for _ in range(n)
+        )
+        samples = [_apply_grounding(r.output, source_text) for r in results]
         out = _aggregate_self_consistency(samples)
         logger.info(
             "Self-consistency over %d samples for check '%s': compliant=%s confidence=%.2f  [request_id=%s]",
@@ -503,9 +495,8 @@ async def run_check(
             len(document_text), len(windows), check_instruction[:80], get_request_id(),
         )
         frag_system = system + _FRAGMENT_SYSTEM_SUFFIX
-        results: list[CheckResult] = []
-        for window in windows:
-            user_content = render(
+        fragment_users = [
+            render(
                 user_tpl or DEFAULT_CHECK_FULL_TEXT_DOCUMENT_USER,
                 {
                     "requirement": requirement,
@@ -513,10 +504,17 @@ async def run_check(
                     "legal_bases_section": legal_section,
                 },
             )
-            results.append(await _llm_check_call(
+            for window in windows
+        ]
+        # Fragments run concurrently (window order preserved by gather — the aggregator uses
+        # results[0] as the representative compliant result); the global LLM semaphore caps load.
+        results = await gather_all(
+            _llm_check_call(
                 system=frag_system, user_content=user_content, source_text=window,
                 case_id=case_id, playbook_revision=playbook_revision, label=check_instruction,
-            ))
+            )
+            for window, user_content in zip(windows, fragment_users)
+        )
         out = _aggregate_check_results(results) if results else CheckResult(
             is_compliant=True, severity="info", description="No content to evaluate.",
             evidence=[], recommendation="", confidence=0.3,
@@ -632,13 +630,15 @@ async def run_check_rag(
     language_hint = _language_hint(language) if language else ""
     system_tpl = await get_active_template("check_rag_document_system")
     system = render(system_tpl or DEFAULT_CHECK_RAG_DOCUMENT_SYSTEM, {"language_hint": language_hint})
-    system = system + CHECK_OUTPUT_GUIDANCE
+    # Same injection hardening as the full-text paths: marker-wrapped excerpts are data.
+    system = SYSTEM_PROMPT_SAFETY_PREAMBLE + "\n\n" + system + CHECK_OUTPUT_GUIDANCE
     user_tpl = await get_active_template("check_rag_document_user")
     user_content = render(
         user_tpl or DEFAULT_CHECK_RAG_DOCUMENT_USER,
         {
             "requirement": sanitize_prompt_field(check_instruction, max_chars=_CHECK_INSTRUCTION_MAX_CHARS),
-            "excerpts": sanitize_prompt_field(combined, max_chars=rag_limit),
+            # Headroom keeps the appended "[... truncated ...]" suffix intact.
+            "excerpts": wrap_untrusted_content(combined, max_chars=rag_limit + 100),
             "legal_bases_section": _legal_bases_section(legal_bases_context),
         },
     )
@@ -685,13 +685,15 @@ async def run_cross_document_check_rag(
     language_hint = _language_hint(language) if language else ""
     system_tpl = await get_active_template("check_rag_cross_system")
     system = render(system_tpl or DEFAULT_CHECK_RAG_CROSS_SYSTEM, {"language_hint": language_hint})
-    system = system + CHECK_OUTPUT_GUIDANCE
+    # Same injection hardening as the full-text paths: marker-wrapped excerpts are data.
+    system = SYSTEM_PROMPT_SAFETY_PREAMBLE + "\n\n" + system + CHECK_OUTPUT_GUIDANCE
     user_tpl = await get_active_template("check_rag_cross_user")
     user_content = render(
         user_tpl or DEFAULT_CHECK_RAG_CROSS_USER,
         {
             "requirement": sanitize_prompt_field(check_instruction, max_chars=_CHECK_INSTRUCTION_MAX_CHARS),
-            "excerpts": sanitize_prompt_field(combined, max_chars=cross_rag_limit),
+            # Headroom keeps the appended "[... truncated ...]" suffix intact.
+            "excerpts": wrap_untrusted_content(combined, max_chars=cross_rag_limit + 100),
             "legal_bases_section": _legal_bases_section(legal_bases_context),
         },
     )

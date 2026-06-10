@@ -48,3 +48,38 @@ def test_stable_key_requires_at_least_one_part():
     import pytest
     with pytest.raises(ValueError):
         _stable_key()
+
+
+# ---------------------------------------------------------------------------
+# Global LLM semaphore: nested parallelism never exceeds max_concurrent_llm_calls
+# ---------------------------------------------------------------------------
+
+
+def test_llm_calls_respect_global_concurrency_cap(monkeypatch):
+    import asyncio
+    from types import SimpleNamespace
+
+    from app.config import settings
+    from app.core import llm
+
+    monkeypatch.setattr(settings, "max_concurrent_llm_calls", 2, raising=False)
+
+    tracker = {"cur": 0, "max": 0}
+
+    class _StubAgent:
+        async def run(self, user_content, output_type=None):
+            tracker["cur"] += 1
+            tracker["max"] = max(tracker["max"], tracker["cur"])
+            await asyncio.sleep(0.01)
+            tracker["cur"] -= 1
+            return SimpleNamespace(output="ok", usage=lambda: None)
+
+    async def main():
+        agent = _StubAgent()
+        await asyncio.gather(
+            *(llm.llm_retry_call(agent, "u", output_type=str) for _ in range(6))
+        )
+
+    asyncio.run(main())
+    assert tracker["max"] <= 2  # cap enforced even with 6-way fan-out
+    assert tracker["max"] == 2  # and parallelism actually happens up to the cap

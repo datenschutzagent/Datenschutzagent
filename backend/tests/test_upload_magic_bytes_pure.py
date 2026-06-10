@@ -59,3 +59,50 @@ def test_empty_content_is_rejected():
 def test_unknown_format_is_rejected():
     with pytest.raises(HTTPException):
         _verify_magic_bytes(PDF_SAMPLE, "rtf", "weird.rtf")
+
+
+# ---------------------------------------------------------------------------
+# PPTX (ZIP container) and CSV (plain text, no signature)
+# ---------------------------------------------------------------------------
+
+
+def test_valid_pptx_shares_zip_magic():
+    _verify_magic_bytes(DOCX_SAMPLE, "pptx", "folien.pptx")
+
+
+def test_pdf_content_claiming_pptx_is_rejected():
+    with pytest.raises(HTTPException) as exc:
+        _verify_magic_bytes(PDF_SAMPLE, "pptx", "fake.pptx")
+    assert exc.value.status_code == 415
+
+
+def test_plain_text_passes_as_csv():
+    _verify_magic_bytes("Zweck;Rechtsgrundlage\nLohn;Art. 6\n".encode(), "csv", "export.csv")
+
+
+def test_utf8_bom_csv_passes():
+    _verify_magic_bytes("﻿Spalte1;Spalte2\n".encode(), "csv", "excel.csv")
+
+
+def test_binary_with_nul_claiming_csv_is_rejected():
+    with pytest.raises(HTTPException) as exc:
+        _verify_magic_bytes(b"abc\x00def", "csv", "fake.csv")
+    assert exc.value.status_code == 415
+
+
+def test_pdf_content_claiming_csv_is_rejected():
+    with pytest.raises(HTTPException) as exc:
+        _verify_magic_bytes(PDF_SAMPLE, "csv", "fake.csv")
+    assert exc.value.status_code == 415
+
+
+def test_zip_content_claiming_csv_is_rejected():
+    with pytest.raises(HTTPException) as exc:
+        _verify_magic_bytes(DOCX_SAMPLE, "csv", "fake.csv")
+    assert exc.value.status_code == 415
+
+
+def test_empty_csv_is_rejected():
+    with pytest.raises(HTTPException) as exc:
+        _verify_magic_bytes(b"", "csv", "leer.csv")
+    assert exc.value.status_code == 415

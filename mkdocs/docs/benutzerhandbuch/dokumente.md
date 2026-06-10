@@ -1,6 +1,6 @@
 # Dokumente
 
-Pro Vorgang können beliebig viele Dokumente hochgeladen werden. Unterstützte Formate: **DOCX**, **PDF**, **XLSX**. Der Text wird automatisch extrahiert und für Playbook-Checks sowie VVT-Normalisierung genutzt.
+Pro Vorgang können beliebig viele Dokumente hochgeladen werden. Unterstützte Formate: **DOCX**, **PDF**, **XLSX**, **PPTX**, **CSV**, **DOC** sowie gescannte Bilder (**JPG**, **PNG**, **TIFF**, via OCR). Der Text wird automatisch extrahiert und für Playbook-Checks sowie VVT-Normalisierung genutzt.
 
 ## Upload
 
@@ -8,6 +8,8 @@ Pro Vorgang können beliebig viele Dokumente hochgeladen werden. Unterstützte F
 - **Mehrfach-Upload:** Mehrere Dateien desselben Typs in einem Schritt hochladen (Bulk-Upload). Alle erhalten denselben Dokumenttyp; die Version wird pro Typ automatisch fortlaufend vergeben (v1, v2, …).
 
 Beim Hochladen wird die Datei im konfigurierten Storage (lokal oder MinIO) abgelegt und in der Datenbank erfasst. Die **Textextraktion** läuft – bei aktiviertem Celery/Redis – asynchron; der Upload antwortet sofort mit 201. Bis die Extraktion fertig ist, kann der Inhalt noch leer sein.
+
+Der extrahierte Text erhält **Fundstellen-Marker**: Mehrseitige PDFs tragen pro Seite einen Anker `[Seite N]`, mehrseitige PPTX-Präsentationen pro Folie einen Anker `[Folie N]` (inkl. Sprechernotizen unter `--- Notizen ---`), XLSX-Tabellen und CSV-Dateien eine führende Spalte „Zeile“ mit der 1-basierten Zeilennummer (zusätzlich zu den Spaltenbuchstaben A, B, C, …). LLM-Belege wie „Seite 3“, „Folie 2“ oder „Sheet X, Spalte C, Zeile 12“ sind dadurch direkt im Dokument nachprüfbar. Bekannte Grenze: Text in PPTX-Diagrammen und SmartArt wird nicht extrahiert.
 
 ## Versionierung
 

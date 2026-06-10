@@ -9,7 +9,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.constants import FindingSeverity, FindingStatus
-from app.core.llm import create_agent
+from app.core.llm import create_agent, wrap_output_type
 from app.core.prompt_security import sanitize_prompt_field
 from app.models.db import ActivityLogModel, CaseMitigationLinkModel, CaseModel, DSFAAssessmentModel, FindingModel
 from app.services.mitigation_service import apply_dsfa_mitigations
@@ -229,7 +229,7 @@ async def generate_dsfa(case_id: UUID, db: AsyncSession) -> dict[str, Any]:
     # DSFA (Art. 35) is a complex legal assessment → use the optional stronger analysis model.
     agent = create_agent(_DSFA_SYSTEM_PROMPT, analysis=True)
     try:
-        result = await agent.run(user_content, output_type=_DSFAResult)
+        result = await agent.run(user_content, output_type=wrap_output_type(_DSFAResult))
         data = result.output
     except Exception as exc:
         logger.error("DSFA LLM generation failed: %s", exc, extra={"case_id": str(case_id)})

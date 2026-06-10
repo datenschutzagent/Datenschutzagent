@@ -12,7 +12,17 @@ Die Anwendung wird über Umgebungsvariablen konfiguriert. Im Projektroot liegt e
 
 ---
 
-## Ollama (LLM)
+## LLM-Provider
+
+| Variable | Beschreibung |
+| :--- | :--- |
+| `LLM_PROVIDER` | Aktiver Provider: `ollama` (Standard) \| `openai` \| `anthropic` \| `openai_compatible`. |
+| `LLM_STRUCTURED_OUTPUT_MODE` | Wie das Output-Schema durchgesetzt wird: `tool` (Standard; Tool-Calling), `native` (JSON-Schema-`response_format` → constrained decoding; empfohlen für lokale Server wie vLLM/llama.cpp/Ollama) oder `prompted` (Schema nur im Prompt). Bei Anthropic wird `native` ignoriert. |
+| `MAX_CONCURRENT_LLM_CALLS` | Maximale Anzahl gleichzeitiger LLM-Anfragen, global pro Worker-Prozess/Task durchgesetzt — inkl. paralleler Map-Reduce-Fragmente und Self-Consistency-Samples. `0` = unbegrenzt. Standard: 2. |
+| `LLM_CONTEXT_TOKEN_BUDGET` | Optionales Token-Budget (Heuristik). `> 0`: überschreibt alle `MAX_CONTEXT_CHARS_*`-Limits einheitlich mit Budget × `LLM_CHARS_PER_TOKEN`. `0` (Standard) = Zeichen-Limits gelten unverändert. |
+| `LLM_CHARS_PER_TOKEN` | Heuristisches Zeichen-pro-Token-Verhältnis (Standard 3.5 für Deutsch, ≈4 für Englisch). |
+
+### Ollama (`LLM_PROVIDER=ollama`)
 
 | Variable | Beschreibung |
 | :--- | :--- |
@@ -21,12 +31,29 @@ Die Anwendung wird über Umgebungsvariablen konfiguriert. Im Projektroot liegt e
 | `OLLAMA_TIMEOUT_SECONDS` | Timeout für LLM-Anfragen in Sekunden (Default z. B. 120). |
 | `OLLAMA_ENABLED` | Ollama-Funktionen ein- oder ausschalten. |
 
-### OCR (gescannte PDFs)
+### Custom OpenAI-kompatibler Server (`LLM_PROVIDER=openai_compatible`)
+
+Für selbst gehostete Inferenz-Server mit OpenAI-kompatibler API: llama.cpp (`llama-server`), vLLM, LiteLLM, TGI u. a.
 
 | Variable | Beschreibung |
 | :--- | :--- |
-| `OLLAMA_OCR_MODEL` | Ollama-Vision-Modell (z. B. `qwen2.5-vl`, `minicpm-v`). |
+| `LLM_BASE_URL` | Basis-URL des Servers, z. B. `http://localhost:8000/v1` (vLLM) oder `http://localhost:8080` (llama.cpp). Ein fehlendes `/v1` wird automatisch ergänzt. **Pflicht.** |
+| `LLM_MODEL` | Served model name, z. B. `Qwen/Qwen2.5-14B-Instruct`. **Pflicht.** |
+| `LLM_API_KEY` | Optionaler API-Key (z. B. vLLM `--api-key`). Leer = ohne Authentifizierung. |
+
+Empfehlung: zusammen mit `LLM_STRUCTURED_OUTPUT_MODE=native` betreiben — vLLM (guided decoding) und llama.cpp (json_schema/GBNF) erzwingen das Output-Schema dann serverseitig, was Schema-Fehler kleiner lokaler Modelle praktisch eliminiert.
+
+### OCR (gescannte PDFs)
+
+Der OCR-Aufruf nutzt das OpenAI-kompatible Chat-Completions-Format (Bild als Base64-Data-URI) und funktioniert damit gegen Ollama, vLLM und llama.cpp. Ohne Override wird der Endpoint vom aktiven Provider abgeleitet (`openai_compatible` → `LLM_BASE_URL`, sonst `OLLAMA_BASE_URL`).
+
+| Variable | Beschreibung |
+| :--- | :--- |
+| `OLLAMA_OCR_MODEL` | Vision-Modell (z. B. `qwen2.5-vl`, `minicpm-v`). |
 | `OLLAMA_OCR_ENABLED` | OCR für textarme PDFs aktivieren. |
+| `OCR_BASE_URL` | Optionaler eigener OpenAI-kompatibler Vision-Endpoint (das Vision-Modell läuft oft auf einem anderen Server als das Text-Modell). |
+| `OCR_MODEL` | Optionales Modell für `OCR_BASE_URL`; leer = `OLLAMA_OCR_MODEL`. |
+| `OCR_API_KEY` | Optionaler API-Key für den OCR-Endpoint. |
 | `OCR_MIN_CHARS_PER_PAGE` | Schwellwert Zeichen pro Seite; darunter wird OCR ausgelöst. |
 | `OCR_DPI` | Auflösung beim Rendern der PDF-Seiten für OCR. |
 
@@ -102,7 +129,12 @@ Wie die übrigen Dienste wird Weaviate über `.env` konfiguriert. docker-compose
 | `WEAVIATE_CHUNK_SIZE_CHARS` | Chunk-Größe in Zeichen für die Indexierung (Default 800). |
 | `WEAVIATE_CHUNK_OVERLAP_CHARS` | Überlappung zwischen Chunks in Zeichen (Default 100). |
 | `WEAVIATE_TOP_K` | Anzahl relevanter Chunks pro RAG-Abfrage (Default 5). |
+| `WEAVIATE_HYBRID_ENABLED` | Hybrid-Suche (BM25 + Vektor) statt reiner Vektorsuche (Default `true`). Exakte Treffer juristischer Fachbegriffe verbessern den Recall; bei Servern ohne Hybrid-Unterstützung automatischer Fallback auf Vektorsuche. |
+| `WEAVIATE_HYBRID_ALPHA` | Gewichtung der Hybrid-Suche: `0.0` = reines BM25 (Keyword), `1.0` = reiner Vektor (Default `0.5`). |
 | `OLLAMA_EMBEDDING_MODEL` | Ollama-Modell für Embeddings (z. B. `nomic-embed-text`). |
+| `EMBEDDING_BASE_URL` | Optional: OpenAI-kompatible `/v1/embeddings`-API statt des nativen Ollama-Clients (vLLM, llama.cpp, TEI/Infinity). Ein fehlendes `/v1` wird ergänzt. Damit sind auch stärkere multilinguale Embedder (z. B. `BAAI/bge-m3`, `multilingual-e5`) nutzbar. |
+| `EMBEDDING_MODEL` | Modell für `EMBEDDING_BASE_URL`; leer = `OLLAMA_EMBEDDING_MODEL`. |
+| `EMBEDDING_API_KEY` | Optionaler API-Key für den Embedding-Endpoint. |
 | `WEAVIATE_PERSISTENCE_DATA_PATH` | Persistenzpfad im Weaviate-Container (nur docker-compose; Default `/var/lib/weaviate`). |
 | `WEAVIATE_QUERY_DEFAULTS_LIMIT` | Default-Limit für Weaviate-Abfragen im Container (Default 25). |
 | `WEAVIATE_CLUSTER_HOSTNAME` | Cluster-Hostname des Weaviate-Containers (Default `node1`). |

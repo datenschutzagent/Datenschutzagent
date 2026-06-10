@@ -26,15 +26,17 @@ from app.storage import save_file, delete_file, get_file
 
 router = APIRouter()
 
-ALLOWED_EXTENSIONS = {"docx", "pdf", "xlsx", "doc", "jpg", "jpeg", "png", "tif", "tiff"}
+ALLOWED_EXTENSIONS = {"docx", "pdf", "xlsx", "pptx", "csv", "doc", "jpg", "jpeg", "png", "tif", "tiff"}
 EXT_TO_FORMAT = {
-    "docx": "docx", "pdf": "pdf", "xlsx": "xlsx", "doc": "doc",
+    "docx": "docx", "pdf": "pdf", "xlsx": "xlsx", "pptx": "pptx", "csv": "csv", "doc": "doc",
     "jpg": "jpg", "jpeg": "jpg", "png": "png", "tif": "tiff", "tiff": "tiff",
 }
 FORMAT_TO_MEDIA_TYPE = {
     "pdf": "application/pdf",
     "docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
     "xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    "pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+    "csv": "text/csv",
     "doc": "application/msword",
     "jpg": "image/jpeg",
     "png": "image/png",
@@ -42,8 +44,8 @@ FORMAT_TO_MEDIA_TYPE = {
 }
 
 # Magic-byte signatures per format. We rely on these instead of MIME headers because
-# the client controls Content-Type. DOCX/XLSX share the ZIP container signature; the
-# downstream parser (python-docx / openpyxl) rejects any ZIP that doesn't match.
+# the client controls Content-Type. DOCX/XLSX/PPTX share the ZIP container signature; the
+# downstream parser (python-docx / openpyxl / python-pptx) rejects any ZIP that doesn't match.
 _PDF_MAGIC = b"%PDF-"
 _ZIP_MAGIC = b"PK\x03\x04"
 _ZIP_EMPTY_MAGIC = b"PK\x05\x06"  # empty archive — reject as malformed
@@ -53,18 +55,38 @@ _PNG_MAGIC = b"\x89PNG\r\n\x1a\n"
 _TIFF_MAGIC_LE = b"II*\x00"  # little-endian TIFF
 _TIFF_MAGIC_BE = b"MM\x00*"  # big-endian TIFF
 
+# Known binary signatures — a file claiming to be CSV (plain text) must not start with any
+# of these, which keeps the renamed-binary protection meaningful for the text format.
+_BINARY_MAGICS = (
+    _PDF_MAGIC, _ZIP_MAGIC, _ZIP_EMPTY_MAGIC, _OLE2_MAGIC,
+    _JPEG_MAGIC, _PNG_MAGIC, _TIFF_MAGIC_LE, _TIFF_MAGIC_BE,
+)
+
+
+def _looks_like_text(content: bytes) -> bool:
+    """True when content is plausible plain text: non-empty, no NUL byte (the classic binary
+    marker, same guard as the text decoder) and no known binary magic at the start."""
+    if not content:
+        return False
+    if content.startswith(_BINARY_MAGICS):
+        return False
+    return b"\x00" not in content[:65536]
+
 
 def _verify_magic_bytes(content: bytes, expected_format: str, filename: str) -> None:
     """Raise HTTP 415 if the file content's magic bytes do not match the extension.
 
     This catches renamed files (e.g. a PDF uploaded as ``report.docx``) that would
     otherwise reach the parser and waste resources or exploit parser edge cases.
+    CSV has no signature: it is accepted when the content plausibly is plain text.
     """
     header = content[:16] if content else b""
     if expected_format == "pdf":
         ok = header.startswith(_PDF_MAGIC)
-    elif expected_format in ("docx", "xlsx"):
+    elif expected_format in ("docx", "xlsx", "pptx"):
         ok = header.startswith(_ZIP_MAGIC)
+    elif expected_format == "csv":
+        ok = _looks_like_text(content)
     elif expected_format == "doc":
         ok = header.startswith(_OLE2_MAGIC)
     elif expected_format == "jpg":

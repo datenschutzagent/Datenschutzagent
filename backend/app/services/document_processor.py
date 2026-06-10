@@ -1,15 +1,19 @@
-"""Text extraction from documents (PDF, DOCX, XLSX).
+"""Text extraction from documents (PDF, DOCX, XLSX, PPTX, CSV).
 
 Goals beyond plain text dumping:
 - Preserve structure: PDFs are extracted as Markdown (layout/tables) via pymupdf4llm;
-  DOCX tables and XLSX sheets are emitted as Markdown tables with column letters, so that
-  downstream LLM evidence like "Sheet X, Spalte C, Zeile 12" stays meaningful.
-- Mixed scanned PDFs: decide per page whether to OCR (Ollama Vision), OCR'ing only the
-  sparse pages, in parallel.
+  DOCX tables and XLSX sheets are emitted as Markdown tables with column letters and row
+  numbers, so that downstream LLM evidence like "Sheet X, Spalte C, Zeile 12" stays meaningful.
+- Preserve provenance: multi-page PDFs carry "[Seite N]" anchors per page, so evidence can
+  cite pages and reviewers can locate quotes.
+- Mixed scanned PDFs: decide per page whether to OCR (vision LLM via the OpenAI-compatible
+  chat-completions API — works against Ollama, vLLM and llama.cpp), OCR'ing only the sparse
+  pages, in parallel.
 - Quality signals: report char/page counts and the OCR page ratio so weak extractions can
   be flagged downstream.
 """
 import base64
+import csv
 import io
 import logging
 import re
@@ -79,12 +83,32 @@ def _pdf_page_to_png_bytes(content: bytes, page_index: int, dpi: int = 150) -> b
         return pix.tobytes("png")
 
 
-def _ollama_chat_api_url() -> str:
-    """Return the Ollama native chat API URL (always at :11434/api/chat, not /v1)."""
-    base = (settings.ollama_base_url or "").rstrip("/")
-    if base.endswith("/v1"):
-        base = base[:-3]
-    return f"{base}/api/chat"
+def _ocr_chat_endpoint() -> tuple[str, dict[str, str]]:
+    """Resolve the OpenAI-compatible chat-completions URL and auth headers for OCR.
+
+    Resolution order for the base URL: explicit ``ocr_base_url`` override → the custom server
+    when ``llm_provider=openai_compatible`` → the Ollama server (default). A missing ``/v1``
+    suffix is appended. The API key follows the same fallback (``ocr_api_key`` → ``llm_api_key``
+    for openai_compatible → none for Ollama).
+    """
+    base = (getattr(settings, "ocr_base_url", "") or "").strip()
+    api_key = settings.ocr_api_key.get_secret_value() if hasattr(settings, "ocr_api_key") else ""
+    if not base:
+        if settings.llm_provider.lower() == "openai_compatible" and (settings.llm_base_url or "").strip():
+            base = settings.llm_base_url
+            api_key = api_key or settings.llm_api_key.get_secret_value()
+        else:
+            base = settings.ollama_base_url or ""
+    base = base.rstrip("/")
+    if not base.endswith("/v1"):
+        base = f"{base}/v1"
+    headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
+    return f"{base}/chat/completions", headers
+
+
+def _ocr_model_name() -> str:
+    """OCR vision model: explicit ``ocr_model`` override, else the legacy ``ollama_ocr_model``."""
+    return (getattr(settings, "ocr_model", "") or "").strip() or settings.ollama_ocr_model
 
 
 def _pdf_markdown(content: bytes, pages: list[int] | None = None) -> str:
@@ -128,7 +152,10 @@ def _pdf_markdown_pages(content: bytes) -> list[str] | None:
 
 
 def _ocr_pages(content: bytes, page_indices: list[int]) -> dict[int, str]:
-    """OCR the given PDF pages concurrently via Ollama Vision. Returns {page_index: text}.
+    """OCR the given PDF pages concurrently via a vision LLM. Returns {page_index: text}.
+
+    Uses the OpenAI-compatible chat-completions API (image as base64 data URI), so the vision
+    backend can be Ollama (default), vLLM or llama.cpp — see :func:`_ocr_chat_endpoint`.
 
     Each page is retried up to ``ocr_retry_attempts`` times on a transient error or a near-empty
     response (with a short backoff) instead of silently losing the page on the first hiccup. The
@@ -137,7 +164,8 @@ def _ocr_pages(content: bytes, page_indices: list[int]) -> dict[int, str]:
     complete recovery across attempts is kept (best-effort). OCR runs at temperature 0 for
     reproducible output.
     """
-    chat_url = _ollama_chat_api_url()
+    chat_url, headers = _ocr_chat_endpoint()
+    model = _ocr_model_name()
     timeout = httpx.Timeout(settings.ollama_timeout_seconds, connect=10.0)
     base_dpi = getattr(settings, "ocr_dpi", 300)
     max_dpi = max(base_dpi, getattr(settings, "ocr_max_dpi", 400))
@@ -158,32 +186,37 @@ def _ocr_pages(content: bytes, page_indices: list[int]) -> dict[int, str]:
             dpi = _dpi_for_attempt(attempt)
             try:
                 png_bytes = _pdf_page_to_png_bytes(content, i, dpi=dpi)
+                image_uri = f"data:image/png;base64,{base64.b64encode(png_bytes).decode()}"
                 payload = {
-                    "model": settings.ollama_ocr_model,
+                    "model": model,
                     "messages": [
                         {
                             "role": "user",
-                            "content": OCR_PROMPT,
-                            "images": [base64.b64encode(png_bytes).decode()],
+                            "content": [
+                                {"type": "text", "text": OCR_PROMPT},
+                                {"type": "image_url", "image_url": {"url": image_uri}},
+                            ],
                         }
                     ],
                     "stream": False,
-                    "options": {"temperature": 0},
+                    "temperature": 0,
                 }
-                resp = httpx.post(chat_url, json=payload, timeout=timeout)
+                resp = httpx.post(chat_url, json=payload, headers=headers, timeout=timeout)
                 resp.raise_for_status()
                 data = resp.json()
-                text = ((data.get("message") or {}).get("content") or "").strip()
+                choices = data.get("choices") or []
+                message = (choices[0].get("message") or {}) if choices else {}
+                text = (message.get("content") or "").strip()
                 if len(text) > len(best):
                     best = text  # keep the most complete recovery across attempts
                 if len(text.strip()) >= min_chars:
                     return i, text
                 logger.warning(
-                    "Ollama OCR recovered little text for page %s at %d DPI (attempt %d/%d)",
+                    "Vision OCR recovered little text for page %s at %d DPI (attempt %d/%d)",
                     i + 1, dpi, attempt, attempts,
                 )
             except Exception as exc:
-                logger.warning("Ollama OCR failed for page %s (attempt %d/%d): %s", i + 1, attempt, attempts, exc)
+                logger.warning("Vision OCR failed for page %s (attempt %d/%d): %s", i + 1, attempt, attempts, exc)
             if attempt < attempts:
                 time.sleep(attempt)  # simple linear backoff: 1s, 2s, ...
         return i, best
@@ -270,12 +303,65 @@ def detect_language(text: str | None) -> str | None:
     return None
 
 
+def _page_anchor(page_index: int) -> str:
+    """Anchor line marking the start of a PDF page in the extracted text (1-based)."""
+    return f"[Seite {page_index + 1}]"
+
+
+def _slide_anchor(slide_index: int) -> str:
+    """Anchor line marking the start of a PPTX slide in the extracted text (1-based)."""
+    return f"[Folie {slide_index + 1}]"
+
+
+def _assemble_anchored(parts: list[str], total: int, anchor_fn) -> str:
+    """Join per-unit texts (pages/slides), prefixing each non-empty unit with its anchor.
+
+    The anchors keep provenance in the extracted text, so LLM evidence can cite "Seite 3"
+    or "Folie 2" and reviewers can locate quotes. Single-unit documents are returned without
+    an anchor (there is nothing to disambiguate). Empty units are skipped, but the anchor
+    numbering always reflects the real unit index.
+    """
+    non_empty = [(i, p) for i, p in enumerate(parts) if p and p.strip()]
+    if total <= 1:
+        return "\n\n".join(p for _i, p in non_empty)
+    return "\n\n".join(f"{anchor_fn(i)}\n{p}" for i, p in non_empty)
+
+
+def _assemble_pages(pages: list[str], num_pages: int) -> str:
+    """Join per-page texts with "[Seite N]" anchors (see :func:`_assemble_anchored`)."""
+    return _assemble_anchored(pages, num_pages, _page_anchor)
+
+
+def _digital_pdf_result(content: bytes, page_digital: list[str], num_pages: int) -> ExtractionResult:
+    """Assemble the fully digital extraction: per-page Markdown with page anchors.
+
+    Falls back to whole-document Markdown (no anchors) when per-page parsing fails, and to
+    the plain per-page text (with anchors) as the last resort.
+    """
+    page_md = _pdf_markdown_pages(content)
+    if page_md is not None:
+        pages = [
+            ((page_md[i] if i < len(page_md) else "") or (page_digital[i] or ""))
+            for i in range(num_pages)
+        ]
+        text = _assemble_pages(pages, num_pages)
+    else:
+        text = _pdf_markdown(content) or _assemble_pages(page_digital, num_pages)
+    return ExtractionResult(
+        text=text,
+        extraction_method=EXTRACTION_METHOD_TEXT,
+        char_count=len(text),
+        page_count=num_pages,
+        ocr_page_ratio=0.0,
+    )
+
+
 def extract_text_from_pdf(content: bytes) -> ExtractionResult:
     """
-    Extract text from PDF as Markdown.
+    Extract text from PDF as Markdown with per-page anchors ("[Seite N]" on multi-page docs).
 
     Uses PyMuPDF to detect sparse (likely scanned) pages. When OCR is enabled, only the
-    sparse pages are OCR'd via Ollama Vision (per-page, in parallel) and merged with the
+    sparse pages are OCR'd via the vision LLM (per-page, in parallel) and merged with the
     digital pages; fully digital PDFs skip OCR entirely.
     """
     with fitz.open(stream=content, filetype="pdf") as doc:
@@ -300,16 +386,9 @@ def extract_text_from_pdf(content: bytes) -> ExtractionResult:
         {i for i, t in enumerate(page_digital) if len((t or "").strip()) < min_chars} | image_heavy
     )
 
-    # No OCR needed (or disabled): return full-document Markdown.
+    # No OCR needed (or disabled): return per-page Markdown with page anchors.
     if not settings.ollama_ocr_enabled or not sparse_pages:
-        text = _pdf_markdown(content) or "\n".join(page_digital)
-        return ExtractionResult(
-            text=text,
-            extraction_method=EXTRACTION_METHOD_TEXT,
-            char_count=len(text),
-            page_count=num_pages,
-            ocr_page_ratio=0.0,
-        )
+        return _digital_pdf_result(content, page_digital, num_pages)
 
     # Decide which pages to OCR.
     if getattr(settings, "ocr_per_page", True):
@@ -319,14 +398,7 @@ def extract_text_from_pdf(content: bytes) -> ExtractionResult:
         ocr_pages = set(range(num_pages)) if avg < min_chars else set()
 
     if not ocr_pages:
-        text = _pdf_markdown(content) or "\n".join(page_digital)
-        return ExtractionResult(
-            text=text,
-            extraction_method=EXTRACTION_METHOD_TEXT,
-            char_count=len(text),
-            page_count=num_pages,
-            ocr_page_ratio=0.0,
-        )
+        return _digital_pdf_result(content, page_digital, num_pages)
 
     # Cap OCR work to avoid memory/time exhaustion on huge scans.
     max_ocr_pages = getattr(settings, "ocr_max_pages", 200)
@@ -356,7 +428,7 @@ def extract_text_from_pdf(content: bytes) -> ExtractionResult:
         # A page we intended to OCR that still has almost no text was likely lost despite OCR.
         if i in ocr_pages and len(page_text.strip()) < min_chars:
             low_quality += 1
-    text = "\n\n".join(p for p in parts if p)
+    text = _assemble_pages(parts, num_pages)
     method = EXTRACTION_METHOD_OCR if used_ocr > 0 else EXTRACTION_METHOD_TEXT
     if low_quality:
         logger.warning(
@@ -373,12 +445,12 @@ def extract_text_from_pdf(content: bytes) -> ExtractionResult:
     )
 
 
-def _docx_table_to_markdown(table) -> str:
-    """Render a python-docx table as a Markdown table (first row = header)."""
-    rows = []
-    for row in table.rows:
-        cells = [(cell.text or "").replace("\n", " ").replace("|", "\\|").strip() for cell in row.cells]
-        rows.append(cells)
+def _rows_to_markdown(rows: list[list[str]]) -> str:
+    """Render pre-extracted cell rows as a Markdown table (first row = header).
+
+    Cells must already be escaped (newlines collapsed, pipes escaped); ragged rows are
+    padded to the widest row. Shared by the DOCX and PPTX table extractors.
+    """
     if not rows:
         return ""
     width = max(len(r) for r in rows)
@@ -387,6 +459,17 @@ def _docx_table_to_markdown(table) -> str:
     sep = "| " + " | ".join(["---"] * width) + " |"
     body = ["| " + " | ".join(r) + " |" for r in rows[1:]]
     return "\n".join([header, sep, *body])
+
+
+def _escape_cell(value: str | None) -> str:
+    """Escape a table cell for Markdown output (collapse newlines, escape pipes)."""
+    return (value or "").replace("\n", " ").replace("|", "\\|").strip()
+
+
+def _docx_table_to_markdown(table) -> str:
+    """Render a python-docx table as a Markdown table (first row = header)."""
+    rows = [[_escape_cell(cell.text) for cell in row.cells] for row in table.rows]
+    return _rows_to_markdown(rows)
 
 
 def _iter_header_footer_text(doc) -> list[str]:
@@ -494,8 +577,10 @@ def extract_text_from_docx(content: bytes) -> str:
 def extract_text_from_xlsx(content: bytes) -> str:
     """Extract text from XLSX bytes as one Markdown table per sheet.
 
-    Column letters (A, B, C, …) form the header row and empty cells are preserved as empty
-    columns, so column alignment — and thus coordinate-based evidence — stays intact.
+    Column letters (A, B, C, …) form the header row and a leading "Zeile" column carries the
+    1-based row number; empty cells are preserved as empty columns. Coordinate-based evidence
+    like "Sheet X, Spalte C, Zeile 12" is thus verifiable instead of relying on the model to
+    count rows in a large sheet.
     """
     wb = openpyxl.load_workbook(io.BytesIO(content), data_only=True)
     out: list[str] = []
@@ -506,13 +591,109 @@ def extract_text_from_xlsx(content: bytes) -> str:
         max_cols = max((len(r) for r in rows), default=0)
         if max_cols == 0:
             continue
-        col_header = [get_column_letter(c + 1) for c in range(max_cols)]
+        col_header = ["Zeile"] + [get_column_letter(c + 1) for c in range(max_cols)]
         out.append("| " + " | ".join(col_header) + " |")
-        out.append("| " + " | ".join(["---"] * max_cols) + " |")
-        for r in rows:
+        out.append("| " + " | ".join(["---"] * (max_cols + 1)) + " |")
+        for row_no, r in enumerate(rows, start=1):
             cells = ["" if c is None else str(c).replace("\n", " ").replace("|", "\\|") for c in r]
             cells += [""] * (max_cols - len(cells))
-            out.append("| " + " | ".join(cells) + " |")
+            out.append("| " + " | ".join([str(row_no), *cells]) + " |")
+    return "\n".join(out)
+
+
+def _pptx_shape_texts(shapes, depth: int = 0) -> list[str]:
+    """Collect text frames and tables from PPTX shapes, recursing one level into groups.
+
+    Best-effort: a malformed shape never breaks extraction. Known limitation: chart and
+    SmartArt text is not accessible via python-pptx and is not extracted.
+    """
+    parts: list[str] = []
+    for shape in shapes:
+        try:
+            if getattr(shape, "has_text_frame", False):
+                txt = (shape.text_frame.text or "").strip()
+                if txt:
+                    parts.append(txt)
+            if getattr(shape, "has_table", False):
+                rows = [
+                    [_escape_cell(cell.text) for cell in row.cells]
+                    for row in shape.table.rows
+                ]
+                md = _rows_to_markdown(rows)
+                if md:
+                    parts.append(md)
+            if depth < 1:
+                from pptx.enum.shapes import MSO_SHAPE_TYPE
+
+                if shape.shape_type == MSO_SHAPE_TYPE.GROUP:
+                    parts.extend(_pptx_shape_texts(shape.shapes, depth + 1))
+        except Exception as exc:
+            logger.debug("PPTX shape extraction skipped a shape: %s", exc)
+    return parts
+
+
+def extract_text_from_pptx(content: bytes) -> str:
+    """Extract text from PPTX bytes: slide text frames, tables (Markdown) and speaker notes.
+
+    Multi-slide decks carry a "[Folie N]" anchor per non-empty slide — mirroring the PDF
+    "[Seite N]" anchors — so evidence can cite slides. Speaker notes are appended per slide
+    under a "--- Notizen ---" separator (they frequently carry the actual processing details
+    on TOM/process decks).
+    """
+    import pptx  # lazy import, consistent with pymupdf4llm — module loads without the extra
+
+    prs = pptx.Presentation(io.BytesIO(content))
+    slides = list(prs.slides)
+    slide_parts: list[str] = []
+    for slide in slides:
+        parts = _pptx_shape_texts(slide.shapes)
+        try:
+            if slide.has_notes_slide:
+                notes = (slide.notes_slide.notes_text_frame.text or "").strip()
+                if notes:
+                    parts.append("--- Notizen ---")
+                    parts.append(notes)
+        except Exception as exc:
+            logger.debug("PPTX notes extraction skipped: %s", exc)
+        slide_parts.append("\n".join(parts))
+    return _assemble_anchored(slide_parts, len(slides), _slide_anchor)
+
+
+def _sniff_csv_delimiter(sample: str) -> str:
+    """Detect the CSV delimiter (German exports are predominantly ';')."""
+    try:
+        return csv.Sniffer().sniff(sample, delimiters=",;\t|").delimiter
+    except csv.Error:
+        first_line = sample.splitlines()[0] if sample.splitlines() else ""
+        counts = {d: first_line.count(d) for d in (";", ",", "\t", "|")}
+        best = max(counts, key=lambda d: counts[d])
+        return best if counts[best] > 0 else ","
+
+
+def extract_text_from_csv(content: bytes) -> str:
+    """Extract CSV bytes as a Markdown table in the same shape as XLSX sheets.
+
+    Delimiter is sniffed (comma/semicolon/tab/pipe); the output carries the column-letter
+    header and the leading 1-based "Zeile" column, so table chunking and coordinate-based
+    evidence ("Spalte C, Zeile 12") work exactly as for XLSX. Row numbers match the physical
+    line numbers of the file (empty lines keep their row).
+    """
+    text = _decode_text_bytes(content).lstrip("\ufeff")  # strip UTF-8 BOM (Excel exports)
+    if not text.strip():
+        return ""
+    delimiter = _sniff_csv_delimiter(text[:4096])
+    rows = list(csv.reader(io.StringIO(text), delimiter=delimiter))
+    max_cols = max((len(r) for r in rows), default=0)
+    if max_cols == 0:
+        return ""
+    out: list[str] = []
+    col_header = ["Zeile"] + [get_column_letter(c + 1) for c in range(max_cols)]
+    out.append("| " + " | ".join(col_header) + " |")
+    out.append("| " + " | ".join(["---"] * (max_cols + 1)) + " |")
+    for row_no, r in enumerate(rows, start=1):
+        cells = [_escape_cell(c) for c in r]
+        cells += [""] * (max_cols - len(cells))
+        out.append("| " + " | ".join([str(row_no), *cells]) + " |")
     return "\n".join(out)
 
 
@@ -586,7 +767,7 @@ def extract_text_from_image(content: bytes, filetype: str) -> ExtractionResult:
     """Extract text from a standalone scanned image (JPG/PNG/TIFF) via the PDF/OCR path.
 
     The image is converted to a (possibly multi-page, for TIFF) PDF with PyMuPDF and run through
-    :func:`extract_text_from_pdf`, so it reuses the whole per-page Ollama Vision OCR pipeline
+    :func:`extract_text_from_pdf`, so it reuses the whole per-page vision-OCR pipeline
     (retries, quality signal, ocr_page_ratio). An image has no digital text layer, so every page
     is sparse → OCR. With OCR disabled the result is empty text (a warning is logged), consistent
     with how fully scanned PDFs behave today.
@@ -605,7 +786,7 @@ def extract_text_from_image(content: bytes, filetype: str) -> ExtractionResult:
 def extract_text(filename: str, content: bytes) -> ExtractionResult:
     """
     Dispatcher for text extraction. Returns ExtractionResult with text and
-    extraction_method ("text" or "ocr" for PDFs/images that used Ollama Vision).
+    extraction_method ("text" or "ocr" for PDFs/images that used vision OCR).
     """
     filename_lower = filename.lower()
     if filename_lower.endswith(".pdf"):
@@ -615,21 +796,35 @@ def extract_text(filename: str, content: bytes) -> ExtractionResult:
         try:
             return extract_text_from_image(content, _IMAGE_EXT_TO_FITZ[ext])
         except Exception:
-            logger.exception("Image text extraction failed", extra={"filename": filename})
+            logger.exception("Image text extraction failed", extra={"doc_filename": filename})
             raise
     if filename_lower.endswith(".docx"):
         try:
             text = extract_text_from_docx(content)
             return ExtractionResult(text=text, extraction_method=EXTRACTION_METHOD_TEXT, char_count=len(text))
         except Exception:
-            logger.exception("DOCX text extraction failed", extra={"filename": filename})
+            logger.exception("DOCX text extraction failed", extra={"doc_filename": filename})
             raise
     if filename_lower.endswith(".xlsx"):
         try:
             text = extract_text_from_xlsx(content)
             return ExtractionResult(text=text, extraction_method=EXTRACTION_METHOD_TEXT, char_count=len(text))
         except Exception:
-            logger.exception("XLSX text extraction failed", extra={"filename": filename})
+            logger.exception("XLSX text extraction failed", extra={"doc_filename": filename})
+            raise
+    if filename_lower.endswith(".pptx"):
+        try:
+            text = extract_text_from_pptx(content)
+            return ExtractionResult(text=text, extraction_method=EXTRACTION_METHOD_TEXT, char_count=len(text))
+        except Exception:
+            logger.exception("PPTX text extraction failed", extra={"doc_filename": filename})
+            raise
+    if filename_lower.endswith(".csv"):
+        try:
+            text = extract_text_from_csv(content)
+            return ExtractionResult(text=text, extraction_method=EXTRACTION_METHOD_TEXT, char_count=len(text))
+        except Exception:
+            logger.exception("CSV text extraction failed", extra={"doc_filename": filename})
             raise
     if filename_lower.endswith(".doc"):
         text = extract_text_from_doc(content)

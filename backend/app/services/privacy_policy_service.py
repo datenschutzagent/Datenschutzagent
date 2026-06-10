@@ -19,7 +19,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.llm import create_agent
+from app.core.llm import create_agent, wrap_output_type
 from app.core.prompt_security import sanitize_prompt_field
 from app.models.db import (
     AVVContractModel,
@@ -126,7 +126,7 @@ async def generate_privacy_policy(
     )
 
     agent = create_agent(_PRIVACY_POLICY_SYSTEM)
-    result = await agent.run(user_content, output_type=_PrivacyPolicyLLMResult)
+    result = await agent.run(user_content, output_type=wrap_output_type(_PrivacyPolicyLLMResult))
     data = result.output
 
     return {
