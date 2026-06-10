@@ -415,6 +415,12 @@ class Settings(BaseSettings):
     weaviate_chunk_overlap_chars: int = 100
     weaviate_top_k: int = 5
     weaviate_legal_bases_top_k: int = 8
+    # Hybrid retrieval (BM25 + Vektor): exakte Treffer juristischer Fachbegriffe ("Art. 28",
+    # "Auftragsverarbeitung") schlagen reine Semantik oft. Fällt pro Query auf reine
+    # Vektorsuche zurück, wenn der Weaviate-Server Hybrid nicht unterstützt.
+    weaviate_hybrid_enabled: bool = True
+    # 0.0 = reines BM25 (Keyword), 1.0 = reiner Vektor; 0.5 = ausgewogen.
+    weaviate_hybrid_alpha: float = 0.5
     ollama_embedding_model: str = "nomic-embed-text"
     # Embedding-Endpoint-Override: OpenAI-kompatible /v1/embeddings-API (vLLM, llama.cpp,
     # TEI/Infinity). Leer = nativer Ollama-Client unter OLLAMA_BASE_URL (bisheriges Verhalten).

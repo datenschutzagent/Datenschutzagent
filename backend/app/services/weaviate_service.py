@@ -507,6 +507,29 @@ def delete_legal_base_chunks(legal_base_id: UUID) -> bool:
             logger.debug("Weaviate client.close() fehlgeschlagen: %s", _close_err)
 
 
+def _query_collection(collection, query_text: str, query_vector: list[float], *, limit: int, filters):
+    """Hybrid (BM25 + vector) query with graceful fallback to pure vector search.
+
+    Hybrid retrieval matters for German legal text: exact keyword hits ("Art. 28",
+    "Auftragsverarbeitung") often beat pure semantic similarity. Works with the BYO-vector
+    collections because the query vector is supplied explicitly. The inner try/except is
+    required despite the callers' outer handlers — those return [] on error instead of
+    falling back to vector search (e.g. on a Weaviate server without hybrid support).
+    """
+    if getattr(settings, "weaviate_hybrid_enabled", True):
+        try:
+            return collection.query.hybrid(
+                query=query_text,
+                vector=query_vector,
+                alpha=getattr(settings, "weaviate_hybrid_alpha", 0.5),
+                limit=limit,
+                filters=filters,
+            )
+        except Exception as exc:
+            logger.warning("Weaviate hybrid query failed, falling back to near_vector: %s", exc)
+    return collection.query.near_vector(near_vector=query_vector, limit=limit, filters=filters)
+
+
 def get_relevant_legal_base_chunks(
     legal_base_ids: list[UUID],
     query_text: str,
@@ -536,8 +559,8 @@ def get_relevant_legal_base_chunks(
         if not client.collections.exists(LEGAL_BASE_CHUNK_COLLECTION):
             return []
         collection = client.collections.get(LEGAL_BASE_CHUNK_COLLECTION)
-        response = collection.query.near_vector(
-            near_vector=query_vector,
+        response = _query_collection(
+            collection, query_text, query_vector,
             limit=k,
             filters=Filter.by_property("legal_base_id").contains_any(legal_base_ids),
         )
@@ -690,8 +713,8 @@ def get_relevant_chunks(
         if not client.collections.exists(COLLECTION_NAME):
             return []
         collection = client.collections.get(COLLECTION_NAME)
-        response = collection.query.near_vector(
-            near_vector=query_vector,
+        response = _query_collection(
+            collection, query_text, query_vector,
             limit=k,
             filters=Filter.by_property("document_id").equal(document_id),
         )
@@ -730,8 +753,8 @@ def get_relevant_chunks_for_case(
         if not client.collections.exists(COLLECTION_NAME):
             return []
         collection = client.collections.get(COLLECTION_NAME)
-        response = collection.query.near_vector(
-            near_vector=query_vector,
+        response = _query_collection(
+            collection, query_text, query_vector,
             limit=min(50, k * 5),
             filters=Filter.by_property("case_id").equal(case_id),
         )

@@ -129,6 +129,8 @@ Wie die übrigen Dienste wird Weaviate über `.env` konfiguriert. docker-compose
 | `WEAVIATE_CHUNK_SIZE_CHARS` | Chunk-Größe in Zeichen für die Indexierung (Default 800). |
 | `WEAVIATE_CHUNK_OVERLAP_CHARS` | Überlappung zwischen Chunks in Zeichen (Default 100). |
 | `WEAVIATE_TOP_K` | Anzahl relevanter Chunks pro RAG-Abfrage (Default 5). |
+| `WEAVIATE_HYBRID_ENABLED` | Hybrid-Suche (BM25 + Vektor) statt reiner Vektorsuche (Default `true`). Exakte Treffer juristischer Fachbegriffe verbessern den Recall; bei Servern ohne Hybrid-Unterstützung automatischer Fallback auf Vektorsuche. |
+| `WEAVIATE_HYBRID_ALPHA` | Gewichtung der Hybrid-Suche: `0.0` = reines BM25 (Keyword), `1.0` = reiner Vektor (Default `0.5`). |
 | `OLLAMA_EMBEDDING_MODEL` | Ollama-Modell für Embeddings (z. B. `nomic-embed-text`). |
 | `EMBEDDING_BASE_URL` | Optional: OpenAI-kompatible `/v1/embeddings`-API statt des nativen Ollama-Clients (vLLM, llama.cpp, TEI/Infinity). Ein fehlendes `/v1` wird ergänzt. Damit sind auch stärkere multilinguale Embedder (z. B. `BAAI/bge-m3`, `multilingual-e5`) nutzbar. |
 | `EMBEDDING_MODEL` | Modell für `EMBEDDING_BASE_URL`; leer = `OLLAMA_EMBEDDING_MODEL`. |
