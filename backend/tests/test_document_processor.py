@@ -542,3 +542,114 @@ class TestImageMagicBytes:
         with pytest.raises(HTTPException) as exc:
             verify(b"%PDF-1.7 ...", "png", "fake.png")
         assert exc.value.status_code == 415
+
+
+def _make_pptx_bytes(slides: list[dict]) -> bytes:
+    """Build an in-memory PPTX. Each slide dict: {"text": str|None, "table": rows|None, "notes": str|None}."""
+    import pptx
+    from pptx.util import Inches
+
+    prs = pptx.Presentation()
+    blank = prs.slide_layouts[6]
+    for spec in slides:
+        slide = prs.slides.add_slide(blank)
+        if spec.get("text"):
+            box = slide.shapes.add_textbox(Inches(1), Inches(1), Inches(8), Inches(2))
+            box.text_frame.text = spec["text"]
+        if spec.get("table"):
+            rows = spec["table"]
+            table = slide.shapes.add_table(len(rows), len(rows[0]), Inches(1), Inches(3), Inches(8), Inches(2)).table
+            for r, row in enumerate(rows):
+                for c, val in enumerate(row):
+                    table.cell(r, c).text = val
+        if spec.get("notes"):
+            slide.notes_slide.notes_text_frame.text = spec["notes"]
+    buf = io.BytesIO()
+    prs.save(buf)
+    return buf.getvalue()
+
+
+class TestExtractTextFromPptx:
+    def test_multi_slide_anchors_with_empty_first_slide(self):
+        from app.services.document_processor import extract_text_from_pptx
+
+        content = _make_pptx_bytes([{}, {"text": "Löschkonzept nach sechs Monaten"}])
+        text = extract_text_from_pptx(content)
+        assert "[Folie 1]" not in text  # empty slide emits no anchor …
+        assert "[Folie 2]" in text      # … but numbering reflects the real slide index
+        assert "Löschkonzept" in text
+
+    def test_single_slide_has_no_anchor(self):
+        from app.services.document_processor import extract_text_from_pptx
+
+        text = extract_text_from_pptx(_make_pptx_bytes([{"text": "TOM-Übersicht"}]))
+        assert "[Folie" not in text
+        assert "TOM-Übersicht" in text
+
+    def test_notes_and_table_extracted(self):
+        from app.services.document_processor import extract_text_from_pptx
+
+        content = _make_pptx_bytes([
+            {"table": [["Maßnahme", "Status"], ["Pseudo|nymisierung", "umgesetzt"]], "notes": "AVV liegt vor."},
+            {"text": "Zweite Folie"},
+        ])
+        text = extract_text_from_pptx(content)
+        assert "| Maßnahme | Status |" in text
+        assert "Pseudo\\|nymisierung" in text  # pipe escaped like DOCX/XLSX cells
+        assert "--- Notizen ---" in text
+        assert "AVV liegt vor." in text
+
+    def test_dispatcher_routes_pptx(self):
+        result = extract_text("folien.pptx", _make_pptx_bytes([{"text": "Inhalt der Präsentation"}]))
+        assert result.extraction_method == EXTRACTION_METHOD_TEXT
+        assert "Inhalt der Präsentation" in result.text
+
+    def test_corrupt_pptx_raises(self):
+        import zipfile
+
+        with pytest.raises(zipfile.BadZipFile):
+            extract_text("kaputt.pptx", b"PK\x03\x04 not a real pptx")
+
+
+class TestExtractTextFromCsv:
+    def test_semicolon_delimiter_sniffed(self):
+        from app.services.document_processor import extract_text_from_csv
+
+        text = extract_text_from_csv("Zweck;Rechtsgrundlage\nLohn;Art. 6\n".encode())
+        assert "| Zeile | A | B |" in text
+        assert "| 1 | Zweck | Rechtsgrundlage |" in text
+        assert "| 2 | Lohn | Art. 6 |" in text
+
+    def test_comma_and_tab_delimiters(self):
+        from app.services.document_processor import extract_text_from_csv
+
+        comma = extract_text_from_csv(b"a,b\nc,d\n")
+        assert "| 1 | a | b |" in comma
+        tab = extract_text_from_csv(b"a\tb\nc\td\n")
+        assert "| 1 | a | b |" in tab
+
+    def test_cp1252_umlauts_and_bom(self):
+        from app.services.document_processor import extract_text_from_csv
+
+        cp = extract_text_from_csv("Tätigkeit;Dauer\nLöschung;6 Monate\n".encode("cp1252"))
+        assert "Tätigkeit" in cp and "Löschung" in cp
+        bom = extract_text_from_csv("﻿Spalte1;Spalte2\n".encode("utf-8"))
+        assert "| 1 | Spalte1 | Spalte2 |" in bom  # BOM must not stick to the first cell
+
+    def test_ragged_rows_padded_and_pipes_escaped(self):
+        from app.services.document_processor import extract_text_from_csv
+
+        text = extract_text_from_csv(b"a;b;c\nx\nmit|pipe;y;z\n")
+        assert "| 2 | x |  |  |" in text
+        assert "mit\\|pipe" in text
+
+    def test_empty_csv_returns_empty(self):
+        from app.services.document_processor import extract_text_from_csv
+
+        assert extract_text_from_csv(b"") == ""
+        assert extract_text_from_csv(b"   \n  ") == ""
+
+    def test_dispatcher_routes_csv(self):
+        result = extract_text("export.csv", b"Zweck;Dauer\nLohn;10 Jahre\n")
+        assert result.extraction_method == EXTRACTION_METHOD_TEXT
+        assert "| Zeile | A | B |" in result.text

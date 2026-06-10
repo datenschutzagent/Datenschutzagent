@@ -22,6 +22,18 @@ def test_extraction_eval_covers_digital_pdf_sample():
     assert "Art. 6 Abs. 1 lit. c DSGVO" in out["text"]
 
 
+def test_extraction_eval_covers_pptx_and_csv_samples():
+    # PPTX (slide anchors, table, speaker notes) and CSV (Zeile/column-letter table shape).
+    assert "tom_pptx" in extraction_eval.SAMPLES
+    out = extraction_eval.extraction_task("tom_pptx")
+    assert "[Folie 2]" in out["text"]
+    assert "AVV mit Hosting-Anbieter" in out["text"]
+    assert "vvt_csv" in extraction_eval.SAMPLES
+    out = extraction_eval.extraction_task("vvt_csv")
+    assert "| Zeile | A | B | C |" in out["text"]
+    assert "Lohnabrechnung" in out["text"]
+
+
 def test_grounding_eval_perfect_on_labelled_quotes():
     ds = grounding_eval.build_dataset()
     report = ds.evaluate_sync(grounding_eval.grounding_task, progress=False)

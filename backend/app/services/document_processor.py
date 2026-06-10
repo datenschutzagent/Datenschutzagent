@@ -1,4 +1,4 @@
-"""Text extraction from documents (PDF, DOCX, XLSX).
+"""Text extraction from documents (PDF, DOCX, XLSX, PPTX, CSV).
 
 Goals beyond plain text dumping:
 - Preserve structure: PDFs are extracted as Markdown (layout/tables) via pymupdf4llm;
@@ -13,6 +13,7 @@ Goals beyond plain text dumping:
   be flagged downstream.
 """
 import base64
+import csv
 import io
 import logging
 import re
@@ -307,18 +308,28 @@ def _page_anchor(page_index: int) -> str:
     return f"[Seite {page_index + 1}]"
 
 
-def _assemble_pages(pages: list[str], num_pages: int) -> str:
-    """Join per-page texts, prefixing each non-empty page with its page anchor.
+def _slide_anchor(slide_index: int) -> str:
+    """Anchor line marking the start of a PPTX slide in the extracted text (1-based)."""
+    return f"[Folie {slide_index + 1}]"
 
-    The anchors keep page provenance in the extracted text, so LLM evidence can cite
-    "Seite 3" and reviewers can locate quotes. Single-page documents are returned without
-    an anchor (there is nothing to disambiguate). Empty pages are skipped, but the anchor
-    numbering always reflects the real page index.
+
+def _assemble_anchored(parts: list[str], total: int, anchor_fn) -> str:
+    """Join per-unit texts (pages/slides), prefixing each non-empty unit with its anchor.
+
+    The anchors keep provenance in the extracted text, so LLM evidence can cite "Seite 3"
+    or "Folie 2" and reviewers can locate quotes. Single-unit documents are returned without
+    an anchor (there is nothing to disambiguate). Empty units are skipped, but the anchor
+    numbering always reflects the real unit index.
     """
-    non_empty = [(i, p) for i, p in enumerate(pages) if p and p.strip()]
-    if num_pages <= 1:
+    non_empty = [(i, p) for i, p in enumerate(parts) if p and p.strip()]
+    if total <= 1:
         return "\n\n".join(p for _i, p in non_empty)
-    return "\n\n".join(f"{_page_anchor(i)}\n{p}" for i, p in non_empty)
+    return "\n\n".join(f"{anchor_fn(i)}\n{p}" for i, p in non_empty)
+
+
+def _assemble_pages(pages: list[str], num_pages: int) -> str:
+    """Join per-page texts with "[Seite N]" anchors (see :func:`_assemble_anchored`)."""
+    return _assemble_anchored(pages, num_pages, _page_anchor)
 
 
 def _digital_pdf_result(content: bytes, page_digital: list[str], num_pages: int) -> ExtractionResult:
@@ -434,12 +445,12 @@ def extract_text_from_pdf(content: bytes) -> ExtractionResult:
     )
 
 
-def _docx_table_to_markdown(table) -> str:
-    """Render a python-docx table as a Markdown table (first row = header)."""
-    rows = []
-    for row in table.rows:
-        cells = [(cell.text or "").replace("\n", " ").replace("|", "\\|").strip() for cell in row.cells]
-        rows.append(cells)
+def _rows_to_markdown(rows: list[list[str]]) -> str:
+    """Render pre-extracted cell rows as a Markdown table (first row = header).
+
+    Cells must already be escaped (newlines collapsed, pipes escaped); ragged rows are
+    padded to the widest row. Shared by the DOCX and PPTX table extractors.
+    """
     if not rows:
         return ""
     width = max(len(r) for r in rows)
@@ -448,6 +459,17 @@ def _docx_table_to_markdown(table) -> str:
     sep = "| " + " | ".join(["---"] * width) + " |"
     body = ["| " + " | ".join(r) + " |" for r in rows[1:]]
     return "\n".join([header, sep, *body])
+
+
+def _escape_cell(value: str | None) -> str:
+    """Escape a table cell for Markdown output (collapse newlines, escape pipes)."""
+    return (value or "").replace("\n", " ").replace("|", "\\|").strip()
+
+
+def _docx_table_to_markdown(table) -> str:
+    """Render a python-docx table as a Markdown table (first row = header)."""
+    rows = [[_escape_cell(cell.text) for cell in row.cells] for row in table.rows]
+    return _rows_to_markdown(rows)
 
 
 def _iter_header_footer_text(doc) -> list[str]:
@@ -579,6 +601,102 @@ def extract_text_from_xlsx(content: bytes) -> str:
     return "\n".join(out)
 
 
+def _pptx_shape_texts(shapes, depth: int = 0) -> list[str]:
+    """Collect text frames and tables from PPTX shapes, recursing one level into groups.
+
+    Best-effort: a malformed shape never breaks extraction. Known limitation: chart and
+    SmartArt text is not accessible via python-pptx and is not extracted.
+    """
+    parts: list[str] = []
+    for shape in shapes:
+        try:
+            if getattr(shape, "has_text_frame", False):
+                txt = (shape.text_frame.text or "").strip()
+                if txt:
+                    parts.append(txt)
+            if getattr(shape, "has_table", False):
+                rows = [
+                    [_escape_cell(cell.text) for cell in row.cells]
+                    for row in shape.table.rows
+                ]
+                md = _rows_to_markdown(rows)
+                if md:
+                    parts.append(md)
+            if depth < 1:
+                from pptx.enum.shapes import MSO_SHAPE_TYPE
+
+                if shape.shape_type == MSO_SHAPE_TYPE.GROUP:
+                    parts.extend(_pptx_shape_texts(shape.shapes, depth + 1))
+        except Exception as exc:
+            logger.debug("PPTX shape extraction skipped a shape: %s", exc)
+    return parts
+
+
+def extract_text_from_pptx(content: bytes) -> str:
+    """Extract text from PPTX bytes: slide text frames, tables (Markdown) and speaker notes.
+
+    Multi-slide decks carry a "[Folie N]" anchor per non-empty slide — mirroring the PDF
+    "[Seite N]" anchors — so evidence can cite slides. Speaker notes are appended per slide
+    under a "--- Notizen ---" separator (they frequently carry the actual processing details
+    on TOM/process decks).
+    """
+    import pptx  # lazy import, consistent with pymupdf4llm — module loads without the extra
+
+    prs = pptx.Presentation(io.BytesIO(content))
+    slides = list(prs.slides)
+    slide_parts: list[str] = []
+    for slide in slides:
+        parts = _pptx_shape_texts(slide.shapes)
+        try:
+            if slide.has_notes_slide:
+                notes = (slide.notes_slide.notes_text_frame.text or "").strip()
+                if notes:
+                    parts.append("--- Notizen ---")
+                    parts.append(notes)
+        except Exception as exc:
+            logger.debug("PPTX notes extraction skipped: %s", exc)
+        slide_parts.append("\n".join(parts))
+    return _assemble_anchored(slide_parts, len(slides), _slide_anchor)
+
+
+def _sniff_csv_delimiter(sample: str) -> str:
+    """Detect the CSV delimiter (German exports are predominantly ';')."""
+    try:
+        return csv.Sniffer().sniff(sample, delimiters=",;\t|").delimiter
+    except csv.Error:
+        first_line = sample.splitlines()[0] if sample.splitlines() else ""
+        counts = {d: first_line.count(d) for d in (";", ",", "\t", "|")}
+        best = max(counts, key=lambda d: counts[d])
+        return best if counts[best] > 0 else ","
+
+
+def extract_text_from_csv(content: bytes) -> str:
+    """Extract CSV bytes as a Markdown table in the same shape as XLSX sheets.
+
+    Delimiter is sniffed (comma/semicolon/tab/pipe); the output carries the column-letter
+    header and the leading 1-based "Zeile" column, so table chunking and coordinate-based
+    evidence ("Spalte C, Zeile 12") work exactly as for XLSX. Row numbers match the physical
+    line numbers of the file (empty lines keep their row).
+    """
+    text = _decode_text_bytes(content).lstrip("\ufeff")  # strip UTF-8 BOM (Excel exports)
+    if not text.strip():
+        return ""
+    delimiter = _sniff_csv_delimiter(text[:4096])
+    rows = list(csv.reader(io.StringIO(text), delimiter=delimiter))
+    max_cols = max((len(r) for r in rows), default=0)
+    if max_cols == 0:
+        return ""
+    out: list[str] = []
+    col_header = ["Zeile"] + [get_column_letter(c + 1) for c in range(max_cols)]
+    out.append("| " + " | ".join(col_header) + " |")
+    out.append("| " + " | ".join(["---"] * (max_cols + 1)) + " |")
+    for row_no, r in enumerate(rows, start=1):
+        cells = [_escape_cell(c) for c in r]
+        cells += [""] * (max_cols - len(cells))
+        out.append("| " + " | ".join([str(row_no), *cells]) + " |")
+    return "\n".join(out)
+
+
 def extract_text_from_doc(content: bytes) -> str:
     """Extract text from a legacy .doc (OLE2) file via LibreOffice or antiword if available.
 
@@ -678,21 +796,35 @@ def extract_text(filename: str, content: bytes) -> ExtractionResult:
         try:
             return extract_text_from_image(content, _IMAGE_EXT_TO_FITZ[ext])
         except Exception:
-            logger.exception("Image text extraction failed", extra={"filename": filename})
+            logger.exception("Image text extraction failed", extra={"doc_filename": filename})
             raise
     if filename_lower.endswith(".docx"):
         try:
             text = extract_text_from_docx(content)
             return ExtractionResult(text=text, extraction_method=EXTRACTION_METHOD_TEXT, char_count=len(text))
         except Exception:
-            logger.exception("DOCX text extraction failed", extra={"filename": filename})
+            logger.exception("DOCX text extraction failed", extra={"doc_filename": filename})
             raise
     if filename_lower.endswith(".xlsx"):
         try:
             text = extract_text_from_xlsx(content)
             return ExtractionResult(text=text, extraction_method=EXTRACTION_METHOD_TEXT, char_count=len(text))
         except Exception:
-            logger.exception("XLSX text extraction failed", extra={"filename": filename})
+            logger.exception("XLSX text extraction failed", extra={"doc_filename": filename})
+            raise
+    if filename_lower.endswith(".pptx"):
+        try:
+            text = extract_text_from_pptx(content)
+            return ExtractionResult(text=text, extraction_method=EXTRACTION_METHOD_TEXT, char_count=len(text))
+        except Exception:
+            logger.exception("PPTX text extraction failed", extra={"doc_filename": filename})
+            raise
+    if filename_lower.endswith(".csv"):
+        try:
+            text = extract_text_from_csv(content)
+            return ExtractionResult(text=text, extraction_method=EXTRACTION_METHOD_TEXT, char_count=len(text))
+        except Exception:
+            logger.exception("CSV text extraction failed", extra={"doc_filename": filename})
             raise
     if filename_lower.endswith(".doc"):
         text = extract_text_from_doc(content)
