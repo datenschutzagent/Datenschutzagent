@@ -29,6 +29,20 @@ def _make_docx_bytes(paragraphs: list[str], table_rows: list[list[str]] | None =
     return buf.getvalue()
 
 
+def _make_docx_with_header_footer(body: str, header: str, footer: str) -> bytes:
+    """Build a DOCX whose header/footer carry text the body does not."""
+    import docx as python_docx
+
+    doc = python_docx.Document()
+    doc.add_paragraph(body)
+    section = doc.sections[0]
+    section.header.paragraphs[0].text = header
+    section.footer.paragraphs[0].text = footer
+    buf = io.BytesIO()
+    doc.save(buf)
+    return buf.getvalue()
+
+
 def _make_xlsx_bytes(sheets: dict[str, list[list]]) -> bytes:
     """Build a minimal in-memory XLSX file."""
     import openpyxl
@@ -71,6 +85,21 @@ class TestExtractTextFromDocx:
         content = _make_docx_bytes(["Hello"])
         result = extract_text_from_docx(content)
         assert isinstance(result, str)
+
+
+class TestDocxHeaderFooter:
+    def test_header_and_footer_text_recovered(self):
+        # Header/footer often carry the controller, version/date or file reference, which plain
+        # paragraph iteration drops. They must survive extraction.
+        content = _make_docx_with_header_footer(
+            body="Verarbeitungstätigkeit Lohnabrechnung",
+            header="Verantwortlicher: Muster GmbH",
+            footer="Stand: 01.01.2026 — Az. DS-2026-042",
+        )
+        text = extract_text_from_docx(content)
+        assert "Verarbeitungstätigkeit Lohnabrechnung" in text
+        assert "Verantwortlicher: Muster GmbH" in text
+        assert "Az. DS-2026-042" in text
 
 
 class TestExtractTextFromXlsx:
@@ -123,6 +152,14 @@ class TestExtractTextDispatcher:
         result = extract_text("unknown.bin", content)
         assert isinstance(result, ExtractionResult)
         assert result.text == ""
+
+    def test_cp1252_text_is_decoded_not_lost(self):
+        # Legacy exports are often CP1252/Latin-1; decoding as UTF-8 fails. Such text must not be
+        # silently dropped (no NUL bytes → it is real text, not binary).
+        content = "Müller Straße – Zweck: Personalverwaltung".encode("cp1252")
+        result = extract_text("export.txt", content)
+        assert result.text != ""
+        assert "ller" in result.text and "Personalverwaltung" in result.text
 
     def test_docx_uppercase_extension(self):
         content = _make_docx_bytes(["Groß"])

@@ -24,6 +24,8 @@ import docx
 import fitz  # PyMuPDF
 import httpx
 import openpyxl
+from docx.oxml.ns import qn
+from lxml import etree
 from openpyxl.utils import get_column_letter
 
 from app.config import settings
@@ -99,6 +101,24 @@ def _pdf_markdown(content: bytes, pages: list[int] | None = None) -> str:
         except Exception as exc2:
             logger.warning("PyMuPDF get_text fallback also failed: %s", exc2)
             return ""
+
+
+def _pdf_markdown_pages(content: bytes) -> list[str] | None:
+    """Return per-page layout-preserving Markdown (list index == 0-based page).
+
+    Parses the whole PDF once via pymupdf4llm ``page_chunks=True`` instead of re-parsing the
+    document for every page. Returns None on any failure so callers can fall back to the plain
+    digital text per page.
+    """
+    try:
+        import pymupdf4llm
+
+        with fitz.open(stream=content, filetype="pdf") as doc:
+            chunks = pymupdf4llm.to_markdown(doc, page_chunks=True, show_progress=False)
+        return [((c.get("text") if isinstance(c, dict) else "") or "").strip() for c in chunks]
+    except Exception as exc:
+        logger.warning("pymupdf4llm per-page markdown extraction failed: %s", exc)
+        return None
 
 
 def _ocr_pages(content: bytes, page_indices: list[int]) -> dict[int, str]:
@@ -190,6 +210,10 @@ def extract_text_from_pdf(content: bytes) -> ExtractionResult:
         logger.warning("OCR limited to first %d of %d candidate pages", max_ocr_pages, len(ocr_pages))
     ocr_results = _ocr_pages(content, ocr_targets)
 
+    # Layout-preserving Markdown for the digital pages, parsed once for the whole document
+    # (per-page indexing) rather than re-parsing the PDF for every page.
+    page_md = _pdf_markdown_pages(content)
+
     parts: list[str] = []
     used_ocr = 0
     for i in range(num_pages):
@@ -198,8 +222,9 @@ def extract_text_from_pdf(content: bytes) -> ExtractionResult:
             parts.append(ocr_text)
             used_ocr += 1
         else:
-            # Digital (or OCR-failed) page → use layout-preserving Markdown for this page.
-            parts.append(_pdf_markdown(content, pages=[i]) or (page_digital[i] or ""))
+            # Digital (or OCR-failed) page → layout-preserving Markdown, fall back to plain text.
+            digital_md = page_md[i] if (page_md is not None and i < len(page_md)) else ""
+            parts.append(digital_md or (page_digital[i] or ""))
     text = "\n\n".join(p for p in parts if p)
     method = EXTRACTION_METHOD_OCR if used_ocr > 0 else EXTRACTION_METHOD_TEXT
     return ExtractionResult(
@@ -227,17 +252,105 @@ def _docx_table_to_markdown(table) -> str:
     return "\n".join([header, sep, *body])
 
 
+def _iter_header_footer_text(doc) -> list[str]:
+    """Collect text from every section header/footer (default, first-page, even-page).
+
+    Headers/footers frequently carry DSGVO-relevant metadata (controller, version/date,
+    file reference) that plain paragraph iteration drops. De-duplicated because Word links
+    headers across sections by default, so the same text repeats per section.
+    """
+    parts: list[str] = []
+    seen: set[str] = set()
+    for section in doc.sections:
+        for hf in (
+            section.header, section.first_page_header, section.even_page_header,
+            section.footer, section.first_page_footer, section.even_page_footer,
+        ):
+            if hf is None:
+                continue
+            try:
+                for para in hf.paragraphs:
+                    txt = (para.text or "").strip()
+                    if txt and txt not in seen:
+                        seen.add(txt)
+                        parts.append(txt)
+                for table in hf.tables:
+                    md = _docx_table_to_markdown(table)
+                    if md and md not in seen:
+                        seen.add(md)
+                        parts.append(md)
+            except Exception as exc:  # malformed header/footer must never break extraction
+                logger.debug("DOCX header/footer extraction skipped a part: %s", exc)
+    return parts
+
+
+def _iter_textbox_text(doc) -> list[str]:
+    """Collect text inside drawing text boxes (``w:txbxContent``), which ``doc.paragraphs`` skips."""
+    parts: list[str] = []
+    try:
+        for txbx in doc.element.body.iter(qn("w:txbxContent")):
+            for p in txbx.iter(qn("w:p")):
+                txt = "".join((t.text or "") for t in p.iter(qn("w:t"))).strip()
+                if txt:
+                    parts.append(txt)
+    except Exception as exc:
+        logger.debug("DOCX text-box extraction skipped: %s", exc)
+    return parts
+
+
+def _iter_footnote_text(doc) -> list[str]:
+    """Collect footnote/endnote text from the related XML parts (skips separator notes)."""
+    parts: list[str] = []
+    try:
+        rels = doc.part.rels.values()
+    except Exception:
+        return parts
+    for rel in rels:
+        rtype = getattr(rel, "reltype", "") or ""
+        if not (rtype.endswith("/footnotes") or rtype.endswith("/endnotes")):
+            continue
+        if getattr(rel, "is_external", False):
+            continue
+        try:
+            root = etree.fromstring(rel.target_part.blob)
+        except Exception as exc:
+            logger.debug("DOCX footnote part unreadable: %s", exc)
+            continue
+        note_tag = qn("w:footnote") if rtype.endswith("/footnotes") else qn("w:endnote")
+        for note in root.iter(note_tag):
+            if note.get(qn("w:type")) in ("separator", "continuationSeparator"):
+                continue
+            txt = "".join((t.text or "") for t in note.iter(qn("w:t"))).strip()
+            if txt:
+                parts.append(txt)
+    return parts
+
+
 def extract_text_from_docx(content: bytes) -> str:
-    """Extract text from DOCX bytes; tables are rendered as Markdown tables."""
+    """Extract text from DOCX bytes.
+
+    Beyond body paragraphs and tables (rendered as Markdown tables), this also recovers text
+    that plain paragraph iteration silently drops: drawing text boxes, section headers/footers
+    and footnotes/endnotes — all of which can carry DSGVO-relevant content.
+    """
     doc = docx.Document(io.BytesIO(content))
     parts: list[str] = []
     for para in doc.paragraphs:
         if para.text and para.text.strip():
             parts.append(para.text)
+    parts.extend(_iter_textbox_text(doc))
     for table in doc.tables:
         md = _docx_table_to_markdown(table)
         if md:
             parts.append(md)
+    header_footer = _iter_header_footer_text(doc)
+    if header_footer:
+        parts.append("--- Kopf-/Fußzeilen ---")
+        parts.extend(header_footer)
+    footnotes = _iter_footnote_text(doc)
+    if footnotes:
+        parts.append("--- Fußnoten ---")
+        parts.extend(footnotes)
     return "\n".join(parts)
 
 
@@ -300,6 +413,34 @@ def extract_text_from_doc(content: bytes) -> str:
     )
 
 
+def _decode_text_bytes(content: bytes) -> str:
+    """Decode arbitrary text bytes: UTF-8 → charset detection → CP1252, with a binary guard.
+
+    Many legacy exports are Latin-1/CP1252 rather than UTF-8; decoding them as UTF-8 fails and
+    would otherwise lose the whole document. Content with NUL bytes (the classic binary marker)
+    is treated as non-text and yields an empty string.
+    """
+    try:
+        return content.decode("utf-8")
+    except UnicodeDecodeError:
+        pass
+    # NUL bytes → genuinely binary; don't coerce into text.
+    if b"\x00" in content[:65536]:
+        return ""
+    try:
+        from charset_normalizer import from_bytes
+
+        best = from_bytes(content).best()
+        if best is not None:
+            return str(best)
+    except Exception:
+        pass
+    try:
+        return content.decode("cp1252")
+    except Exception:
+        return ""
+
+
 def extract_text(filename: str, content: bytes) -> ExtractionResult:
     """
     Dispatcher for text extraction. Returns ExtractionResult with text and
@@ -325,9 +466,7 @@ def extract_text(filename: str, content: bytes) -> ExtractionResult:
     if filename_lower.endswith(".doc"):
         text = extract_text_from_doc(content)
         return ExtractionResult(text=text, extraction_method=EXTRACTION_METHOD_TEXT, char_count=len(text))
-    try:
-        text = content.decode("utf-8")
-        return ExtractionResult(text=text, extraction_method=EXTRACTION_METHOD_TEXT, char_count=len(text))
-    except UnicodeDecodeError:
-        logger.debug("UTF-8 decode failed for %s", filename)
-        return ExtractionResult(text="", extraction_method=EXTRACTION_METHOD_TEXT)
+    text = _decode_text_bytes(content)
+    if not text:
+        logger.debug("No decodable text for %s", filename)
+    return ExtractionResult(text=text, extraction_method=EXTRACTION_METHOD_TEXT, char_count=len(text))

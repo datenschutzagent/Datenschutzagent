@@ -57,6 +57,20 @@ def _avv_docx_bytes() -> bytes:
     return buf.getvalue()
 
 
+def _header_footer_docx_bytes() -> bytes:
+    """A DOCX whose controller / version metadata lives only in the header and footer."""
+    import docx
+
+    doc = docx.Document()
+    doc.add_paragraph("Verarbeitungstätigkeit: Lohnabrechnung")
+    section = doc.sections[0]
+    section.header.paragraphs[0].text = "Verantwortlicher: Muster GmbH"
+    section.footer.paragraphs[0].text = "Stand: 01.01.2026 — Az. DS-2026-042"
+    buf = io.BytesIO()
+    doc.save(buf)
+    return buf.getvalue()
+
+
 SAMPLES: dict[str, ExtractionSample] = {
     "vvt_xlsx": ExtractionSample(
         key="vvt_xlsx",
@@ -73,5 +87,13 @@ SAMPLES: dict[str, ExtractionSample] = {
         expected_tokens=["Art. 28 DSGVO", "Gegenstand", "Lohnbuchhaltung", "Drittland", "Nein"],
         column_header="| Gegenstand | Lohnbuchhaltung |",
         min_chars=80,
+    ),
+    "header_footer_docx": ExtractionSample(
+        key="header_footer_docx",
+        filename="hinweis.docx",
+        builder=_header_footer_docx_bytes,
+        # Controller (header) and version/file reference (footer) must survive extraction.
+        expected_tokens=["Verantwortlicher: Muster GmbH", "Az. DS-2026-042", "Lohnabrechnung"],
+        min_chars=40,
     ),
 }
