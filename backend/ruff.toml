@@ -30,3 +30,8 @@ ignore = [
 "app/services/connection_checks.py" = ["BLE001"]
 "app/services/run_checks_service.py" = ["BLE001"]
 "app/storage.py" = ["BLE001"]
+# Extraction fallbacks (pymupdf4llm→get_text, OCR, .doc conversion) must degrade gracefully
+# rather than crash the extraction task on any single page/tool failure.
+"app/services/document_processor.py" = ["BLE001"]
+# Eval runner intentionally catches broad failures from optional LLM-backed evals.
+"evals/run.py" = ["BLE001"]

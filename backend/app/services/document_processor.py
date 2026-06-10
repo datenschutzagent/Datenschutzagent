@@ -20,8 +20,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
 
-import fitz  # PyMuPDF
 import docx
+import fitz  # PyMuPDF
 import httpx
 import openpyxl
 from openpyxl.utils import get_column_letter

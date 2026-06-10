@@ -11,7 +11,7 @@ Usage in Celery workers:
 """
 import logging
 
-from prometheus_client import Counter, Histogram, Gauge
+from prometheus_client import Counter, Gauge, Histogram
 
 logger = logging.getLogger(__name__)
 

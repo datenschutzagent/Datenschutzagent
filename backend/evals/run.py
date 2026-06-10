@@ -39,9 +39,10 @@ def _evaluator_means(report) -> dict[str, float]:
     return {name: sums[name] / counts[name] for name in sums}
 
 
-def _run(dataset: Dataset, task) -> dict[str, float]:
+def _run(dataset: Dataset, task, *, show_table: bool = True) -> dict[str, float]:
     report = dataset.evaluate_sync(task, progress=False)
-    report.print(include_input=False, include_output=False)
+    if show_table:
+        report.print(include_input=False, include_output=False)
     return _evaluator_means(report)
 
 
@@ -51,15 +52,16 @@ def main() -> int:
     parser.add_argument("--json", action="store_true", help="print a machine-readable summary")
     args = parser.parse_args()
 
+    show_table = not args.json
     means: dict[str, float] = {}
-    means.update(_run(extraction_eval.build_dataset(), extraction_eval.extraction_task))
-    means.update(_run(grounding_eval.build_dataset(), grounding_eval.grounding_task))
+    means.update(_run(extraction_eval.build_dataset(), extraction_eval.extraction_task, show_table=show_table))
+    means.update(_run(grounding_eval.build_dataset(), grounding_eval.grounding_task, show_table=show_table))
 
     if args.llm:
         try:
             from evals import llm_eval
 
-            means.update(_run(llm_eval.build_dataset(), llm_eval.llm_task))
+            means.update(_run(llm_eval.build_dataset(), llm_eval.llm_task, show_table=show_table))
         except Exception as exc:  # pragma: no cover - environment-dependent
             print(f"[warn] LLM evals skipped: {exc}", file=sys.stderr)
 
@@ -82,7 +84,7 @@ def main() -> int:
     if failures:
         print(f"\n{len(failures)} evaluator(s) below threshold.", file=sys.stderr)
         return 1
-    print("\nAll evaluators passed their thresholds.")
+    print("\nAll evaluators passed their thresholds.", file=sys.stderr)
     return 0
 
 

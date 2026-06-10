@@ -6,10 +6,11 @@ Der aktive Provider wird über die Einstellung LLM_PROVIDER gesteuert:
   - "anthropic" → Anthropic API (ANTHROPIC_API_KEY erforderlich, 'anthropic'-Package nötig)
 """
 import asyncio
+import contextlib
 import logging
 import threading
 import time
-from typing import Callable
+from collections.abc import Callable
 
 import httpx
 from pydantic_ai import Agent
@@ -131,10 +132,8 @@ async def llm_retry_call(agent: Agent, user_content: str, output_type, *, reques
             result = await agent.run(user_content, output_type=output_type)
             elapsed = round(time.monotonic() - t0, 2)
             # Token/cost accounting (best-effort; never breaks the request path).
-            try:
+            with contextlib.suppress(Exception):
                 record_llm_usage(provider, get_active_model_name(), result.usage())
-            except Exception:  # pragma: no cover - defensive
-                pass
             logger.info(
                 "LLM call succeeded (attempt %d/%d) elapsed=%.2fs prompt_chars=%d  [request_id=%s]",
                 attempt, LLM_RETRY_ATTEMPTS, elapsed, len(user_content), request_id,

@@ -7,14 +7,15 @@ for tabular formats, a column-header signature that must be preserved.
 from __future__ import annotations
 
 import io
-from dataclasses import dataclass, field
+from collections.abc import Callable
+from dataclasses import dataclass
 
 
 @dataclass(frozen=True)
 class ExtractionSample:
     key: str
     filename: str
-    builder: "callable"          # () -> bytes
+    builder: Callable[[], bytes]
     expected_tokens: list[str]   # must all appear in the extracted text
     column_header: str | None = None  # e.g. "| A | B | C |" for tabular formats
     min_chars: int = 1

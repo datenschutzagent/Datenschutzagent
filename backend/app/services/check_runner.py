@@ -485,8 +485,8 @@ async def run_cross_document_check(
     system = render(system_tpl or DEFAULT_CHECK_FULL_TEXT_CROSS_SYSTEM, {"language_hint": language_hint})
     system = SYSTEM_PROMPT_SAFETY_PREAMBLE + "\n\n" + system + CHECK_OUTPUT_GUIDANCE
     limit = _context_chars_per_doc()
-    parts: List[str] = []
-    source_parts: List[str] = []
+    parts: list[str] = []
+    source_parts: list[str] = []
     for i, (doc_id, text) in enumerate(documents, 1):
         truncated, was_truncated = _truncate_sentence_aware(text or "", limit)
         if was_truncated:
