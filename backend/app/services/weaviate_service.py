@@ -224,6 +224,27 @@ def truncate_sentence_aware(text: str, limit: int) -> tuple[str, bool]:
     return truncated, True
 
 
+def build_context_windows(text: str, limit: int, max_windows: int) -> list[str]:
+    """Group sentence-aware chunks into <= max_windows windows of up to ``limit`` chars each.
+
+    The map step of long-document map-reduce (compliance checks, VVT normalization): each window
+    respects sentence/table boundaries via :func:`chunk_text`, so no fragment cuts mid-sentence.
+    """
+    windows: list[str] = []
+    current = ""
+    for chunk in chunk_text(text or ""):
+        if current and len(current) + len(chunk) + 2 > limit:
+            windows.append(current)
+            current = chunk
+            if len(windows) >= max_windows:
+                return windows
+        else:
+            current = f"{current}\n\n{chunk}" if current else chunk
+    if current and len(windows) < max_windows:
+        windows.append(current)
+    return windows[:max_windows]
+
+
 _ollama_embed_client = None
 
 

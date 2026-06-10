@@ -188,6 +188,13 @@ class Settings(BaseSettings):
     long_doc_map_reduce_enabled: bool = True
     long_doc_max_chunks: int = 6  # safety cap on map-reduce LLM calls per check
 
+    # VVT/ROPA normalization on large documents: when the extracted text exceeds
+    # max_context_chars_vvt, extract over sentence-aware fragments (map-reduce) and merge the
+    # per-fragment fields, instead of hard truncation (which silently drops every processing
+    # activity beyond the cut-off). Disable to keep the legacy truncation behaviour.
+    vvt_map_reduce_enabled: bool = True
+    vvt_max_chunks: int = 8  # safety cap on map-reduce LLM calls per VVT normalization
+
     # Evidence grounding: verify that LLM-quoted evidence actually appears in the source text.
     # When enabled, ungrounded (likely hallucinated) quotes trigger a Pydantic AI ModelRetry
     # so the model re-answers with verbatim quotes; persistent failures lower the confidence.

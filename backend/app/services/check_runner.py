@@ -21,7 +21,7 @@ from app.core.request_id import get_request_id
 from app.models.schemas import FindingSeverityEnum
 from app.services.document_processor import detect_language
 from app.services.prompt_template_service import get_active_template, render
-from app.services.weaviate_service import chunk_text, truncate_sentence_aware
+from app.services.weaviate_service import build_context_windows, truncate_sentence_aware
 
 # Max chars for a check instruction (playbook requirement text). Defense-in-depth
 # even though playbooks are admin-controlled — imported playbooks may be less trusted.
@@ -344,25 +344,9 @@ _FRAGMENT_SYSTEM_SUFFIX = (
 )
 
 
-# Re-exported for callers/tests; canonical implementation lives in weaviate_service.
+# Re-exported for callers/tests; canonical implementations live in weaviate_service.
 _truncate_sentence_aware = truncate_sentence_aware
-
-
-def _build_context_windows(text: str, limit: int, max_windows: int) -> list[str]:
-    """Group sentence-aware chunks into <= max_windows windows of up to ``limit`` chars each."""
-    windows: list[str] = []
-    current = ""
-    for chunk in chunk_text(text or ""):
-        if current and len(current) + len(chunk) + 2 > limit:
-            windows.append(current)
-            current = chunk
-            if len(windows) >= max_windows:
-                return windows
-        else:
-            current = f"{current}\n\n{chunk}" if current else chunk
-    if current and len(windows) < max_windows:
-        windows.append(current)
-    return windows[:max_windows]
+_build_context_windows = build_context_windows
 
 
 def _aggregate_check_results(results: list[CheckResult]) -> CheckResult:
