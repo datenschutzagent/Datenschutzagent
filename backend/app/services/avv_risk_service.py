@@ -124,7 +124,8 @@ async def assess_avv_risk(contract_id: UUID, db: AsyncSession) -> dict[str, Any]
     llm_failed = False
     data: _AVVRiskResult
 
-    agent = create_agent(_AVV_RISK_SYSTEM)
+    # AVV/processor risk (Art. 28) is a complex legal assessment → optional stronger analysis model.
+    agent = create_agent(_AVV_RISK_SYSTEM, analysis=True)
     try:
         llm_result = await agent.run(user_content, output_type=_AVVRiskResult)
         data = llm_result.output

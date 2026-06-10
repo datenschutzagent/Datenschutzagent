@@ -124,7 +124,8 @@ async def normalize_vvt(
     language_hint = _vvt_language_hint(language) if language else ""
     system_tpl = await get_active_template("vvt_system")
     system = render(system_tpl or DEFAULT_VVT_SYSTEM, {"language_hint": language_hint})
-    agent = create_agent(system_prompt=system)
+    # VVT/ROPA normalization is a complex extraction → use the optional stronger analysis model.
+    agent = create_agent(system_prompt=system, analysis=True)
     vvt_limit = getattr(settings, "max_context_chars_vvt", 25000)
     raw = raw_text or ""
     truncated, was_truncated = truncate_sentence_aware(raw, vvt_limit)

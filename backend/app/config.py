@@ -164,6 +164,23 @@ class Settings(BaseSettings):
     llm_output_retries: int = 2
     llm_max_tokens: int | None = None
 
+    # Optional separate (usually stronger) model for complex analyses (VVT/ROPA, DSFA, AVV risk).
+    # Empty = use the provider's default model (ollama_model/openai_model/anthropic_model), i.e. no
+    # behaviour change. Set e.g. a larger Ollama model ("qwen2.5:14b") to improve legal reasoning
+    # on the heavy tasks without slowing every check.
+    llm_analysis_model: str = ""
+
+    # Anthropic prompt caching: cache the (large, repeated) system prompt/instructions so the many
+    # checks per case reuse it instead of re-billing/re-sending it every call (cost + latency).
+    # Only effective when LLM_PROVIDER=anthropic.
+    anthropic_prompt_caching: bool = True
+
+    # Self-consistency: for higher-stakes checks, sample the model N times (at
+    # llm_self_consistency_temperature) and take the majority verdict to reduce variance. 1 = off
+    # (single deterministic sample at llm_temperature) — the default, no extra cost.
+    llm_self_consistency_n: int = 1
+    llm_self_consistency_temperature: float = 0.5
+
     # Long documents: when extracted text exceeds the per-doc context limit, run the check
     # over sentence-aware chunks (map-reduce) and aggregate, instead of silently truncating
     # to the first N chars (which can yield false "compliant" verdicts). Disable to keep the

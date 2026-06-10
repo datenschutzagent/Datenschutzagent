@@ -226,7 +226,8 @@ async def generate_dsfa(case_id: UUID, db: AsyncSession) -> dict[str, Any]:
     source = "llm"
     llm_failed = False
 
-    agent = create_agent(_DSFA_SYSTEM_PROMPT)
+    # DSFA (Art. 35) is a complex legal assessment → use the optional stronger analysis model.
+    agent = create_agent(_DSFA_SYSTEM_PROMPT, analysis=True)
     try:
         result = await agent.run(user_content, output_type=_DSFAResult)
         data = result.output
