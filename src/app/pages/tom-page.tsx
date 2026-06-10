@@ -470,7 +470,7 @@ export function TOMPage() {
                         ref={fileInputRef}
                         type="file"
                         className="hidden"
-                        accept=".pdf,.docx,.xlsx,.doc"
+                        accept=".pdf,.docx,.xlsx,.doc,.jpg,.jpeg,.png,.tif,.tiff"
                         onChange={(e) => {
                           const file = e.target.files?.[0];
                           if (file) void handleAttachmentUpload(file);

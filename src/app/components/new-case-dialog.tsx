@@ -29,7 +29,7 @@ interface NewCaseDialogProps {
   onSuccess?: (newCase: ApiCase) => void;
 }
 
-const ALLOWED_EXTENSIONS = [".docx", ".pdf", ".xlsx", ".doc"];
+const ALLOWED_EXTENSIONS = [".docx", ".pdf", ".xlsx", ".doc", ".jpg", ".jpeg", ".png", ".tif", ".tiff"];
 const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
 
 const PROCESSING_CONTEXT_NONE = "none";
@@ -509,12 +509,12 @@ export function NewCaseDialog({ open, onOpenChange, onSuccess }: NewCaseDialogPr
                 <input
                   type="file"
                   multiple
-                  accept=".docx,.pdf,.xlsx,.doc"
+                  accept=".docx,.pdf,.xlsx,.doc,.jpg,.jpeg,.png,.tif,.tiff"
                   className="hidden"
                   onChange={(e) => addPendingFiles(e.target.files)}
                 />
               </Label>
-              <p className="text-sm text-muted-foreground mt-1">DOCX, PDF, XLSX, DOC (max. 10 MB)</p>
+              <p className="text-sm text-muted-foreground mt-1">DOCX, PDF, XLSX, DOC, JPG, PNG, TIFF (max. 10 MB)</p>
             </div>
             {pendingFiles.length > 0 && (
               <ul className="space-y-2">
