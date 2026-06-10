@@ -18,6 +18,10 @@ Das Format orientiert sich an [Keep a Changelog](https://keepachangelog.com/de/1
   devDependencies und `npm run typecheck`-Skript (Vorbereitung der Typprüfung).
 
 ### Changed
+- `app/api/routes/cases.py` (god-file, ~1.4k Zeilen, 26 Routen) in ein Paket
+  `app/api/routes/cases/` aufgeteilt: `crud.py` (Kern-CRUD), `checks.py`
+  (run-checks), `vvt.py` (VVT-Normalisierung). Pfade und Registrierungsreihenfolge
+  unverändert (per Decorator-Vergleich gegen HEAD verifiziert).
 - Backend codebasisweit mit der konfigurierten Toolchain bereinigt
   (`ruff --fix` + `black`): Import-Sortierung/-Gruppierung, Entfernen ungenutzter
   Importe, Modernisierungen (`datetime.UTC`, `X | Y`-Isinstance), konsistente

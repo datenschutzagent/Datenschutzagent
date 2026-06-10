@@ -3,21 +3,19 @@
 import asyncio
 import csv
 import io
-import json as _json
 import logging
 import re
 from datetime import UTC, datetime
 from typing import Literal
 from uuid import UUID
 
-from docx import Document as DocxDocument
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import JSONResponse, Response, StreamingResponse
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.celery_app import build_dsb_report_task, run_playbook_checks
+from app.celery_app import build_dsb_report_task
 from app.config import settings
 from app.constants import CaseStatus, FindingStatus, JobStatus
 from app.core.auth import require_roles
@@ -29,7 +27,6 @@ from app.models.db import (
     ActivityLogModel,
     DocumentModel,
     DSBReportJobModel,
-    PlaybookModel,
     RunChecksJobModel,
     UserModel,
 )
@@ -40,9 +37,6 @@ from app.models.schemas import (
     CaseRiskScoreHistoryItem,
     CaseRiskScoreResponse,
     CaseSimilarityResult,
-    RunChecksRequest,
-    VVTFieldResponse,
-    VVTNormalizationResponse,
 )
 from app.services.annotated_document_service import (
     build_annotated_docx,
@@ -58,10 +52,7 @@ from app.services.dsb_report_service import (
     render_report_markdown,
     save_report,
 )
-from app.services.org_profile_loader import get_vvt_field_names
 from app.services.risk_config_loader import get_risk_config
-from app.services.run_checks_service import run_checks_impl
-from app.services.vvt_service import normalize_vvt
 from app.services.weaviate_service import delete_chunks_by_case_id
 
 logger = logging.getLogger(__name__)
@@ -778,202 +769,6 @@ async def unarchive_case(
     return CaseResponse.model_validate(case)
 
 
-def _build_vvt_export_docx(doc_name: str, source_template: str, fields: list) -> bytes:
-    """Build DOCX with VVT normalization (Ziel-Template): document name, template, table of fields."""
-    doc = DocxDocument()
-    doc.add_heading("VVT-Normalisierung (Ziel-Template)", 0)
-    doc.add_paragraph()
-    doc.add_paragraph(f"Dokument: {doc_name}")
-    doc.add_paragraph(f"Erkanntes Template: {source_template or '—'}")
-    doc.add_paragraph()
-    table = doc.add_table(rows=1 + len(fields), cols=5)
-    table.style = "Table Grid"
-    hdr = table.rows[0].cells
-    hdr[0].text = "Feldname"
-    hdr[1].text = "Status"
-    hdr[2].text = "Kanonischer Wert"
-    hdr[3].text = "Nachweis"
-    hdr[4].text = "Hinweis"
-    for i, f in enumerate(fields):
-        row = table.rows[i + 1].cells
-        row[0].text = (f.field_name or "").replace("\r\n", " ").replace("\n", " ")
-        row[1].text = (f.status or "").replace("\r\n", " ").replace("\n", " ")
-        row[2].text = (f.canonical_value or "").replace("\r\n", " ").replace("\n", " ")
-        row[3].text = (f.evidence or "").replace("\r\n", " ").replace("\n", " ")
-        row[4].text = (f.finding or "").replace("\r\n", " ").replace("\n", " ")
-    buf = io.BytesIO()
-    doc.save(buf)
-    return buf.getvalue()
-
-
-@router.get("/{case_id}/vvt-normalization/export", response_class=Response)
-async def get_vvt_normalization_export(
-    case_id: UUID,
-    document_id: UUID | None = Query(None, alias="document_id"),
-    format: Literal["csv", "docx"] = Query("csv", alias="format"),
-    db: AsyncSession = Depends(get_db),
-):
-    """
-    Export VVT normalization. Query: format=csv (default) or format=docx.
-    Uses first VVT document if document_id not given.
-    CSV: text/csv. DOCX: VVT Ziel-Template (document name, template, fields table).
-    """
-    result = await db.execute(
-        select(CaseModel)
-        .where(CaseModel.id == case_id)
-        .options(selectinload(CaseModel.documents))
-    )
-    case = result.scalar_one_or_none()
-    if not case:
-        raise HTTPException(status_code=404, detail="Case not found")
-
-    vvt_docs = [d for d in case.documents if d.type == "vvt"]
-    if not vvt_docs:
-        raise HTTPException(status_code=404, detail="No VVT document in this case")
-
-    if document_id is not None:
-        doc = next((d for d in vvt_docs if d.id == document_id), None)
-        if not doc:
-            raise HTTPException(
-                status_code=404,
-                detail="Document not found or is not a VVT document of this case",
-            )
-    else:
-        doc = vvt_docs[0]
-
-    raw_text = doc.content or ""
-    if not raw_text.strip():
-        raise HTTPException(
-            status_code=404,
-            detail="VVT-Dokument hat keinen extrahierten Inhalt",
-        )
-
-    case_lang = getattr(case, "language", None)
-    vvt_fields = get_vvt_field_names(settings)
-    extraction = await normalize_vvt(
-        raw_text, language=case_lang, field_names=vvt_fields
-    )
-    date_str = datetime.now(UTC).strftime("%Y-%m-%d")
-
-    if (format or "csv").lower() == "docx":
-        content = _build_vvt_export_docx(
-            doc.name, extraction.source_template or "", extraction.fields
-        )
-        filename = f"VVT-Ziel-{case_id}-{date_str}.docx"
-        return Response(
-            content=content,
-            media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-            headers={"Content-Disposition": f'attachment; filename="{filename}"'},
-        )
-
-    buf = io.StringIO()
-    writer = csv.writer(buf)
-    writer.writerow(
-        [
-            "document_name",
-            "source_template",
-            "field_name",
-            "status",
-            "canonical_value",
-            "evidence",
-            "finding",
-        ]
-    )
-    for f in extraction.fields:
-        writer.writerow(
-            [
-                doc.name,
-                extraction.source_template or "",
-                f.field_name,
-                f.status,
-                (f.canonical_value or "").replace("\r\n", " ").replace("\n", " "),
-                (f.evidence or "").replace("\r\n", " ").replace("\n", " "),
-                (f.finding or "").replace("\r\n", " ").replace("\n", " "),
-            ]
-        )
-    csv_content = buf.getvalue()
-    filename = f"VVT-Export-{case_id}-{date_str}.csv"
-    body = "\ufeff" + csv_content  # UTF-8 BOM for Excel
-    return Response(
-        content=body.encode("utf-8"),
-        media_type="text/csv; charset=utf-8",
-        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
-    )
-
-
-@router.get("/{case_id}/vvt-normalization", response_model=VVTNormalizationResponse)
-async def get_vvt_normalization(
-    case_id: UUID,
-    document_id: UUID | None = None,
-    db: AsyncSession = Depends(get_db),
-):
-    """
-    Get VVT normalization for the case. Uses the first VVT document if document_id is not given.
-    Returns canonical VVT fields and template detection (LLM-based).
-    """
-    result = await db.execute(
-        select(CaseModel)
-        .where(CaseModel.id == case_id)
-        .options(selectinload(CaseModel.documents))
-    )
-    case = result.scalar_one_or_none()
-    if not case:
-        raise HTTPException(status_code=404, detail="Case not found")
-
-    vvt_docs = [d for d in case.documents if d.type == "vvt"]
-    if not vvt_docs:
-        return VVTNormalizationResponse(
-            document_id=None,
-            document_name="",
-            source_template="",
-            fields=[],
-        )
-
-    if document_id is not None:
-        doc = next((d for d in vvt_docs if d.id == document_id), None)
-        if not doc:
-            raise HTTPException(
-                status_code=404,
-                detail="Document not found or is not a VVT document of this case",
-            )
-    else:
-        doc = vvt_docs[0]
-
-    raw_text = doc.content or ""
-    if not raw_text.strip():
-        return VVTNormalizationResponse(
-            document_id=doc.id,
-            document_name=doc.name,
-            source_template="",
-            fields=[],
-        )
-
-    case_lang = getattr(case, "language", None)
-    vvt_fields = get_vvt_field_names(settings)
-    extraction = await normalize_vvt(
-        raw_text, language=case_lang, field_names=vvt_fields
-    )
-
-    fields = [
-        VVTFieldResponse(
-            field_name=f.field_name,
-            required=True,
-            status=f.status,
-            source_template=extraction.source_template,
-            canonical_value=f.canonical_value,
-            evidence=f.evidence,
-            finding=f.finding,
-        )
-        for f in extraction.fields
-    ]
-    return VVTNormalizationResponse(
-        document_id=doc.id,
-        document_name=doc.name,
-        source_template=extraction.source_template or "Unbekannt",
-        fields=fields,
-    )
-
-
 @router.get("/{case_id}/dsb-report")
 async def get_dsb_report(
     case_id: UUID,
@@ -1132,288 +927,6 @@ async def get_annotated_document(
         media_type=media_type,
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
-
-
-@router.get("/{case_id}/run-checks/status")
-async def get_run_checks_status(
-    case_id: UUID,
-    db: AsyncSession = Depends(get_db),
-):
-    """Return the latest run_checks job status for this case (for polling). Includes last_run activity for timeline and documents_changed_since_last_run flag."""
-    result = await db.execute(select(CaseModel).where(CaseModel.id == case_id))
-    if result.scalar_one_or_none() is None:
-        raise HTTPException(status_code=404, detail="Case not found")
-    job_result = await db.execute(
-        select(RunChecksJobModel)
-        .where(RunChecksJobModel.case_id == case_id)
-        .order_by(RunChecksJobModel.created_at.desc())
-        .limit(1)
-    )
-    job = job_result.scalar_one_or_none()
-    activity_result = await db.execute(
-        select(ActivityLogModel)
-        .where(
-            ActivityLogModel.case_id == case_id,
-            ActivityLogModel.event_type == "run_checks",
-        )
-        .order_by(ActivityLogModel.created_at.desc())
-        .limit(1)
-    )
-    last_activity = activity_result.scalar_one_or_none()
-    last_run = ActivityResponse.model_validate(last_activity) if last_activity else None
-
-    # Determine if any document was re-uploaded after the last run-checks job
-    documents_changed = False
-    if job and job.status == JobStatus.COMPLETED:
-        max_reupload_result = await db.execute(
-            select(func.max(DocumentModel.uploaded_at)).where(
-                DocumentModel.case_id == case_id, DocumentModel.version > 1
-            )
-        )
-        max_reupload = max_reupload_result.scalar_one_or_none()
-        if max_reupload and max_reupload > job.created_at:
-            documents_changed = True
-
-    if not job:
-        return {
-            "status": "never_run",
-            "job_id": None,
-            "playbook_name": None,
-            "findings_count": None,
-            "error": None,
-            "last_run": last_run,
-            "documents_changed_since_last_run": False,
-            "checks_total": 0,
-            "checks_done": 0,
-        }
-    return {
-        "status": job.status,
-        "job_id": str(job.id),
-        "playbook_name": job.playbook_name,
-        "findings_count": job.findings_count,
-        "error": job.error,
-        "last_run": last_run,
-        "documents_changed_since_last_run": documents_changed,
-        "checks_total": job.checks_total,
-        "checks_done": job.checks_done,
-    }
-
-
-@router.get("/{case_id}/run-checks/stream", summary="Run-Checks-Status als SSE-Stream")
-async def stream_run_checks_status(
-    case_id: UUID,
-    db: AsyncSession = Depends(get_db),
-):
-    """Server-Sent Events stream for run-checks job progress.
-
-    Emits ``data: <json>`` events every 2 s while a job is running.
-    Sends a final ``event: done`` when the job reaches completed/failed/never_run,
-    then closes the stream.  The client can use ``EventSource`` instead of polling.
-
-    Event payload matches GET /{case_id}/run-checks/status.
-    """
-    result = await db.execute(select(CaseModel).where(CaseModel.id == case_id))
-    if result.scalar_one_or_none() is None:
-        raise HTTPException(status_code=404, detail="Case not found")
-
-    async def _event_generator():
-        poll_interval = 2  # seconds between DB polls
-        max_polls = 300  # ~10 min max stream duration
-        for _ in range(max_polls):
-            # Fresh session per poll to avoid stale reads
-            from app.database import async_session_factory
-
-            async with async_session_factory() as poll_db:
-                job_result = await poll_db.execute(
-                    select(RunChecksJobModel)
-                    .where(RunChecksJobModel.case_id == case_id)
-                    .order_by(RunChecksJobModel.created_at.desc())
-                    .limit(1)
-                )
-                job = job_result.scalar_one_or_none()
-                activity_result = await poll_db.execute(
-                    select(ActivityLogModel)
-                    .where(
-                        ActivityLogModel.case_id == case_id,
-                        ActivityLogModel.event_type == "run_checks",
-                    )
-                    .order_by(ActivityLogModel.created_at.desc())
-                    .limit(1)
-                )
-                last_activity = activity_result.scalar_one_or_none()
-                last_run = (
-                    ActivityResponse.model_validate(last_activity)
-                    if last_activity
-                    else None
-                )
-
-                if not job:
-                    payload = {
-                        "status": "never_run",
-                        "job_id": None,
-                        "playbook_name": None,
-                        "findings_count": None,
-                        "error": None,
-                        "last_run": last_run,
-                        "checks_total": 0,
-                        "checks_done": 0,
-                    }
-                else:
-                    payload = {
-                        "status": job.status,
-                        "job_id": str(job.id),
-                        "playbook_name": job.playbook_name,
-                        "findings_count": job.findings_count,
-                        "error": job.error,
-                        "last_run": last_run,
-                        "checks_total": job.checks_total,
-                        "checks_done": job.checks_done,
-                    }
-
-                is_terminal = not job or job.status in (
-                    JobStatus.COMPLETED,
-                    JobStatus.FAILED,
-                    "never_run",
-                )
-                event_type = "done" if is_terminal else "progress"
-                yield f"event: {event_type}\ndata: {_json.dumps(payload, default=str)}\n\n"
-
-            if is_terminal:
-                return
-            await asyncio.sleep(poll_interval)
-        # Timeout: send done with last known state
-        yield "event: done\ndata: {}\n\n"
-
-    return StreamingResponse(
-        _event_generator(),
-        media_type="text/event-stream",
-        headers={
-            "Cache-Control": "no-cache",
-            "X-Accel-Buffering": "no",  # nginx: disable proxy buffering
-        },
-    )
-
-
-@router.post("/{case_id}/run-checks", summary="Playbook-Prüfungen starten")
-@limiter.limit("10/minute")
-async def run_checks(
-    request: Request,
-    case_id: UUID,
-    body: RunChecksRequest,
-    db: AsyncSession = Depends(get_db),
-    _user=require_roles("editor", "admin"),
-):
-    """Run playbook checks against all case documents. Returns 202 when queued (Celery), 200 with case when run synchronously."""
-    result = await db.execute(
-        select(CaseModel)
-        .where(CaseModel.id == case_id)
-        .options(selectinload(CaseModel.documents))
-    )
-    case = result.scalar_one_or_none()
-    if not case:
-        raise HTTPException(status_code=404, detail="Case not found")
-
-    pb_result = await db.execute(
-        select(PlaybookModel).where(PlaybookModel.id == body.playbook_id)
-    )
-    playbook = pb_result.scalar_one_or_none()
-    if not playbook:
-        raise HTTPException(status_code=404, detail="Playbook not found")
-
-    raw_checks = (
-        playbook.content.get("checks") if isinstance(playbook.content, dict) else []
-    )
-    if not raw_checks:
-        await db.refresh(case)
-        return CaseResponse.model_validate(case)
-
-    strategies = body.strategies or ["full_text"]
-    use_async = settings.celery_enabled and bool(
-        (settings.celery_broker_url or "").strip()
-    )
-
-    # Concurrency hardening (Phase 4): take a Postgres advisory lock on
-    # (case_id, playbook_id) BEFORE the duplicate-job check. Without the
-    # lock two concurrent requests could both pass the SELECT and both
-    # insert a job (classic SELECT-then-INSERT race). 423 = "Locked"
-    # signals to the UI that the conflict is operational, not a 409
-    # "you sent the wrong thing".
-    from app.core.concurrency import try_acquire_run_checks_lock
-
-    if not await try_acquire_run_checks_lock(db, case_id, body.playbook_id):
-        raise HTTPException(
-            status_code=423,
-            detail="A check run for this case and playbook is currently being started by another request.",
-        )
-
-    # Prevent duplicate concurrent runs: return 409 if a job is already running
-    running_job_result = await db.execute(
-        select(RunChecksJobModel).where(
-            RunChecksJobModel.case_id == case_id,
-            RunChecksJobModel.playbook_id == body.playbook_id,
-            RunChecksJobModel.status == JobStatus.RUNNING,
-        )
-    )
-    if running_job_result.scalar_one_or_none() is not None:
-        raise HTTPException(
-            status_code=409,
-            detail="A check run for this case and playbook is already in progress. Please wait for it to finish.",
-        )
-
-    if use_async:
-        job = RunChecksJobModel(
-            case_id=case_id,
-            status=JobStatus.RUNNING,
-            playbook_id=playbook.id,
-            playbook_name=playbook.name,
-            strategies=strategies,
-        )
-        db.add(job)
-        await db.flush()
-        await db.refresh(job)
-        # Commit FIRST so the job row is visible to the Celery worker's DB session.
-        # Previously the task was dispatched before commit, causing a race condition
-        # where the worker could not find the job row.
-        await db.commit()
-        celery_result = run_playbook_checks.delay(str(job.id), get_request_id())
-        job.celery_task_id = celery_result.id
-        await db.commit()
-        logger.info(
-            "run_checks: dispatched celery task",
-            extra={
-                "job_id": str(job.id),
-                "case_id": str(case_id),
-                "playbook_name": playbook.name,
-                "strategies": strategies,
-                "celery_task_id": celery_result.id,
-            },
-        )
-        return JSONResponse(
-            status_code=202,
-            content={
-                "job_id": str(job.id),
-                "status": JobStatus.RUNNING,
-                "message": "Playbook-Checks werden ausgeführt.",
-            },
-        )
-
-    findings_added, errors, activity_payload = await run_checks_impl(
-        db, case_id, body.playbook_id, strategies, skip_resolved=body.skip_resolved
-    )
-    activity = ActivityLogModel(
-        case_id=case_id,
-        event_type="run_checks",
-        payload=activity_payload,
-    )
-    db.add(activity)
-    await db.flush()
-    result2 = await db.execute(
-        select(CaseModel)
-        .where(CaseModel.id == case_id)
-        .options(selectinload(CaseModel.documents), selectinload(CaseModel.findings))
-    )
-    case = result2.scalar_one()
-    return CaseResponse.model_validate(case)
 
 
 @router.get("/{case_id}/risk-score", response_model=CaseRiskScoreResponse)
