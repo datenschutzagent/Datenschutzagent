@@ -18,7 +18,7 @@ from pydantic_ai import ModelRetry
 
 from app.config import settings
 from app.core.grounding import grounding_ratio, partition_grounded
-from app.core.llm import create_agent, llm_retry_call
+from app.core.llm import create_agent, gather_all, llm_retry_call
 from app.core.prompt_security import sanitize_prompt_field
 from app.services.document_processor import detect_language
 from app.services.org_profile_loader import DEFAULT_VVT_FIELD_NAMES, get_vvt_field_names
@@ -384,10 +384,12 @@ async def normalize_vvt(
             len(raw), len(windows), vvt_limit,
         )
         frag_system = system + _VVT_FRAGMENT_SUFFIX
-        results = [
-            await _extract_fragment(frag_system, window, field_list, canonical_fields, user_tpl, vvt_limit)
+        # Fragments run concurrently; gather preserves window order, which _merge_extractions
+        # relies on (first concrete source_template wins). The global LLM semaphore caps load.
+        results = await gather_all(
+            _extract_fragment(frag_system, window, field_list, canonical_fields, user_tpl, vvt_limit)
             for window in windows
-        ]
+        )
         data = _merge_extractions(results) if results else _VVTExtractionResult()
     else:
         truncated, was_truncated = truncate_sentence_aware(raw, vvt_limit)

@@ -11,7 +11,7 @@ from pydantic_ai import ModelRetry
 
 from app.config import settings
 from app.core.grounding import grounding_ratio, partition_grounded
-from app.core.llm import create_agent, get_active_model_name, llm_retry_call
+from app.core.llm import create_agent, gather_all, get_active_model_name, llm_retry_call
 from app.core.prompt_security import (
     SYSTEM_PROMPT_SAFETY_PREAMBLE,
     sanitize_prompt_field,
@@ -434,10 +434,13 @@ async def _llm_check_call(
             output_validator=_make_grounding_validator(source_text),
             temperature=temp,
         )
-        samples: list[CheckResult] = []
-        for _ in range(n):
-            result = await llm_retry_call(agent, user_content, output_type=CheckResult, request_id=get_request_id())
-            samples.append(_apply_grounding(result.output, source_text))
+        # Sample concurrently — the global LLM semaphore (max_concurrent_llm_calls) caps the
+        # actual provider load; sharing one agent across runs is safe (stateless per run).
+        results = await gather_all(
+            llm_retry_call(agent, user_content, output_type=CheckResult, request_id=get_request_id())
+            for _ in range(n)
+        )
+        samples = [_apply_grounding(r.output, source_text) for r in results]
         out = _aggregate_self_consistency(samples)
         logger.info(
             "Self-consistency over %d samples for check '%s': compliant=%s confidence=%.2f  [request_id=%s]",
@@ -491,9 +494,8 @@ async def run_check(
             len(document_text), len(windows), check_instruction[:80], get_request_id(),
         )
         frag_system = system + _FRAGMENT_SYSTEM_SUFFIX
-        results: list[CheckResult] = []
-        for window in windows:
-            user_content = render(
+        fragment_users = [
+            render(
                 user_tpl or DEFAULT_CHECK_FULL_TEXT_DOCUMENT_USER,
                 {
                     "requirement": requirement,
@@ -501,10 +503,17 @@ async def run_check(
                     "legal_bases_section": legal_section,
                 },
             )
-            results.append(await _llm_check_call(
+            for window in windows
+        ]
+        # Fragments run concurrently (window order preserved by gather — the aggregator uses
+        # results[0] as the representative compliant result); the global LLM semaphore caps load.
+        results = await gather_all(
+            _llm_check_call(
                 system=frag_system, user_content=user_content, source_text=window,
                 case_id=case_id, playbook_revision=playbook_revision, label=check_instruction,
-            ))
+            )
+            for window, user_content in zip(windows, fragment_users)
+        )
         out = _aggregate_check_results(results) if results else CheckResult(
             is_compliant=True, severity="info", description="No content to evaluate.",
             evidence=[], recommendation="", confidence=0.3,

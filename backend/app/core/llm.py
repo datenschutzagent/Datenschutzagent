@@ -12,6 +12,7 @@ import contextlib
 import logging
 import threading
 import time
+import weakref
 from collections.abc import Callable
 
 import httpx
@@ -92,6 +93,53 @@ class CircuitBreaker:
         return self.state == _CircuitState.OPEN
 
 
+# ---------------------------------------------------------------------------
+# Global LLM concurrency limit
+# ---------------------------------------------------------------------------
+
+# asyncio.Semaphore is bound to the event loop it is awaited on: FastAPI shares one loop per
+# worker process while Celery tasks run their coroutines on per-task loops — so the semaphore
+# is keyed by the running loop. WeakKeyDictionary lets finished Celery loops be collected.
+_loop_semaphores: "weakref.WeakKeyDictionary[asyncio.AbstractEventLoop, asyncio.Semaphore]" = (
+    weakref.WeakKeyDictionary()
+)
+
+
+def _get_llm_semaphore() -> asyncio.Semaphore | None:
+    """Loop-scoped semaphore enforcing ``max_concurrent_llm_calls`` for ALL LLM calls.
+
+    Enforced inside :func:`llm_retry_call`, so nested parallelism (map-reduce fragments,
+    self-consistency samples, VVT fragments) can never exceed the global cap regardless of
+    how callers fan out. Returns None when the limit is <= 0 (= unlimited).
+    """
+    limit = getattr(settings, "max_concurrent_llm_calls", 2)
+    if limit <= 0:
+        return None
+    loop = asyncio.get_running_loop()
+    sem = _loop_semaphores.get(loop)
+    if sem is None:
+        sem = asyncio.Semaphore(limit)
+        _loop_semaphores[loop] = sem
+    return sem
+
+
+async def gather_all(coros):
+    """Run coroutines concurrently; wait for ALL, then re-raise the first exception.
+
+    Used for parallel LLM fan-out (map-reduce fragments, self-consistency samples). Unlike a
+    bare ``asyncio.gather`` (fail-fast), no sibling keeps running detached when one fails —
+    detached siblings would hold semaphore slots and burn LLM budget with nobody consuming
+    the result. Unlike ``TaskGroup``, exception types/messages stay unchanged for the error
+    accounting in run_checks. Results keep input order (gather guarantee), which the
+    downstream aggregators rely on.
+    """
+    results = await asyncio.gather(*coros, return_exceptions=True)
+    first_exc = next((r for r in results if isinstance(r, BaseException)), None)
+    if first_exc is not None:
+        raise first_exc
+    return results
+
+
 # Module-level circuit breaker instance (one per worker process).
 _circuit_breaker: CircuitBreaker | None = None
 
@@ -161,7 +209,14 @@ async def llm_retry_call(agent: Agent, user_content: str, output_type, *, reques
         if delay:
             await asyncio.sleep(delay)
         try:
-            result = await agent.run(user_content, output_type=output_type)
+            # Hold the global concurrency slot only for the model call itself — not across
+            # backoff sleeps — so a flapping call cannot starve healthy ones.
+            sem = _get_llm_semaphore()
+            if sem is not None:
+                async with sem:
+                    result = await agent.run(user_content, output_type=output_type)
+            else:
+                result = await agent.run(user_content, output_type=output_type)
             elapsed = round(time.monotonic() - t0, 2)
             # Token/cost accounting (best-effort; never breaks the request path).
             with contextlib.suppress(Exception):

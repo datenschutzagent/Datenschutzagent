@@ -3,6 +3,7 @@
 Covers the model/cost levers added for Batch B: the optional analysis model, provider-aware
 default model settings (incl. the Anthropic prompt-cache breakpoint) and the temperature override.
 """
+import pytest
 from pydantic import BaseModel
 
 from app.config import settings
@@ -153,3 +154,58 @@ def test_wrap_output_type_str_and_wrapped_passthrough(monkeypatch):
     # Already-wrapped marker objects are not double-wrapped.
     already = NativeOutput(_DummyOutput)
     assert llm.wrap_output_type(already) is already
+
+
+# ---------------------------------------------------------------------------
+# _get_llm_semaphore / gather_all — parallel LLM fan-out plumbing
+# ---------------------------------------------------------------------------
+
+
+def test_semaphore_none_when_unlimited(monkeypatch):
+    monkeypatch.setattr(settings, "max_concurrent_llm_calls", 0, raising=False)
+    # limit <= 0 short-circuits before touching the running loop.
+    assert llm._get_llm_semaphore() is None
+
+
+def test_semaphore_is_singleton_per_loop(monkeypatch):
+    import asyncio
+
+    monkeypatch.setattr(settings, "max_concurrent_llm_calls", 3, raising=False)
+
+    async def main():
+        a = llm._get_llm_semaphore()
+        b = llm._get_llm_semaphore()
+        return a, b
+
+    a, b = asyncio.run(main())
+    assert a is b
+    assert a._value == 3  # initialized from the setting
+
+
+def test_gather_all_preserves_order_and_runs_all_on_failure():
+    import asyncio
+
+    completed: list[int] = []
+
+    async def ok(i):
+        await asyncio.sleep(0.01 * (3 - i))  # later coros finish first without order guarantee
+        completed.append(i)
+        return i
+
+    async def boom():
+        await asyncio.sleep(0.005)
+        completed.append(-1)
+        raise RuntimeError("fragment failed")
+
+    # Order is preserved despite reversed completion times.
+    assert asyncio.run(llm.gather_all([ok(0), ok(1), ok(2)])) == [0, 1, 2]
+
+    # On failure: every sibling still completes (no detached tasks), then the error re-raises.
+    completed.clear()
+
+    async def failing():
+        await llm.gather_all([ok(0), boom(), ok(2)])
+
+    with pytest.raises(RuntimeError, match="fragment failed"):
+        asyncio.run(failing())
+    assert set(completed) == {0, -1, 2}

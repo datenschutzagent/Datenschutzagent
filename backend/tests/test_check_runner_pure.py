@@ -436,3 +436,93 @@ class TestRagInjectionHardening:
         assert "<<<USER_CONTENT_BEGIN>>>" in captured["user_content"]
         assert "[BLOCKED_MARKER_BEGIN]" in captured["user_content"]
         assert "[BLOCKED_MARKER_BEGIN]" not in captured["source_text"]
+
+
+# ---------------------------------------------------------------------------
+# Parallel map-reduce fragments + self-consistency samples
+# ---------------------------------------------------------------------------
+
+
+class TestParallelFanOut:
+    @pytest.fixture
+    def _no_templates(self, monkeypatch):
+        from app.services import check_runner as cr
+
+        async def _none(_key):
+            return None
+
+        monkeypatch.setattr(cr, "get_active_template", _none)
+        monkeypatch.setattr(settings, "max_context_chars_per_doc", 300, raising=False)
+        monkeypatch.setattr(settings, "long_doc_map_reduce_enabled", True, raising=False)
+        monkeypatch.setattr(settings, "long_doc_max_chunks", 4, raising=False)
+
+    @pytest.mark.anyio
+    async def test_map_reduce_fragments_run_concurrently_in_window_order(self, monkeypatch, _no_templates):
+        import asyncio
+
+        from app.services import check_runner as cr
+
+        events: list[str] = []
+        seen_sources: list[str] = []
+
+        async def _fake_call(**kwargs):
+            events.append("start")
+            seen_sources.append(kwargs["source_text"])
+            await asyncio.sleep(0.02)
+            events.append("end")
+            return _mk(True)
+
+        monkeypatch.setattr(cr, "_llm_check_call", _fake_call)
+        text = " ".join(f"Satz Nummer {i} über die Verarbeitung personenbezogener Daten." for i in range(60))
+        out = await cr.run_check(text, "Anforderung", language="de")
+        assert out.is_compliant is True
+        # At least two fragments, and every start precedes the first end → concurrent execution.
+        assert events.count("start") >= 2
+        assert events[: events.count("start")] == ["start"] * events.count("start")
+        # gather preserves window order: sources arrive in document order.
+        assert seen_sources == sorted(seen_sources, key=text.index)
+
+    @pytest.mark.anyio
+    async def test_map_reduce_propagates_fragment_failure(self, monkeypatch, _no_templates):
+        import asyncio
+
+        from app.services import check_runner as cr
+
+        calls = {"n": 0}
+
+        async def _fail_second(**kwargs):
+            calls["n"] += 1
+            my_index = calls["n"]  # read before awaiting — siblings increment concurrently
+            await asyncio.sleep(0.01)
+            if my_index == 2:
+                raise RuntimeError("provider down")
+            return _mk(True)
+
+        monkeypatch.setattr(cr, "_llm_check_call", _fail_second)
+        text = " ".join(f"Satz Nummer {i} über die Verarbeitung personenbezogener Daten." for i in range(60))
+        with pytest.raises(RuntimeError, match="provider down"):
+            await cr.run_check(text, "Anforderung", language="de")
+
+    @pytest.mark.anyio
+    async def test_self_consistency_samples_run_concurrently(self, monkeypatch):
+        import asyncio
+
+        from app.services import check_runner as cr
+
+        monkeypatch.setattr(settings, "llm_self_consistency_n", 3, raising=False)
+        monkeypatch.setattr(settings, "llm_cache_enabled", False, raising=False)
+        monkeypatch.setattr(cr, "create_agent", lambda **_k: object())
+        events: list[str] = []
+
+        async def _fake_retry(agent, user_content, output_type, request_id=""):
+            events.append("start")
+            await asyncio.sleep(0.02)
+            events.append("end")
+            return SimpleNamespace(output=_mk(True))
+
+        monkeypatch.setattr(cr, "llm_retry_call", _fake_retry)
+        out = await cr._llm_check_call(
+            system="s", user_content="u", source_text="", case_id=None, playbook_revision="", label="l"
+        )
+        assert out.is_compliant is True
+        assert events[:3] == ["start", "start", "start"]  # all samples in flight together

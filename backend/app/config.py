@@ -201,9 +201,11 @@ class Settings(BaseSettings):
     evidence_grounding_enabled: bool = True
     evidence_grounding_threshold: float = 0.85  # fuzzy-match ratio to count a quote as grounded
 
-    # Maximale Anzahl gleichzeitiger LLM-Anfragen pro run_checks-Job.
-    # Verhindert Überlastung von Ollama und Rate-Limit-Fehler bei OpenAI/Anthropic.
-    # 0 = kein Limit (nicht empfohlen für lokales Ollama).
+    # Maximale Anzahl gleichzeitiger LLM-Anfragen. Global pro Event-Loop (FastAPI-Worker bzw.
+    # Celery-Task) in llm_retry_call durchgesetzt — deckt damit auch verschachtelte Parallelität
+    # (Map-Reduce-Fragmente, Self-Consistency-Samples, VVT-Fragmente) ab, zusätzlich zum
+    # Per-Job-Semaphor in run_checks. Verhindert Überlastung von Ollama und Rate-Limit-Fehler
+    # bei OpenAI/Anthropic. 0 = kein Limit (nicht empfohlen für lokales Ollama).
     max_concurrent_llm_calls: int = 2
 
     # Timeout per LLM HTTP request (seconds). Applies to all providers (Ollama, OpenAI, Anthropic).
