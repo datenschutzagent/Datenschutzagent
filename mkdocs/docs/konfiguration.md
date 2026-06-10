@@ -18,6 +18,9 @@ Die Anwendung wird über Umgebungsvariablen konfiguriert. Im Projektroot liegt e
 | :--- | :--- |
 | `LLM_PROVIDER` | Aktiver Provider: `ollama` (Standard) \| `openai` \| `anthropic` \| `openai_compatible`. |
 | `LLM_STRUCTURED_OUTPUT_MODE` | Wie das Output-Schema durchgesetzt wird: `tool` (Standard; Tool-Calling), `native` (JSON-Schema-`response_format` → constrained decoding; empfohlen für lokale Server wie vLLM/llama.cpp/Ollama) oder `prompted` (Schema nur im Prompt). Bei Anthropic wird `native` ignoriert. |
+| `MAX_CONCURRENT_LLM_CALLS` | Maximale Anzahl gleichzeitiger LLM-Anfragen, global pro Worker-Prozess/Task durchgesetzt — inkl. paralleler Map-Reduce-Fragmente und Self-Consistency-Samples. `0` = unbegrenzt. Standard: 2. |
+| `LLM_CONTEXT_TOKEN_BUDGET` | Optionales Token-Budget (Heuristik). `> 0`: überschreibt alle `MAX_CONTEXT_CHARS_*`-Limits einheitlich mit Budget × `LLM_CHARS_PER_TOKEN`. `0` (Standard) = Zeichen-Limits gelten unverändert. |
+| `LLM_CHARS_PER_TOKEN` | Heuristisches Zeichen-pro-Token-Verhältnis (Standard 3.5 für Deutsch, ≈4 für Englisch). |
 
 ### Ollama (`LLM_PROVIDER=ollama`)
 

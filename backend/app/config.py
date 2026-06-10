@@ -153,6 +153,15 @@ class Settings(BaseSettings):
     max_context_chars_rag: int = 20000       # assembled RAG context limit
     max_context_chars_vvt: int = 25000       # VVT/ROPA normalization context limit (higher because ROPA docs can be large)
 
+    # Optional token-based context budget (heuristic, no tokenizer dependency).
+    # > 0: ALL three max_context_chars_* limits are overridden by ONE derived character limit
+    #      (budget × llm_chars_per_token) — useful to match the context window of local
+    #      vLLM/llama.cpp models, where overflow is silently truncated.
+    # 0 (default): legacy character limits above apply unchanged.
+    llm_context_token_budget: int = 0
+    # Heuristic characters per token: ~3.5 for German prose, ~4 for English. Must be > 0.
+    llm_chars_per_token: float = 3.5
+
     # LLM sampling / structured-output behaviour.
     # temperature=0.0 makes extraction and compliance verdicts deterministic and reproducible
     # (the single biggest lever for stable, higher-quality structured output).
@@ -461,6 +470,13 @@ class Settings(BaseSettings):
                 "(Passwort ggf. URL-encoden oder ein hex-Passwort verwenden). "
                 f"Aktuell (redacted): {safe}. Fehler: {exc}"
             ) from exc
+        return self
+
+    @model_validator(mode="after")
+    def _validate_chars_per_token(self) -> Settings:
+        """llm_chars_per_token must be positive — it divides character lengths."""
+        if self.llm_chars_per_token <= 0:
+            raise ValueError("LLM_CHARS_PER_TOKEN must be > 0 (heuristic characters per token).")
         return self
 
     @model_validator(mode="after")

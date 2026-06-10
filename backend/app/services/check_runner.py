@@ -18,6 +18,7 @@ from app.core.prompt_security import (
     wrap_untrusted_content,
 )
 from app.core.request_id import get_request_id
+from app.core.tokens import effective_context_chars
 from app.models.schemas import FindingSeverityEnum
 from app.services.document_processor import detect_language
 from app.services.prompt_template_service import get_active_template, render
@@ -249,13 +250,13 @@ async def _cache_set(key: str, result: CheckResult) -> None:
         logger.warning("LLM cache SET failed: %s", exc, extra={"cache_key": key})
 
 def _context_chars_per_doc() -> int:
-    """Return configured per-document character limit for LLM context."""
-    return getattr(settings, "max_context_chars_per_doc", 15000)
+    """Per-document character limit for LLM context (honors the optional token budget)."""
+    return effective_context_chars("per_doc")
 
 
 def _rag_context_chars() -> int:
-    """Return configured RAG context character limit."""
-    return getattr(settings, "max_context_chars_rag", 20000)
+    """RAG context character limit (honors the optional token budget)."""
+    return effective_context_chars("rag")
 
 
 

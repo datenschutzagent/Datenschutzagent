@@ -20,6 +20,7 @@ from app.config import settings
 from app.core.grounding import grounding_ratio, partition_grounded
 from app.core.llm import create_agent, gather_all, llm_retry_call
 from app.core.prompt_security import sanitize_prompt_field
+from app.core.tokens import effective_context_chars
 from app.services.document_processor import detect_language
 from app.services.org_profile_loader import DEFAULT_VVT_FIELD_NAMES, get_vvt_field_names
 from app.services.prompt_template_service import get_active_template, render
@@ -372,7 +373,7 @@ async def normalize_vvt(
     system_tpl = await get_active_template("vvt_system")
     system = render(system_tpl or DEFAULT_VVT_SYSTEM, {"language_hint": language_hint})
     user_tpl = await get_active_template("vvt_user")
-    vvt_limit = getattr(settings, "max_context_chars_vvt", 25000)
+    vvt_limit = effective_context_chars("vvt")
     field_list = ", ".join(f'"{n}"' for n in canonical_fields)
     raw = raw_text or ""
 
