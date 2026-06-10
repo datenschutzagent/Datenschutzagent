@@ -293,6 +293,96 @@ class TestImageUpload:
         assert isinstance(result, ExtractionResult)
 
 
+def _make_encrypted_pdf_bytes() -> bytes:
+    """Build a password-protected (AES-256) PDF that requires a user password to read."""
+    import fitz
+
+    doc = fitz.open()
+    page = doc.new_page()
+    page.insert_text((72, 72), "Vertraulicher Inhalt")
+    out = doc.tobytes(
+        encryption=fitz.PDF_ENCRYPT_AES_256,
+        user_pw="secret",
+        owner_pw="owner",
+    )
+    doc.close()
+    return out
+
+
+def _make_image_heavy_pdf_bytes() -> bytes:
+    """Build a PDF page that is mostly a scanned-style image with only a tiny header text."""
+    import fitz
+
+    doc = fitz.open()
+    page = doc.new_page()
+    pix = fitz.Pixmap(fitz.csRGB, fitz.IRect(0, 0, 400, 520), False)
+    pix.clear_with(220)
+    page.insert_image(page.rect, pixmap=pix)
+    page.insert_text((72, 18), "Kopfzeile Az. DS-1")  # short digital text → not 'sparse' by chars
+    out = doc.tobytes()
+    doc.close()
+    return out
+
+
+class TestEncryptedPdf:
+    """A3: password-protected PDFs raise a clear error instead of yielding empty text."""
+
+    def test_encrypted_pdf_raises(self):
+        with pytest.raises(dp.UnsupportedDocumentError):
+            dp.extract_text_from_pdf(_make_encrypted_pdf_bytes())
+
+
+class TestImageHeavyPages:
+    """A2: pages dominated by an image but with a little digital text are OCR candidates."""
+
+    def test_image_heavy_page_detected(self):
+        import fitz
+
+        with fitz.open(stream=_make_image_heavy_pdf_bytes(), filetype="pdf") as doc:
+            assert dp._image_heavy_pages(doc) == {0}
+
+    def test_text_page_not_flagged(self):
+        import fitz
+
+        doc = fitz.open()
+        page = doc.new_page()
+        page.insert_text((72, 72), "Ausführlicher Fließtext " * 40)  # plenty of digital text
+        data = doc.tobytes()
+        doc.close()
+        with fitz.open(stream=data, filetype="pdf") as reopened:
+            assert dp._image_heavy_pages(reopened) == set()
+
+    def test_disabled_via_threshold(self, monkeypatch):
+        import fitz
+
+        monkeypatch.setattr(dp.settings, "ocr_image_area_threshold", 1.0, raising=False)
+        with fitz.open(stream=_make_image_heavy_pdf_bytes(), filetype="pdf") as doc:
+            assert dp._image_heavy_pages(doc) == set()
+
+
+class TestDetectLanguage:
+    """A4: lightweight DE/EN language detection for the LLM language hint."""
+
+    def test_german_text(self):
+        text = (
+            "Die Verarbeitung der personenbezogenen Daten erfolgt zur Lohnabrechnung und wird "
+            "auf Grundlage der gesetzlichen Vorgaben durchgeführt, damit die Fristen eingehalten werden."
+        )
+        assert dp.detect_language(text) == "de"
+
+    def test_english_text(self):
+        text = (
+            "The processing of the personal data is carried out for payroll purposes and shall "
+            "be based on the legal requirements so that the retention periods are not exceeded."
+        )
+        assert dp.detect_language(text) == "en"
+
+    def test_too_short_returns_none(self):
+        assert dp.detect_language("Lohn") is None
+        assert dp.detect_language("") is None
+        assert dp.detect_language(None) is None
+
+
 class TestImageMagicBytes:
     """A4: magic-byte validation accepts real image headers and rejects mismatches."""
 

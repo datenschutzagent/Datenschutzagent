@@ -12,6 +12,7 @@ Goals beyond plain text dumping:
 import base64
 import io
 import logging
+import re
 import shutil
 import subprocess
 import tempfile
@@ -129,50 +130,144 @@ def _pdf_markdown_pages(content: bytes) -> list[str] | None:
 def _ocr_pages(content: bytes, page_indices: list[int]) -> dict[int, str]:
     """OCR the given PDF pages concurrently via Ollama Vision. Returns {page_index: text}.
 
-    Each page is retried up to ``ocr_retry_attempts`` times on a transient error or an empty
-    response (with a short backoff) instead of silently losing the page on the first hiccup.
-    OCR runs at temperature 0 for reproducible output.
+    Each page is retried up to ``ocr_retry_attempts`` times on a transient error or a near-empty
+    response (with a short backoff) instead of silently losing the page on the first hiccup. The
+    retry render DPI is escalated from ``ocr_dpi`` toward ``ocr_max_dpi`` across attempts, so an
+    under-resolved scan gets a sharper image rather than the same blurry one again. The most
+    complete recovery across attempts is kept (best-effort). OCR runs at temperature 0 for
+    reproducible output.
     """
     chat_url = _ollama_chat_api_url()
     timeout = httpx.Timeout(settings.ollama_timeout_seconds, connect=10.0)
-    dpi = getattr(settings, "ocr_dpi", 150)
+    base_dpi = getattr(settings, "ocr_dpi", 300)
+    max_dpi = max(base_dpi, getattr(settings, "ocr_max_dpi", 400))
+    min_chars = getattr(settings, "ocr_min_chars_per_page", 50)
     concurrency = max(1, getattr(settings, "ocr_concurrency", 4))
     attempts = max(1, getattr(settings, "ocr_retry_attempts", 2))
 
+    def _dpi_for_attempt(attempt: int) -> int:
+        """Configured DPI on the first attempt; linearly escalate toward max_dpi on later ones."""
+        if attempts <= 1 or base_dpi >= max_dpi:
+            return base_dpi
+        step = (max_dpi - base_dpi) / (attempts - 1)
+        return int(round(base_dpi + step * (attempt - 1)))
+
     def _ocr_one(i: int) -> tuple[int, str]:
-        png_bytes = _pdf_page_to_png_bytes(content, i, dpi=dpi)
-        payload = {
-            "model": settings.ollama_ocr_model,
-            "messages": [
-                {
-                    "role": "user",
-                    "content": OCR_PROMPT,
-                    "images": [base64.b64encode(png_bytes).decode()],
-                }
-            ],
-            "stream": False,
-            "options": {"temperature": 0},
-        }
+        best = ""
         for attempt in range(1, attempts + 1):
+            dpi = _dpi_for_attempt(attempt)
             try:
+                png_bytes = _pdf_page_to_png_bytes(content, i, dpi=dpi)
+                payload = {
+                    "model": settings.ollama_ocr_model,
+                    "messages": [
+                        {
+                            "role": "user",
+                            "content": OCR_PROMPT,
+                            "images": [base64.b64encode(png_bytes).decode()],
+                        }
+                    ],
+                    "stream": False,
+                    "options": {"temperature": 0},
+                }
                 resp = httpx.post(chat_url, json=payload, timeout=timeout)
                 resp.raise_for_status()
                 data = resp.json()
                 text = ((data.get("message") or {}).get("content") or "").strip()
-                if text:
+                if len(text) > len(best):
+                    best = text  # keep the most complete recovery across attempts
+                if len(text.strip()) >= min_chars:
                     return i, text
-                logger.warning("Ollama OCR returned empty text for page %s (attempt %d/%d)", i + 1, attempt, attempts)
+                logger.warning(
+                    "Ollama OCR recovered little text for page %s at %d DPI (attempt %d/%d)",
+                    i + 1, dpi, attempt, attempts,
+                )
             except Exception as exc:
                 logger.warning("Ollama OCR failed for page %s (attempt %d/%d): %s", i + 1, attempt, attempts, exc)
             if attempt < attempts:
                 time.sleep(attempt)  # simple linear backoff: 1s, 2s, ...
-        return i, ""
+        return i, best
 
     results: dict[int, str] = {}
     with ThreadPoolExecutor(max_workers=concurrency) as pool:
         for i, text in pool.map(_ocr_one, page_indices):
             results[i] = text
     return results
+
+
+def _image_heavy_pages(doc) -> set[int]:
+    """Return indices of pages dominated by a scanned image but carrying little digital text.
+
+    Such pages are not "sparse" by character count (a running header/footer often supplies enough
+    text to clear ``ocr_min_chars_per_page``), yet their body is an image whose content would be
+    lost without OCR. A page qualifies when an embedded image covers at least
+    ``ocr_image_area_threshold`` of the page area while the digital text stays below
+    ``ocr_image_heavy_max_chars``. Returns an empty set when the heuristic is disabled
+    (threshold >= 1.0).
+    """
+    area_threshold = getattr(settings, "ocr_image_area_threshold", 0.5)
+    max_chars = getattr(settings, "ocr_image_heavy_max_chars", 300)
+    if area_threshold >= 1.0:
+        return set()
+    flagged: set[int] = set()
+    for i in range(len(doc)):
+        page = doc[i]
+        if len((page.get_text() or "").strip()) >= max_chars:
+            continue
+        page_area = abs(page.rect.width * page.rect.height)
+        if page_area <= 0:
+            continue
+        try:
+            infos = page.get_image_info()
+        except Exception as exc:  # never let image probing break extraction
+            logger.debug("Image-info probe failed on page %s: %s", i + 1, exc)
+            continue
+        max_frac = 0.0
+        for info in infos:
+            bbox = info.get("bbox")
+            if not bbox:
+                continue
+            w = max(0.0, bbox[2] - bbox[0])
+            h = max(0.0, bbox[3] - bbox[1])
+            max_frac = max(max_frac, (w * h) / page_area)
+        if max_frac >= area_threshold:
+            flagged.add(i)
+    return flagged
+
+
+# Stop-word sets for the lightweight DE/EN language heuristic (deliberately non-overlapping so the
+# two languages give a clean signal). Not a full language identifier — just enough to pick the LLM
+# language hint when the caller did not specify one.
+_DE_STOPWORDS = frozenset(
+    {"der", "die", "das", "und", "ist", "nicht", "werden", "wird", "für", "mit", "auch",
+     "sich", "eine", "einer", "von", "den", "dem", "des", "im", "zur", "zum", "bei", "durch"}
+)
+_EN_STOPWORDS = frozenset(
+    {"the", "and", "are", "with", "for", "this", "that", "from", "have", "will", "not",
+     "shall", "been", "their", "which", "such", "any", "into", "data", "processing"}
+)
+
+
+def detect_language(text: str | None) -> str | None:
+    """Best-effort DE/EN detection via stop-word frequency. Returns "de", "en", or None.
+
+    Lightweight (no extra dependency); used to set the LLM language hint when the caller did not
+    specify a language. Returns None when the text is too short or the signal too weak to decide.
+    """
+    if not text:
+        return None
+    words = re.findall(r"[a-zäöüß]+", text.lower())
+    if len(words) < 20:
+        return None
+    de = sum(1 for w in words if w in _DE_STOPWORDS)
+    en = sum(1 for w in words if w in _EN_STOPWORDS)
+    if de == 0 and en == 0:
+        return None
+    if de >= en * 1.2:
+        return "de"
+    if en >= de * 1.2:
+        return "en"
+    return None
 
 
 def extract_text_from_pdf(content: bytes) -> ExtractionResult:
@@ -184,14 +279,26 @@ def extract_text_from_pdf(content: bytes) -> ExtractionResult:
     digital pages; fully digital PDFs skip OCR entirely.
     """
     with fitz.open(stream=content, filetype="pdf") as doc:
+        # Password-protected/encrypted PDFs yield empty text silently — surface a clear error
+        # instead so the upload is flagged rather than stored as an empty extraction.
+        if doc.needs_pass:
+            raise UnsupportedDocumentError(
+                "Die PDF ist passwortgeschützt/verschlüsselt und kann nicht ausgelesen werden. "
+                "Bitte ein entsperrtes PDF hochladen."
+            )
         num_pages = len(doc)
         page_digital = [doc[i].get_text() for i in range(num_pages)]
+        # Pages that are mostly a scanned image but carry a little digital text are not "sparse"
+        # by char count, yet need OCR — detect them while the document is open.
+        image_heavy = _image_heavy_pages(doc) if settings.ollama_ocr_enabled else set()
 
     if num_pages == 0:
         return ExtractionResult(text="", extraction_method=EXTRACTION_METHOD_TEXT)
 
     min_chars = settings.ocr_min_chars_per_page
-    sparse_pages = [i for i, t in enumerate(page_digital) if len((t or "").strip()) < min_chars]
+    sparse_pages = sorted(
+        {i for i, t in enumerate(page_digital) if len((t or "").strip()) < min_chars} | image_heavy
+    )
 
     # No OCR needed (or disabled): return full-document Markdown.
     if not settings.ollama_ocr_enabled or not sparse_pages:

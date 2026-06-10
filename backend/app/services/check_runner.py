@@ -19,6 +19,7 @@ from app.core.prompt_security import (
 )
 from app.core.request_id import get_request_id
 from app.models.schemas import FindingSeverityEnum
+from app.services.document_processor import detect_language
 from app.services.prompt_template_service import get_active_template, render
 from app.services.weaviate_service import chunk_text, truncate_sentence_aware
 
@@ -428,6 +429,9 @@ async def run_check(
     fragments (map-reduce) and the results are aggregated, instead of silently truncating to
     the first N characters (which can hide non-compliance beyond the cut-off).
     """
+    # Auto-detect the document language when the caller did not specify one, so the LLM is asked to
+    # evaluate/respond in the document's language instead of defaulting to German.
+    language = language or detect_language(document_text)
     language_hint = _language_hint(language) if language else ""
     system_tpl = await get_active_template("check_full_text_document_system")
     system = render(system_tpl or DEFAULT_CHECK_FULL_TEXT_DOCUMENT_SYSTEM, {"language_hint": language_hint})
@@ -508,6 +512,8 @@ async def run_cross_document_check(
     documents: list of (document_id, extracted_text). Findings from this check
     are persisted with document_id=None.
     """
+    if not language and documents:
+        language = detect_language(documents[0][1])
     language_hint = _language_hint(language) if language else ""
     system_tpl = await get_active_template("check_full_text_cross_system")
     system = render(system_tpl or DEFAULT_CHECK_FULL_TEXT_CROSS_SYSTEM, {"language_hint": language_hint})

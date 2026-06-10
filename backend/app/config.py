@@ -214,7 +214,19 @@ class Settings(BaseSettings):
     ollama_ocr_model: str = "qwen2.5-vl"
     ollama_ocr_enabled: bool = True
     ocr_min_chars_per_page: int = 50  # below this avg chars/page → use OCR fallback
-    ocr_dpi: int = 150  # resolution for PDF page images sent to vision model
+    # Resolution for PDF page images sent to the vision model. ~300 DPI is the established OCR
+    # standard; 150 noticeably degrades recognition of small print and stamps on scans.
+    ocr_dpi: int = 300
+    # When a page recovers almost no text on the first OCR pass, it is re-rendered at a higher DPI
+    # (capped here) and re-OCR'd — cheap insurance against under-resolved scans.
+    ocr_max_dpi: int = 400
+    # Image-heavy page detection: a page that is mostly a scanned image but carries a little digital
+    # text (e.g. a running header/footer) is NOT "sparse" by char count, yet its body is lost without
+    # OCR. Such a page becomes an OCR candidate when an embedded image covers at least
+    # ``ocr_image_area_threshold`` of the page area and the digital text stays below
+    # ``ocr_image_heavy_max_chars``. Set the threshold to 1.0 to disable this heuristic.
+    ocr_image_area_threshold: float = 0.5
+    ocr_image_heavy_max_chars: int = 300
     ocr_max_pages: int = 200  # max pages to process with OCR (prevents memory exhaustion)
     # Per-page OCR: decide page-by-page whether to OCR (handles mixed PDFs with both digital
     # and scanned pages) instead of an all-or-nothing per-document decision.
