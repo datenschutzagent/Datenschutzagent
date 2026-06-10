@@ -49,3 +49,7 @@ jobs:
         working-directory: backend
       - run: python -m pytest tests/ -v
         working-directory: backend
+      # Quality gate: offline extraction/grounding evals (no LLM provider needed). Exits non-zero
+      # when any evaluator's mean score falls below its threshold (see evals/run.py).
+      - run: python -m evals.run
+        working-directory: backend

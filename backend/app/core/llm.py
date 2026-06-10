@@ -183,13 +183,13 @@ async def aclose_ollama_http_client() -> None:
     _ollama_http_client = None
 
 
-def get_ollama_model() -> OpenAIChatModel:
+def get_ollama_model(model_name: str | None = None) -> OpenAIChatModel:
     """Get configured Ollama model (OpenAI-compatible API) via Pydantic AI OpenAIChatModel."""
     provider = OpenAIProvider(base_url=_ollama_base_url(), http_client=_get_ollama_http_client())
-    return OpenAIChatModel(settings.ollama_model, provider=provider)
+    return OpenAIChatModel(model_name or settings.ollama_model, provider=provider)
 
 
-def get_openai_model() -> OpenAIChatModel:
+def get_openai_model(model_name: str | None = None) -> OpenAIChatModel:
     """Get configured OpenAI model via Pydantic AI OpenAIChatModel."""
     api_key = settings.openai_api_key.get_secret_value()
     if not api_key:
@@ -198,10 +198,10 @@ def get_openai_model() -> OpenAIChatModel:
             "Bitte in der .env-Datei setzen."
         )
     provider = OpenAIProvider(api_key=api_key)
-    return OpenAIChatModel(settings.openai_model, provider=provider)
+    return OpenAIChatModel(model_name or settings.openai_model, provider=provider)
 
 
-def get_anthropic_model():
+def get_anthropic_model(model_name: str | None = None):
     """Get configured Anthropic model via Pydantic AI AnthropicModel.
 
     Requires the 'anthropic' package: pip install anthropic
@@ -216,26 +216,34 @@ def get_anthropic_model():
         from pydantic_ai.models.anthropic import AnthropicModel
         from pydantic_ai.providers.anthropic import AnthropicProvider
         provider = AnthropicProvider(api_key=api_key)
-        return AnthropicModel(settings.anthropic_model, provider=provider)
+        return AnthropicModel(model_name or settings.anthropic_model, provider=provider)
     except ImportError as exc:
         raise RuntimeError(
             "LLM_PROVIDER=anthropic erfordert das 'anthropic'-Package: pip install anthropic"
         ) from exc
 
 
-def get_active_model():
-    """Return the currently configured LLM model based on LLM_PROVIDER setting."""
+def _analysis_model_name() -> str | None:
+    """Override model id for complex analyses, or None to use the provider default."""
+    name = (getattr(settings, "llm_analysis_model", "") or "").strip()
+    return name or None
+
+
+def get_active_model(model_name: str | None = None):
+    """Return the configured LLM model based on LLM_PROVIDER, optionally overriding the model id."""
     provider = settings.llm_provider.lower()
     if provider == "openai":
-        return get_openai_model()
+        return get_openai_model(model_name)
     if provider == "anthropic":
-        return get_anthropic_model()
+        return get_anthropic_model(model_name)
     # Default: Ollama
-    return get_ollama_model()
+    return get_ollama_model(model_name)
 
 
-def get_active_model_name() -> str:
+def get_active_model_name(*, analysis: bool = False) -> str:
     """Return the configured model identifier for the active provider (for logging/metrics)."""
+    if analysis and _analysis_model_name():
+        return _analysis_model_name()
     provider = settings.llm_provider.lower()
     if provider == "openai":
         return settings.openai_model
@@ -244,11 +252,23 @@ def get_active_model_name() -> str:
     return settings.ollama_model
 
 
-def default_model_settings() -> ModelSettings:
-    """Build ModelSettings from config: temperature (default 0.0 = deterministic) + optional max_tokens."""
-    kwargs: dict = {"temperature": settings.llm_temperature}
+def default_model_settings(*, temperature: float | None = None) -> ModelSettings:
+    """Build ModelSettings from config: temperature (default 0.0 = deterministic) + optional max_tokens.
+
+    When the active provider is Anthropic and ``anthropic_prompt_caching`` is enabled, a cache
+    breakpoint is placed on the system prompt/instructions so the large, repeated check prompt is
+    served from Anthropic's prompt cache on subsequent calls (lower cost + latency).
+    """
+    kwargs: dict = {"temperature": settings.llm_temperature if temperature is None else temperature}
     if settings.llm_max_tokens:
         kwargs["max_tokens"] = settings.llm_max_tokens
+    if settings.llm_provider.lower() == "anthropic" and getattr(settings, "anthropic_prompt_caching", True):
+        try:
+            from pydantic_ai.models.anthropic import AnthropicModelSettings
+
+            return AnthropicModelSettings(anthropic_cache_instructions=True, **kwargs)
+        except Exception as exc:  # pragma: no cover - depends on optional 'anthropic' extra
+            logger.debug("Anthropic prompt caching unavailable, using plain ModelSettings: %s", exc)
     return ModelSettings(**kwargs)
 
 
@@ -258,6 +278,8 @@ def create_agent(
     output_validator: Callable | None = None,
     output_retries: int | None = None,
     model_settings: ModelSettings | None = None,
+    analysis: bool = False,
+    temperature: float | None = None,
 ) -> Agent:
     """Create a new PydanticAI agent with the given system prompt using the active provider.
 
@@ -269,11 +291,16 @@ def create_agent(
             Defaults to settings.llm_output_retries.
         model_settings: Override sampling settings; defaults to default_model_settings()
             (temperature from settings.llm_temperature, deterministic by default).
+        analysis: Use the optional ``llm_analysis_model`` (stronger model for complex analyses
+            like VVT/DSFA/AVV) when configured; otherwise the provider default model.
+        temperature: Override the sampling temperature (e.g. for self-consistency sampling).
+            Ignored when an explicit ``model_settings`` is passed.
     """
+    model_name = _analysis_model_name() if analysis else None
     agent = Agent(
-        model=get_active_model(),
+        model=get_active_model(model_name),
         system_prompt=system_prompt,
-        model_settings=model_settings or default_model_settings(),
+        model_settings=model_settings or default_model_settings(temperature=temperature),
         output_retries=output_retries if output_retries is not None else settings.llm_output_retries,
     )
     if output_validator is not None:

@@ -13,6 +13,7 @@ from app.services.check_runner import (
     CONTEXT_CHARS_PER_DOC,
     CheckResult,
     _aggregate_check_results,
+    _aggregate_self_consistency,
     _apply_grounding,
     _build_context_windows,
     _cache_key,
@@ -331,3 +332,42 @@ def test_cache_key_revision_isolated_per_playbook():
     key_a = _cache_key("sys", "user", case, playbook_revision=f"{uuid4()}:1.0")
     key_b = _cache_key("sys", "user", case, playbook_revision=f"{uuid4()}:1.0")
     assert key_a != key_b
+
+
+# ---------------------------------------------------------------------------
+# Self-consistency aggregation (B4)
+# ---------------------------------------------------------------------------
+
+
+def test_self_consistency_single_sample_returned_as_is():
+    r = _mk(False, severity="high", confidence=0.9)
+    assert _aggregate_self_consistency([r]) is r
+
+
+def test_self_consistency_majority_non_compliant():
+    # 2 non-compliant vs 1 compliant → non-compliant wins; representative = highest-conf non-compliant;
+    # confidence capped by agreement (2/3).
+    samples = [
+        _mk(False, severity="high", confidence=0.6),
+        _mk(False, severity="medium", confidence=0.8),
+        _mk(True, confidence=0.95),
+    ]
+    out = _aggregate_self_consistency(samples)
+    assert out.is_compliant is False
+    assert out.severity == "medium"  # the 0.8-confidence non-compliant sample
+    assert out.confidence == 0.67
+
+
+def test_self_consistency_majority_compliant():
+    samples = [_mk(True, confidence=0.7), _mk(True, confidence=0.9), _mk(False, severity="low", confidence=0.8)]
+    out = _aggregate_self_consistency(samples)
+    assert out.is_compliant is True
+    assert out.confidence == round(min(0.9, 2 / 3), 2)
+
+
+def test_self_consistency_tie_prefers_non_compliant():
+    # 1 vs 1: strict auditor — the non-compliant verdict wins on a tie.
+    samples = [_mk(True, confidence=0.9), _mk(False, severity="critical", confidence=0.5)]
+    out = _aggregate_self_consistency(samples)
+    assert out.is_compliant is False
+    assert out.severity == "critical"

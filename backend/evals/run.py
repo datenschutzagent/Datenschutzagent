@@ -25,6 +25,10 @@ THRESHOLDS: dict[str, float] = {
     "GroundingF1": 0.9,
     "VVTFieldRecall": 0.6,        # LLM-backed; looser because it depends on the model
     "CheckEvidenceGrounded": 0.8,
+    "CheckVerdictAccuracy": 0.7,        # LLM-backed; right compliant/non-compliant verdict
+    "CheckSeverityCloseness": 0.6,      # LLM-backed; severity near the expected rank
+    "CheckConfidenceCalibration": 0.5,  # LLM-backed; Brier-style, looser by nature
+    "OcrCharAccuracy": 0.8,             # OCR-backed (needs a vision model; --ocr)
 }
 
 
@@ -49,6 +53,7 @@ def _run(dataset: Dataset, task, *, show_table: bool = True) -> dict[str, float]
 def main() -> int:
     parser = argparse.ArgumentParser(description="Datenschutzagent quality evals")
     parser.add_argument("--llm", action="store_true", help="also run LLM-backed evals (needs provider + DB)")
+    parser.add_argument("--ocr", action="store_true", help="also run OCR-accuracy evals (needs a vision model)")
     parser.add_argument("--json", action="store_true", help="print a machine-readable summary")
     args = parser.parse_args()
 
@@ -64,6 +69,14 @@ def main() -> int:
             means.update(_run(llm_eval.build_dataset(), llm_eval.llm_task, show_table=show_table))
         except Exception as exc:  # pragma: no cover - environment-dependent
             print(f"[warn] LLM evals skipped: {exc}", file=sys.stderr)
+
+    if args.ocr:
+        try:
+            from evals import ocr_eval
+
+            means.update(_run(ocr_eval.build_dataset(), ocr_eval.ocr_task, show_table=show_table))
+        except Exception as exc:  # pragma: no cover - environment-dependent
+            print(f"[warn] OCR evals skipped: {exc}", file=sys.stderr)
 
     # Gate on thresholds.
     failures = {

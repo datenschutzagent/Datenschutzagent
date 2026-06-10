@@ -19,6 +19,7 @@ from app.core.prompt_security import (
 )
 from app.core.request_id import get_request_id
 from app.models.schemas import FindingSeverityEnum
+from app.services.document_processor import detect_language
 from app.services.prompt_template_service import get_active_template, render
 from app.services.weaviate_service import chunk_text, truncate_sentence_aware
 
@@ -109,7 +110,14 @@ CHECK_OUTPUT_GUIDANCE = (
     "For compliant results use severity 'info'.\n"
     "Evidence MUST be verbatim quotes copied from the provided document — never paraphrase or "
     "invent quotes. If you cannot quote supporting text, return an empty evidence list.\n"
-    "Set confidence (0.0-1.0) to reflect how certain you are given the available text."
+    "Set confidence (0.0-1.0) to reflect how certain you are given the available text.\n\n"
+    "Examples of the expected judgement (illustrative, not about the current document):\n"
+    "- Requirement 'must state a concrete retention period' + document says "
+    "'Speicherdauer: 10 Jahre gemäß HGB' → is_compliant=true, severity=info, "
+    "evidence=['Speicherdauer: 10 Jahre gemäß HGB'], confidence high.\n"
+    "- Same requirement but the document never mentions any retention/deletion period → "
+    "is_compliant=false, severity=high, evidence=[] (nothing to quote), recommendation states "
+    "that a concrete retention/deletion period must be added, confidence medium-high."
 )
 
 
@@ -388,6 +396,27 @@ def _aggregate_check_results(results: list[CheckResult]) -> CheckResult:
     )
 
 
+def _aggregate_self_consistency(results: list[CheckResult]) -> CheckResult:
+    """Majority-vote verdict across self-consistency samples; confidence reflects agreement.
+
+    The representative result is the highest-confidence sample on the winning (majority) side. On a
+    tie the strict-auditor outcome (non-compliant) wins, consistent with ``_aggregate_check_results``.
+    The reported confidence is capped by the agreement fraction, so split votes yield low confidence.
+    """
+    if len(results) == 1:
+        return results[0]
+    non_compliant = [r for r in results if not r.is_compliant]
+    compliant = [r for r in results if r.is_compliant]
+    if len(non_compliant) >= len(compliant) and non_compliant:
+        majority = non_compliant
+    else:
+        majority = compliant or non_compliant
+    rep = max(majority, key=lambda r: r.confidence)
+    agreement = len(majority) / len(results)
+    rep.confidence = round(min(rep.confidence, agreement), 2)
+    return rep
+
+
 async def _llm_check_call(
     *,
     system: str,
@@ -397,18 +426,42 @@ async def _llm_check_call(
     playbook_revision: str,
     label: str,
 ) -> CheckResult:
-    """Shared single check call: cache lookup → grounded LLM run → cache store."""
-    agent = create_agent(
-        system_prompt=system,
-        output_validator=_make_grounding_validator(source_text),
-    )
+    """Shared single check call: cache lookup → grounded LLM run(s) → cache store.
+
+    With ``llm_self_consistency_n > 1`` the model is sampled N times at
+    ``llm_self_consistency_temperature`` and the majority verdict is taken (variance reduction for
+    higher-stakes checks); otherwise a single deterministic sample is used.
+    """
     cache_key = _cache_key(system, user_content, case_id, playbook_revision)
     cached = await _cache_get(cache_key)
     if cached is not None:
         logger.info("LLM cache hit for check '%s'  [request_id=%s]", label[:60], get_request_id())
         return cached
-    result = await llm_retry_call(agent, user_content, output_type=CheckResult, request_id=get_request_id())
-    out = _apply_grounding(result.output, source_text)
+
+    n = max(1, getattr(settings, "llm_self_consistency_n", 1))
+    if n > 1:
+        temp = getattr(settings, "llm_self_consistency_temperature", 0.5)
+        agent = create_agent(
+            system_prompt=system,
+            output_validator=_make_grounding_validator(source_text),
+            temperature=temp,
+        )
+        samples: list[CheckResult] = []
+        for _ in range(n):
+            result = await llm_retry_call(agent, user_content, output_type=CheckResult, request_id=get_request_id())
+            samples.append(_apply_grounding(result.output, source_text))
+        out = _aggregate_self_consistency(samples)
+        logger.info(
+            "Self-consistency over %d samples for check '%s': compliant=%s confidence=%.2f  [request_id=%s]",
+            n, label[:60], out.is_compliant, out.confidence, get_request_id(),
+        )
+    else:
+        agent = create_agent(
+            system_prompt=system,
+            output_validator=_make_grounding_validator(source_text),
+        )
+        result = await llm_retry_call(agent, user_content, output_type=CheckResult, request_id=get_request_id())
+        out = _apply_grounding(result.output, source_text)
     await _cache_set(cache_key, out)
     return out
 
@@ -428,6 +481,9 @@ async def run_check(
     fragments (map-reduce) and the results are aggregated, instead of silently truncating to
     the first N characters (which can hide non-compliance beyond the cut-off).
     """
+    # Auto-detect the document language when the caller did not specify one, so the LLM is asked to
+    # evaluate/respond in the document's language instead of defaulting to German.
+    language = language or detect_language(document_text)
     language_hint = _language_hint(language) if language else ""
     system_tpl = await get_active_template("check_full_text_document_system")
     system = render(system_tpl or DEFAULT_CHECK_FULL_TEXT_DOCUMENT_SYSTEM, {"language_hint": language_hint})
@@ -508,6 +564,8 @@ async def run_cross_document_check(
     documents: list of (document_id, extracted_text). Findings from this check
     are persisted with document_id=None.
     """
+    if not language and documents:
+        language = detect_language(documents[0][1])
     language_hint = _language_hint(language) if language else ""
     system_tpl = await get_active_template("check_full_text_cross_system")
     system = render(system_tpl or DEFAULT_CHECK_FULL_TEXT_CROSS_SYSTEM, {"language_hint": language_hint})

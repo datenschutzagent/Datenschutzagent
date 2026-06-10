@@ -10,6 +10,7 @@ from pydantic import BaseModel, BeforeValidator, Field
 from app.config import settings
 from app.core.llm import create_agent, llm_retry_call
 from app.core.prompt_security import sanitize_prompt_field
+from app.services.document_processor import detect_language
 from app.services.org_profile_loader import DEFAULT_VVT_FIELD_NAMES, get_vvt_field_names
 from app.services.prompt_template_service import get_active_template, render
 from app.services.weaviate_service import truncate_sentence_aware
@@ -119,10 +120,12 @@ async def normalize_vvt(
                      Falls back to DEFAULT_VVT_FIELD_NAMES when None.
     """
     canonical_fields = field_names if field_names else list(DEFAULT_VVT_FIELD_NAMES)
+    language = language or detect_language(raw_text)
     language_hint = _vvt_language_hint(language) if language else ""
     system_tpl = await get_active_template("vvt_system")
     system = render(system_tpl or DEFAULT_VVT_SYSTEM, {"language_hint": language_hint})
-    agent = create_agent(system_prompt=system)
+    # VVT/ROPA normalization is a complex extraction → use the optional stronger analysis model.
+    agent = create_agent(system_prompt=system, analysis=True)
     vvt_limit = getattr(settings, "max_context_chars_vvt", 25000)
     raw = raw_text or ""
     truncated, was_truncated = truncate_sentence_aware(raw, vvt_limit)
