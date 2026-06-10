@@ -1,6 +1,8 @@
 """Pure unit tests for Settings validators (no DB, no SMTP needed)."""
 import logging
 
+import pytest
+
 from app.config import Settings
 
 
@@ -30,3 +32,22 @@ def test_no_timeout_warning_for_non_ollama_provider(caplog):
     Settings(llm_provider="openai", check_timeout_seconds=30.0, ollama_timeout_seconds=120.0)
     messages = [r.message for r in caplog.records if "timeout misconfiguration" in r.message.lower()]
     assert not messages
+
+
+def test_openai_compatible_requires_base_url():
+    with pytest.raises(ValueError, match="LLM_BASE_URL"):
+        Settings(llm_provider="openai_compatible", llm_model="qwen2.5-14b")
+
+
+def test_openai_compatible_requires_model():
+    with pytest.raises(ValueError, match="LLM_MODEL"):
+        Settings(llm_provider="openai_compatible", llm_base_url="http://localhost:8000/v1")
+
+
+def test_openai_compatible_accepts_base_url_and_model():
+    s = Settings(
+        llm_provider="openai_compatible",
+        llm_base_url="http://localhost:8080",
+        llm_model="Qwen/Qwen2.5-14B-Instruct",
+    )
+    assert s.llm_structured_output_mode == "tool"  # default keeps existing behaviour

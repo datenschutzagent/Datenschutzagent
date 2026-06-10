@@ -4,8 +4,9 @@ Goals beyond plain text dumping:
 - Preserve structure: PDFs are extracted as Markdown (layout/tables) via pymupdf4llm;
   DOCX tables and XLSX sheets are emitted as Markdown tables with column letters, so that
   downstream LLM evidence like "Sheet X, Spalte C, Zeile 12" stays meaningful.
-- Mixed scanned PDFs: decide per page whether to OCR (Ollama Vision), OCR'ing only the
-  sparse pages, in parallel.
+- Mixed scanned PDFs: decide per page whether to OCR (vision LLM via the OpenAI-compatible
+  chat-completions API — works against Ollama, vLLM and llama.cpp), OCR'ing only the sparse
+  pages, in parallel.
 - Quality signals: report char/page counts and the OCR page ratio so weak extractions can
   be flagged downstream.
 """
@@ -79,12 +80,32 @@ def _pdf_page_to_png_bytes(content: bytes, page_index: int, dpi: int = 150) -> b
         return pix.tobytes("png")
 
 
-def _ollama_chat_api_url() -> str:
-    """Return the Ollama native chat API URL (always at :11434/api/chat, not /v1)."""
-    base = (settings.ollama_base_url or "").rstrip("/")
-    if base.endswith("/v1"):
-        base = base[:-3]
-    return f"{base}/api/chat"
+def _ocr_chat_endpoint() -> tuple[str, dict[str, str]]:
+    """Resolve the OpenAI-compatible chat-completions URL and auth headers for OCR.
+
+    Resolution order for the base URL: explicit ``ocr_base_url`` override → the custom server
+    when ``llm_provider=openai_compatible`` → the Ollama server (default). A missing ``/v1``
+    suffix is appended. The API key follows the same fallback (``ocr_api_key`` → ``llm_api_key``
+    for openai_compatible → none for Ollama).
+    """
+    base = (getattr(settings, "ocr_base_url", "") or "").strip()
+    api_key = settings.ocr_api_key.get_secret_value() if hasattr(settings, "ocr_api_key") else ""
+    if not base:
+        if settings.llm_provider.lower() == "openai_compatible" and (settings.llm_base_url or "").strip():
+            base = settings.llm_base_url
+            api_key = api_key or settings.llm_api_key.get_secret_value()
+        else:
+            base = settings.ollama_base_url or ""
+    base = base.rstrip("/")
+    if not base.endswith("/v1"):
+        base = f"{base}/v1"
+    headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
+    return f"{base}/chat/completions", headers
+
+
+def _ocr_model_name() -> str:
+    """OCR vision model: explicit ``ocr_model`` override, else the legacy ``ollama_ocr_model``."""
+    return (getattr(settings, "ocr_model", "") or "").strip() or settings.ollama_ocr_model
 
 
 def _pdf_markdown(content: bytes, pages: list[int] | None = None) -> str:
@@ -128,7 +149,10 @@ def _pdf_markdown_pages(content: bytes) -> list[str] | None:
 
 
 def _ocr_pages(content: bytes, page_indices: list[int]) -> dict[int, str]:
-    """OCR the given PDF pages concurrently via Ollama Vision. Returns {page_index: text}.
+    """OCR the given PDF pages concurrently via a vision LLM. Returns {page_index: text}.
+
+    Uses the OpenAI-compatible chat-completions API (image as base64 data URI), so the vision
+    backend can be Ollama (default), vLLM or llama.cpp — see :func:`_ocr_chat_endpoint`.
 
     Each page is retried up to ``ocr_retry_attempts`` times on a transient error or a near-empty
     response (with a short backoff) instead of silently losing the page on the first hiccup. The
@@ -137,7 +161,8 @@ def _ocr_pages(content: bytes, page_indices: list[int]) -> dict[int, str]:
     complete recovery across attempts is kept (best-effort). OCR runs at temperature 0 for
     reproducible output.
     """
-    chat_url = _ollama_chat_api_url()
+    chat_url, headers = _ocr_chat_endpoint()
+    model = _ocr_model_name()
     timeout = httpx.Timeout(settings.ollama_timeout_seconds, connect=10.0)
     base_dpi = getattr(settings, "ocr_dpi", 300)
     max_dpi = max(base_dpi, getattr(settings, "ocr_max_dpi", 400))
@@ -158,32 +183,37 @@ def _ocr_pages(content: bytes, page_indices: list[int]) -> dict[int, str]:
             dpi = _dpi_for_attempt(attempt)
             try:
                 png_bytes = _pdf_page_to_png_bytes(content, i, dpi=dpi)
+                image_uri = f"data:image/png;base64,{base64.b64encode(png_bytes).decode()}"
                 payload = {
-                    "model": settings.ollama_ocr_model,
+                    "model": model,
                     "messages": [
                         {
                             "role": "user",
-                            "content": OCR_PROMPT,
-                            "images": [base64.b64encode(png_bytes).decode()],
+                            "content": [
+                                {"type": "text", "text": OCR_PROMPT},
+                                {"type": "image_url", "image_url": {"url": image_uri}},
+                            ],
                         }
                     ],
                     "stream": False,
-                    "options": {"temperature": 0},
+                    "temperature": 0,
                 }
-                resp = httpx.post(chat_url, json=payload, timeout=timeout)
+                resp = httpx.post(chat_url, json=payload, headers=headers, timeout=timeout)
                 resp.raise_for_status()
                 data = resp.json()
-                text = ((data.get("message") or {}).get("content") or "").strip()
+                choices = data.get("choices") or []
+                message = (choices[0].get("message") or {}) if choices else {}
+                text = (message.get("content") or "").strip()
                 if len(text) > len(best):
                     best = text  # keep the most complete recovery across attempts
                 if len(text.strip()) >= min_chars:
                     return i, text
                 logger.warning(
-                    "Ollama OCR recovered little text for page %s at %d DPI (attempt %d/%d)",
+                    "Vision OCR recovered little text for page %s at %d DPI (attempt %d/%d)",
                     i + 1, dpi, attempt, attempts,
                 )
             except Exception as exc:
-                logger.warning("Ollama OCR failed for page %s (attempt %d/%d): %s", i + 1, attempt, attempts, exc)
+                logger.warning("Vision OCR failed for page %s (attempt %d/%d): %s", i + 1, attempt, attempts, exc)
             if attempt < attempts:
                 time.sleep(attempt)  # simple linear backoff: 1s, 2s, ...
         return i, best
@@ -275,7 +305,7 @@ def extract_text_from_pdf(content: bytes) -> ExtractionResult:
     Extract text from PDF as Markdown.
 
     Uses PyMuPDF to detect sparse (likely scanned) pages. When OCR is enabled, only the
-    sparse pages are OCR'd via Ollama Vision (per-page, in parallel) and merged with the
+    sparse pages are OCR'd via the vision LLM (per-page, in parallel) and merged with the
     digital pages; fully digital PDFs skip OCR entirely.
     """
     with fitz.open(stream=content, filetype="pdf") as doc:
@@ -586,7 +616,7 @@ def extract_text_from_image(content: bytes, filetype: str) -> ExtractionResult:
     """Extract text from a standalone scanned image (JPG/PNG/TIFF) via the PDF/OCR path.
 
     The image is converted to a (possibly multi-page, for TIFF) PDF with PyMuPDF and run through
-    :func:`extract_text_from_pdf`, so it reuses the whole per-page Ollama Vision OCR pipeline
+    :func:`extract_text_from_pdf`, so it reuses the whole per-page vision-OCR pipeline
     (retries, quality signal, ocr_page_ratio). An image has no digital text layer, so every page
     is sparse → OCR. With OCR disabled the result is empty text (a warning is logged), consistent
     with how fully scanned PDFs behave today.
@@ -605,7 +635,7 @@ def extract_text_from_image(content: bytes, filetype: str) -> ExtractionResult:
 def extract_text(filename: str, content: bytes) -> ExtractionResult:
     """
     Dispatcher for text extraction. Returns ExtractionResult with text and
-    extraction_method ("text" or "ocr" for PDFs/images that used Ollama Vision).
+    extraction_method ("text" or "ocr" for PDFs/images that used vision OCR).
     """
     filename_lower = filename.lower()
     if filename_lower.endswith(".pdf"):

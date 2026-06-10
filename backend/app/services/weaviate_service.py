@@ -246,8 +246,63 @@ def _get_ollama_embed_client():
     return _ollama_embed_client
 
 
+def _openai_embedding_endpoint() -> tuple[str, dict[str, str]] | None:
+    """Return (URL, headers) of the OpenAI-compatible /v1/embeddings API, or None when unset.
+
+    Configured via ``embedding_base_url`` (+ optional ``embedding_api_key``); a missing ``/v1``
+    suffix is appended. None means the legacy native Ollama client path is used.
+    """
+    base = (getattr(settings, "embedding_base_url", "") or "").strip()
+    if not base:
+        return None
+    base = base.rstrip("/")
+    if not base.endswith("/v1"):
+        base = f"{base}/v1"
+    api_key = settings.embedding_api_key.get_secret_value() if hasattr(settings, "embedding_api_key") else ""
+    headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
+    return f"{base}/embeddings", headers
+
+
+def _embedding_model_name() -> str:
+    """Embedding model: explicit ``embedding_model`` override, else the legacy ``ollama_embedding_model``."""
+    return (getattr(settings, "embedding_model", "") or "").strip() or settings.ollama_embedding_model
+
+
+def _get_embedding_openai_compatible(text: str, url: str, headers: dict[str, str]) -> list[float]:
+    """Embed via the OpenAI-compatible /v1/embeddings API (vLLM, llama.cpp, TEI/Infinity, …)."""
+    import httpx
+
+    try:
+        resp = httpx.post(
+            url,
+            json={"model": _embedding_model_name(), "input": text},
+            headers=headers,
+            timeout=httpx.Timeout(settings.llm_request_timeout_seconds or 30.0, connect=10.0),
+        )
+        resp.raise_for_status()
+        items = resp.json().get("data") or []
+        if items:
+            emb = items[0].get("embedding")
+            if emb:
+                return list(emb)
+    except Exception as e:
+        logger.warning("OpenAI-compatible embedding call failed: %s", e)
+    return []
+
+
 def get_embedding(text: str, *, client=None) -> list[float]:
-    """Get embedding vector for text via Ollama. Returns list of floats."""
+    """Get embedding vector for text. Returns list of floats (empty on failure).
+
+    When ``embedding_base_url`` is configured, the OpenAI-compatible /v1/embeddings API is used
+    (works with vLLM, llama.cpp, TEI/Infinity). Otherwise the native Ollama client embeds via
+    ``ollama_base_url`` as before. An explicitly passed ``client`` (Ollama) is only honoured on
+    the native path.
+    """
+    endpoint = _openai_embedding_endpoint()
+    if endpoint is not None:
+        url, headers = endpoint
+        return _get_embedding_openai_compatible(text, url, headers)
+
     try:
         import ollama  # noqa: F401 — availability check
     except ImportError:
@@ -512,7 +567,8 @@ def index_document_chunks(document_id: UUID, case_id: UUID, text: str) -> bool:
         if not chunks:
             return True
 
-        embed_client = _get_ollama_embed_client()
+        # Native Ollama client only needed when no OpenAI-compatible endpoint is configured.
+        embed_client = None if _openai_embedding_endpoint() is not None else _get_ollama_embed_client()
         for i, chunk in enumerate(chunks):
             vector = get_embedding(chunk, client=embed_client)
             if not vector:

@@ -3,6 +3,8 @@
 Covers the model/cost levers added for Batch B: the optional analysis model, provider-aware
 default model settings (incl. the Anthropic prompt-cache breakpoint) and the temperature override.
 """
+from pydantic import BaseModel
+
 from app.config import settings
 from app.core import llm
 
@@ -57,3 +59,97 @@ def test_default_model_settings_anthropic_caching_disabled(monkeypatch):
     monkeypatch.setattr(settings, "anthropic_prompt_caching", False, raising=False)
     s = llm.default_model_settings()
     assert "anthropic_cache_instructions" not in s
+
+
+# ---------------------------------------------------------------------------
+# openai_compatible provider (llama.cpp / vLLM / LiteLLM …)
+# ---------------------------------------------------------------------------
+
+
+def test_ensure_v1_base_url_appends_missing_suffix():
+    assert llm.ensure_v1_base_url("http://localhost:8080") == "http://localhost:8080/v1"
+    assert llm.ensure_v1_base_url("http://localhost:8000/v1") == "http://localhost:8000/v1"
+    assert llm.ensure_v1_base_url("http://localhost:8000/v1/") == "http://localhost:8000/v1"
+
+
+def test_active_model_name_openai_compatible(monkeypatch):
+    monkeypatch.setattr(settings, "llm_provider", "openai_compatible", raising=False)
+    monkeypatch.setattr(settings, "llm_model", "Qwen/Qwen2.5-14B-Instruct", raising=False)
+    monkeypatch.setattr(settings, "llm_analysis_model", "", raising=False)
+    assert llm.get_active_model_name() == "Qwen/Qwen2.5-14B-Instruct"
+
+
+def test_openai_compatible_model_requires_base_url(monkeypatch):
+    import pytest
+
+    monkeypatch.setattr(settings, "llm_base_url", "", raising=False)
+    with pytest.raises(RuntimeError, match="LLM_BASE_URL"):
+        llm.get_openai_compatible_model()
+
+
+def test_provider_info_openai_compatible_without_secrets(monkeypatch):
+    from pydantic import SecretStr
+
+    monkeypatch.setattr(settings, "llm_provider", "openai_compatible", raising=False)
+    monkeypatch.setattr(settings, "llm_model", "qwen2.5-14b", raising=False)
+    monkeypatch.setattr(settings, "llm_base_url", "http://vllm:8000/v1", raising=False)
+    monkeypatch.setattr(settings, "llm_api_key", SecretStr("secret"), raising=False)
+    monkeypatch.setattr(settings, "llm_structured_output_mode", "native", raising=False)
+    info = llm.get_llm_provider_info()
+    assert info["provider"] == "openai_compatible"
+    assert info["model"] == "qwen2.5-14b"
+    assert info["base_url"] == "http://vllm:8000/v1"
+    assert info["api_key_configured"] is True
+    assert info["structured_output_mode"] == "native"
+    assert "secret" not in str(info)
+
+
+# ---------------------------------------------------------------------------
+# wrap_output_type — configurable structured-output mode
+# ---------------------------------------------------------------------------
+
+
+class _DummyOutput(BaseModel):
+    value: str = ""
+
+
+def test_wrap_output_type_tool_mode_is_passthrough(monkeypatch):
+    monkeypatch.setattr(settings, "llm_structured_output_mode", "tool", raising=False)
+    assert llm.wrap_output_type(_DummyOutput) is _DummyOutput
+
+
+def test_wrap_output_type_native_mode_wraps(monkeypatch):
+    from pydantic_ai import NativeOutput
+
+    monkeypatch.setattr(settings, "llm_provider", "openai_compatible", raising=False)
+    monkeypatch.setattr(settings, "llm_structured_output_mode", "native", raising=False)
+    wrapped = llm.wrap_output_type(_DummyOutput)
+    assert isinstance(wrapped, NativeOutput)
+
+
+def test_wrap_output_type_prompted_mode_wraps(monkeypatch):
+    from pydantic_ai import PromptedOutput
+
+    monkeypatch.setattr(settings, "llm_provider", "ollama", raising=False)
+    monkeypatch.setattr(settings, "llm_structured_output_mode", "prompted", raising=False)
+    wrapped = llm.wrap_output_type(_DummyOutput)
+    assert isinstance(wrapped, PromptedOutput)
+
+
+def test_wrap_output_type_native_ignored_for_anthropic(monkeypatch):
+    # Anthropic has no JSON-schema response_format; tool calling is its native mechanism.
+    monkeypatch.setattr(settings, "llm_provider", "anthropic", raising=False)
+    monkeypatch.setattr(settings, "llm_structured_output_mode", "native", raising=False)
+    assert llm.wrap_output_type(_DummyOutput) is _DummyOutput
+
+
+def test_wrap_output_type_str_and_wrapped_passthrough(monkeypatch):
+    from pydantic_ai import NativeOutput
+
+    monkeypatch.setattr(settings, "llm_provider", "ollama", raising=False)
+    monkeypatch.setattr(settings, "llm_structured_output_mode", "native", raising=False)
+    # Plain-text output stays plain text (e.g. finding chat).
+    assert llm.wrap_output_type(str) is str
+    # Already-wrapped marker objects are not double-wrapped.
+    already = NativeOutput(_DummyOutput)
+    assert llm.wrap_output_type(already) is already

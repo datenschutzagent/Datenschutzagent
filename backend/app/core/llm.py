@@ -1,9 +1,11 @@
-"""LLM-Provider-Abstraktion: Ollama, OpenAI und Anthropic.
+"""LLM-Provider-Abstraktion: Ollama, OpenAI, Anthropic und OpenAI-kompatible Server.
 
 Der aktive Provider wird über die Einstellung LLM_PROVIDER gesteuert:
-  - "ollama"    → lokales Ollama (Standard, kein API-Key erforderlich)
-  - "openai"    → OpenAI API (OPENAI_API_KEY erforderlich)
-  - "anthropic" → Anthropic API (ANTHROPIC_API_KEY erforderlich, 'anthropic'-Package nötig)
+  - "ollama"            → lokales Ollama (Standard, kein API-Key erforderlich)
+  - "openai"            → OpenAI API (OPENAI_API_KEY erforderlich)
+  - "anthropic"         → Anthropic API (ANTHROPIC_API_KEY erforderlich, 'anthropic'-Package nötig)
+  - "openai_compatible" → beliebiger OpenAI-kompatibler Server (llama.cpp, vLLM, LiteLLM, TGI, …;
+                          LLM_BASE_URL + LLM_MODEL erforderlich, LLM_API_KEY optional)
 """
 import asyncio
 import contextlib
@@ -13,7 +15,7 @@ import time
 from collections.abc import Callable
 
 import httpx
-from pydantic_ai import Agent
+from pydantic_ai import Agent, NativeOutput, PromptedOutput
 from pydantic_ai.models.openai import OpenAIChatModel
 from pydantic_ai.providers.openai import OpenAIProvider
 from pydantic_ai.settings import ModelSettings
@@ -103,6 +105,32 @@ def get_circuit_breaker() -> CircuitBreaker:
     return _circuit_breaker
 
 
+def wrap_output_type(output_type):
+    """Apply the configured structured-output mode (LLM_STRUCTURED_OUTPUT_MODE) to an output type.
+
+    "tool" (default) returns the type unchanged — Pydantic AI then enforces the schema via
+    tool/function calling. "native" wraps it in ``NativeOutput`` → ``response_format`` with a JSON
+    schema, i.e. constrained decoding on vLLM (guided decoding), llama.cpp (json_schema/GBNF) and
+    Ollama (structured outputs) — the model cannot emit schema-invalid JSON. "prompted" wraps in
+    ``PromptedOutput`` (schema only described in the prompt) for servers without either mechanism.
+
+    Plain-text outputs (``str``) and already-wrapped marker objects pass through unchanged.
+    Anthropic ignores "native" (no JSON-schema response_format; tool calling is its native path).
+    """
+    mode = (getattr(settings, "llm_structured_output_mode", "tool") or "tool").lower()
+    if mode == "tool" or output_type is str:
+        return output_type
+    if not isinstance(output_type, type):
+        return output_type  # already a NativeOutput/PromptedOutput/ToolOutput wrapper
+    if mode == "native":
+        if settings.llm_provider.lower() == "anthropic":
+            return output_type
+        return NativeOutput(output_type)
+    if mode == "prompted":
+        return PromptedOutput(output_type)
+    return output_type
+
+
 async def llm_retry_call(agent: Agent, user_content: str, output_type, *, request_id: str = ""):
     """Run an LLM agent call with exponential backoff retry on transient errors.
 
@@ -110,9 +138,13 @@ async def llm_retry_call(agent: Agent, user_content: str, output_type, *, reques
     raises LLMProviderError immediately without spending retry delays. On
     success, records a success on the breaker; on exhaustion, records a
     failure and raises LLMRetryExhaustedError.
+
+    The output type is passed through :func:`wrap_output_type`, so the configured
+    structured-output mode applies to every call going through this helper.
     """
     from app.core.metrics import llm_call_duration_seconds, record_llm_usage
     provider = settings.llm_provider.lower()
+    output_type = wrap_output_type(output_type)
 
     cb = get_circuit_breaker()
     last_exc: Exception | None = None
@@ -157,36 +189,62 @@ async def llm_retry_call(agent: Agent, user_content: str, output_type, *, reques
     raise LLMRetryExhaustedError(f"All {LLM_RETRY_ATTEMPTS} LLM retry attempts failed") from last_exc
 
 
-def _ollama_base_url() -> str:
-    """Ollama OpenAI-compatible API is at /v1."""
-    base = settings.ollama_base_url.rstrip("/")
+def ensure_v1_base_url(base_url: str) -> str:
+    """Normalize an OpenAI-compatible base URL: strip trailing slash, append /v1 if missing."""
+    base = (base_url or "").rstrip("/")
     return f"{base}/v1" if not base.endswith("/v1") else base
 
 
-_ollama_http_client: httpx.AsyncClient | None = None
+def _ollama_base_url() -> str:
+    """Ollama OpenAI-compatible API is at /v1."""
+    return ensure_v1_base_url(settings.ollama_base_url)
 
 
-def _get_ollama_http_client() -> httpx.AsyncClient:
-    """Return a process-wide shared httpx client for Ollama (lazy init, one per worker)."""
-    global _ollama_http_client
-    if _ollama_http_client is None or _ollama_http_client.is_closed:
+_local_http_client: httpx.AsyncClient | None = None
+
+
+def _get_local_http_client() -> httpx.AsyncClient:
+    """Return a process-wide shared httpx client for local providers (lazy init, one per worker)."""
+    global _local_http_client
+    if _local_http_client is None or _local_http_client.is_closed:
         timeout = settings.ollama_timeout_seconds
-        _ollama_http_client = httpx.AsyncClient(timeout=httpx.Timeout(timeout, connect=10.0))
-    return _ollama_http_client
+        _local_http_client = httpx.AsyncClient(timeout=httpx.Timeout(timeout, connect=10.0))
+    return _local_http_client
 
 
 async def aclose_ollama_http_client() -> None:
-    """Close the shared Ollama httpx client (app/test shutdown)."""
-    global _ollama_http_client
-    if _ollama_http_client is not None and not _ollama_http_client.is_closed:
-        await _ollama_http_client.aclose()
-    _ollama_http_client = None
+    """Close the shared local-provider httpx client (app/test shutdown)."""
+    global _local_http_client
+    if _local_http_client is not None and not _local_http_client.is_closed:
+        await _local_http_client.aclose()
+    _local_http_client = None
 
 
 def get_ollama_model(model_name: str | None = None) -> OpenAIChatModel:
     """Get configured Ollama model (OpenAI-compatible API) via Pydantic AI OpenAIChatModel."""
-    provider = OpenAIProvider(base_url=_ollama_base_url(), http_client=_get_ollama_http_client())
+    provider = OpenAIProvider(base_url=_ollama_base_url(), http_client=_get_local_http_client())
     return OpenAIChatModel(model_name or settings.ollama_model, provider=provider)
+
+
+def get_openai_compatible_model(model_name: str | None = None) -> OpenAIChatModel:
+    """Get a model served by a custom OpenAI-compatible server (llama.cpp, vLLM, LiteLLM, …).
+
+    Uses LLM_BASE_URL (with /v1 appended when missing) and the optional LLM_API_KEY — vLLM is
+    frequently run with ``--api-key``; without one a placeholder key is sent, which local servers
+    ignore.
+    """
+    base_url = (settings.llm_base_url or "").strip()
+    if not base_url:
+        raise RuntimeError(
+            "LLM_PROVIDER=openai_compatible erfordert LLM_BASE_URL. Bitte in der .env-Datei setzen."
+        )
+    api_key = settings.llm_api_key.get_secret_value() or "api-key-not-set"
+    provider = OpenAIProvider(
+        base_url=ensure_v1_base_url(base_url),
+        api_key=api_key,
+        http_client=_get_local_http_client(),
+    )
+    return OpenAIChatModel(model_name or settings.llm_model, provider=provider)
 
 
 def get_openai_model(model_name: str | None = None) -> OpenAIChatModel:
@@ -236,6 +294,8 @@ def get_active_model(model_name: str | None = None):
         return get_openai_model(model_name)
     if provider == "anthropic":
         return get_anthropic_model(model_name)
+    if provider == "openai_compatible":
+        return get_openai_compatible_model(model_name)
     # Default: Ollama
     return get_ollama_model(model_name)
 
@@ -249,6 +309,8 @@ def get_active_model_name(*, analysis: bool = False) -> str:
         return settings.openai_model
     if provider == "anthropic":
         return settings.anthropic_model
+    if provider == "openai_compatible":
+        return settings.llm_model
     return settings.ollama_model
 
 
@@ -318,6 +380,11 @@ def get_llm_provider_info() -> dict:
     elif provider == "anthropic":
         info["model"] = settings.anthropic_model
         info["api_key_configured"] = bool(settings.anthropic_api_key.get_secret_value())
+    elif provider == "openai_compatible":
+        info["model"] = settings.llm_model
+        info["base_url"] = settings.llm_base_url
+        info["api_key_configured"] = bool(settings.llm_api_key.get_secret_value())
+        info["structured_output_mode"] = settings.llm_structured_output_mode
     else:
         info["model"] = settings.ollama_model
         info["base_url"] = settings.ollama_base_url

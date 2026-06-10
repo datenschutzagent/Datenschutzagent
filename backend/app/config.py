@@ -227,9 +227,17 @@ class Settings(BaseSettings):
     ollama_model: str = "llama3.2"
     ollama_enabled: bool = True
 
-    # OCR via Ollama Vision (gescannte PDFs; z. B. qwen2.5-vl, minicpm-v)
+    # OCR via Vision-LLM (gescannte PDFs; z. B. qwen2.5-vl, minicpm-v). Der OCR-Aufruf nutzt das
+    # OpenAI-kompatible Chat-Completions-Format (Bild als Base64-Data-URI) und funktioniert damit
+    # gegen Ollama (/v1), vLLM und llama.cpp gleichermaßen.
     ollama_ocr_model: str = "qwen2.5-vl"
     ollama_ocr_enabled: bool = True
+    # OCR-Endpoint-Override: eigener OpenAI-kompatibler Vision-Server (das Vision-Modell läuft oft
+    # auf einem anderen Server als das Text-Modell). Leer = vom aktiven Provider abgeleitet:
+    # openai_compatible → LLM_BASE_URL, sonst OLLAMA_BASE_URL. "/v1" wird ergänzt, wenn es fehlt.
+    ocr_base_url: str = ""
+    ocr_api_key: SecretStr = SecretStr("")  # optional; leer = LLM_API_KEY (openai_compatible) bzw. ohne Auth
+    ocr_model: str = ""                     # leer = OLLAMA_OCR_MODEL
     ocr_min_chars_per_page: int = 50  # below this avg chars/page → use OCR fallback
     # Resolution for PDF page images sent to the vision model. ~300 DPI is the established OCR
     # standard; 150 noticeably degrades recognition of small print and stamps on scans.
@@ -310,13 +318,31 @@ class Settings(BaseSettings):
     llm_circuit_breaker_threshold: int = 5
     llm_circuit_breaker_cooldown_seconds: float = 60.0
 
-    # LLM-Provider (ollama | openai | anthropic)
+    # LLM-Provider (ollama | openai | anthropic | openai_compatible)
     # Ollama-Konfiguration bleibt unverändert (ollama_base_url, ollama_model, etc.)
-    llm_provider: str = "ollama"      # Aktiver Provider: "ollama", "openai" oder "anthropic"
+    llm_provider: str = "ollama"      # Aktiver Provider: "ollama", "openai", "anthropic" oder "openai_compatible"
     openai_api_key: SecretStr = SecretStr("")  # OpenAI API-Key (wenn llm_provider=openai)
     openai_model: str = "gpt-4o-mini"
     anthropic_api_key: SecretStr = SecretStr("")  # Anthropic API-Key (wenn llm_provider=anthropic)
     anthropic_model: str = "claude-3-5-haiku-latest"  # Anthropic-Modell
+
+    # Custom OpenAI-kompatibler Server (llama.cpp "llama-server", vLLM, LiteLLM, TGI, ...).
+    # Nur wirksam bei LLM_PROVIDER=openai_compatible. Die Basis-URL darf mit oder ohne "/v1"
+    # angegeben werden (fehlendes "/v1" wird ergänzt).
+    llm_base_url: str = ""            # z. B. http://localhost:8000/v1 (vLLM) oder http://localhost:8080 (llama.cpp)
+    llm_api_key: SecretStr = SecretStr("")  # optional, z. B. für vLLM --api-key; leer = ohne Auth
+    llm_model: str = ""               # served model name, z. B. "Qwen/Qwen2.5-14B-Instruct"
+
+    # Strukturierte Ausgabe: wie Pydantic-AI das Output-Schema durchsetzt.
+    #   tool     – Tool-/Function-Calling (Standard; bisheriges Verhalten, von allen Providern unterstützt)
+    #   native   – response_format mit JSON-Schema → constrained decoding. Empfohlen für lokale
+    #              OpenAI-kompatible Server (vLLM guided decoding, llama.cpp json_schema/GBNF, Ollama
+    #              structured outputs): das Modell KANN kein schema-ungültiges JSON erzeugen, was bei
+    #              kleinen lokalen Modellen die Schema-Fehlerrate praktisch eliminiert.
+    #   prompted – Schema nur im Prompt beschreiben (Fallback für Server ohne beide Mechanismen).
+    # Bei LLM_PROVIDER=anthropic wird "native" ignoriert (kein JSON-Schema-response_format; Tool-
+    # Calling ist dort der native Mechanismus).
+    llm_structured_output_mode: Literal["tool", "native", "prompted"] = "tool"
 
     # Webhook-Benachrichtigungen (ausgehend)
     webhook_max_retries: int = 3          # Anzahl Wiederholungsversuche bei Fehler
@@ -372,6 +398,12 @@ class Settings(BaseSettings):
     weaviate_top_k: int = 5
     weaviate_legal_bases_top_k: int = 8
     ollama_embedding_model: str = "nomic-embed-text"
+    # Embedding-Endpoint-Override: OpenAI-kompatible /v1/embeddings-API (vLLM, llama.cpp,
+    # TEI/Infinity). Leer = nativer Ollama-Client unter OLLAMA_BASE_URL (bisheriges Verhalten).
+    # Damit sind auch stärkere multilinguale Embedder (bge-m3, multilingual-e5) nutzbar.
+    embedding_base_url: str = ""
+    embedding_api_key: SecretStr = SecretStr("")  # optional; leer = ohne Auth
+    embedding_model: str = ""                     # leer = OLLAMA_EMBEDDING_MODEL
 
     # ---------------------------------------------------------------------------
     # Focused model validators (run in definition order by Pydantic).
@@ -420,6 +452,23 @@ class Settings(BaseSettings):
                 "(Passwort ggf. URL-encoden oder ein hex-Passwort verwenden). "
                 f"Aktuell (redacted): {safe}. Fehler: {exc}"
             ) from exc
+        return self
+
+    @model_validator(mode="after")
+    def _validate_openai_compatible(self) -> Settings:
+        """LLM_PROVIDER=openai_compatible requires a base URL and a served model name."""
+        if (self.llm_provider or "").lower() != "openai_compatible":
+            return self
+        if not self.llm_base_url.strip():
+            raise ValueError(
+                "LLM_PROVIDER=openai_compatible erfordert LLM_BASE_URL "
+                "(z. B. http://localhost:8000/v1 für vLLM, http://localhost:8080 für llama.cpp)."
+            )
+        if not self.llm_model.strip():
+            raise ValueError(
+                "LLM_PROVIDER=openai_compatible erfordert LLM_MODEL "
+                "(served model name, z. B. Qwen/Qwen2.5-14B-Instruct)."
+            )
         return self
 
     @model_validator(mode="after")

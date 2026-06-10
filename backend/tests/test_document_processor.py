@@ -199,6 +199,8 @@ class TestLegacyDoc:
 
 
 class _FakeResp:
+    """OpenAI-compatible chat-completions response shape (works for Ollama /v1, vLLM, llama.cpp)."""
+
     def __init__(self, content: str):
         self._content = content
 
@@ -206,7 +208,7 @@ class _FakeResp:
         return None
 
     def json(self):
-        return {"message": {"content": self._content}}
+        return {"choices": [{"message": {"content": self._content}}]}
 
 
 class TestOcrRetry:
@@ -259,6 +261,68 @@ class TestOcrRetry:
         result = dp._ocr_pages(b"fakepdf", [0])
         assert result == {0: "Treffer"}
         assert calls["n"] == 2
+
+
+class TestOcrEndpointResolution:
+    """OCR runs against the OpenAI-compatible chat-completions API of a configurable backend."""
+
+    def test_default_is_ollama_v1(self, monkeypatch):
+        monkeypatch.setattr(dp.settings, "ocr_base_url", "", raising=False)
+        monkeypatch.setattr(dp.settings, "llm_provider", "ollama", raising=False)
+        monkeypatch.setattr(dp.settings, "ollama_base_url", "http://localhost:11434", raising=False)
+        url, headers = dp._ocr_chat_endpoint()
+        assert url == "http://localhost:11434/v1/chat/completions"
+        assert headers == {}
+
+    def test_explicit_override_with_api_key(self, monkeypatch):
+        from pydantic import SecretStr
+
+        monkeypatch.setattr(dp.settings, "ocr_base_url", "http://vision:8000/v1/", raising=False)
+        monkeypatch.setattr(dp.settings, "ocr_api_key", SecretStr("s3cret"), raising=False)
+        url, headers = dp._ocr_chat_endpoint()
+        assert url == "http://vision:8000/v1/chat/completions"
+        assert headers == {"Authorization": "Bearer s3cret"}
+
+    def test_openai_compatible_provider_is_used_when_no_override(self, monkeypatch):
+        from pydantic import SecretStr
+
+        monkeypatch.setattr(dp.settings, "ocr_base_url", "", raising=False)
+        monkeypatch.setattr(dp.settings, "ocr_api_key", SecretStr(""), raising=False)
+        monkeypatch.setattr(dp.settings, "llm_provider", "openai_compatible", raising=False)
+        monkeypatch.setattr(dp.settings, "llm_base_url", "http://vllm:8000", raising=False)
+        monkeypatch.setattr(dp.settings, "llm_api_key", SecretStr("vllm-key"), raising=False)
+        url, headers = dp._ocr_chat_endpoint()
+        assert url == "http://vllm:8000/v1/chat/completions"
+        assert headers == {"Authorization": "Bearer vllm-key"}
+
+    def test_ocr_model_falls_back_to_legacy_setting(self, monkeypatch):
+        monkeypatch.setattr(dp.settings, "ocr_model", "", raising=False)
+        monkeypatch.setattr(dp.settings, "ollama_ocr_model", "qwen2.5-vl", raising=False)
+        assert dp._ocr_model_name() == "qwen2.5-vl"
+        monkeypatch.setattr(dp.settings, "ocr_model", "Qwen/Qwen2.5-VL-7B-Instruct", raising=False)
+        assert dp._ocr_model_name() == "Qwen/Qwen2.5-VL-7B-Instruct"
+
+    def test_payload_uses_openai_multimodal_format(self, monkeypatch):
+        monkeypatch.setattr(dp, "_pdf_page_to_png_bytes", lambda content, i, dpi=150: b"img")
+        monkeypatch.setattr(dp.time, "sleep", lambda _s: None)
+        monkeypatch.setattr(dp.settings, "ocr_retry_attempts", 1, raising=False)
+        captured = {}
+
+        def _capture(url, json=None, headers=None, timeout=None):
+            captured["url"] = url
+            captured["payload"] = json
+            return _FakeResp("Erkannter Inhalt der gescannten Seite")
+
+        monkeypatch.setattr(dp.httpx, "post", _capture)
+        result = dp._ocr_pages(b"fakepdf", [0])
+        assert result == {0: "Erkannter Inhalt der gescannten Seite"}
+        msg = captured["payload"]["messages"][0]
+        parts = msg["content"]
+        assert {p["type"] for p in parts} == {"text", "image_url"}
+        image_part = next(p for p in parts if p["type"] == "image_url")
+        assert image_part["image_url"]["url"].startswith("data:image/png;base64,")
+        assert captured["payload"]["temperature"] == 0
+        assert captured["url"].endswith("/chat/completions")
 
 
 class TestOcrQualitySignal:

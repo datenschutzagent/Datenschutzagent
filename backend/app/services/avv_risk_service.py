@@ -16,7 +16,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.llm import create_agent
+from app.core.llm import create_agent, wrap_output_type
 from app.core.prompt_security import sanitize_prompt_field
 from app.models.db import AVVContractModel, AvvMitigationLinkModel
 from app.services.mitigation_service import apply_avv_mitigations
@@ -127,7 +127,7 @@ async def assess_avv_risk(contract_id: UUID, db: AsyncSession) -> dict[str, Any]
     # AVV/processor risk (Art. 28) is a complex legal assessment → optional stronger analysis model.
     agent = create_agent(_AVV_RISK_SYSTEM, analysis=True)
     try:
-        llm_result = await agent.run(user_content, output_type=_AVVRiskResult)
+        llm_result = await agent.run(user_content, output_type=wrap_output_type(_AVVRiskResult))
         data = llm_result.output
     except Exception as exc:
         logger.error(

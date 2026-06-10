@@ -11,7 +11,7 @@ from pydantic_ai import ModelRetry
 
 from app.config import settings
 from app.core.grounding import grounding_ratio, partition_grounded
-from app.core.llm import create_agent, llm_retry_call
+from app.core.llm import create_agent, get_active_model_name, llm_retry_call
 from app.core.prompt_security import (
     SYSTEM_PROMPT_SAFETY_PREAMBLE,
     sanitize_prompt_field,
@@ -61,13 +61,14 @@ def _cache_key(system_prompt: str, user_content: str, case_id: UUID | None, play
 
     Scoping the key by ``org_profile`` and ``case_id`` prevents cross-case or
     cross-tenant cache reuse, which could otherwise leak or poison results when
-    two contexts produce the same prompt bytes. The model identifier is
-    included so that a model upgrade (e.g. llama3.2 → llama3.3) automatically
-    invalidates existing cache entries. ``playbook_revision`` (format
-    "<playbook_id>:<version>") ensures a cache miss whenever the playbook
-    content changes, so stale LLM responses are never returned after an update.
+    two contexts produce the same prompt bytes. The model identifier (provider +
+    active model + structured-output mode) is included so that a model upgrade
+    (e.g. llama3.2 → llama3.3) or an output-mode switch automatically invalidates
+    existing cache entries. ``playbook_revision`` (format "<playbook_id>:<version>")
+    ensures a cache miss whenever the playbook content changes, so stale LLM
+    responses are never returned after an update.
     """
-    model_id = f"{settings.llm_provider}:{settings.ollama_model if settings.llm_provider == 'ollama' else settings.openai_model if settings.llm_provider == 'openai' else settings.anthropic_model}"
+    model_id = f"{settings.llm_provider}:{get_active_model_name()}:{settings.llm_structured_output_mode}"
     case_part = str(case_id) if case_id is not None else "-"
     raw = f"{_org_profile_hash()}\x00{case_part}\x00{model_id}\x00{playbook_revision}\x00{system_prompt}\x00{user_content}"
     digest = hashlib.sha256(raw.encode("utf-8")).hexdigest()
