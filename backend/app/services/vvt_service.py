@@ -108,7 +108,8 @@ Document text:
 ---
 
 For each required field, provide: field_name (exactly as in the list), status (filled|missing|inconsistent),
-canonical_value (normalized text or null if missing), evidence (where found, e.g. 'Sheet X, Zeile 12, Spalte C'),
+canonical_value (normalized text or null if missing), evidence (where found — use the row numbers from the
+'Zeile' column and page anchors '[Seite N]' when present, e.g. 'Sheet X, Zeile 12, Spalte C' or 'Seite 3'),
 and finding (only if status is inconsistent or there is a problem).
 Also set source_template to the detected template variant or 'Unbekannt'.
 """

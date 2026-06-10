@@ -118,7 +118,7 @@ SAMPLES: dict[str, ExtractionSample] = {
         filename="vvt.xlsx",
         builder=_vvt_xlsx_bytes,
         expected_tokens=["Lohnabrechnung", "Art. 6 Abs. 1 lit. c DSGVO", "10 Jahre", "Bewerbermanagement"],
-        column_header="| A | B | C | D |",
+        column_header="| Zeile | A | B | C | D |",
         min_chars=60,
     ),
     "avv_docx": ExtractionSample(

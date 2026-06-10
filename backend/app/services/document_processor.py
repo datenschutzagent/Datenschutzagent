@@ -2,8 +2,10 @@
 
 Goals beyond plain text dumping:
 - Preserve structure: PDFs are extracted as Markdown (layout/tables) via pymupdf4llm;
-  DOCX tables and XLSX sheets are emitted as Markdown tables with column letters, so that
-  downstream LLM evidence like "Sheet X, Spalte C, Zeile 12" stays meaningful.
+  DOCX tables and XLSX sheets are emitted as Markdown tables with column letters and row
+  numbers, so that downstream LLM evidence like "Sheet X, Spalte C, Zeile 12" stays meaningful.
+- Preserve provenance: multi-page PDFs carry "[Seite N]" anchors per page, so evidence can
+  cite pages and reviewers can locate quotes.
 - Mixed scanned PDFs: decide per page whether to OCR (vision LLM via the OpenAI-compatible
   chat-completions API — works against Ollama, vLLM and llama.cpp), OCR'ing only the sparse
   pages, in parallel.
@@ -300,9 +302,52 @@ def detect_language(text: str | None) -> str | None:
     return None
 
 
+def _page_anchor(page_index: int) -> str:
+    """Anchor line marking the start of a PDF page in the extracted text (1-based)."""
+    return f"[Seite {page_index + 1}]"
+
+
+def _assemble_pages(pages: list[str], num_pages: int) -> str:
+    """Join per-page texts, prefixing each non-empty page with its page anchor.
+
+    The anchors keep page provenance in the extracted text, so LLM evidence can cite
+    "Seite 3" and reviewers can locate quotes. Single-page documents are returned without
+    an anchor (there is nothing to disambiguate). Empty pages are skipped, but the anchor
+    numbering always reflects the real page index.
+    """
+    non_empty = [(i, p) for i, p in enumerate(pages) if p and p.strip()]
+    if num_pages <= 1:
+        return "\n\n".join(p for _i, p in non_empty)
+    return "\n\n".join(f"{_page_anchor(i)}\n{p}" for i, p in non_empty)
+
+
+def _digital_pdf_result(content: bytes, page_digital: list[str], num_pages: int) -> ExtractionResult:
+    """Assemble the fully digital extraction: per-page Markdown with page anchors.
+
+    Falls back to whole-document Markdown (no anchors) when per-page parsing fails, and to
+    the plain per-page text (with anchors) as the last resort.
+    """
+    page_md = _pdf_markdown_pages(content)
+    if page_md is not None:
+        pages = [
+            ((page_md[i] if i < len(page_md) else "") or (page_digital[i] or ""))
+            for i in range(num_pages)
+        ]
+        text = _assemble_pages(pages, num_pages)
+    else:
+        text = _pdf_markdown(content) or _assemble_pages(page_digital, num_pages)
+    return ExtractionResult(
+        text=text,
+        extraction_method=EXTRACTION_METHOD_TEXT,
+        char_count=len(text),
+        page_count=num_pages,
+        ocr_page_ratio=0.0,
+    )
+
+
 def extract_text_from_pdf(content: bytes) -> ExtractionResult:
     """
-    Extract text from PDF as Markdown.
+    Extract text from PDF as Markdown with per-page anchors ("[Seite N]" on multi-page docs).
 
     Uses PyMuPDF to detect sparse (likely scanned) pages. When OCR is enabled, only the
     sparse pages are OCR'd via the vision LLM (per-page, in parallel) and merged with the
@@ -330,16 +375,9 @@ def extract_text_from_pdf(content: bytes) -> ExtractionResult:
         {i for i, t in enumerate(page_digital) if len((t or "").strip()) < min_chars} | image_heavy
     )
 
-    # No OCR needed (or disabled): return full-document Markdown.
+    # No OCR needed (or disabled): return per-page Markdown with page anchors.
     if not settings.ollama_ocr_enabled or not sparse_pages:
-        text = _pdf_markdown(content) or "\n".join(page_digital)
-        return ExtractionResult(
-            text=text,
-            extraction_method=EXTRACTION_METHOD_TEXT,
-            char_count=len(text),
-            page_count=num_pages,
-            ocr_page_ratio=0.0,
-        )
+        return _digital_pdf_result(content, page_digital, num_pages)
 
     # Decide which pages to OCR.
     if getattr(settings, "ocr_per_page", True):
@@ -349,14 +387,7 @@ def extract_text_from_pdf(content: bytes) -> ExtractionResult:
         ocr_pages = set(range(num_pages)) if avg < min_chars else set()
 
     if not ocr_pages:
-        text = _pdf_markdown(content) or "\n".join(page_digital)
-        return ExtractionResult(
-            text=text,
-            extraction_method=EXTRACTION_METHOD_TEXT,
-            char_count=len(text),
-            page_count=num_pages,
-            ocr_page_ratio=0.0,
-        )
+        return _digital_pdf_result(content, page_digital, num_pages)
 
     # Cap OCR work to avoid memory/time exhaustion on huge scans.
     max_ocr_pages = getattr(settings, "ocr_max_pages", 200)
@@ -386,7 +417,7 @@ def extract_text_from_pdf(content: bytes) -> ExtractionResult:
         # A page we intended to OCR that still has almost no text was likely lost despite OCR.
         if i in ocr_pages and len(page_text.strip()) < min_chars:
             low_quality += 1
-    text = "\n\n".join(p for p in parts if p)
+    text = _assemble_pages(parts, num_pages)
     method = EXTRACTION_METHOD_OCR if used_ocr > 0 else EXTRACTION_METHOD_TEXT
     if low_quality:
         logger.warning(
@@ -524,8 +555,10 @@ def extract_text_from_docx(content: bytes) -> str:
 def extract_text_from_xlsx(content: bytes) -> str:
     """Extract text from XLSX bytes as one Markdown table per sheet.
 
-    Column letters (A, B, C, …) form the header row and empty cells are preserved as empty
-    columns, so column alignment — and thus coordinate-based evidence — stays intact.
+    Column letters (A, B, C, …) form the header row and a leading "Zeile" column carries the
+    1-based row number; empty cells are preserved as empty columns. Coordinate-based evidence
+    like "Sheet X, Spalte C, Zeile 12" is thus verifiable instead of relying on the model to
+    count rows in a large sheet.
     """
     wb = openpyxl.load_workbook(io.BytesIO(content), data_only=True)
     out: list[str] = []
@@ -536,13 +569,13 @@ def extract_text_from_xlsx(content: bytes) -> str:
         max_cols = max((len(r) for r in rows), default=0)
         if max_cols == 0:
             continue
-        col_header = [get_column_letter(c + 1) for c in range(max_cols)]
+        col_header = ["Zeile"] + [get_column_letter(c + 1) for c in range(max_cols)]
         out.append("| " + " | ".join(col_header) + " |")
-        out.append("| " + " | ".join(["---"] * max_cols) + " |")
-        for r in rows:
+        out.append("| " + " | ".join(["---"] * (max_cols + 1)) + " |")
+        for row_no, r in enumerate(rows, start=1):
             cells = ["" if c is None else str(c).replace("\n", " ").replace("|", "\\|") for c in r]
             cells += [""] * (max_cols - len(cells))
-            out.append("| " + " | ".join(cells) + " |")
+            out.append("| " + " | ".join([str(row_no), *cells]) + " |")
     return "\n".join(out)
 
 

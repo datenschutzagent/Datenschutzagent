@@ -174,11 +174,18 @@ class TestStructurePreservation:
         # evidence like "Spalte C" remains meaningful.
         content = _make_xlsx_bytes({"VVT": [["Zweck", None, "Rechtsgrundlage"], ["Lohn", None, "Art. 6"]]})
         text = extract_text_from_xlsx(content)
-        # Column-letter header row present
-        assert "| A | B | C |" in text
-        # Row keeps the empty middle column → 'Zweck' in A, '' in B, 'Rechtsgrundlage' in C
-        assert "| Zweck |  | Rechtsgrundlage |" in text
-        assert "| Lohn |  | Art. 6 |" in text
+        # Column-letter header row present (with the leading row-number column)
+        assert "| Zeile | A | B | C |" in text
+        # Rows carry their 1-based number and keep the empty middle column.
+        assert "| 1 | Zweck |  | Rechtsgrundlage |" in text
+        assert "| 2 | Lohn |  | Art. 6 |" in text
+
+    def test_xlsx_rows_are_numbered_sequentially(self):
+        content = _make_xlsx_bytes({"Daten": [["a"], ["b"], ["c"]]})
+        text = extract_text_from_xlsx(content)
+        assert "| 1 | a |" in text
+        assert "| 2 | b |" in text
+        assert "| 3 | c |" in text
 
     def test_docx_table_rendered_as_markdown(self):
         content = _make_docx_bytes([], table_rows=[["Feld", "Wert"], ["Zweck", "Lohnabrechnung"]])
@@ -186,6 +193,71 @@ class TestStructurePreservation:
         assert "| Feld | Wert |" in text
         assert "| --- | --- |" in text
         assert "| Zweck | Lohnabrechnung |" in text
+
+
+def _make_pdf_bytes(pages: list[list[str]]) -> bytes:
+    """Build a digital (text-layer) PDF with one entry per page; empty list = blank page."""
+    import fitz
+
+    doc = fitz.open()
+    for lines in pages:
+        page = doc.new_page()
+        y = 72.0
+        for line in lines:
+            page.insert_text((72, y), line, fontsize=11)
+            y += 18
+    data = doc.tobytes()
+    doc.close()
+    return data
+
+
+# Enough text per page to stay above ocr_min_chars_per_page (default 50) → no OCR triggered.
+_PAGE1_LINES = ["Datenschutzhinweise zur Lohnabrechnung im Sinne der DSGVO," , "Verantwortlicher ist die Muster GmbH mit Sitz in Frankfurt am Main."]
+_PAGE2_LINES = ["Speicherdauer: zehn Jahre gemaess HGB und Abgabenordnung.", "Eine Uebermittlung in Drittlaender findet nicht statt, Stand 2026."]
+
+
+class TestPdfPageAnchors:
+    def test_multi_page_pdf_carries_page_anchors(self):
+        result = extract_text("hinweis.pdf", _make_pdf_bytes([_PAGE1_LINES, _PAGE2_LINES]))
+        assert "[Seite 1]" in result.text
+        assert "[Seite 2]" in result.text
+        # Content sits under the right anchor.
+        assert result.text.index("[Seite 1]") < result.text.index("Muster GmbH")
+        assert result.text.index("Muster GmbH") < result.text.index("[Seite 2]")
+        assert result.text.index("[Seite 2]") < result.text.index("zehn Jahre")
+        assert result.page_count == 2
+
+    def test_single_page_pdf_has_no_anchor(self):
+        result = extract_text("hinweis.pdf", _make_pdf_bytes([_PAGE1_LINES]))
+        assert "[Seite" not in result.text
+        assert "Muster GmbH" in result.text
+
+    def test_ocr_merged_pages_keep_anchors(self, monkeypatch):
+        import app.services.document_processor as dp
+
+        monkeypatch.setattr(dp.settings, "ollama_ocr_enabled", True, raising=False)
+        monkeypatch.setattr(dp.settings, "ocr_per_page", True, raising=False)
+        ocr_text = "OCR-Inhalt der gescannten Seite zwei mit ausreichend vielen Zeichen fuer die Schwelle."
+        monkeypatch.setattr(dp, "_ocr_pages", lambda content, targets: dict.fromkeys(targets, ocr_text))
+
+        # Page 1 digital, page 2 blank (sparse → OCR).
+        result = extract_text("scan.pdf", _make_pdf_bytes([_PAGE1_LINES, []]))
+        assert result.extraction_method == "ocr"
+        assert "[Seite 1]" in result.text and "[Seite 2]" in result.text
+        assert result.text.index("[Seite 2]") < result.text.index("OCR-Inhalt")
+
+    def test_assemble_pages_skips_empty_but_keeps_real_page_numbers(self):
+        import app.services.document_processor as dp
+
+        text = dp._assemble_pages(["Erste Seite", "", "Dritte Seite"], 3)
+        assert "[Seite 1]" in text
+        assert "[Seite 2]" not in text  # empty page emits no anchor
+        assert "[Seite 3]" in text  # numbering reflects the real page index
+
+    def test_assemble_pages_single_page_unanchored(self):
+        import app.services.document_processor as dp
+
+        assert dp._assemble_pages(["Inhalt"], 1) == "Inhalt"
 
 
 class TestLegacyDoc:

@@ -9,6 +9,8 @@ Pro Vorgang können beliebig viele Dokumente hochgeladen werden. Unterstützte F
 
 Beim Hochladen wird die Datei im konfigurierten Storage (lokal oder MinIO) abgelegt und in der Datenbank erfasst. Die **Textextraktion** läuft – bei aktiviertem Celery/Redis – asynchron; der Upload antwortet sofort mit 201. Bis die Extraktion fertig ist, kann der Inhalt noch leer sein.
 
+Der extrahierte Text erhält **Fundstellen-Marker**: Mehrseitige PDFs tragen pro Seite einen Anker `[Seite N]`, XLSX-Tabellen eine führende Spalte „Zeile“ mit der 1-basierten Zeilennummer (zusätzlich zu den Spaltenbuchstaben A, B, C, …). LLM-Belege wie „Seite 3“ oder „Sheet X, Spalte C, Zeile 12“ sind dadurch direkt im Dokument nachprüfbar.
+
 ## Versionierung
 
 Pro Vorgang und Dokumenttyp gibt es Versionsnummern (v1, v2, …). Wenn Sie erneut ein Dokument vom gleichen Typ hochladen, entsteht die nächste Version. Das Frontend zeigt die Version (z. B. „VVT v2“) und beim Upload einen Hinweis, dass eine neue Version angelegt wird.
