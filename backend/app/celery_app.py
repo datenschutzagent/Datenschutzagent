@@ -245,6 +245,9 @@ def extract_document_text(self, document_id: str) -> dict:
         result = extract_text(row.name, content_bytes)
         row.content = result.text
         row.extraction_method = result.extraction_method
+        row.extraction_char_count = result.char_count or len(result.text or "")
+        row.extraction_page_count = result.page_count or None
+        row.extraction_ocr_ratio = result.ocr_page_ratio
         row.extraction_status = DocumentExtractionStatus.DONE
         row.extraction_error = None
         session.commit()

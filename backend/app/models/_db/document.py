@@ -2,7 +2,7 @@
 import uuid
 from datetime import datetime, timezone
 
-from sqlalchemy import DateTime, ForeignKey, Index, Integer, String, Text
+from sqlalchemy import DateTime, Float, ForeignKey, Index, Integer, String, Text
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -32,6 +32,11 @@ class DocumentModel(Base):
     extraction_method: Mapped[str | None] = mapped_column(String(20), nullable=True)
     extraction_status: Mapped[str] = mapped_column(String(20), nullable=False, default=DocumentExtractionStatus.PENDING)
     extraction_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Extraction quality signals (nullable; set on successful extraction). Used to flag weak
+    # extractions (e.g. scans with little recovered text) for human review.
+    extraction_char_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    extraction_page_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    extraction_ocr_ratio: Mapped[float | None] = mapped_column(Float, nullable=True)
     uploaded_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 
     case: Mapped["CaseModel"] = relationship("CaseModel", back_populates="documents")
