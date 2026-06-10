@@ -21,6 +21,34 @@ class ExtractionSample:
     min_chars: int = 1
 
 
+def _digital_pdf_bytes() -> bytes:
+    """A digital-born (text-layer) PDF — exercises the offline PDF→Markdown extraction path.
+
+    Built with PyMuPDF so the page carries a real text layer (no OCR needed). This closes the gap
+    that the gold set previously only covered DOCX/XLSX while the PDF path — the most common upload
+    format — went unmeasured.
+    """
+    import fitz  # PyMuPDF
+
+    lines = [
+        "Datenschutzhinweise zur Lohnabrechnung",
+        "Verantwortlicher: Muster GmbH",
+        "Zweck der Verarbeitung: Lohn- und Gehaltsabrechnung",
+        "Rechtsgrundlage: Art. 6 Abs. 1 lit. c DSGVO",
+        "Speicherdauer: 10 Jahre gemaess HGB und AO",
+        "Eine Uebermittlung in Drittlaender findet nicht statt.",
+    ]
+    doc = fitz.open()
+    page = doc.new_page()
+    y = 72.0
+    for line in lines:
+        page.insert_text((72, y), line, fontsize=11)
+        y += 24
+    pdf_bytes = doc.tobytes()
+    doc.close()
+    return pdf_bytes
+
+
 def _vvt_xlsx_bytes() -> bytes:
     """A small VVT/ROPA sheet with an intentionally empty middle column."""
     import openpyxl
@@ -72,6 +100,19 @@ def _header_footer_docx_bytes() -> bytes:
 
 
 SAMPLES: dict[str, ExtractionSample] = {
+    "digital_pdf": ExtractionSample(
+        key="digital_pdf",
+        filename="lohnabrechnung.pdf",
+        builder=_digital_pdf_bytes,
+        # Controller, purpose, legal basis and retention period must all survive PDF extraction.
+        expected_tokens=[
+            "Muster GmbH",
+            "Art. 6 Abs. 1 lit. c DSGVO",
+            "10 Jahre",
+            "Drittlaender",
+        ],
+        min_chars=120,
+    ),
     "vvt_xlsx": ExtractionSample(
         key="vvt_xlsx",
         filename="vvt.xlsx",
