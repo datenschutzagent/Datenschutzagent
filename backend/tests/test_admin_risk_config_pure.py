@@ -3,6 +3,7 @@
 Testet das Save-/Reload-/Preview-Verhalten am Loader; die HTTP-Authentifizierung
 ist in test_admin_risk_config_api.py abgedeckt (sobald Postgres verfügbar).
 """
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -106,7 +107,12 @@ def test_preview_helpers_match_service_behaviour():
     # AVV-Lookup
     assert default_cfg.avv.level_for_score(2.0) in {"low", "medium", "high", "critical"}
     # Matrix-Lookup
-    assert default_cfg.dsfa_assessment.risk_level_for(3, 4) in {"low", "medium", "high", "critical"}
+    assert default_cfg.dsfa_assessment.risk_level_for(3, 4) in {
+        "low",
+        "medium",
+        "high",
+        "critical",
+    }
     # Score-Range
     pct = default_cfg.avv.normalize_to_percent(2.0)
     assert 0 <= pct <= 100

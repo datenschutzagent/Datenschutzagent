@@ -1,4 +1,5 @@
 """LLM-gestützter Befund-Chat-Assistent: kontextbewusstes Q&A pro Befund."""
+
 import logging
 from uuid import UUID
 
@@ -30,7 +31,10 @@ _MAX_DOC_CHARS = 3000
 
 
 def _build_system_prompt(finding: FindingModel, document: DocumentModel | None) -> str:
-    evidence_text = "\n".join(f"- {e}" for e in (finding.evidence or [])) or "Keine Nachweise vorhanden."
+    evidence_text = (
+        "\n".join(f"- {e}" for e in (finding.evidence or []))
+        or "Keine Nachweise vorhanden."
+    )
     doc_context = ""
     if document and document.content:
         excerpt = document.content[:_MAX_DOC_CHARS]
@@ -43,7 +47,9 @@ def _build_system_prompt(finding: FindingModel, document: DocumentModel | None) 
         category=sanitize_prompt_field(finding.category, max_chars=100),
         severity=sanitize_prompt_field(finding.severity, max_chars=50),
         description=sanitize_prompt_field(finding.description, max_chars=1000),
-        recommendation=sanitize_prompt_field(finding.recommendation or "Keine Empfehlung vorhanden.", max_chars=500),
+        recommendation=sanitize_prompt_field(
+            finding.recommendation or "Keine Empfehlung vorhanden.", max_chars=500
+        ),
         evidence=sanitize_prompt_field(evidence_text, max_chars=1000),
         doc_context=doc_context,
     )
@@ -55,12 +61,17 @@ async def chat_with_finding(
     db: AsyncSession,
 ) -> str:
     """Sendet eine Nutzernachricht an den LLM im Kontext des Befundes und gibt die Antwort zurück."""
-    finding_result = await db.execute(select(FindingModel).where(FindingModel.id == finding_id))
+    finding_result = await db.execute(
+        select(FindingModel).where(FindingModel.id == finding_id)
+    )
     finding = finding_result.scalar_one_or_none()
     if not finding:
         raise ValueError(f"Finding {finding_id} not found")
 
-    logger.info("Finding chat request", extra={"finding_id": str(finding_id), "case_id": str(finding.case_id)})
+    logger.info(
+        "Finding chat request",
+        extra={"finding_id": str(finding_id), "case_id": str(finding.case_id)},
+    )
 
     document: DocumentModel | None = None
     if finding.document_id:

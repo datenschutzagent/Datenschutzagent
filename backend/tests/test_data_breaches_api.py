@@ -4,6 +4,7 @@ These tests require a live PostgreSQL database (DATABASE_URL env var).
 They test create, read, update, and delete behaviour for data breach records
 (Datenpannen-Management, Art. 33/34 DSGVO – 72-Stunden-Meldepflicht).
 """
+
 import pytest
 
 pytestmark = pytest.mark.asyncio
@@ -12,6 +13,7 @@ pytestmark = pytest.mark.asyncio
 # ---------------------------------------------------------------------------
 # Helper
 # ---------------------------------------------------------------------------
+
 
 async def _create_breach(client, **overrides) -> dict:
     payload = {
@@ -64,7 +66,9 @@ async def test_get_breach_by_id(client):
 
 
 async def test_get_breach_not_found(client):
-    resp = await client.get("/api/v1/data-breaches/00000000-0000-0000-0000-000000000000")
+    resp = await client.get(
+        "/api/v1/data-breaches/00000000-0000-0000-0000-000000000000"
+    )
     assert resp.status_code == 404
 
 
@@ -81,7 +85,9 @@ async def test_update_breach_status(client):
     breach = await _create_breach(client)
     breach_id = breach["id"]
 
-    resp = await client.patch(f"/api/v1/data-breaches/{breach_id}", json={"status": "assessed"})
+    resp = await client.patch(
+        f"/api/v1/data-breaches/{breach_id}", json={"status": "assessed"}
+    )
     assert resp.status_code == 200
     assert resp.json()["status"] == "assessed"
 

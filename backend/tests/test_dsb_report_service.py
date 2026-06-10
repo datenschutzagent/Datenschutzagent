@@ -4,9 +4,10 @@ Uses unittest.mock.AsyncMock to avoid real DB connections.
 Tests get_last_run_checks_at() and save_report() in isolation.
 build_dsb_report() is complex enough that it is better tested via integration tests.
 """
+
 import uuid
-from datetime import datetime, timezone
-from unittest.mock import AsyncMock, MagicMock, patch
+from datetime import UTC, datetime
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -15,7 +16,7 @@ from app.services.dsb_report_service import get_last_run_checks_at, save_report
 
 pytestmark = pytest.mark.asyncio
 
-_NOW = datetime(2024, 6, 1, 12, 0, 0, tzinfo=timezone.utc)
+_NOW = datetime(2024, 6, 1, 12, 0, 0, tzinfo=UTC)
 
 
 # ---------------------------------------------------------------------------

@@ -1,19 +1,22 @@
 """Unit tests for document text extraction logic (no DB, no external services)."""
+
 import io
 
 import pytest
 
 import app.services.document_processor as dp
 from app.services.document_processor import (
+    EXTRACTION_METHOD_TEXT,
+    ExtractionResult,
+    extract_text,
     extract_text_from_docx,
     extract_text_from_xlsx,
-    extract_text,
-    ExtractionResult,
-    EXTRACTION_METHOD_TEXT,
 )
 
 
-def _make_docx_bytes(paragraphs: list[str], table_rows: list[list[str]] | None = None) -> bytes:
+def _make_docx_bytes(
+    paragraphs: list[str], table_rows: list[list[str]] | None = None
+) -> bytes:
     """Build a minimal in-memory DOCX file."""
     import docx as python_docx
 
@@ -105,16 +108,20 @@ class TestDocxHeaderFooter:
 
 class TestExtractTextFromXlsx:
     def test_single_sheet_data(self):
-        content = _make_xlsx_bytes({"Sheet1": [["Datum", "Betrag"], ["2024-01-01", 100]]})
+        content = _make_xlsx_bytes(
+            {"Sheet1": [["Datum", "Betrag"], ["2024-01-01", 100]]}
+        )
         text = extract_text_from_xlsx(content)
         assert "Datum" in text
         assert "2024-01-01" in text
 
     def test_multiple_sheets(self):
-        content = _make_xlsx_bytes({
-            "Blatt1": [["A", "B"]],
-            "Blatt2": [["C", "D"]],
-        })
+        content = _make_xlsx_bytes(
+            {
+                "Blatt1": [["A", "B"]],
+                "Blatt2": [["C", "D"]],
+            }
+        )
         text = extract_text_from_xlsx(content)
         assert "Blatt1" in text
         assert "Blatt2" in text
@@ -143,7 +150,7 @@ class TestExtractTextDispatcher:
         assert "Zelle" in result.text
 
     def test_plain_text_fallback(self):
-        content = "Hallo Welt".encode("utf-8")
+        content = b"Hallo Welt"
         result = extract_text("readme.txt", content)
         assert isinstance(result, ExtractionResult)
         assert "Hallo Welt" in result.text
@@ -172,7 +179,9 @@ class TestStructurePreservation:
     def test_xlsx_preserves_columns_with_empty_cells(self):
         # Middle column empty: column alignment (and column letters) must stay intact so that
         # evidence like "Spalte C" remains meaningful.
-        content = _make_xlsx_bytes({"VVT": [["Zweck", None, "Rechtsgrundlage"], ["Lohn", None, "Art. 6"]]})
+        content = _make_xlsx_bytes(
+            {"VVT": [["Zweck", None, "Rechtsgrundlage"], ["Lohn", None, "Art. 6"]]}
+        )
         text = extract_text_from_xlsx(content)
         # Column-letter header row present (with the leading row-number column)
         assert "| Zeile | A | B | C |" in text
@@ -188,7 +197,9 @@ class TestStructurePreservation:
         assert "| 3 | c |" in text
 
     def test_docx_table_rendered_as_markdown(self):
-        content = _make_docx_bytes([], table_rows=[["Feld", "Wert"], ["Zweck", "Lohnabrechnung"]])
+        content = _make_docx_bytes(
+            [], table_rows=[["Feld", "Wert"], ["Zweck", "Lohnabrechnung"]]
+        )
         text = extract_text_from_docx(content)
         assert "| Feld | Wert |" in text
         assert "| --- | --- |" in text
@@ -212,13 +223,21 @@ def _make_pdf_bytes(pages: list[list[str]]) -> bytes:
 
 
 # Enough text per page to stay above ocr_min_chars_per_page (default 50) → no OCR triggered.
-_PAGE1_LINES = ["Datenschutzhinweise zur Lohnabrechnung im Sinne der DSGVO," , "Verantwortlicher ist die Muster GmbH mit Sitz in Frankfurt am Main."]
-_PAGE2_LINES = ["Speicherdauer: zehn Jahre gemaess HGB und Abgabenordnung.", "Eine Uebermittlung in Drittlaender findet nicht statt, Stand 2026."]
+_PAGE1_LINES = [
+    "Datenschutzhinweise zur Lohnabrechnung im Sinne der DSGVO,",
+    "Verantwortlicher ist die Muster GmbH mit Sitz in Frankfurt am Main.",
+]
+_PAGE2_LINES = [
+    "Speicherdauer: zehn Jahre gemaess HGB und Abgabenordnung.",
+    "Eine Uebermittlung in Drittlaender findet nicht statt, Stand 2026.",
+]
 
 
 class TestPdfPageAnchors:
     def test_multi_page_pdf_carries_page_anchors(self):
-        result = extract_text("hinweis.pdf", _make_pdf_bytes([_PAGE1_LINES, _PAGE2_LINES]))
+        result = extract_text(
+            "hinweis.pdf", _make_pdf_bytes([_PAGE1_LINES, _PAGE2_LINES])
+        )
         assert "[Seite 1]" in result.text
         assert "[Seite 2]" in result.text
         # Content sits under the right anchor.
@@ -238,7 +257,9 @@ class TestPdfPageAnchors:
         monkeypatch.setattr(dp.settings, "ollama_ocr_enabled", True, raising=False)
         monkeypatch.setattr(dp.settings, "ocr_per_page", True, raising=False)
         ocr_text = "OCR-Inhalt der gescannten Seite zwei mit ausreichend vielen Zeichen fuer die Schwelle."
-        monkeypatch.setattr(dp, "_ocr_pages", lambda content, targets: dict.fromkeys(targets, ocr_text))
+        monkeypatch.setattr(
+            dp, "_ocr_pages", lambda content, targets: dict.fromkeys(targets, ocr_text)
+        )
 
         # Page 1 digital, page 2 blank (sparse → OCR).
         result = extract_text("scan.pdf", _make_pdf_bytes([_PAGE1_LINES, []]))
@@ -267,7 +288,9 @@ class TestLegacyDoc:
         # Simulate no converter installed → clear error instead of silent empty text.
         monkeypatch.setattr(dp.shutil, "which", lambda _name: None)
         with pytest.raises(dp.UnsupportedDocumentError):
-            extract_text("altes_dokument.doc", b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1fakeole2")
+            extract_text(
+                "altes_dokument.doc", b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1fakeole2"
+            )
 
 
 class _FakeResp:
@@ -287,7 +310,9 @@ class TestOcrRetry:
     """A3: per-page OCR is retried on transient failure / empty output instead of silently lost."""
 
     def _patch_render_and_sleep(self, monkeypatch):
-        monkeypatch.setattr(dp, "_pdf_page_to_png_bytes", lambda content, i, dpi=150: b"x")
+        monkeypatch.setattr(
+            dp, "_pdf_page_to_png_bytes", lambda content, i, dpi=150: b"x"
+        )
         monkeypatch.setattr(dp.time, "sleep", lambda _s: None)
 
     def test_retries_until_attempts_exhausted_then_empty(self, monkeypatch):
@@ -341,7 +366,9 @@ class TestOcrEndpointResolution:
     def test_default_is_ollama_v1(self, monkeypatch):
         monkeypatch.setattr(dp.settings, "ocr_base_url", "", raising=False)
         monkeypatch.setattr(dp.settings, "llm_provider", "ollama", raising=False)
-        monkeypatch.setattr(dp.settings, "ollama_base_url", "http://localhost:11434", raising=False)
+        monkeypatch.setattr(
+            dp.settings, "ollama_base_url", "http://localhost:11434", raising=False
+        )
         url, headers = dp._ocr_chat_endpoint()
         assert url == "http://localhost:11434/v1/chat/completions"
         assert headers == {}
@@ -349,8 +376,12 @@ class TestOcrEndpointResolution:
     def test_explicit_override_with_api_key(self, monkeypatch):
         from pydantic import SecretStr
 
-        monkeypatch.setattr(dp.settings, "ocr_base_url", "http://vision:8000/v1/", raising=False)
-        monkeypatch.setattr(dp.settings, "ocr_api_key", SecretStr("s3cret"), raising=False)
+        monkeypatch.setattr(
+            dp.settings, "ocr_base_url", "http://vision:8000/v1/", raising=False
+        )
+        monkeypatch.setattr(
+            dp.settings, "ocr_api_key", SecretStr("s3cret"), raising=False
+        )
         url, headers = dp._ocr_chat_endpoint()
         assert url == "http://vision:8000/v1/chat/completions"
         assert headers == {"Authorization": "Bearer s3cret"}
@@ -360,22 +391,34 @@ class TestOcrEndpointResolution:
 
         monkeypatch.setattr(dp.settings, "ocr_base_url", "", raising=False)
         monkeypatch.setattr(dp.settings, "ocr_api_key", SecretStr(""), raising=False)
-        monkeypatch.setattr(dp.settings, "llm_provider", "openai_compatible", raising=False)
-        monkeypatch.setattr(dp.settings, "llm_base_url", "http://vllm:8000", raising=False)
-        monkeypatch.setattr(dp.settings, "llm_api_key", SecretStr("vllm-key"), raising=False)
+        monkeypatch.setattr(
+            dp.settings, "llm_provider", "openai_compatible", raising=False
+        )
+        monkeypatch.setattr(
+            dp.settings, "llm_base_url", "http://vllm:8000", raising=False
+        )
+        monkeypatch.setattr(
+            dp.settings, "llm_api_key", SecretStr("vllm-key"), raising=False
+        )
         url, headers = dp._ocr_chat_endpoint()
         assert url == "http://vllm:8000/v1/chat/completions"
         assert headers == {"Authorization": "Bearer vllm-key"}
 
     def test_ocr_model_falls_back_to_legacy_setting(self, monkeypatch):
         monkeypatch.setattr(dp.settings, "ocr_model", "", raising=False)
-        monkeypatch.setattr(dp.settings, "ollama_ocr_model", "qwen2.5-vl", raising=False)
+        monkeypatch.setattr(
+            dp.settings, "ollama_ocr_model", "qwen2.5-vl", raising=False
+        )
         assert dp._ocr_model_name() == "qwen2.5-vl"
-        monkeypatch.setattr(dp.settings, "ocr_model", "Qwen/Qwen2.5-VL-7B-Instruct", raising=False)
+        monkeypatch.setattr(
+            dp.settings, "ocr_model", "Qwen/Qwen2.5-VL-7B-Instruct", raising=False
+        )
         assert dp._ocr_model_name() == "Qwen/Qwen2.5-VL-7B-Instruct"
 
     def test_payload_uses_openai_multimodal_format(self, monkeypatch):
-        monkeypatch.setattr(dp, "_pdf_page_to_png_bytes", lambda content, i, dpi=150: b"img")
+        monkeypatch.setattr(
+            dp, "_pdf_page_to_png_bytes", lambda content, i, dpi=150: b"img"
+        )
         monkeypatch.setattr(dp.time, "sleep", lambda _s: None)
         monkeypatch.setattr(dp.settings, "ocr_retry_attempts", 1, raising=False)
         captured = {}
@@ -454,7 +497,9 @@ def _make_image_heavy_pdf_bytes() -> bytes:
     pix = fitz.Pixmap(fitz.csRGB, fitz.IRect(0, 0, 400, 520), False)
     pix.clear_with(220)
     page.insert_image(page.rect, pixmap=pix)
-    page.insert_text((72, 18), "Kopfzeile Az. DS-1")  # short digital text → not 'sparse' by chars
+    page.insert_text(
+        (72, 18), "Kopfzeile Az. DS-1"
+    )  # short digital text → not 'sparse' by chars
     out = doc.tobytes()
     doc.close()
     return out
@@ -482,7 +527,9 @@ class TestImageHeavyPages:
 
         doc = fitz.open()
         page = doc.new_page()
-        page.insert_text((72, 72), "Ausführlicher Fließtext " * 40)  # plenty of digital text
+        page.insert_text(
+            (72, 72), "Ausführlicher Fließtext " * 40
+        )  # plenty of digital text
         data = doc.tobytes()
         doc.close()
         with fitz.open(stream=data, filetype="pdf") as reopened:
@@ -524,10 +571,10 @@ class TestImageMagicBytes:
 
     def _verify(self):
         from app.api.routes.documents import _verify_magic_bytes
+
         return _verify_magic_bytes
 
     def test_accepts_matching_image_headers(self):
-        from fastapi import HTTPException
 
         verify = self._verify()
         verify(b"\xff\xd8\xff\xe0\x00\x10JFIF", "jpg", "s.jpg")
@@ -558,7 +605,9 @@ def _make_pptx_bytes(slides: list[dict]) -> bytes:
             box.text_frame.text = spec["text"]
         if spec.get("table"):
             rows = spec["table"]
-            table = slide.shapes.add_table(len(rows), len(rows[0]), Inches(1), Inches(3), Inches(8), Inches(2)).table
+            table = slide.shapes.add_table(
+                len(rows), len(rows[0]), Inches(1), Inches(3), Inches(8), Inches(2)
+            ).table
             for r, row in enumerate(rows):
                 for c, val in enumerate(row):
                     table.cell(r, c).text = val
@@ -576,7 +625,7 @@ class TestExtractTextFromPptx:
         content = _make_pptx_bytes([{}, {"text": "Löschkonzept nach sechs Monaten"}])
         text = extract_text_from_pptx(content)
         assert "[Folie 1]" not in text  # empty slide emits no anchor …
-        assert "[Folie 2]" in text      # … but numbering reflects the real slide index
+        assert "[Folie 2]" in text  # … but numbering reflects the real slide index
         assert "Löschkonzept" in text
 
     def test_single_slide_has_no_anchor(self):
@@ -589,10 +638,18 @@ class TestExtractTextFromPptx:
     def test_notes_and_table_extracted(self):
         from app.services.document_processor import extract_text_from_pptx
 
-        content = _make_pptx_bytes([
-            {"table": [["Maßnahme", "Status"], ["Pseudo|nymisierung", "umgesetzt"]], "notes": "AVV liegt vor."},
-            {"text": "Zweite Folie"},
-        ])
+        content = _make_pptx_bytes(
+            [
+                {
+                    "table": [
+                        ["Maßnahme", "Status"],
+                        ["Pseudo|nymisierung", "umgesetzt"],
+                    ],
+                    "notes": "AVV liegt vor.",
+                },
+                {"text": "Zweite Folie"},
+            ]
+        )
         text = extract_text_from_pptx(content)
         assert "| Maßnahme | Status |" in text
         assert "Pseudo\\|nymisierung" in text  # pipe escaped like DOCX/XLSX cells
@@ -600,7 +657,9 @@ class TestExtractTextFromPptx:
         assert "AVV liegt vor." in text
 
     def test_dispatcher_routes_pptx(self):
-        result = extract_text("folien.pptx", _make_pptx_bytes([{"text": "Inhalt der Präsentation"}]))
+        result = extract_text(
+            "folien.pptx", _make_pptx_bytes([{"text": "Inhalt der Präsentation"}])
+        )
         assert result.extraction_method == EXTRACTION_METHOD_TEXT
         assert "Inhalt der Präsentation" in result.text
 
@@ -615,7 +674,7 @@ class TestExtractTextFromCsv:
     def test_semicolon_delimiter_sniffed(self):
         from app.services.document_processor import extract_text_from_csv
 
-        text = extract_text_from_csv("Zweck;Rechtsgrundlage\nLohn;Art. 6\n".encode())
+        text = extract_text_from_csv(b"Zweck;Rechtsgrundlage\nLohn;Art. 6\n")
         assert "| Zeile | A | B |" in text
         assert "| 1 | Zweck | Rechtsgrundlage |" in text
         assert "| 2 | Lohn | Art. 6 |" in text
@@ -631,10 +690,14 @@ class TestExtractTextFromCsv:
     def test_cp1252_umlauts_and_bom(self):
         from app.services.document_processor import extract_text_from_csv
 
-        cp = extract_text_from_csv("Tätigkeit;Dauer\nLöschung;6 Monate\n".encode("cp1252"))
+        cp = extract_text_from_csv(
+            "Tätigkeit;Dauer\nLöschung;6 Monate\n".encode("cp1252")
+        )
         assert "Tätigkeit" in cp and "Löschung" in cp
-        bom = extract_text_from_csv("﻿Spalte1;Spalte2\n".encode("utf-8"))
-        assert "| 1 | Spalte1 | Spalte2 |" in bom  # BOM must not stick to the first cell
+        bom = extract_text_from_csv("﻿Spalte1;Spalte2\n".encode())
+        assert (
+            "| 1 | Spalte1 | Spalte2 |" in bom
+        )  # BOM must not stick to the first cell
 
     def test_ragged_rows_padded_and_pipes_escaped(self):
         from app.services.document_processor import extract_text_from_csv

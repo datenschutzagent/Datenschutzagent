@@ -3,6 +3,7 @@
 These tests require a live PostgreSQL database (DATABASE_URL env var).
 They test upload, list, retrieve, and delete behaviour for documents.
 """
+
 import io
 
 import pytest
@@ -48,7 +49,13 @@ async def _upload_document(client, case_id: str, filename: str = "test.docx") ->
     resp = await client.post(
         "/api/v1/documents",
         data={"case_id": case_id, "document_type": "other", "uploaded_by": "tester"},
-        files={"file": (filename, data, "application/vnd.openxmlformats-officedocument.wordprocessingml.document")},
+        files={
+            "file": (
+                filename,
+                data,
+                "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            )
+        },
     )
     assert resp.status_code == 201, resp.text
     return resp.json()
@@ -81,8 +88,17 @@ async def test_upload_document_unsupported_format_returns_400(client):
 async def test_upload_document_nonexistent_case_returns_404(client):
     resp = await client.post(
         "/api/v1/documents",
-        data={"case_id": "00000000-0000-0000-0000-000000000000", "document_type": "other"},
-        files={"file": ("test.docx", _make_docx_bytes(), "application/vnd.openxmlformats-officedocument.wordprocessingml.document")},
+        data={
+            "case_id": "00000000-0000-0000-0000-000000000000",
+            "document_type": "other",
+        },
+        files={
+            "file": (
+                "test.docx",
+                _make_docx_bytes(),
+                "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            )
+        },
     )
     assert resp.status_code == 404
 
@@ -93,7 +109,13 @@ async def test_upload_document_auto_increments_version(client):
     doc2_resp = await client.post(
         "/api/v1/documents",
         data={"case_id": case["id"], "document_type": doc1["type"]},
-        files={"file": ("vvt_v2.docx", _make_docx_bytes(), "application/vnd.openxmlformats-officedocument.wordprocessingml.document")},
+        files={
+            "file": (
+                "vvt_v2.docx",
+                _make_docx_bytes(),
+                "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            )
+        },
     )
     assert doc2_resp.status_code == 201
     doc2 = doc2_resp.json()

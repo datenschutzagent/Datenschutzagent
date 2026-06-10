@@ -1,4 +1,5 @@
 """Pure unit tests for VVT normalization: map-reduce merge + value grounding (no DB, no LLM)."""
+
 from types import SimpleNamespace
 
 import pytest
@@ -13,9 +14,19 @@ from app.services.vvt_service import (
 )
 
 
-def _field(name="Zwecke der Verarbeitung", status="filled", value=None, evidence=None, finding=None):
+def _field(
+    name="Zwecke der Verarbeitung",
+    status="filled",
+    value=None,
+    evidence=None,
+    finding=None,
+):
     return _VVTExtractionField(
-        field_name=name, status=status, canonical_value=value, evidence=evidence, finding=finding
+        field_name=name,
+        status=status,
+        canonical_value=value,
+        evidence=evidence,
+        finding=finding,
     )
 
 
@@ -98,8 +109,12 @@ class TestMerge:
         assert merged.canonical_value is None
 
     def test_merge_extractions_prefers_concrete_template(self):
-        r1 = _VVTExtractionResult(source_template="Unbekannt", fields=[_field(status="missing")])
-        r2 = _VVTExtractionResult(source_template="Variante A", fields=[_field(value="X")])
+        r1 = _VVTExtractionResult(
+            source_template="Unbekannt", fields=[_field(status="missing")]
+        )
+        r2 = _VVTExtractionResult(
+            source_template="Variante A", fields=[_field(value="X")]
+        )
         merged = vs._merge_extractions([r1, r2])
         assert merged.source_template == "Variante A"
         assert merged.fields[0].status == "filled"
@@ -113,26 +128,39 @@ class TestMerge:
 class TestApplyGrounding:
     def test_ungrounded_filled_value_gets_review_note(self, monkeypatch):
         monkeypatch.setattr(settings, "evidence_grounding_enabled", True, raising=False)
-        result = _VVTExtractionResult(fields=[
-            _field(value="Videoüberwachung sämtlicher Mitarbeiter am Arbeitsplatz", finding="bestehend"),
-        ])
+        result = _VVTExtractionResult(
+            fields=[
+                _field(
+                    value="Videoüberwachung sämtlicher Mitarbeiter am Arbeitsplatz",
+                    finding="bestehend",
+                ),
+            ]
+        )
         out = vs._apply_vvt_grounding(result, _SOURCE)
         assert UNVERIFIED_VALUE_NOTE in out.fields[0].finding
         assert "bestehend" in out.fields[0].finding  # existing finding preserved
 
     def test_grounded_value_is_untouched(self, monkeypatch):
         monkeypatch.setattr(settings, "evidence_grounding_enabled", True, raising=False)
-        result = _VVTExtractionResult(fields=[
-            _field(value="Durchführung von Online-Prüfungen im Fachbereich Informatik"),
-        ])
+        result = _VVTExtractionResult(
+            fields=[
+                _field(
+                    value="Durchführung von Online-Prüfungen im Fachbereich Informatik"
+                ),
+            ]
+        )
         out = vs._apply_vvt_grounding(result, _SOURCE)
         assert out.fields[0].finding is None
 
     def test_disabled_grounding_is_noop(self, monkeypatch):
-        monkeypatch.setattr(settings, "evidence_grounding_enabled", False, raising=False)
-        result = _VVTExtractionResult(fields=[
-            _field(value="Videoüberwachung sämtlicher Mitarbeiter am Arbeitsplatz"),
-        ])
+        monkeypatch.setattr(
+            settings, "evidence_grounding_enabled", False, raising=False
+        )
+        result = _VVTExtractionResult(
+            fields=[
+                _field(value="Videoüberwachung sämtlicher Mitarbeiter am Arbeitsplatz"),
+            ]
+        )
         out = vs._apply_vvt_grounding(result, _SOURCE)
         assert out.fields[0].finding is None
 
@@ -150,10 +178,18 @@ class TestGroundingValidator:
         monkeypatch.setattr(settings, "evidence_grounding_enabled", True, raising=False)
         monkeypatch.setattr(settings, "llm_output_retries", 2, raising=False)
         validate = vs._make_vvt_grounding_validator(_SOURCE)
-        output = _VVTExtractionResult(fields=[
-            _field(name="Zwecke der Verarbeitung", value="Videoüberwachung sämtlicher Mitarbeiter am Arbeitsplatz"),
-            _field(name="Speicherdauer", value="vollständig erfundene Aufbewahrungsregelung 99"),
-        ])
+        output = _VVTExtractionResult(
+            fields=[
+                _field(
+                    name="Zwecke der Verarbeitung",
+                    value="Videoüberwachung sämtlicher Mitarbeiter am Arbeitsplatz",
+                ),
+                _field(
+                    name="Speicherdauer",
+                    value="vollständig erfundene Aufbewahrungsregelung 99",
+                ),
+            ]
+        )
         with pytest.raises(ModelRetry):
             validate(self._ctx(retry=0), output)
 
@@ -161,20 +197,36 @@ class TestGroundingValidator:
         monkeypatch.setattr(settings, "evidence_grounding_enabled", True, raising=False)
         monkeypatch.setattr(settings, "llm_output_retries", 2, raising=False)
         validate = vs._make_vvt_grounding_validator(_SOURCE)
-        output = _VVTExtractionResult(fields=[
-            _field(name="Zwecke der Verarbeitung", value="Durchführung von Online-Prüfungen im Fachbereich Informatik"),
-            _field(name="Speicherdauer", value="vollständig erfundene Aufbewahrungsregelung 99"),
-        ])
+        output = _VVTExtractionResult(
+            fields=[
+                _field(
+                    name="Zwecke der Verarbeitung",
+                    value="Durchführung von Online-Prüfungen im Fachbereich Informatik",
+                ),
+                _field(
+                    name="Speicherdauer",
+                    value="vollständig erfundene Aufbewahrungsregelung 99",
+                ),
+            ]
+        )
         assert validate(self._ctx(retry=0), output) is output
 
     def test_final_attempt_never_raises(self, monkeypatch):
         monkeypatch.setattr(settings, "evidence_grounding_enabled", True, raising=False)
         monkeypatch.setattr(settings, "llm_output_retries", 2, raising=False)
         validate = vs._make_vvt_grounding_validator(_SOURCE)
-        output = _VVTExtractionResult(fields=[
-            _field(name="Zwecke der Verarbeitung", value="Videoüberwachung sämtlicher Mitarbeiter am Arbeitsplatz"),
-            _field(name="Speicherdauer", value="vollständig erfundene Aufbewahrungsregelung 99"),
-        ])
+        output = _VVTExtractionResult(
+            fields=[
+                _field(
+                    name="Zwecke der Verarbeitung",
+                    value="Videoüberwachung sämtlicher Mitarbeiter am Arbeitsplatz",
+                ),
+                _field(
+                    name="Speicherdauer",
+                    value="vollständig erfundene Aufbewahrungsregelung 99",
+                ),
+            ]
+        )
         assert validate(self._ctx(retry=2), output) is output
 
 
@@ -199,22 +251,32 @@ def _no_db_templates(monkeypatch):
 
 class TestNormalizeVvtMapReduce:
     @pytest.mark.anyio
-    async def test_long_document_is_extracted_per_fragment_and_merged(self, monkeypatch, _no_db_templates):
-        monkeypatch.setattr(settings, "evidence_grounding_enabled", False, raising=False)
+    async def test_long_document_is_extracted_per_fragment_and_merged(
+        self, monkeypatch, _no_db_templates
+    ):
+        monkeypatch.setattr(
+            settings, "evidence_grounding_enabled", False, raising=False
+        )
         monkeypatch.setattr(settings, "vvt_map_reduce_enabled", True, raising=False)
         monkeypatch.setattr(settings, "max_context_chars_vvt", 300, raising=False)
         monkeypatch.setattr(settings, "vvt_max_chunks", 8, raising=False)
 
         # Two fragments: the first knows the Zwecke, the second the Speicherdauer.
         per_call = [
-            _VVTExtractionResult(source_template="Unbekannt", fields=[
-                _field(name="Zwecke der Verarbeitung", value="Online-Prüfungen"),
-                _field(name="Speicherdauer", status="missing"),
-            ]),
-            _VVTExtractionResult(source_template="Variante A", fields=[
-                _field(name="Zwecke der Verarbeitung", status="missing"),
-                _field(name="Speicherdauer", value="10 Jahre gemäß HGB"),
-            ]),
+            _VVTExtractionResult(
+                source_template="Unbekannt",
+                fields=[
+                    _field(name="Zwecke der Verarbeitung", value="Online-Prüfungen"),
+                    _field(name="Speicherdauer", status="missing"),
+                ],
+            ),
+            _VVTExtractionResult(
+                source_template="Variante A",
+                fields=[
+                    _field(name="Zwecke der Verarbeitung", status="missing"),
+                    _field(name="Speicherdauer", value="10 Jahre gemäß HGB"),
+                ],
+            ),
         ]
         calls = {"n": 0}
 
@@ -225,9 +287,14 @@ class TestNormalizeVvtMapReduce:
 
         monkeypatch.setattr(vs, "llm_retry_call", _fake_llm)
 
-        raw = " ".join(f"Satz Nummer {i} über die Verarbeitung personenbezogener Daten." for i in range(40))
+        raw = " ".join(
+            f"Satz Nummer {i} über die Verarbeitung personenbezogener Daten."
+            for i in range(40)
+        )
         assert len(raw) > 300
-        result = await vs.normalize_vvt(raw, language="de", field_names=["Zwecke der Verarbeitung", "Speicherdauer"])
+        result = await vs.normalize_vvt(
+            raw, language="de", field_names=["Zwecke der Verarbeitung", "Speicherdauer"]
+        )
 
         assert calls["n"] >= 2  # one LLM call per fragment
         by_name = {f.field_name: f for f in result.fields}
@@ -237,17 +304,28 @@ class TestNormalizeVvtMapReduce:
         assert by_name["Speicherdauer"].canonical_value == "10 Jahre gemäß HGB"
         assert result.source_template == "Variante A"
         # Canonical order is preserved.
-        assert [f.field_name for f in result.fields] == ["Zwecke der Verarbeitung", "Speicherdauer"]
+        assert [f.field_name for f in result.fields] == [
+            "Zwecke der Verarbeitung",
+            "Speicherdauer",
+        ]
 
     @pytest.mark.anyio
-    async def test_conflicting_fragments_yield_inconsistent_field(self, monkeypatch, _no_db_templates):
-        monkeypatch.setattr(settings, "evidence_grounding_enabled", False, raising=False)
+    async def test_conflicting_fragments_yield_inconsistent_field(
+        self, monkeypatch, _no_db_templates
+    ):
+        monkeypatch.setattr(
+            settings, "evidence_grounding_enabled", False, raising=False
+        )
         monkeypatch.setattr(settings, "vvt_map_reduce_enabled", True, raising=False)
         monkeypatch.setattr(settings, "max_context_chars_vvt", 300, raising=False)
 
         per_call = [
-            _VVTExtractionResult(fields=[_field(name="Speicherdauer", value="10 Jahre")]),
-            _VVTExtractionResult(fields=[_field(name="Speicherdauer", value="6 Monate")]),
+            _VVTExtractionResult(
+                fields=[_field(name="Speicherdauer", value="10 Jahre")]
+            ),
+            _VVTExtractionResult(
+                fields=[_field(name="Speicherdauer", value="6 Monate")]
+            ),
         ]
         calls = {"n": 0}
 
@@ -258,15 +336,22 @@ class TestNormalizeVvtMapReduce:
 
         monkeypatch.setattr(vs, "llm_retry_call", _fake_llm)
 
-        raw = " ".join(f"Satz Nummer {i} über Aufbewahrungsfristen und Löschkonzepte." for i in range(40))
-        result = await vs.normalize_vvt(raw, language="de", field_names=["Speicherdauer"])
+        raw = " ".join(
+            f"Satz Nummer {i} über Aufbewahrungsfristen und Löschkonzepte."
+            for i in range(40)
+        )
+        result = await vs.normalize_vvt(
+            raw, language="de", field_names=["Speicherdauer"]
+        )
         field = result.fields[0]
         assert field.status == "inconsistent"
         assert "10 Jahre" in field.finding and "6 Monate" in field.finding
 
     @pytest.mark.anyio
     async def test_short_document_uses_single_call(self, monkeypatch, _no_db_templates):
-        monkeypatch.setattr(settings, "evidence_grounding_enabled", False, raising=False)
+        monkeypatch.setattr(
+            settings, "evidence_grounding_enabled", False, raising=False
+        )
         monkeypatch.setattr(settings, "vvt_map_reduce_enabled", True, raising=False)
         monkeypatch.setattr(settings, "max_context_chars_vvt", 25000, raising=False)
         calls = {"n": 0}
@@ -276,13 +361,19 @@ class TestNormalizeVvtMapReduce:
             return _FakeRunResult(_VVTExtractionResult(fields=[]))
 
         monkeypatch.setattr(vs, "llm_retry_call", _fake_llm)
-        result = await vs.normalize_vvt("Kurzer VVT-Text.", language="de", field_names=["Speicherdauer"])
+        result = await vs.normalize_vvt(
+            "Kurzer VVT-Text.", language="de", field_names=["Speicherdauer"]
+        )
         assert calls["n"] == 1
         assert result.fields[0].status == "missing"  # canonical fields are completed
 
     @pytest.mark.anyio
-    async def test_disabled_map_reduce_falls_back_to_truncation(self, monkeypatch, _no_db_templates):
-        monkeypatch.setattr(settings, "evidence_grounding_enabled", False, raising=False)
+    async def test_disabled_map_reduce_falls_back_to_truncation(
+        self, monkeypatch, _no_db_templates
+    ):
+        monkeypatch.setattr(
+            settings, "evidence_grounding_enabled", False, raising=False
+        )
         monkeypatch.setattr(settings, "vvt_map_reduce_enabled", False, raising=False)
         monkeypatch.setattr(settings, "max_context_chars_vvt", 300, raising=False)
         captured = {}

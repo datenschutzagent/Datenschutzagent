@@ -1,4 +1,5 @@
 """Pure unit tests for risk_config_loader (no DB needed)."""
+
 from __future__ import annotations
 
 import logging
@@ -301,7 +302,13 @@ def test_case_score_with_default_weights():
     # 1 critical: 30
     assert min(cfg.case_score.max_score, 1 * w["critical"]) == 30
     # 3 critical + 2 high + 5 medium: 90+30+25 = 145 -> capped to 100
-    assert min(cfg.case_score.max_score, 3 * w["critical"] + 2 * w["high"] + 5 * w["medium"]) == 100
+    assert (
+        min(
+            cfg.case_score.max_score,
+            3 * w["critical"] + 2 * w["high"] + 5 * w["medium"],
+        )
+        == 100
+    )
 
 
 def test_case_score_with_example_profile_weights():
@@ -408,7 +415,9 @@ def test_dsfa_factor_met_findings_severity():
             self.severity = severity
 
     factor = DsfaScreeningFactor(
-        id="critical_findings", label="Critical findings", findings_severity=["critical", "high"]
+        id="critical_findings",
+        label="Critical findings",
+        findings_severity=["critical", "high"],
     )
     assert _factor_met(factor, _Case(), [_Finding("critical")]) is True
     assert _factor_met(factor, _Case(), [_Finding("low")]) is False
@@ -434,7 +443,9 @@ def test_dsfa_factor_weight_in_example_profile():
     """Example profile's special_categories factor has weight 2.0."""
     s = Settings(org_profile="example")
     cfg = load_risk_config(s)
-    special = next(f for f in cfg.dsfa_screening.factors if f.id == "special_categories")
+    special = next(
+        f for f in cfg.dsfa_screening.factors if f.id == "special_categories"
+    )
     assert special.weight == 2.0
 
 
@@ -533,9 +544,9 @@ def test_dsfa_assessment_default_matrix_complete():
 def test_dsfa_assessment_matrix_corners_match_iso27005():
     cfg = RiskConfig()
     m = cfg.dsfa_assessment.matrix
-    assert m["1_1"] == "low"        # minimum risk
-    assert m["5_5"] == "critical"   # maximum risk
-    assert m["3_3"] == "medium"     # midpoint
+    assert m["1_1"] == "low"  # minimum risk
+    assert m["5_5"] == "critical"  # maximum risk
+    assert m["3_3"] == "medium"  # midpoint
 
 
 def test_dsfa_matrix_validator_rejects_missing_cells():
@@ -587,8 +598,18 @@ def test_normalize_legacy_dsfa_payload_string_to_numeric():
         "necessity_assessment": "ok",
         "proportionality_assessment": "ok",
         "risks": [
-            {"description": "Risk A", "likelihood": "low", "severity": "high", "mitigation": "x"},
-            {"description": "Risk B", "likelihood": "medium", "severity": "medium", "mitigation": "y"},
+            {
+                "description": "Risk A",
+                "likelihood": "low",
+                "severity": "high",
+                "mitigation": "x",
+            },
+            {
+                "description": "Risk B",
+                "likelihood": "medium",
+                "severity": "medium",
+                "mitigation": "y",
+            },
         ],
         "residual_risk": "high",
         "dpo_consultation_required": True,
@@ -641,7 +662,12 @@ def test_normalize_is_idempotent():
 
     legacy = {
         "risks": [
-            {"description": "x", "likelihood": "medium", "severity": "high", "mitigation": ""},
+            {
+                "description": "x",
+                "likelihood": "medium",
+                "severity": "high",
+                "mitigation": "",
+            },
         ],
         "residual_risk": "high",
         "dpo_consultation_required": True,
@@ -663,8 +689,18 @@ def test_normalize_recomputes_residual_from_risks():
 
     payload = {
         "risks": [
-            {"description": "a", "likelihood": "low", "severity": "low", "mitigation": ""},
-            {"description": "b", "likelihood": "high", "severity": "high", "mitigation": ""},
+            {
+                "description": "a",
+                "likelihood": "low",
+                "severity": "low",
+                "mitigation": "",
+            },
+            {
+                "description": "b",
+                "likelihood": "high",
+                "severity": "high",
+                "mitigation": "",
+            },
         ],
         "residual_risk": "low",  # wrong on input — must be corrected
     }

@@ -10,6 +10,7 @@ Missing files, missing sections, or missing individual fields all fall back to
 the built-in defaults — so removing the YAML entirely keeps the original
 behaviour bit-for-bit.
 """
+
 from __future__ import annotations
 
 import logging
@@ -62,19 +63,25 @@ class AvvRiskConfig(BaseModel):
             AvvLevelThreshold(max_score=5.0, level="critical"),
         ]
     )
-    score_normalization: AvvScoreNormalization = Field(default_factory=AvvScoreNormalization)
+    score_normalization: AvvScoreNormalization = Field(
+        default_factory=AvvScoreNormalization
+    )
     dimension_weights: dict[str, float] = Field(default_factory=dict)
     min_confidence: float = Field(default=0.0, ge=0.0, le=1.0)
 
     @field_validator("level_thresholds")
     @classmethod
-    def _ascending_thresholds(cls, v: list[AvvLevelThreshold]) -> list[AvvLevelThreshold]:
+    def _ascending_thresholds(
+        cls, v: list[AvvLevelThreshold]
+    ) -> list[AvvLevelThreshold]:
         if not v:
             raise ValueError("level_thresholds must not be empty")
         previous = float("-inf")
         for entry in v:
             if entry.max_score < previous:
-                raise ValueError("level_thresholds must be ordered ascending by max_score")
+                raise ValueError(
+                    "level_thresholds must be ordered ascending by max_score"
+                )
             previous = entry.max_score
         return v
 
@@ -123,7 +130,9 @@ class DsfaScreeningFactor(BaseModel):
     keywords_processing_context: list[str] = Field(default_factory=list)
     keywords_title: list[str] = Field(default_factory=list)
     case_flag: str | None = None  # attribute name on CaseModel that must be truthy
-    findings_severity: list[str] = Field(default_factory=list)  # list of FindingSeverity values
+    findings_severity: list[str] = Field(
+        default_factory=list
+    )  # list of FindingSeverity values
 
 
 _DEFAULT_DSFA_FACTORS: list[dict[str, Any]] = [
@@ -144,7 +153,13 @@ _DEFAULT_DSFA_FACTORS: list[dict[str, Any]] = [
         "id": "large_scale",
         "label": "Umfangreiche Verarbeitung",
         "description": "Verarbeitung personenbezogener Daten in großem Umfang (viele Betroffene oder große Datenmenge).",
-        "keywords_processing_context": ["massendaten", "großmaßst", "umfangreich", "viele betroffene", "large scale"],
+        "keywords_processing_context": [
+            "massendaten",
+            "großmaßst",
+            "umfangreich",
+            "viele betroffene",
+            "large scale",
+        ],
     },
     {
         "id": "international_transfer",
@@ -156,13 +171,28 @@ _DEFAULT_DSFA_FACTORS: list[dict[str, Any]] = [
         "id": "vulnerable_subjects",
         "label": "Schutzbedürftige Betroffene",
         "description": "Kinder, Patienten, Mitarbeiter oder andere schutzbedürftige Personengruppen.",
-        "keywords_processing_context": ["kind", "patient", "mitarbeiter", "employee", "schüler", "student", "vulnerable"],
+        "keywords_processing_context": [
+            "kind",
+            "patient",
+            "mitarbeiter",
+            "employee",
+            "schüler",
+            "student",
+            "vulnerable",
+        ],
     },
     {
         "id": "systematic_monitoring",
         "label": "Systematische Überwachung",
         "description": "Überwachung öffentlich zugänglicher Bereiche oder systematische Beobachtung.",
-        "keywords_processing_context": ["überwach", "kamera", "tracking", "monitoring", "standort", "location"],
+        "keywords_processing_context": [
+            "überwach",
+            "kamera",
+            "tracking",
+            "monitoring",
+            "standort",
+            "location",
+        ],
     },
     {
         "id": "critical_findings",
@@ -174,13 +204,29 @@ _DEFAULT_DSFA_FACTORS: list[dict[str, Any]] = [
         "id": "sensitive_purpose",
         "label": "Sensibler Verarbeitungszweck",
         "description": "Verarbeitung für Strafverfolgung, Finanzdienstleistungen, Sozialhilfe oder ähnliches.",
-        "keywords_processing_context": ["straf", "justiz", "finan", "kredit", "sozial", "versicher", "gesundheit"],
+        "keywords_processing_context": [
+            "straf",
+            "justiz",
+            "finan",
+            "kredit",
+            "sozial",
+            "versicher",
+            "gesundheit",
+        ],
     },
     {
         "id": "innovative_technology",
         "label": "Neue oder innovative Technologie",
         "description": "Einsatz neuer Technologien (KI, Biometrie, IoT) mit unbekannten Risiken.",
-        "keywords_processing_context": ["ki ", "künstliche intel", "biometrie", "iot", "internet of things", "blockchain", "neu"],
+        "keywords_processing_context": [
+            "ki ",
+            "künstliche intel",
+            "biometrie",
+            "iot",
+            "internet of things",
+            "blockchain",
+            "neu",
+        ],
     },
 ]
 
@@ -220,6 +266,7 @@ class DsfaScreeningRule(BaseModel):
     def _expression_parses(cls, v: str) -> str:
         # Import lazily — boolean_rule_parser is a small standalone module.
         from app.services.boolean_rule_parser import parse
+
         try:
             parse(v)
         except ValueError as exc:
@@ -230,7 +277,9 @@ class DsfaScreeningRule(BaseModel):
 class DsfaScreeningConfig(BaseModel):
     required_threshold: float = Field(default=2.0, ge=0.0)
     factors: list[DsfaScreeningFactor] = Field(
-        default_factory=lambda: [DsfaScreeningFactor.model_validate(f) for f in _DEFAULT_DSFA_FACTORS]
+        default_factory=lambda: [
+            DsfaScreeningFactor.model_validate(f) for f in _DEFAULT_DSFA_FACTORS
+        ]
     )
     rules: list[DsfaScreeningRule] = Field(default_factory=list)
 
@@ -251,9 +300,10 @@ class DsfaScreeningConfig(BaseModel):
         return v
 
     @model_validator(mode="after")
-    def _rule_identifiers_known(self) -> "DsfaScreeningConfig":
+    def _rule_identifiers_known(self) -> DsfaScreeningConfig:
         """All identifiers used in rule expressions must reference a defined factor."""
         from app.services.boolean_rule_parser import collect_identifiers, parse
+
         factor_ids = {f.id for f in self.factors}
         unknown_by_rule: dict[str, set[str]] = {}
         for rule in self.rules:
@@ -269,7 +319,10 @@ class DsfaScreeningConfig(BaseModel):
         if unknown_by_rule:
             raise ValueError(
                 "DSFA screening rules reference unknown factor ids: "
-                + ", ".join(f"{rid}: {sorted(missing)}" for rid, missing in unknown_by_rule.items())
+                + ", ".join(
+                    f"{rid}: {sorted(missing)}"
+                    for rid, missing in unknown_by_rule.items()
+                )
             )
         return self
 
@@ -329,11 +382,31 @@ def _default_dsfa_matrix_for_size(size: int) -> dict[str, str]:
 # rounding. We pin the canonical reference here to guarantee bit-perfect
 # backward-compat with the original hardcoded matrix.
 _LEGACY_5X5_MATRIX = {
-    "1_1": "low", "1_2": "low", "1_3": "low", "1_4": "medium", "1_5": "medium",
-    "2_1": "low", "2_2": "low", "2_3": "medium", "2_4": "medium", "2_5": "high",
-    "3_1": "low", "3_2": "medium", "3_3": "medium", "3_4": "high", "3_5": "high",
-    "4_1": "medium", "4_2": "medium", "4_3": "high", "4_4": "high", "4_5": "critical",
-    "5_1": "medium", "5_2": "high", "5_3": "high", "5_4": "critical", "5_5": "critical",
+    "1_1": "low",
+    "1_2": "low",
+    "1_3": "low",
+    "1_4": "medium",
+    "1_5": "medium",
+    "2_1": "low",
+    "2_2": "low",
+    "2_3": "medium",
+    "2_4": "medium",
+    "2_5": "high",
+    "3_1": "low",
+    "3_2": "medium",
+    "3_3": "medium",
+    "3_4": "high",
+    "3_5": "high",
+    "4_1": "medium",
+    "4_2": "medium",
+    "4_3": "high",
+    "4_4": "high",
+    "4_5": "critical",
+    "5_1": "medium",
+    "5_2": "high",
+    "5_3": "high",
+    "5_4": "critical",
+    "5_5": "critical",
 }
 
 
@@ -410,9 +483,13 @@ def _default_dsfa_scale_labels() -> dict[str, dict[int, str]]:
 
 class DsfaAssessmentConfig(BaseModel):
     scale_type: str = Field(default="1-5", description="Skala: '1-3', '1-5' oder '1-7'")
-    scale_labels: dict[str, dict[int, str]] = Field(default_factory=_default_dsfa_scale_labels)
+    scale_labels: dict[str, dict[int, str]] = Field(
+        default_factory=_default_dsfa_scale_labels
+    )
     matrix: dict[str, str] = Field(default_factory=_default_dsfa_matrix)
-    dpo_consultation_required_when_residual_in: list[str] = Field(default_factory=lambda: ["high", "critical"])
+    dpo_consultation_required_when_residual_in: list[str] = Field(
+        default_factory=lambda: ["high", "critical"]
+    )
     min_confidence: float = Field(default=0.0, ge=0.0, le=1.0)
 
     @field_validator("scale_type")
@@ -423,9 +500,11 @@ class DsfaAssessmentConfig(BaseModel):
         return v
 
     @model_validator(mode="after")
-    def _matrix_and_labels_match_scale(self) -> "DsfaAssessmentConfig":
+    def _matrix_and_labels_match_scale(self) -> DsfaAssessmentConfig:
         size = _scale_size(self.scale_type)
-        expected = {f"{lik}_{sev}" for lik in range(1, size + 1) for sev in range(1, size + 1)}
+        expected = {
+            f"{lik}_{sev}" for lik in range(1, size + 1) for sev in range(1, size + 1)
+        }
 
         # Auto-fill matrix when caller relied on defaults. The default 5×5
         # matrix is the legacy hardcoded matrix. If the scale is 1-3 or 1-7
@@ -442,20 +521,23 @@ class DsfaAssessmentConfig(BaseModel):
         extra = actual - expected
         if extra:
             raise ValueError(f"matrix has unexpected cells: {sorted(extra)}")
-        invalid = {k: lvl for k, lvl in self.matrix.items() if lvl not in _VALID_RISK_LEVELS}
+        invalid = {
+            k: lvl for k, lvl in self.matrix.items() if lvl not in _VALID_RISK_LEVELS
+        }
         if invalid:
             raise ValueError(f"matrix has invalid risk levels: {invalid}")
 
         # Auto-fill labels when caller stuck with the defaults but picked
         # a different scale.
-        if (
-            self.scale_labels == _default_dsfa_scale_labels()
-            and size != 5
-        ):
-            object.__setattr__(self, "scale_labels", {
-                "likelihood": _default_likelihood_labels(size),
-                "severity": _default_severity_labels(size),
-            })
+        if self.scale_labels == _default_dsfa_scale_labels() and size != 5:
+            object.__setattr__(
+                self,
+                "scale_labels",
+                {
+                    "likelihood": _default_likelihood_labels(size),
+                    "severity": _default_severity_labels(size),
+                },
+            )
 
         for axis_name in ("likelihood", "severity"):
             axis = self.scale_labels.get(axis_name) or {}
@@ -472,7 +554,9 @@ class DsfaAssessmentConfig(BaseModel):
     def _dpo_levels_valid(cls, v: list[str]) -> list[str]:
         invalid = [lvl for lvl in v if lvl not in _VALID_RISK_LEVELS]
         if invalid:
-            raise ValueError(f"dpo_consultation_required_when_residual_in has invalid levels: {invalid}")
+            raise ValueError(
+                f"dpo_consultation_required_when_residual_in has invalid levels: {invalid}"
+            )
         return v
 
     @property
@@ -492,7 +576,13 @@ class DsfaAssessmentConfig(BaseModel):
 
 class CaseScoreConfig(BaseModel):
     severity_weights: dict[str, int] = Field(
-        default_factory=lambda: {"critical": 30, "high": 15, "medium": 5, "low": 0, "info": 0}
+        default_factory=lambda: {
+            "critical": 30,
+            "high": 15,
+            "medium": 5,
+            "low": 0,
+            "info": 0,
+        }
     )
     max_score: int = Field(default=100, gt=0)
 
@@ -517,7 +607,13 @@ class MaturityVelocityConfig(BaseModel):
 
 class MaturityConfig(BaseModel):
     weights: dict[str, float] = Field(
-        default_factory=lambda: {"vvt": 0.20, "dsfa": 0.20, "avv": 0.20, "tom": 0.20, "velocity": 0.20}
+        default_factory=lambda: {
+            "vvt": 0.20,
+            "dsfa": 0.20,
+            "avv": 0.20,
+            "tom": 0.20,
+            "velocity": 0.20,
+        }
     )
     velocity: MaturityVelocityConfig = Field(default_factory=MaturityVelocityConfig)
 
@@ -572,7 +668,9 @@ class ConfidencePolicyConfig(BaseModel):
     @classmethod
     def _strategy_known(cls, v: str) -> str:
         if v not in _VALID_FALLBACK_STRATEGIES:
-            raise ValueError(f"fallback_strategy must be one of {sorted(_VALID_FALLBACK_STRATEGIES)}")
+            raise ValueError(
+                f"fallback_strategy must be one of {sorted(_VALID_FALLBACK_STRATEGIES)}"
+            )
         return v
 
     @property
@@ -612,13 +710,19 @@ class MitigationReduction(BaseModel):
         risk description. Empty list = applies to every risk.
     """
 
-    score_delta: float = Field(default=0.0, le=0.0, description="AVV: delta on 1-5 avg score (≤0)")
+    score_delta: float = Field(
+        default=0.0, le=0.0, description="AVV: delta on 1-5 avg score (≤0)"
+    )
     dimension_deltas: dict[str, float] = Field(
         default_factory=dict,
         description="AVV: per-dimension score delta (each value ≤0)",
     )
-    likelihood_delta: int = Field(default=0, le=0, description="DSFA: likelihood delta per risk (≤0)")
-    severity_delta: int = Field(default=0, le=0, description="DSFA: severity delta per risk (≤0)")
+    likelihood_delta: int = Field(
+        default=0, le=0, description="DSFA: likelihood delta per risk (≤0)"
+    )
+    severity_delta: int = Field(
+        default=0, le=0, description="DSFA: severity delta per risk (≤0)"
+    )
     applicable_risk_keywords: list[str] = Field(
         default_factory=list,
         description="DSFA: substring match on risk.description; empty = all risks",
@@ -641,19 +745,27 @@ class MitigationConfig(BaseModel):
     the case-mitigation-link table without DB-level enums.
     """
 
-    id: str = Field(..., min_length=1, max_length=80, description="Unique catalog id (slug)")
+    id: str = Field(
+        ..., min_length=1, max_length=80, description="Unique catalog id (slug)"
+    )
     label: str = Field(..., min_length=1, max_length=200)
     description: str = ""
     applies_to: str = Field(default="both", description="avv | dsfa | both")
-    tom_category: str | None = Field(default=None, description="optional TOMCategoryEnum value")
+    tom_category: str | None = Field(
+        default=None, description="optional TOMCategoryEnum value"
+    )
     reduction: MitigationReduction = Field(default_factory=MitigationReduction)
-    evidence_required: bool = Field(default=False, description="UI hint: require evidence_doc_id on link")
+    evidence_required: bool = Field(
+        default=False, description="UI hint: require evidence_doc_id on link"
+    )
 
     @field_validator("applies_to")
     @classmethod
     def _applies_to_known(cls, v: str) -> str:
         if v not in _VALID_MITIGATION_TARGETS:
-            raise ValueError(f"applies_to must be one of {sorted(_VALID_MITIGATION_TARGETS)}")
+            raise ValueError(
+                f"applies_to must be one of {sorted(_VALID_MITIGATION_TARGETS)}"
+            )
         return v
 
 
@@ -661,9 +773,15 @@ class MitigationCatalogConfig(BaseModel):
     """Container for the mitigation catalog with global floors and policy."""
 
     enabled: bool = Field(default=True)
-    min_likelihood: int = Field(default=1, ge=1, le=5, description="DSFA floor after reductions")
-    min_severity: int = Field(default=1, ge=1, le=5, description="DSFA floor after reductions")
-    min_avv_score: float = Field(default=1.0, ge=1.0, le=5.0, description="AVV floor after reductions")
+    min_likelihood: int = Field(
+        default=1, ge=1, le=5, description="DSFA floor after reductions"
+    )
+    min_severity: int = Field(
+        default=1, ge=1, le=5, description="DSFA floor after reductions"
+    )
+    min_avv_score: float = Field(
+        default=1.0, ge=1.0, le=5.0, description="AVV floor after reductions"
+    )
     catalog: list[MitigationConfig] = Field(default_factory=list)
 
     @field_validator("catalog")
@@ -720,7 +838,9 @@ class TomBaselineRequirement(BaseModel):
     @classmethod
     def _severity_known(cls, v: str) -> str:
         if v not in _VALID_TOM_BASELINE_SEVERITIES:
-            raise ValueError(f"severity must be one of {sorted(_VALID_TOM_BASELINE_SEVERITIES)}")
+            raise ValueError(
+                f"severity must be one of {sorted(_VALID_TOM_BASELINE_SEVERITIES)}"
+            )
         return v
 
 
@@ -732,7 +852,9 @@ class TomBaselineConfig(BaseModel):
 
     @field_validator("requirements")
     @classmethod
-    def _unique_ids(cls, v: list[TomBaselineRequirement]) -> list[TomBaselineRequirement]:
+    def _unique_ids(
+        cls, v: list[TomBaselineRequirement]
+    ) -> list[TomBaselineRequirement]:
         ids = [r.id for r in v]
         if len(ids) != len(set(ids)):
             raise ValueError("tom_baseline requirement ids must be unique")
@@ -752,8 +874,12 @@ class RiskConfig(BaseModel):
     case_score: CaseScoreConfig = Field(default_factory=CaseScoreConfig)
     maturity: MaturityConfig = Field(default_factory=MaturityConfig)
     risk_velocity: RiskVelocityConfig = Field(default_factory=RiskVelocityConfig)
-    mitigations: MitigationCatalogConfig = Field(default_factory=MitigationCatalogConfig)
-    confidence_policy: ConfidencePolicyConfig = Field(default_factory=ConfidencePolicyConfig)
+    mitigations: MitigationCatalogConfig = Field(
+        default_factory=MitigationCatalogConfig
+    )
+    confidence_policy: ConfidencePolicyConfig = Field(
+        default_factory=ConfidencePolicyConfig
+    )
     tom_baseline: TomBaselineConfig = Field(default_factory=TomBaselineConfig)
 
 
@@ -884,7 +1010,9 @@ def save_risk_config(cfg: RiskConfig, settings: Settings | None = None) -> Path:
 
     payload = cfg.model_dump(mode="json")
     with open(path, "w", encoding="utf-8") as f:
-        yaml.safe_dump(payload, f, allow_unicode=True, sort_keys=False, default_flow_style=False)
+        yaml.safe_dump(
+            payload, f, allow_unicode=True, sort_keys=False, default_flow_style=False
+        )
 
     reload_risk_config()
     return path

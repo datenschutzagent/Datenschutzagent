@@ -7,6 +7,7 @@ Der aktive Provider wird über die Einstellung LLM_PROVIDER gesteuert:
   - "openai_compatible" → beliebiger OpenAI-kompatibler Server (llama.cpp, vLLM, LiteLLM, TGI, …;
                           LLM_BASE_URL + LLM_MODEL erforderlich, LLM_API_KEY optional)
 """
+
 import asyncio
 import contextlib
 import logging
@@ -38,6 +39,7 @@ LLM_RETRY_DELAYS = [2, 4, 8]  # seconds between attempts
 # Circuit Breaker
 # ---------------------------------------------------------------------------
 
+
 class _CircuitState:
     CLOSED = "closed"
     OPEN = "open"
@@ -67,9 +69,12 @@ class CircuitBreaker:
     @property
     def state(self) -> str:
         with self._lock:
-            if self._state == _CircuitState.OPEN:
-                if self._opened_at and (time.monotonic() - self._opened_at) >= self._cooldown:
-                    self._state = _CircuitState.HALF_OPEN
+            if (
+                self._state == _CircuitState.OPEN
+                and self._opened_at
+                and (time.monotonic() - self._opened_at) >= self._cooldown
+            ):
+                self._state = _CircuitState.HALF_OPEN
             return self._state
 
     def record_success(self) -> None:
@@ -100,9 +105,9 @@ class CircuitBreaker:
 # asyncio.Semaphore is bound to the event loop it is awaited on: FastAPI shares one loop per
 # worker process while Celery tasks run their coroutines on per-task loops — so the semaphore
 # is keyed by the running loop. WeakKeyDictionary lets finished Celery loops be collected.
-_loop_semaphores: "weakref.WeakKeyDictionary[asyncio.AbstractEventLoop, asyncio.Semaphore]" = (
-    weakref.WeakKeyDictionary()
-)
+_loop_semaphores: (
+    "weakref.WeakKeyDictionary[asyncio.AbstractEventLoop, asyncio.Semaphore]"
+) = weakref.WeakKeyDictionary()
 
 
 def _get_llm_semaphore() -> asyncio.Semaphore | None:
@@ -179,7 +184,9 @@ def wrap_output_type(output_type):
     return output_type
 
 
-async def llm_retry_call(agent: Agent, user_content: str, output_type, *, request_id: str = ""):
+async def llm_retry_call(
+    agent: Agent, user_content: str, output_type, *, request_id: str = ""
+):
     """Run an LLM agent call with exponential backoff retry on transient errors.
 
     Checks the circuit breaker before each attempt; if the breaker is OPEN,
@@ -191,6 +198,7 @@ async def llm_retry_call(agent: Agent, user_content: str, output_type, *, reques
     structured-output mode applies to every call going through this helper.
     """
     from app.core.metrics import llm_call_duration_seconds, record_llm_usage
+
     provider = settings.llm_provider.lower()
     output_type = wrap_output_type(output_type)
 
@@ -202,10 +210,15 @@ async def llm_retry_call(agent: Agent, user_content: str, output_type, *, reques
     ):
         if cb.is_open():
             logger.warning(
-                "LLM circuit breaker is OPEN — skipping call  [request_id=%s]", request_id
+                "LLM circuit breaker is OPEN — skipping call  [request_id=%s]",
+                request_id,
             )
-            llm_call_duration_seconds.labels(provider=provider, status="circuit_open").observe(0)
-            raise LLMProviderError("LLM provider circuit breaker is open; provider assumed unavailable")
+            llm_call_duration_seconds.labels(
+                provider=provider, status="circuit_open"
+            ).observe(0)
+            raise LLMProviderError(
+                "LLM provider circuit breaker is open; provider assumed unavailable"
+            )
         if delay:
             await asyncio.sleep(delay)
         try:
@@ -223,25 +236,37 @@ async def llm_retry_call(agent: Agent, user_content: str, output_type, *, reques
                 record_llm_usage(provider, get_active_model_name(), result.usage())
             logger.info(
                 "LLM call succeeded (attempt %d/%d) elapsed=%.2fs prompt_chars=%d  [request_id=%s]",
-                attempt, LLM_RETRY_ATTEMPTS, elapsed, len(user_content), request_id,
+                attempt,
+                LLM_RETRY_ATTEMPTS,
+                elapsed,
+                len(user_content),
+                request_id,
             )
             cb.record_success()
-            llm_call_duration_seconds.labels(provider=provider, status="success").observe(elapsed)
+            llm_call_duration_seconds.labels(
+                provider=provider, status="success"
+            ).observe(elapsed)
             return result
         except Exception as exc:
             last_exc = exc
             logger.warning(
                 "LLM call failed (attempt %d/%d): %s  [request_id=%s]",
-                attempt, LLM_RETRY_ATTEMPTS, exc, request_id,
+                attempt,
+                LLM_RETRY_ATTEMPTS,
+                exc,
+                request_id,
             )
     elapsed = round(time.monotonic() - t0, 2)
     logger.error(
         "LLM call exhausted all retries elapsed=%.2fs  [request_id=%s]",
-        elapsed, request_id,
+        elapsed,
+        request_id,
     )
     cb.record_failure()
     llm_call_duration_seconds.labels(provider=provider, status="error").observe(elapsed)
-    raise LLMRetryExhaustedError(f"All {LLM_RETRY_ATTEMPTS} LLM retry attempts failed") from last_exc
+    raise LLMRetryExhaustedError(
+        f"All {LLM_RETRY_ATTEMPTS} LLM retry attempts failed"
+    ) from last_exc
 
 
 def ensure_v1_base_url(base_url: str) -> str:
@@ -263,7 +288,9 @@ def _get_local_http_client() -> httpx.AsyncClient:
     global _local_http_client
     if _local_http_client is None or _local_http_client.is_closed:
         timeout = settings.ollama_timeout_seconds
-        _local_http_client = httpx.AsyncClient(timeout=httpx.Timeout(timeout, connect=10.0))
+        _local_http_client = httpx.AsyncClient(
+            timeout=httpx.Timeout(timeout, connect=10.0)
+        )
     return _local_http_client
 
 
@@ -277,7 +304,9 @@ async def aclose_ollama_http_client() -> None:
 
 def get_ollama_model(model_name: str | None = None) -> OpenAIChatModel:
     """Get configured Ollama model (OpenAI-compatible API) via Pydantic AI OpenAIChatModel."""
-    provider = OpenAIProvider(base_url=_ollama_base_url(), http_client=_get_local_http_client())
+    provider = OpenAIProvider(
+        base_url=_ollama_base_url(), http_client=_get_local_http_client()
+    )
     return OpenAIChatModel(model_name or settings.ollama_model, provider=provider)
 
 
@@ -328,6 +357,7 @@ def get_anthropic_model(model_name: str | None = None):
     try:
         from pydantic_ai.models.anthropic import AnthropicModel
         from pydantic_ai.providers.anthropic import AnthropicProvider
+
         provider = AnthropicProvider(api_key=api_key)
         return AnthropicModel(model_name or settings.anthropic_model, provider=provider)
     except ImportError as exc:
@@ -376,16 +406,25 @@ def default_model_settings(*, temperature: float | None = None) -> ModelSettings
     breakpoint is placed on the system prompt/instructions so the large, repeated check prompt is
     served from Anthropic's prompt cache on subsequent calls (lower cost + latency).
     """
-    kwargs: dict = {"temperature": settings.llm_temperature if temperature is None else temperature}
+    kwargs: dict = {
+        "temperature": settings.llm_temperature if temperature is None else temperature
+    }
     if settings.llm_max_tokens:
         kwargs["max_tokens"] = settings.llm_max_tokens
-    if settings.llm_provider.lower() == "anthropic" and getattr(settings, "anthropic_prompt_caching", True):
+    if settings.llm_provider.lower() == "anthropic" and getattr(
+        settings, "anthropic_prompt_caching", True
+    ):
         try:
             from pydantic_ai.models.anthropic import AnthropicModelSettings
 
             return AnthropicModelSettings(anthropic_cache_instructions=True, **kwargs)
-        except Exception as exc:  # pragma: no cover - depends on optional 'anthropic' extra
-            logger.debug("Anthropic prompt caching unavailable, using plain ModelSettings: %s", exc)
+        except (
+            Exception
+        ) as exc:  # pragma: no cover - depends on optional 'anthropic' extra
+            logger.debug(
+                "Anthropic prompt caching unavailable, using plain ModelSettings: %s",
+                exc,
+            )
     return ModelSettings(**kwargs)
 
 
@@ -417,8 +456,13 @@ def create_agent(
     agent = Agent(
         model=get_active_model(model_name),
         system_prompt=system_prompt,
-        model_settings=model_settings or default_model_settings(temperature=temperature),
-        output_retries=output_retries if output_retries is not None else settings.llm_output_retries,
+        model_settings=model_settings
+        or default_model_settings(temperature=temperature),
+        output_retries=(
+            output_retries
+            if output_retries is not None
+            else settings.llm_output_retries
+        ),
     )
     if output_validator is not None:
         agent.output_validator(output_validator)

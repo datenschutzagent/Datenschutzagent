@@ -6,6 +6,7 @@ the header. Our ``_trusted_forwarded_for`` only honours the header when the
 direct socket peer is listed in the ``trusted_proxies`` setting (exact IPs or
 CIDR ranges).
 """
+
 from __future__ import annotations
 
 import ipaddress
@@ -21,7 +22,9 @@ logger = logging.getLogger(__name__)
 
 def _parse_trusted_networks() -> list[ipaddress._BaseNetwork]:
     networks: list[ipaddress._BaseNetwork] = []
-    for entry in settings.trusted_proxies if isinstance(settings.trusted_proxies, list) else []:
+    for entry in (
+        settings.trusted_proxies if isinstance(settings.trusted_proxies, list) else []
+    ):
         try:
             networks.append(ipaddress.ip_network(entry, strict=False))
         except ValueError:

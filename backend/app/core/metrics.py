@@ -9,6 +9,7 @@ Usage in Celery workers:
     Note: for multi-process deployments (Celery workers + FastAPI) a Prometheus
     Pushgateway is required so worker metrics are visible from the /metrics endpoint.
 """
+
 import logging
 
 from prometheus_client import Counter, Gauge, Histogram
@@ -66,11 +67,16 @@ def record_llm_usage(provider: str, model: str, usage) -> None:
             or 0
         )
         if input_tokens:
-            llm_tokens_total.labels(provider=provider, model=model, direction="input").inc(input_tokens)
+            llm_tokens_total.labels(
+                provider=provider, model=model, direction="input"
+            ).inc(input_tokens)
         if output_tokens:
-            llm_tokens_total.labels(provider=provider, model=model, direction="output").inc(output_tokens)
+            llm_tokens_total.labels(
+                provider=provider, model=model, direction="output"
+            ).inc(output_tokens)
     except Exception as exc:  # pragma: no cover - defensive
         logger.debug("record_llm_usage failed: %s", exc)
+
 
 # ---------------------------------------------------------------------------
 # Celery metrics
@@ -102,6 +108,7 @@ db_pool_total = Gauge(
 # OpenTelemetry setup (optional — activated when OTEL_EXPORTER_OTLP_ENDPOINT is set)
 # ---------------------------------------------------------------------------
 
+
 def configure_opentelemetry(service_name: str, otlp_endpoint: str) -> bool:
     """Set up an OTLP-HTTP span exporter and instrument FastAPI + SQLAlchemy.
 
@@ -109,10 +116,13 @@ def configure_opentelemetry(service_name: str, otlp_endpoint: str) -> bool:
     """
     try:
         from opentelemetry import trace
-        from opentelemetry.sdk.resources import Resource, SERVICE_NAME as _SVC
+        from opentelemetry.exporter.otlp.proto.http.trace_exporter import (
+            OTLPSpanExporter,
+        )
+        from opentelemetry.sdk.resources import SERVICE_NAME as _SVC
+        from opentelemetry.sdk.resources import Resource
         from opentelemetry.sdk.trace import TracerProvider
         from opentelemetry.sdk.trace.export import BatchSpanProcessor
-        from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
 
         resource = Resource(attributes={_SVC: service_name})
         provider = TracerProvider(resource=resource)
@@ -137,6 +147,7 @@ def instrument_fastapi(app) -> None:
     """Auto-instrument a FastAPI app with OpenTelemetry spans (no-op if not installed)."""
     try:
         from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
+
         FastAPIInstrumentor.instrument_app(app)
         logger.info("FastAPI OpenTelemetry instrumentation enabled")
     except ImportError:
@@ -147,6 +158,7 @@ def instrument_sqlalchemy(engine) -> None:
     """Auto-instrument a SQLAlchemy engine with OpenTelemetry spans (no-op if not installed)."""
     try:
         from opentelemetry.instrumentation.sqlalchemy import SQLAlchemyInstrumentor
+
         SQLAlchemyInstrumentor().instrument(engine=engine)
         logger.info("SQLAlchemy OpenTelemetry instrumentation enabled")
     except ImportError:

@@ -1,4 +1,5 @@
 """Service für Datenpannen-Management: LLM-gestützte Behörden-Meldungsgenerierung."""
+
 import logging
 from uuid import UUID
 
@@ -6,7 +7,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.prompt_security import sanitize_prompt_field
-from app.models.db import DataBreachModel, DataBreachActivityLogModel
+from app.models.db import DataBreachActivityLogModel, DataBreachModel
 
 logger = logging.getLogger(__name__)
 
@@ -42,19 +43,27 @@ _BREACH_TYPE_LABELS = {
 
 async def generate_breach_notification(breach_id: UUID, db: AsyncSession) -> None:
     """Generiert per LLM einen Behörden-Meldungsentwurf und speichert ihn in der DB."""
-    result = await db.execute(select(DataBreachModel).where(DataBreachModel.id == breach_id))
+    result = await db.execute(
+        select(DataBreachModel).where(DataBreachModel.id == breach_id)
+    )
     breach = result.scalar_one_or_none()
     if not breach:
         logger.warning("Data breach not found", extra={"breach_id": str(breach_id)})
         return
 
-    logger.info("Generating breach notification draft", extra={"breach_id": str(breach_id)})
+    logger.info(
+        "Generating breach notification draft", extra={"breach_id": str(breach_id)}
+    )
 
     try:
         from app.config import settings
+
         if not settings.ollama_enabled:
             breach.draft_notification = _build_template_notification(breach)
-            logger.info("Breach notification generated via template (LLM disabled)", extra={"breach_id": str(breach_id)})
+            logger.info(
+                "Breach notification generated via template (LLM disabled)",
+                extra={"breach_id": str(breach_id)},
+            )
             activity = DataBreachActivityLogModel(
                 breach_id=breach_id,
                 event_type="notification_draft_generated",
@@ -66,17 +75,36 @@ async def generate_breach_notification(breach_id: UUID, db: AsyncSession) -> Non
 
         prompt = _NOTIFICATION_PROMPT.format(
             title=sanitize_prompt_field(breach.title, max_chars=200),
-            description=sanitize_prompt_field(breach.description or "Keine Beschreibung", max_chars=1000),
+            description=sanitize_prompt_field(
+                breach.description or "Keine Beschreibung", max_chars=1000
+            ),
             discovered_at=breach.discovered_at.strftime("%d.%m.%Y %H:%M UTC"),
-            breach_type=sanitize_prompt_field(_BREACH_TYPE_LABELS.get(breach.breach_type, breach.breach_type), max_chars=100),
-            categories=sanitize_prompt_field(", ".join(breach.affected_data_categories or []) or "Nicht angegeben", max_chars=500),
-            persons_count=str(breach.affected_persons_count) if breach.affected_persons_count else "Unbekannt",
-            department=sanitize_prompt_field(breach.department or "Nicht angegeben", max_chars=100),
-            risk_level=sanitize_prompt_field(breach.risk_level or "Nicht bewertet", max_chars=50),
-            measures=sanitize_prompt_field(breach.measures_taken or "Keine", max_chars=500),
+            breach_type=sanitize_prompt_field(
+                _BREACH_TYPE_LABELS.get(breach.breach_type, breach.breach_type),
+                max_chars=100,
+            ),
+            categories=sanitize_prompt_field(
+                ", ".join(breach.affected_data_categories or []) or "Nicht angegeben",
+                max_chars=500,
+            ),
+            persons_count=(
+                str(breach.affected_persons_count)
+                if breach.affected_persons_count
+                else "Unbekannt"
+            ),
+            department=sanitize_prompt_field(
+                breach.department or "Nicht angegeben", max_chars=100
+            ),
+            risk_level=sanitize_prompt_field(
+                breach.risk_level or "Nicht bewertet", max_chars=50
+            ),
+            measures=sanitize_prompt_field(
+                breach.measures_taken or "Keine", max_chars=500
+            ),
         )
 
         import httpx
+
         async with httpx.AsyncClient(timeout=120) as client:
             response = await client.post(
                 f"{settings.ollama_base_url}/api/generate",
@@ -90,16 +118,23 @@ async def generate_breach_notification(breach_id: UUID, db: AsyncSession) -> Non
             data = response.json()
             draft = data.get("response", "").strip()
 
-        breach.draft_notification = draft if draft else _build_template_notification(breach)
+        breach.draft_notification = (
+            draft if draft else _build_template_notification(breach)
+        )
         method = "llm" if draft else "template_fallback"
         logger.info(
             "Breach notification generated via LLM",
-            extra={"breach_id": str(breach_id), "method": method, "draft_length": len(breach.draft_notification)},
+            extra={
+                "breach_id": str(breach_id),
+                "method": method,
+                "draft_length": len(breach.draft_notification),
+            },
         )
 
     except Exception as exc:
         logger.warning(
-            "LLM breach notification failed, using template fallback: %s", exc,
+            "LLM breach notification failed, using template fallback: %s",
+            exc,
             extra={"breach_id": str(breach_id)},
         )
         breach.draft_notification = _build_template_notification(breach)
@@ -117,7 +152,11 @@ def _build_template_notification(breach: DataBreachModel) -> str:
     """Erstellt einen Basis-Meldungsentwurf ohne LLM als Fallback."""
     breach_label = _BREACH_TYPE_LABELS.get(breach.breach_type, breach.breach_type)
     categories = ", ".join(breach.affected_data_categories or []) or "Nicht angegeben"
-    persons = str(breach.affected_persons_count) if breach.affected_persons_count else "Unbekannt"
+    persons = (
+        str(breach.affected_persons_count)
+        if breach.affected_persons_count
+        else "Unbekannt"
+    )
 
     return f"""# Meldung einer Datenschutzverletzung gemäß Art. 33 DSGVO
 

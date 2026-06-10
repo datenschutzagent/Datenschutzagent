@@ -1,4 +1,5 @@
 """DSB report and DSFA schemas."""
+
 from datetime import datetime
 from typing import Any, Literal
 from uuid import UUID
@@ -10,6 +11,7 @@ from .common import DSFAAssessmentEnum
 
 class DSBReportSummary(BaseModel):
     """Summary section of the DSB report."""
+
     total_documents: int = 0
     total_findings: int = 0
     critical_findings: int = 0
@@ -22,6 +24,7 @@ class DSBReportSummary(BaseModel):
 
 class DSBReportRisk(BaseModel):
     """Single risk entry (from finding) in the DSB report."""
+
     title: str
     severity: Literal["critical", "high", "medium", "low", "info"]
     description: str
@@ -29,6 +32,7 @@ class DSBReportRisk(BaseModel):
 
 class DSBReportResponse(BaseModel):
     """Full DSB summary report for a case."""
+
     case_id: UUID
     case_title: str
     generated_at: datetime

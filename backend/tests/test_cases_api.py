@@ -3,6 +3,7 @@
 These tests require a live PostgreSQL database (DATABASE_URL env var).
 They test create, read, update, and delete behaviour for cases and findings.
 """
+
 import pytest
 
 pytestmark = pytest.mark.asyncio
@@ -11,6 +12,7 @@ pytestmark = pytest.mark.asyncio
 # ---------------------------------------------------------------------------
 # Helper
 # ---------------------------------------------------------------------------
+
 
 async def _create_case(client, **overrides) -> dict:
     payload = {

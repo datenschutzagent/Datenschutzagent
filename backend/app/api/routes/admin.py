@@ -1,4 +1,5 @@
 """Admin API: read-only settings, connection status, and user management (admin role required)."""
+
 import logging
 from uuid import UUID
 
@@ -6,8 +7,6 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-
-logger = logging.getLogger(__name__)
 
 from app.config import settings
 from app.core.auth import require_roles
@@ -22,6 +21,8 @@ from app.models.schemas import (
 )
 from app.services.connection_checks import check_all_connections
 
+logger = logging.getLogger(__name__)
+
 router = APIRouter()
 
 ALLOWED_ROLES = {"viewer", "editor", "admin"}
@@ -35,16 +36,25 @@ class UserRoleUpdate(BaseModel):
 def get_admin_settings(_user=require_roles("admin")):
     """Return read-only view of app settings (no secrets)."""
     from app.core.llm import get_llm_provider_info
+
     return {
         "app_name": settings.app_name,
         "ollama_base_url": settings.ollama_base_url,
         "ollama_enabled": settings.ollama_enabled,
         "ollama_model": settings.ollama_model,
         "weaviate_url": settings.weaviate_url,
-        "weaviate_indexing_enabled": getattr(settings, "weaviate_indexing_enabled", False),
+        "weaviate_indexing_enabled": getattr(
+            settings, "weaviate_indexing_enabled", False
+        ),
         "storage_backend": settings.storage_backend,
-        "storage_local_path": settings.storage_local_path if settings.storage_backend == "local" else None,
-        "s3_configured": bool(settings.s3_endpoint_url and settings.s3_access_key and settings.s3_secret_key),
+        "storage_local_path": (
+            settings.storage_local_path if settings.storage_backend == "local" else None
+        ),
+        "s3_configured": bool(
+            settings.s3_endpoint_url
+            and settings.s3_access_key
+            and settings.s3_secret_key
+        ),
         "s3_bucket": settings.s3_bucket if settings.s3_endpoint_url else None,
         "celery_enabled": settings.celery_enabled,
         "celery_broker_configured": bool((settings.celery_broker_url or "").strip()),
@@ -86,7 +96,10 @@ async def update_user_role(
 ):
     """Update the role of a user. Allowed roles: viewer, editor, admin."""
     if body.role not in ALLOWED_ROLES:
-        raise HTTPException(status_code=400, detail=f"Invalid role '{body.role}'. Allowed: {sorted(ALLOWED_ROLES)}")
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid role '{body.role}'. Allowed: {sorted(ALLOWED_ROLES)}",
+        )
     result = await db.execute(select(UserModel).where(UserModel.id == user_id))
     user = result.scalar_one_or_none()
     if not user:
@@ -97,14 +110,23 @@ async def update_user_role(
     await db.refresh(user)
     logger.info(
         "Admin: user role updated",
-        extra={"target_user_id": str(user_id), "old_role": old_role, "new_role": body.role},
+        extra={
+            "target_user_id": str(user_id),
+            "old_role": old_role,
+            "new_role": body.role,
+        },
     )
     return UserResponse.model_validate(user)
 
 
 # --- Retention Management ---
 
-@router.get("/retention/preview", response_model=RetentionPreviewResponse, summary="Retention-Vorschau (Dry-Run)")
+
+@router.get(
+    "/retention/preview",
+    response_model=RetentionPreviewResponse,
+    summary="Retention-Vorschau (Dry-Run)",
+)
 async def retention_preview(
     db: AsyncSession = Depends(get_db),
     _user=require_roles("admin"),
@@ -113,8 +135,10 @@ async def retention_preview(
     from uuid import UUID as _UUID
 
     from app.services.retention_service import scan_cases_for_retention
+
     items_raw = await scan_cases_for_retention(db, dry_run=True)
     from app.models.schemas import RetentionPreviewItem
+
     items = [
         RetentionPreviewItem(
             case_id=_UUID(i["case_id"]),
@@ -128,7 +152,11 @@ async def retention_preview(
     return RetentionPreviewResponse(would_archive_count=len(items), items=items)
 
 
-@router.post("/retention/scan", response_model=RetentionScanResponse, summary="Retention-Scan auslösen")
+@router.post(
+    "/retention/scan",
+    response_model=RetentionScanResponse,
+    summary="Retention-Scan auslösen",
+)
 @limiter.limit("5/minute")
 async def trigger_retention_scan(
     request: Request,
@@ -140,8 +168,10 @@ async def trigger_retention_scan(
     from uuid import UUID as _UUID
 
     from app.services.retention_service import scan_cases_for_retention
+
     items_raw = await scan_cases_for_retention(db, dry_run=False)
     from app.models.schemas import RetentionPreviewItem
+
     items = [
         RetentionPreviewItem(
             case_id=_UUID(i["case_id"]),
@@ -157,12 +187,18 @@ async def trigger_retention_scan(
 
 # --- Benachrichtigungs-Test ---
 
-@router.get("/notifications/test-smtp", response_model=NotificationTestResponse, summary="SMTP-Verbindung testen")
+
+@router.get(
+    "/notifications/test-smtp",
+    response_model=NotificationTestResponse,
+    summary="SMTP-Verbindung testen",
+)
 def test_smtp(
     _user=require_roles("admin"),
 ):
     """Testet die SMTP-Verbindung für E-Mail-Benachrichtigungen."""
     from app.services.notification_service import test_smtp_connection
+
     result = test_smtp_connection()
     return NotificationTestResponse(
         smtp_enabled=settings.smtp_enabled,
@@ -171,7 +207,9 @@ def test_smtp(
     )
 
 
-@router.post("/notifications/scan-deadlines", summary="Frist-Benachrichtigungen sofort versenden")
+@router.post(
+    "/notifications/scan-deadlines", summary="Frist-Benachrichtigungen sofort versenden"
+)
 @limiter.limit("5/minute")
 async def trigger_deadline_notifications(
     request: Request,
@@ -181,6 +219,7 @@ async def trigger_deadline_notifications(
     """Scannt Fristen und sendet E-Mail-Benachrichtigungen sofort (ohne auf den Celery-Beat-Job zu warten)."""
     logger.info("Admin: manual deadline notification scan triggered")
     from app.services.notification_service import scan_and_notify_deadlines
+
     result = await scan_and_notify_deadlines(db)
     return result
 
@@ -199,6 +238,7 @@ async def trigger_critical_finding_notifications(
     jeweiligen Case-Assignee (Cooldown 20h, User-Master-Switch wird beachtet)."""
     logger.info("Admin: manual critical-findings notification scan triggered")
     from app.services.notification_service import scan_and_notify_critical_findings
+
     return await scan_and_notify_critical_findings(db)
 
 
@@ -218,6 +258,7 @@ async def trigger_maturity_decline_notifications(
     versendet."""
     logger.info("Admin: manual maturity-decline notification scan triggered")
     from app.services.notification_service import scan_and_notify_maturity_decline
+
     return await scan_and_notify_maturity_decline(db)
 
 
@@ -280,7 +321,9 @@ async def update_admin_risk_config(
         path = save_risk_config(cfg)
     except OSError as exc:
         logger.error("Failed to persist risk_config: %s", exc)
-        raise HTTPException(status_code=500, detail=f"Failed to write risk_config: {exc}") from exc
+        raise HTTPException(
+            status_code=500, detail=f"Failed to write risk_config: {exc}"
+        ) from exc
 
     logger.info(
         "Admin: risk_config updated",
@@ -302,6 +345,7 @@ def reload_admin_risk_config(
     damit die nächste Anfrage die Datei neu lädt.
     """
     from app.services.risk_config_loader import reload_risk_config
+
     reload_risk_config()
     logger.info("Admin: risk_config cache reloaded")
     return {"reloaded": True}
@@ -333,78 +377,100 @@ async def preview_admin_risk_config(
     samples = []
 
     # Sample 1: AVV mit avg=2.0
-    samples.append({
-        "name": "AVV-Risikobewertung (avg=2.0 auf 1-5)",
-        "inputs": {"avg_score": 2.0},
-        "current": {
-            "level": current_cfg.avv.level_for_score(2.0),
-            "score_pct": current_cfg.avv.normalize_to_percent(2.0),
-        },
-        "preview": {
-            "level": new_cfg.avv.level_for_score(2.0),
-            "score_pct": new_cfg.avv.normalize_to_percent(2.0),
-        },
-    })
+    samples.append(
+        {
+            "name": "AVV-Risikobewertung (avg=2.0 auf 1-5)",
+            "inputs": {"avg_score": 2.0},
+            "current": {
+                "level": current_cfg.avv.level_for_score(2.0),
+                "score_pct": current_cfg.avv.normalize_to_percent(2.0),
+            },
+            "preview": {
+                "level": new_cfg.avv.level_for_score(2.0),
+                "score_pct": new_cfg.avv.normalize_to_percent(2.0),
+            },
+        }
+    )
 
     # Sample 2: AVV mit avg=3.5
-    samples.append({
-        "name": "AVV-Risikobewertung (avg=3.5 auf 1-5)",
-        "inputs": {"avg_score": 3.5},
-        "current": {
-            "level": current_cfg.avv.level_for_score(3.5),
-            "score_pct": current_cfg.avv.normalize_to_percent(3.5),
-        },
-        "preview": {
-            "level": new_cfg.avv.level_for_score(3.5),
-            "score_pct": new_cfg.avv.normalize_to_percent(3.5),
-        },
-    })
+    samples.append(
+        {
+            "name": "AVV-Risikobewertung (avg=3.5 auf 1-5)",
+            "inputs": {"avg_score": 3.5},
+            "current": {
+                "level": current_cfg.avv.level_for_score(3.5),
+                "score_pct": current_cfg.avv.normalize_to_percent(3.5),
+            },
+            "preview": {
+                "level": new_cfg.avv.level_for_score(3.5),
+                "score_pct": new_cfg.avv.normalize_to_percent(3.5),
+            },
+        }
+    )
 
     # Sample 3: Case-Score mit 2 critical, 3 high
     def _case_score(cfg, c, h, m):
         w = cfg.case_score.severity_weights
-        penalty = c * w.get("critical", 0) + h * w.get("high", 0) + m * w.get("medium", 0)
+        penalty = (
+            c * w.get("critical", 0) + h * w.get("high", 0) + m * w.get("medium", 0)
+        )
         return min(cfg.case_score.max_score, penalty)
 
-    samples.append({
-        "name": "Case-Score (2 critical + 3 high + 5 medium)",
-        "inputs": {"critical": 2, "high": 3, "medium": 5},
-        "current": {"score": _case_score(current_cfg, 2, 3, 5)},
-        "preview": {"score": _case_score(new_cfg, 2, 3, 5)},
-    })
+    samples.append(
+        {
+            "name": "Case-Score (2 critical + 3 high + 5 medium)",
+            "inputs": {"critical": 2, "high": 3, "medium": 5},
+            "current": {"score": _case_score(current_cfg, 2, 3, 5)},
+            "preview": {"score": _case_score(new_cfg, 2, 3, 5)},
+        }
+    )
 
     # Sample 4: DSFA-Screening mit 2 erfüllten Standard-Faktoren
-    samples.append({
-        "name": "DSFA-Screening (2 Faktoren, je Gewicht aus Config)",
-        "inputs": {"matched_factors": 2},
-        "current": {
-            "threshold": current_cfg.dsfa_screening.required_threshold,
-            "required": current_cfg.dsfa_screening.required_threshold <= 2.0,
-        },
-        "preview": {
-            "threshold": new_cfg.dsfa_screening.required_threshold,
-            "required": new_cfg.dsfa_screening.required_threshold <= 2.0,
-        },
-    })
+    samples.append(
+        {
+            "name": "DSFA-Screening (2 Faktoren, je Gewicht aus Config)",
+            "inputs": {"matched_factors": 2},
+            "current": {
+                "threshold": current_cfg.dsfa_screening.required_threshold,
+                "required": current_cfg.dsfa_screening.required_threshold <= 2.0,
+            },
+            "preview": {
+                "threshold": new_cfg.dsfa_screening.required_threshold,
+                "required": new_cfg.dsfa_screening.required_threshold <= 2.0,
+            },
+        }
+    )
 
     # Sample 5: DSFA-Matrix Lookup für (3, 4)
-    samples.append({
-        "name": "DSFA-Matrix (Likelihood=3, Severity=4)",
-        "inputs": {"likelihood": 3, "severity": 4},
-        "current": {"risk_level": current_cfg.dsfa_assessment.risk_level_for(3, 4)},
-        "preview": {"risk_level": new_cfg.dsfa_assessment.risk_level_for(3, 4)},
-    })
+    samples.append(
+        {
+            "name": "DSFA-Matrix (Likelihood=3, Severity=4)",
+            "inputs": {"likelihood": 3, "severity": 4},
+            "current": {"risk_level": current_cfg.dsfa_assessment.risk_level_for(3, 4)},
+            "preview": {"risk_level": new_cfg.dsfa_assessment.risk_level_for(3, 4)},
+        }
+    )
 
     # Sample 6: Velocity-Score (Median 25 Tage)
     def _vel(cfg):
         from app.services.analytics_service import _velocity_score
-        return round(_velocity_score(25.0, cfg.maturity.velocity.optimal_days, cfg.maturity.velocity.worst_days), 1)
 
-    samples.append({
-        "name": "Velocity-Score (Median 25 Tage)",
-        "inputs": {"median_days": 25},
-        "current": {"velocity_score": _vel(current_cfg)},
-        "preview": {"velocity_score": _vel(new_cfg)},
-    })
+        return round(
+            _velocity_score(
+                25.0,
+                cfg.maturity.velocity.optimal_days,
+                cfg.maturity.velocity.worst_days,
+            ),
+            1,
+        )
+
+    samples.append(
+        {
+            "name": "Velocity-Score (Median 25 Tage)",
+            "inputs": {"median_days": 25},
+            "current": {"velocity_score": _vel(current_cfg)},
+            "preview": {"velocity_score": _vel(new_cfg)},
+        }
+    )
 
     return {"samples": samples}

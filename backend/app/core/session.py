@@ -11,6 +11,7 @@ Provides:
 The bearer-token flow in :mod:`app.core.auth` stays the authority whenever the
 feature flag ``auth_session_cookie_enabled`` is off; this module is additive.
 """
+
 from __future__ import annotations
 
 import json
@@ -62,6 +63,7 @@ def _get_redis():
     if _redis_client is None:
         try:
             import redis.asyncio as aioredis  # type: ignore
+
             _redis_client = aioredis.from_url(
                 settings.celery_broker_url,
                 decode_responses=True,
@@ -73,7 +75,9 @@ def _get_redis():
     return _redis_client
 
 
-async def create_session(*, user_sub: str, extra: dict[str, Any] | None = None) -> tuple[str, str]:
+async def create_session(
+    *, user_sub: str, extra: dict[str, Any] | None = None
+) -> tuple[str, str]:
     """Allocate a new session and CSRF token, persist both in Redis.
 
     Returns ``(session_id, csrf_token)``. The caller attaches them as cookies.
@@ -171,7 +175,9 @@ def set_session_cookies(response: Response, session_id: str, csrf_token: str) ->
 def clear_session_cookies(response: Response) -> None:
     secure = _use_secure_cookie()
     for name in (session_cookie_name(), csrf_cookie_name()):
-        response.delete_cookie(key=name, path="/", secure=secure, httponly=False, samesite="strict")
+        response.delete_cookie(
+            key=name, path="/", secure=secure, httponly=False, samesite="strict"
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -194,6 +200,12 @@ def verify_csrf(request: Request, session_csrf: str) -> None:
     header_token = request.headers.get("x-csrf-token", "")
     cookie_token = request.cookies.get(csrf_cookie_name(), "")
     if not header_token or not cookie_token or header_token != cookie_token:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="CSRF token missing or invalid")
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="CSRF token missing or invalid",
+        )
     if not secrets.compare_digest(header_token, session_csrf):
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="CSRF token does not match session")
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="CSRF token does not match session",
+        )

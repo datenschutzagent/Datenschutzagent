@@ -1,4 +1,5 @@
 """Weaviate integration: chunk documents, embed via Ollama, index and query for RAG checks."""
+
 import logging
 import re
 from urllib.parse import urlparse
@@ -86,7 +87,9 @@ def _chunk_prose(text: str, size: int, overlap_chars: int) -> list[str]:
     return [c for c in chunks if c.strip()]
 
 
-def _chunk_table(label: str | None, header: str, sep: str, body_rows: list[str], size: int) -> list[str]:
+def _chunk_table(
+    label: str | None, header: str, sep: str, body_rows: list[str], size: int
+) -> list[str]:
     """Split a Markdown table into chunks, repeating the (sheet label +) header on each chunk.
 
     Repeating the column-letter / column-name header on every chunk is what keeps coordinate-based
@@ -279,17 +282,25 @@ def _openai_embedding_endpoint() -> tuple[str, dict[str, str]] | None:
     base = base.rstrip("/")
     if not base.endswith("/v1"):
         base = f"{base}/v1"
-    api_key = settings.embedding_api_key.get_secret_value() if hasattr(settings, "embedding_api_key") else ""
+    api_key = (
+        settings.embedding_api_key.get_secret_value()
+        if hasattr(settings, "embedding_api_key")
+        else ""
+    )
     headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
     return f"{base}/embeddings", headers
 
 
 def _embedding_model_name() -> str:
     """Embedding model: explicit ``embedding_model`` override, else the legacy ``ollama_embedding_model``."""
-    return (getattr(settings, "embedding_model", "") or "").strip() or settings.ollama_embedding_model
+    return (
+        getattr(settings, "embedding_model", "") or ""
+    ).strip() or settings.ollama_embedding_model
 
 
-def _get_embedding_openai_compatible(text: str, url: str, headers: dict[str, str]) -> list[float]:
+def _get_embedding_openai_compatible(
+    text: str, url: str, headers: dict[str, str]
+) -> list[float]:
     """Embed via the OpenAI-compatible /v1/embeddings API (vLLM, llama.cpp, TEI/Infinity, …)."""
     import httpx
 
@@ -298,7 +309,9 @@ def _get_embedding_openai_compatible(text: str, url: str, headers: dict[str, str
             url,
             json={"model": _embedding_model_name(), "input": text},
             headers=headers,
-            timeout=httpx.Timeout(settings.llm_request_timeout_seconds or 30.0, connect=10.0),
+            timeout=httpx.Timeout(
+                settings.llm_request_timeout_seconds or 30.0, connect=10.0
+            ),
         )
         resp.raise_for_status()
         items = resp.json().get("data") or []
@@ -342,7 +355,7 @@ def get_embedding(text: str, *, client=None) -> list[float]:
         else:
             embs = getattr(response, "embeddings", None)
         if embs and len(embs) > 0:
-            return list(embs[0]) if isinstance(embs[0], (list, tuple)) else list(embs)
+            return list(embs[0]) if isinstance(embs[0], list | tuple) else list(embs)
     except Exception as e:
         logger.warning("Ollama embed failed: %s", e)
     return []
@@ -448,7 +461,9 @@ def index_legal_base(legal_base_id: UUID, title: str, content: str) -> bool:
 
         _ensure_legal_base_collection(client)
         collection = client.collections.get(LEGAL_BASE_CHUNK_COLLECTION)
-        collection.data.delete_many(where=Filter.by_property("legal_base_id").equal(legal_base_id))
+        collection.data.delete_many(
+            where=Filter.by_property("legal_base_id").equal(legal_base_id)
+        )
 
         chunks = chunk_text(content)
         if not chunks:
@@ -458,7 +473,11 @@ def index_legal_base(legal_base_id: UUID, title: str, content: str) -> bool:
         for i, chunk in enumerate(chunks):
             vector = get_embedding(chunk)
             if not vector:
-                logger.warning("Skipping legal base chunk %s for %s (no embedding)", i, legal_base_id)
+                logger.warning(
+                    "Skipping legal base chunk %s for %s (no embedding)",
+                    i,
+                    legal_base_id,
+                )
                 continue
             collection.data.insert(
                 properties={
@@ -495,7 +514,9 @@ def delete_legal_base_chunks(legal_base_id: UUID) -> bool:
         if not client.collections.exists(LEGAL_BASE_CHUNK_COLLECTION):
             return True
         collection = client.collections.get(LEGAL_BASE_CHUNK_COLLECTION)
-        collection.data.delete_many(where=Filter.by_property("legal_base_id").equal(legal_base_id))
+        collection.data.delete_many(
+            where=Filter.by_property("legal_base_id").equal(legal_base_id)
+        )
         return True
     except Exception as e:
         logger.warning("Weaviate delete_legal_base_chunks failed: %s", e)
@@ -507,7 +528,9 @@ def delete_legal_base_chunks(legal_base_id: UUID) -> bool:
             logger.debug("Weaviate client.close() fehlgeschlagen: %s", _close_err)
 
 
-def _query_collection(collection, query_text: str, query_vector: list[float], *, limit: int, filters):
+def _query_collection(
+    collection, query_text: str, query_vector: list[float], *, limit: int, filters
+):
     """Hybrid (BM25 + vector) query with graceful fallback to pure vector search.
 
     Hybrid retrieval matters for German legal text: exact keyword hits ("Art. 28",
@@ -526,8 +549,12 @@ def _query_collection(collection, query_text: str, query_vector: list[float], *,
                 filters=filters,
             )
         except Exception as exc:
-            logger.warning("Weaviate hybrid query failed, falling back to near_vector: %s", exc)
-    return collection.query.near_vector(near_vector=query_vector, limit=limit, filters=filters)
+            logger.warning(
+                "Weaviate hybrid query failed, falling back to near_vector: %s", exc
+            )
+    return collection.query.near_vector(
+        near_vector=query_vector, limit=limit, filters=filters
+    )
 
 
 def get_relevant_legal_base_chunks(
@@ -560,7 +587,9 @@ def get_relevant_legal_base_chunks(
             return []
         collection = client.collections.get(LEGAL_BASE_CHUNK_COLLECTION)
         response = _query_collection(
-            collection, query_text, query_vector,
+            collection,
+            query_text,
+            query_vector,
             limit=k,
             filters=Filter.by_property("legal_base_id").contains_any(legal_base_ids),
         )
@@ -571,7 +600,9 @@ def get_relevant_legal_base_chunks(
             if not text:
                 continue
             if include_source:
-                title = (props.get("legal_base_title") or "").strip() or "Rechtsgrundlage"
+                title = (
+                    props.get("legal_base_title") or ""
+                ).strip() or "Rechtsgrundlage"
                 result.append(f"[Quelle: {title}]\n{text}")
             else:
                 result.append(text)
@@ -605,18 +636,26 @@ def index_document_chunks(document_id: UUID, case_id: UUID, text: str) -> bool:
         # Delete existing chunks for this document (idempotent replace)
         from weaviate.collections.classes.filters import Filter
 
-        collection.data.delete_many(where=Filter.by_property("document_id").equal(document_id))
+        collection.data.delete_many(
+            where=Filter.by_property("document_id").equal(document_id)
+        )
 
         chunks = chunk_text(text)
         if not chunks:
             return True
 
         # Native Ollama client only needed when no OpenAI-compatible endpoint is configured.
-        embed_client = None if _openai_embedding_endpoint() is not None else _get_ollama_embed_client()
+        embed_client = (
+            None
+            if _openai_embedding_endpoint() is not None
+            else _get_ollama_embed_client()
+        )
         for i, chunk in enumerate(chunks):
             vector = get_embedding(chunk, client=embed_client)
             if not vector:
-                logger.warning("Skipping chunk %s for document %s (no embedding)", i, document_id)
+                logger.warning(
+                    "Skipping chunk %s for document %s (no embedding)", i, document_id
+                )
                 continue
             collection.data.insert(
                 properties={
@@ -653,7 +692,9 @@ def delete_chunks_by_document_id(document_id: UUID) -> bool:
         if not client.collections.exists(COLLECTION_NAME):
             return True
         collection = client.collections.get(COLLECTION_NAME)
-        collection.data.delete_many(where=Filter.by_property("document_id").equal(document_id))
+        collection.data.delete_many(
+            where=Filter.by_property("document_id").equal(document_id)
+        )
         return True
     except Exception as e:
         logger.warning("Weaviate delete_chunks_by_document_id failed: %s", e)
@@ -714,11 +755,17 @@ def get_relevant_chunks(
             return []
         collection = client.collections.get(COLLECTION_NAME)
         response = _query_collection(
-            collection, query_text, query_vector,
+            collection,
+            query_text,
+            query_vector,
             limit=k,
             filters=Filter.by_property("document_id").equal(document_id),
         )
-        return [obj.properties["text"] for obj in response.objects if obj.properties.get("text")]
+        return [
+            obj.properties["text"]
+            for obj in response.objects
+            if obj.properties.get("text")
+        ]
     except Exception as e:
         logger.warning("Weaviate get_relevant_chunks failed: %s", e)
         return []
@@ -754,11 +801,17 @@ def get_relevant_chunks_for_case(
             return []
         collection = client.collections.get(COLLECTION_NAME)
         response = _query_collection(
-            collection, query_text, query_vector,
+            collection,
+            query_text,
+            query_vector,
             limit=min(50, k * 5),
             filters=Filter.by_property("case_id").equal(case_id),
         )
-        return [obj.properties["text"] for obj in response.objects if obj.properties.get("text")]
+        return [
+            obj.properties["text"]
+            for obj in response.objects
+            if obj.properties.get("text")
+        ]
     except Exception as e:
         logger.warning("Weaviate get_relevant_chunks_for_case failed: %s", e)
         return []

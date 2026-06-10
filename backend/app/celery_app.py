@@ -1,8 +1,10 @@
 """Celery app and tasks for async jobs (document extraction, run_checks, DSFA, retention, notifications)."""
+
 import asyncio
 import logging
 import time
 import uuid
+from datetime import UTC
 from uuid import UUID
 
 from celery import Celery
@@ -14,13 +16,21 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from app.config import settings
 from app.constants import CaseStatus, DocumentExtractionStatus, JobStatus
-from app.models.db import ActivityLogModel, CaseModel, DocumentModel, DSBReportJobModel, DSFAJobModel, PlaybookModel, RunChecksJobModel
-from app.services.run_checks_service import run_checks_impl
-from app.services.dsb_report_service import build_dsb_report, save_report
-from app.storage import get_file
+from app.models.db import (
+    ActivityLogModel,
+    CaseModel,
+    DocumentModel,
+    DSBReportJobModel,
+    DSFAJobModel,
+    PlaybookModel,
+    RunChecksJobModel,
+)
 from app.services.document_processor import extract_text
+from app.services.dsb_report_service import build_dsb_report, save_report
 from app.services.playbook_matching import rank_playbooks_for_selection
+from app.services.run_checks_service import run_checks_impl
 from app.services.weaviate_service import index_document_chunks
+from app.storage import get_file
 
 logger = logging.getLogger(__name__)
 
@@ -38,7 +48,7 @@ def _connect_task_metrics() -> None:
     endpoint to expose them a Prometheus Pushgateway is required in multi-process
     deployments. In single-process setups (e.g. development) they are visible directly.
     """
-    from celery.signals import task_prerun, task_postrun
+    from celery.signals import task_postrun, task_prerun
 
     @task_prerun.connect
     def _on_prerun(task_id: str, **kw) -> None:
@@ -51,6 +61,7 @@ def _connect_task_metrics() -> None:
             return
         try:
             from app.core.metrics import celery_task_duration_seconds
+
             task_name = task.name.rsplit(".", 1)[-1]
             status = "success" if state == "SUCCESS" else "failure"
             celery_task_duration_seconds.labels(
@@ -75,12 +86,12 @@ celery_app.conf.update(
     # Prevent a hung task from blocking a worker indefinitely.
     # soft_time_limit raises SoftTimeLimitExceeded inside the task (catchable);
     # time_limit kills the worker process after an additional 60 s grace period.
-    task_soft_time_limit=660,   # 11 min: covers the longest run_checks jobs
-    task_time_limit=720,        # 12 min: hard kill after grace period
+    task_soft_time_limit=660,  # 11 min: covers the longest run_checks jobs
+    task_time_limit=720,  # 12 min: hard kill after grace period
     # On unexpected worker crash, reject (not ack) tasks so they are requeued
     # by another worker rather than silently lost.
     task_reject_on_worker_lost=True,
-    task_acks_late=True,        # ack only after the task function returns
+    task_acks_late=True,  # ack only after the task function returns
     beat_schedule={
         "retention-scan-nightly": {
             "task": "app.celery_app.retention_scan_task",
@@ -147,10 +158,14 @@ def _get_async_session_factory():
     return _async_session_factory
 
 
-def _set_extraction_failed(session: Session, document_id: UUID, error_message: str) -> None:
+def _set_extraction_failed(
+    session: Session, document_id: UUID, error_message: str
+) -> None:
     """Set document extraction_status to failed and persistence the error. Commits."""
     try:
-        row = session.execute(select(DocumentModel).where(DocumentModel.id == document_id)).scalar_one_or_none()
+        row = session.execute(
+            select(DocumentModel).where(DocumentModel.id == document_id)
+        ).scalar_one_or_none()
         if row:
             row.extraction_status = DocumentExtractionStatus.FAILED
             row.extraction_error = error_message
@@ -163,17 +178,27 @@ def _set_extraction_failed(session: Session, document_id: UUID, error_message: s
 def _parse_recheck_strategies() -> list[str]:
     """Parse RECHECK_DEFAULT_STRATEGIES setting into a list of strategy strings."""
     raw = getattr(settings, "recheck_default_strategies", "full_text") or "full_text"
-    strategies = [s.strip() for s in raw.split(",") if s.strip() in ("full_text", "rag")]
+    strategies = [
+        s.strip() for s in raw.split(",") if s.strip() in ("full_text", "rag")
+    ]
     return strategies if strategies else ["full_text"]
 
 
 def _maybe_auto_run_checks(session: Session, case_id: uuid.UUID) -> None:
     """If the case has auto_run_checks=True, find the best matching playbook and queue a run_checks job."""
     try:
-        case = session.execute(select(CaseModel).where(CaseModel.id == case_id)).scalar_one_or_none()
+        case = session.execute(
+            select(CaseModel).where(CaseModel.id == case_id)
+        ).scalar_one_or_none()
         if not case or not getattr(case, "auto_run_checks", False):
             return
-        playbooks = session.execute(select(PlaybookModel).where(PlaybookModel.is_active == True)).scalars().all()  # noqa: E712
+        playbooks = (
+            session.execute(
+                select(PlaybookModel).where(PlaybookModel.is_active.is_(True))
+            )
+            .scalars()
+            .all()
+        )  # noqa: E712
         if not playbooks:
             logger.info("auto_run_checks: no active playbooks for case %s", case_id)
             return
@@ -201,10 +226,15 @@ def _maybe_auto_run_checks(session: Session, case_id: uuid.UUID) -> None:
         run_playbook_checks.delay(str(job_id), None)
         logger.info(
             "auto_run_checks queued job %s for case %s (playbook: %s, strategies: %s)",
-            job_id, case_id, best_playbook.name, strategies,
+            job_id,
+            case_id,
+            best_playbook.name,
+            strategies,
         )
     except Exception as exc:
-        logger.warning("auto_run_checks failed to queue job for case %s: %s", case_id, exc)
+        logger.warning(
+            "auto_run_checks failed to queue job for case %s: %s", case_id, exc
+        )
 
 
 @celery_app.task(name="app.celery_app.extract_document_text", bind=True)
@@ -217,7 +247,9 @@ def extract_document_text(self, document_id: str) -> dict:
     uid = UUID(document_id)
     session: Session = _get_session_factory()()
     try:
-        row = session.execute(select(DocumentModel).where(DocumentModel.id == uid)).scalar_one_or_none()
+        row = session.execute(
+            select(DocumentModel).where(DocumentModel.id == uid)
+        ).scalar_one_or_none()
         if not row:
             logger.error(
                 "extract_document_text failed",
@@ -225,7 +257,10 @@ def extract_document_text(self, document_id: str) -> dict:
             )
             return {"ok": False, "error": "document_not_found"}
         # Idempotency guard: skip if already extracted (prevents double-processing on worker restart).
-        if row.extraction_status not in (DocumentExtractionStatus.PENDING, DocumentExtractionStatus.FAILED):
+        if row.extraction_status not in (
+            DocumentExtractionStatus.PENDING,
+            DocumentExtractionStatus.FAILED,
+        ):
             logger.info(
                 "extract_document_text skipped (already %s)",
                 row.extraction_status,
@@ -291,15 +326,21 @@ def extract_document_text(self, document_id: str) -> dict:
         session.close()
 
 
-def _count_checks_total(playbook_content: dict, doc_count: int, strategies: list[str]) -> int:
+def _count_checks_total(
+    playbook_content: dict, doc_count: int, strategies: list[str]
+) -> int:
     """Calculate total number of individual check invocations for progress tracking."""
-    raw_checks = playbook_content.get("checks") if isinstance(playbook_content, dict) else []
+    raw_checks = (
+        playbook_content.get("checks") if isinstance(playbook_content, dict) else []
+    )
     if not raw_checks:
         return 0
     doc_checks = sum(
-        1 for item in raw_checks
+        1
+        for item in raw_checks
         if isinstance(item, dict)
-        and (item.get("scope") or item.get("type") or "document").lower() not in ("case", "cross_document")
+        and (item.get("scope") or item.get("type") or "document").lower()
+        not in ("case", "cross_document")
     )
     case_checks = len(raw_checks) - doc_checks
     n_strategies = len(strategies) if strategies else 1
@@ -313,6 +354,7 @@ async def _run_checks_async(job_id: str, task_request_id: str | None = None) -> 
     pool per task invocation (which would exhaust database connections under load).
     """
     from app.core.request_id import request_id_var
+
     request_id_var.set(task_request_id or str(uuid.uuid4()))
 
     session_factory = _get_async_session_factory()
@@ -333,7 +375,9 @@ async def _run_checks_async(job_id: str, task_request_id: str | None = None) -> 
 
     async with session_factory() as session:
         # Phase A: setup — commit checks_total before checks so progress updates are not blocked
-        result = await session.execute(select(RunChecksJobModel).where(RunChecksJobModel.id == job_uuid))
+        result = await session.execute(
+            select(RunChecksJobModel).where(RunChecksJobModel.id == job_uuid)
+        )
         job = result.scalar_one_or_none()
         if not job:
             logger.error(
@@ -365,8 +409,12 @@ async def _run_checks_async(job_id: str, task_request_id: str | None = None) -> 
             },
         )
 
-        from app.models.db import PlaybookModel, DocumentModel as DocModel
-        pb_result = await session.execute(select(PlaybookModel).where(PlaybookModel.id == playbook_id))
+        from app.models.db import DocumentModel as DocModel
+        from app.models.db import PlaybookModel
+
+        pb_result = await session.execute(
+            select(PlaybookModel).where(PlaybookModel.id == playbook_id)
+        )
         playbook = pb_result.scalar_one_or_none()
         doc_result = await session.execute(
             select(DocModel).where(
@@ -393,7 +441,12 @@ async def _run_checks_async(job_id: str, task_request_id: str | None = None) -> 
         # Phase B: run checks (findings only — job row lock released after Phase A commit)
         try:
             findings_added, errors, activity_payload = await run_checks_impl(
-                session, case_id, playbook_id, strategies, on_check_done=_on_check_done, skip_resolved=True
+                session,
+                case_id,
+                playbook_id,
+                strategies,
+                on_check_done=_on_check_done,
+                skip_resolved=True,
             )
         except Exception:
             await session.rollback()
@@ -408,7 +461,9 @@ async def _run_checks_async(job_id: str, task_request_id: str | None = None) -> 
         )
 
         # Phase C: finalize — reload job row (may be expired after long Phase B)
-        job_result = await session.execute(select(RunChecksJobModel).where(RunChecksJobModel.id == job_uuid))
+        job_result = await session.execute(
+            select(RunChecksJobModel).where(RunChecksJobModel.id == job_uuid)
+        )
         job = job_result.scalar_one()
         activity = ActivityLogModel(
             case_id=case_id,
@@ -430,22 +485,38 @@ def run_playbook_checks(self, job_id: str, task_request_id: str | None = None) -
     Run playbook checks for a run_checks_jobs row. Loads job, runs run_checks_impl in async context,
     writes ActivityLog and updates job to completed/failed.
     """
-    logger.info("run_playbook_checks started", extra={"job_id": job_id, "celery_task_id": self.request.id, "request_id": task_request_id or "-"})
+    logger.info(
+        "run_playbook_checks started",
+        extra={
+            "job_id": job_id,
+            "celery_task_id": self.request.id,
+            "request_id": task_request_id or "-",
+        },
+    )
     t0 = time.monotonic()
     try:
         asyncio.run(_run_checks_async(job_id, task_request_id))
         elapsed = round(time.monotonic() - t0, 2)
-        logger.info("run_playbook_checks done", extra={"job_id": job_id, "elapsed_seconds": elapsed})
+        logger.info(
+            "run_playbook_checks done",
+            extra={"job_id": job_id, "elapsed_seconds": elapsed},
+        )
         return {"ok": True, "job_id": job_id}
     except SoftTimeLimitExceeded:
         elapsed = round(time.monotonic() - t0, 2)
-        logger.error("run_playbook_checks timed out", extra={"job_id": job_id, "elapsed_seconds": elapsed})
+        logger.error(
+            "run_playbook_checks timed out",
+            extra={"job_id": job_id, "elapsed_seconds": elapsed},
+        )
         _set_run_checks_job_failed(job_id, "soft_time_limit_exceeded")
         return {"ok": False, "error": "soft_time_limit_exceeded"}
     except Exception as e:
         elapsed = round(time.monotonic() - t0, 2)
         err_msg = str(e)[:490]
-        logger.error("run_playbook_checks failed", extra={"job_id": job_id, "error": err_msg, "elapsed_seconds": elapsed})
+        logger.error(
+            "run_playbook_checks failed",
+            extra={"job_id": job_id, "error": err_msg, "elapsed_seconds": elapsed},
+        )
         _set_run_checks_job_failed(job_id, err_msg)
         return {"ok": False, "error": err_msg}
 
@@ -454,7 +525,9 @@ def _set_run_checks_job_failed(job_id: str, error_message: str) -> None:
     """Update run_checks_jobs row to status=failed. Uses sync session."""
     session: Session = _get_session_factory()()
     try:
-        row = session.execute(select(RunChecksJobModel).where(RunChecksJobModel.id == UUID(job_id))).scalar_one_or_none()
+        row = session.execute(
+            select(RunChecksJobModel).where(RunChecksJobModel.id == UUID(job_id))
+        ).scalar_one_or_none()
         if row:
             row.status = JobStatus.FAILED
             row.error = error_message
@@ -466,17 +539,22 @@ def _set_run_checks_job_failed(job_id: str, error_message: str) -> None:
         session.close()
 
 
-async def _build_dsb_report_async(job_id: str, task_request_id: str | None = None) -> None:
+async def _build_dsb_report_async(
+    job_id: str, task_request_id: str | None = None
+) -> None:
     """Load DSB report job, run build_dsb_report, save report and update job.
 
     Uses the module-level shared async engine (same pool as _run_checks_async).
     """
     from app.core.request_id import request_id_var
+
     request_id_var.set(task_request_id or str(uuid.uuid4()))
 
     session_factory = _get_async_session_factory()
     async with session_factory() as session:
-        result = await session.execute(select(DSBReportJobModel).where(DSBReportJobModel.id == UUID(job_id)))
+        result = await session.execute(
+            select(DSBReportJobModel).where(DSBReportJobModel.id == UUID(job_id))
+        )
         job = result.scalar_one_or_none()
         if not job:
             raise ValueError("dsb_report job not found")
@@ -491,11 +569,16 @@ async def _build_dsb_report_async(job_id: str, task_request_id: str | None = Non
 
 
 @celery_app.task(name="app.celery_app.build_dsb_report_task", bind=True)
-def build_dsb_report_task(self, job_id: str, task_request_id: str | None = None) -> dict:
+def build_dsb_report_task(
+    self, job_id: str, task_request_id: str | None = None
+) -> dict:
     """
     Build DSB report for a dsb_report_jobs row. Runs build_dsb_report in async context and persists result.
     """
-    logger.info("build_dsb_report_task started", extra={"job_id": job_id, "request_id": task_request_id or "-"})
+    logger.info(
+        "build_dsb_report_task started",
+        extra={"job_id": job_id, "request_id": task_request_id or "-"},
+    )
     try:
         asyncio.run(_build_dsb_report_async(job_id, task_request_id))
         logger.info("build_dsb_report_task done", extra={"job_id": job_id})
@@ -506,7 +589,9 @@ def build_dsb_report_task(self, job_id: str, task_request_id: str | None = None)
         return {"ok": False, "error": "soft_time_limit_exceeded"}
     except Exception as e:
         err_msg = str(e)
-        logger.error("build_dsb_report_task failed", extra={"job_id": job_id, "error": err_msg})
+        logger.error(
+            "build_dsb_report_task failed", extra={"job_id": job_id, "error": err_msg}
+        )
         _set_dsb_report_job_failed(job_id, err_msg)
         return {"ok": False, "error": err_msg}
 
@@ -515,7 +600,9 @@ def _set_dsb_report_job_failed(job_id: str, error_message: str) -> None:
     """Update dsb_report_jobs row to status=failed. Uses sync session."""
     session: Session = _get_session_factory()()
     try:
-        row = session.execute(select(DSBReportJobModel).where(DSBReportJobModel.id == UUID(job_id))).scalar_one_or_none()
+        row = session.execute(
+            select(DSBReportJobModel).where(DSBReportJobModel.id == UUID(job_id))
+        ).scalar_one_or_none()
         if row:
             row.status = JobStatus.FAILED
             row.error = error_message
@@ -531,18 +618,23 @@ def _set_dsb_report_job_failed(job_id: str, error_message: str) -> None:
 # DSFA-Task
 # ---------------------------------------------------------------------------
 
+
 async def _build_dsfa_async(job_id: str, task_request_id: str | None = None) -> None:
     """Lädt DSFA-Job, generiert die DSFA via LLM und persistiert das Ergebnis."""
     from app.core.request_id import request_id_var
+
     request_id_var.set(task_request_id or str(uuid.uuid4()))
 
     session_factory = _get_async_session_factory()
     async with session_factory() as session:
-        result = await session.execute(select(DSFAJobModel).where(DSFAJobModel.id == UUID(job_id)))
+        result = await session.execute(
+            select(DSFAJobModel).where(DSFAJobModel.id == UUID(job_id))
+        )
         job = result.scalar_one_or_none()
         if not job or job.status != JobStatus.RUNNING:
             return
         from app.services.dsfa_service import generate_dsfa, save_dsfa
+
         payload = await generate_dsfa(job.case_id, session)
         await save_dsfa(job.case_id, payload, session)
         job.status = JobStatus.COMPLETED
@@ -553,7 +645,10 @@ async def _build_dsfa_async(job_id: str, task_request_id: str | None = None) -> 
 @celery_app.task(name="app.celery_app.build_dsfa_task", bind=True)
 def build_dsfa_task(self, job_id: str, task_request_id: str | None = None) -> dict:
     """Generiert DSFA für einen dsfa_jobs-Eintrag asynchron."""
-    logger.info("build_dsfa_task started", extra={"job_id": job_id, "request_id": task_request_id or "-"})
+    logger.info(
+        "build_dsfa_task started",
+        extra={"job_id": job_id, "request_id": task_request_id or "-"},
+    )
     try:
         asyncio.run(_build_dsfa_async(job_id, task_request_id))
         logger.info("build_dsfa_task done", extra={"job_id": job_id})
@@ -564,7 +659,9 @@ def build_dsfa_task(self, job_id: str, task_request_id: str | None = None) -> di
         return {"ok": False, "error": "soft_time_limit_exceeded"}
     except Exception as e:
         err_msg = str(e)
-        logger.error("build_dsfa_task failed", extra={"job_id": job_id, "error": err_msg})
+        logger.error(
+            "build_dsfa_task failed", extra={"job_id": job_id, "error": err_msg}
+        )
         _set_dsfa_job_failed(job_id, err_msg)
         return {"ok": False, "error": err_msg}
 
@@ -573,7 +670,9 @@ def _set_dsfa_job_failed(job_id: str, error_message: str) -> None:
     """Update dsfa_jobs row to status=failed. Uses sync session."""
     session: Session = _get_session_factory()()
     try:
-        row = session.execute(select(DSFAJobModel).where(DSFAJobModel.id == UUID(job_id))).scalar_one_or_none()
+        row = session.execute(
+            select(DSFAJobModel).where(DSFAJobModel.id == UUID(job_id))
+        ).scalar_one_or_none()
         if row:
             row.status = JobStatus.FAILED
             row.error = error_message
@@ -589,6 +688,7 @@ def _set_dsfa_job_failed(job_id: str, error_message: str) -> None:
 # Retention-Scan-Task (Celery Beat, nächtlich)
 # ---------------------------------------------------------------------------
 
+
 @celery_app.task(
     name="app.celery_app.retention_scan_task",
     bind=True,
@@ -601,7 +701,10 @@ def retention_scan_task(self) -> dict:
     logger.info("retention_scan_task started")
     try:
         result = asyncio.run(_retention_scan_async())
-        logger.info("retention_scan_task done", extra={"archived": result.get("archived_count", 0)})
+        logger.info(
+            "retention_scan_task done",
+            extra={"archived": result.get("archived_count", 0)},
+        )
         return {"ok": True, **result}
     except SoftTimeLimitExceeded:
         logger.error("retention_scan_task timed out")
@@ -612,6 +715,7 @@ async def _retention_scan_async() -> dict:
     session_factory = _get_async_session_factory()
     async with session_factory() as session:
         from app.services.retention_service import scan_cases_for_retention
+
         archived = await scan_cases_for_retention(session, dry_run=False)
         await session.commit()
         return {"archived_count": len(archived)}
@@ -620,6 +724,7 @@ async def _retention_scan_async() -> dict:
 # ---------------------------------------------------------------------------
 # Deadline-Benachrichtigungs-Task (Celery Beat, täglich)
 # ---------------------------------------------------------------------------
+
 
 @celery_app.task(
     name="app.celery_app.deadline_notifications_task",
@@ -633,7 +738,9 @@ def deadline_notifications_task(self) -> dict:
     logger.info("deadline_notifications_task started")
     try:
         result = asyncio.run(_deadline_notifications_async())
-        logger.info("deadline_notifications_task done", extra={"sent": result.get("sent", 0)})
+        logger.info(
+            "deadline_notifications_task done", extra={"sent": result.get("sent", 0)}
+        )
         return {"ok": True, **result}
     except SoftTimeLimitExceeded:
         logger.error("deadline_notifications_task timed out")
@@ -644,6 +751,7 @@ async def _deadline_notifications_async() -> dict:
     session_factory = _get_async_session_factory()
     async with session_factory() as session:
         from app.services.notification_service import scan_and_notify_deadlines
+
         result = await scan_and_notify_deadlines(session)
         await session.commit()
         return result
@@ -652,6 +760,7 @@ async def _deadline_notifications_async() -> dict:
 # ---------------------------------------------------------------------------
 # Periodische Re-Check-Task (Celery Beat, täglich)
 # ---------------------------------------------------------------------------
+
 
 @celery_app.task(
     name="app.celery_app.periodic_recheck_task",
@@ -665,7 +774,9 @@ def periodic_recheck_task(self) -> dict:
     logger.info("periodic_recheck_task started")
     try:
         result = asyncio.run(_periodic_recheck_async())
-        logger.info("periodic_recheck_task done", extra={"queued": result.get("queued", 0)})
+        logger.info(
+            "periodic_recheck_task done", extra={"queued": result.get("queued", 0)}
+        )
         return {"ok": True, **result}
     except SoftTimeLimitExceeded:
         logger.error("periodic_recheck_task timed out")
@@ -675,14 +786,15 @@ def periodic_recheck_task(self) -> dict:
 async def _periodic_recheck_async() -> dict:
     """Findet Vorgänge, bei denen recheck_interval_days seit dem letzten Check abgelaufen ist,
     und stellt automatisch neue run_checks-Jobs ein."""
-    from datetime import datetime, timezone, timedelta
+    from datetime import datetime, timedelta
+
     from sqlalchemy import and_
 
     session_factory = _get_async_session_factory()
     queued_count = 0
 
     async with session_factory() as session:
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         # Vorgänge mit konfiguriertem Recheck-Intervall laden
         result = await session.execute(
             select(CaseModel).where(
@@ -705,7 +817,7 @@ async def _periodic_recheck_async() -> dict:
 
             # Bestes aktives Playbook finden
             playbooks = await session.execute(
-                select(PlaybookModel).where(PlaybookModel.is_active == True)  # noqa: E712
+                select(PlaybookModel).where(PlaybookModel.is_active.is_(True))
             )
             active_playbooks = playbooks.scalars().all()
             if not active_playbooks:
@@ -744,7 +856,9 @@ async def _periodic_recheck_async() -> dict:
             queued_count += 1
             logger.info(
                 "periodic_recheck queued job %s for case %s (interval: %dd, countdown: %ds)",
-                job_id, case.id, case.recheck_interval_days,
+                job_id,
+                case.id,
+                case.recheck_interval_days,
                 (queued_count - 1) * settings.run_checks_stagger_seconds,
             )
 
@@ -770,7 +884,10 @@ def maturity_snapshot_task(self) -> dict:
     logger.info("maturity_snapshot_task started")
     try:
         result = asyncio.run(_maturity_snapshot_async())
-        logger.info("maturity_snapshot_task done", extra={"departments": result.get("departments", 0)})
+        logger.info(
+            "maturity_snapshot_task done",
+            extra={"departments": result.get("departments", 0)},
+        )
         return {"ok": True, **result}
     except SoftTimeLimitExceeded:
         logger.error("maturity_snapshot_task timed out")

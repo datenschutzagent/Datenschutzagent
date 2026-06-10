@@ -1,10 +1,9 @@
 """CRUD API for legal bases (Rechtsgrundlagen). Indexing to Weaviate on create/update, chunk deletion on delete."""
+
 import logging
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
-
-logger = logging.getLogger(__name__)
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -20,15 +19,28 @@ from app.models.schemas import (
 )
 from app.services.weaviate_service import delete_legal_base_chunks, index_legal_base
 
+logger = logging.getLogger(__name__)
+
 router = APIRouter()
 
 
-@router.get("", response_model=list[LegalBaseResponse], summary="Rechtsgrundlagen auflisten")
+@router.get(
+    "", response_model=list[LegalBaseResponse], summary="Rechtsgrundlagen auflisten"
+)
 async def list_legal_bases(
     db: AsyncSession = Depends(get_db),
-    applicability: ApplicabilityEnum | None = Query(None, description="Filter by applicability"),
-    skip: int = Query(default=0, ge=0, description="Anzahl übersprungener Einträge (Pagination)"),
-    limit: int = Query(default=500, ge=1, le=1000, description="Maximale Anzahl zurückgegebener Einträge"),
+    applicability: ApplicabilityEnum | None = Query(
+        None, description="Filter by applicability"
+    ),
+    skip: int = Query(
+        default=0, ge=0, description="Anzahl übersprungener Einträge (Pagination)"
+    ),
+    limit: int = Query(
+        default=500,
+        ge=1,
+        le=1000,
+        description="Maximale Anzahl zurückgegebener Einträge",
+    ),
 ):
     """List legal bases with optional filtering by applicability and pagination."""
     q = select(LegalBaseModel).order_by(LegalBaseModel.title)
@@ -62,7 +74,10 @@ async def create_legal_base(
     await db.commit()
     await db.refresh(model)
     index_legal_base(model.id, model.title, model.content or "")
-    logger.info("Legal base created", extra={"legal_base_id": str(model.id), "title": model.title[:80]})
+    logger.info(
+        "Legal base created",
+        extra={"legal_base_id": str(model.id), "title": model.title[:80]},
+    )
     return LegalBaseResponse.model_validate(model)
 
 
@@ -72,7 +87,9 @@ async def get_legal_base(
     db: AsyncSession = Depends(get_db),
 ):
     """Get a legal base by ID."""
-    result = await db.execute(select(LegalBaseModel).where(LegalBaseModel.id == legal_base_id))
+    result = await db.execute(
+        select(LegalBaseModel).where(LegalBaseModel.id == legal_base_id)
+    )
     base = result.scalar_one_or_none()
     if not base:
         raise HTTPException(status_code=404, detail="Legal base not found")
@@ -89,7 +106,9 @@ async def update_legal_base(
     _user=require_roles("editor", "admin"),
 ):
     """Update a legal base. Weaviate chunks are re-indexed when content or title change."""
-    result = await db.execute(select(LegalBaseModel).where(LegalBaseModel.id == legal_base_id))
+    result = await db.execute(
+        select(LegalBaseModel).where(LegalBaseModel.id == legal_base_id)
+    )
     base = result.scalar_one_or_none()
     if not base:
         raise HTTPException(status_code=404, detail="Legal base not found")
@@ -99,7 +118,10 @@ async def update_legal_base(
     await db.commit()
     await db.refresh(base)
     index_legal_base(base.id, base.title, base.content or "")
-    logger.info("Legal base updated", extra={"legal_base_id": str(legal_base_id), "fields": list(update_data.keys())})
+    logger.info(
+        "Legal base updated",
+        extra={"legal_base_id": str(legal_base_id), "fields": list(update_data.keys())},
+    )
     return LegalBaseResponse.model_validate(base)
 
 
@@ -110,7 +132,9 @@ async def delete_legal_base(
     _user=require_roles("editor", "admin"),
 ):
     """Delete a legal base. Weaviate chunks for this base are removed."""
-    result = await db.execute(select(LegalBaseModel).where(LegalBaseModel.id == legal_base_id))
+    result = await db.execute(
+        select(LegalBaseModel).where(LegalBaseModel.id == legal_base_id)
+    )
     base = result.scalar_one_or_none()
     if not base:
         raise HTTPException(status_code=404, detail="Legal base not found")
@@ -118,4 +142,4 @@ async def delete_legal_base(
     await db.commit()
     delete_legal_base_chunks(legal_base_id)
     logger.info("Legal base deleted", extra={"legal_base_id": str(legal_base_id)})
-    return None
+    return

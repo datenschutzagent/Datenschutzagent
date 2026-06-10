@@ -7,12 +7,12 @@ must be:
   - Domain-tagged (run_checks and dsfa should map to different keys for
     the same UUID input).
 """
+
 from __future__ import annotations
 
 from uuid import UUID
 
 from app.core.concurrency import _stable_key
-
 
 _CASE_A = UUID("11111111-1111-1111-1111-111111111111")
 _CASE_B = UUID("22222222-2222-2222-2222-222222222222")
@@ -46,6 +46,7 @@ def test_stable_key_domain_tag_changes_key():
 
 def test_stable_key_requires_at_least_one_part():
     import pytest
+
     with pytest.raises(ValueError):
         _stable_key()
 

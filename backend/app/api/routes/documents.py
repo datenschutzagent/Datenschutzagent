@@ -1,35 +1,60 @@
 """Document upload and management API."""
-import asyncio
+
+import contextlib
 import logging
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
-
-logger = logging.getLogger(__name__)
 from fastapi.responses import StreamingResponse
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.celery_app import extract_document_text
+from app.config import settings
 from app.constants import DocumentExtractionStatus
 from app.core.auth import require_roles
 from app.core.rate_limit import limiter
-from app.models.db import UserModel
-from app.celery_app import extract_document_text
-from app.config import settings
 from app.database import get_db
 from app.models import DocumentModel, DocumentResponse
 from app.models.db import CaseModel, DocumentCommentModel, UserModel
-from app.models.schemas import DocumentCommentCreate, DocumentCommentResponse, DocumentUpdate
+from app.models.schemas import (
+    DocumentCommentCreate,
+    DocumentCommentResponse,
+    DocumentUpdate,
+)
 from app.services.document_processor import extract_text
 from app.services.weaviate_service import delete_chunks_by_document_id
-from app.storage import save_file, delete_file, get_file
+from app.storage import delete_file, get_file, save_file
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
-ALLOWED_EXTENSIONS = {"docx", "pdf", "xlsx", "pptx", "csv", "doc", "jpg", "jpeg", "png", "tif", "tiff"}
+ALLOWED_EXTENSIONS = {
+    "docx",
+    "pdf",
+    "xlsx",
+    "pptx",
+    "csv",
+    "doc",
+    "jpg",
+    "jpeg",
+    "png",
+    "tif",
+    "tiff",
+}
 EXT_TO_FORMAT = {
-    "docx": "docx", "pdf": "pdf", "xlsx": "xlsx", "pptx": "pptx", "csv": "csv", "doc": "doc",
-    "jpg": "jpg", "jpeg": "jpg", "png": "png", "tif": "tiff", "tiff": "tiff",
+    "docx": "docx",
+    "pdf": "pdf",
+    "xlsx": "xlsx",
+    "pptx": "pptx",
+    "csv": "csv",
+    "doc": "doc",
+    "jpg": "jpg",
+    "jpeg": "jpg",
+    "png": "png",
+    "tif": "tiff",
+    "tiff": "tiff",
 }
 FORMAT_TO_MEDIA_TYPE = {
     "pdf": "application/pdf",
@@ -58,8 +83,14 @@ _TIFF_MAGIC_BE = b"MM\x00*"  # big-endian TIFF
 # Known binary signatures — a file claiming to be CSV (plain text) must not start with any
 # of these, which keeps the renamed-binary protection meaningful for the text format.
 _BINARY_MAGICS = (
-    _PDF_MAGIC, _ZIP_MAGIC, _ZIP_EMPTY_MAGIC, _OLE2_MAGIC,
-    _JPEG_MAGIC, _PNG_MAGIC, _TIFF_MAGIC_LE, _TIFF_MAGIC_BE,
+    _PDF_MAGIC,
+    _ZIP_MAGIC,
+    _ZIP_EMPTY_MAGIC,
+    _OLE2_MAGIC,
+    _JPEG_MAGIC,
+    _PNG_MAGIC,
+    _TIFF_MAGIC_LE,
+    _TIFF_MAGIC_BE,
 )
 
 
@@ -100,7 +131,9 @@ def _verify_magic_bytes(content: bytes, expected_format: str, filename: str) -> 
     if not ok:
         logger.warning(
             "Magic-byte mismatch on upload: filename=%r expected=%s header=%r",
-            filename, expected_format, header[:8],
+            filename,
+            expected_format,
+            header[:8],
         )
         raise HTTPException(
             status_code=415,
@@ -136,7 +169,8 @@ async def _process_one_upload(
     async_extraction: bool = True,
 ) -> DocumentModel:
     """Validate, store and optionally extract text. If async_extraction=True (default), content is set in a Celery task; otherwise inline.
-    Returns created DocumentModel. Caller must ensure case exists. Version is auto-assigned per (case_id, document_type)."""
+    Returns created DocumentModel. Caller must ensure case exists. Version is auto-assigned per (case_id, document_type).
+    """
     filename = file.filename or "document"
     ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
     if ext not in ALLOWED_EXTENSIONS:
@@ -214,7 +248,9 @@ async def download_document(
     _user=require_roles("viewer", "editor", "admin"),
 ):
     """Download the original document file. Access requires authentication (same as listing documents)."""
-    result = await db.execute(select(DocumentModel).where(DocumentModel.id == document_id))
+    result = await db.execute(
+        select(DocumentModel).where(DocumentModel.id == document_id)
+    )
     doc = result.scalar_one_or_none()
     if not doc:
         raise HTTPException(status_code=404, detail="Document not found")
@@ -227,14 +263,17 @@ async def download_document(
             "Document file missing from storage",
             extra={"document_id": str(document_id), "storage_path": doc.storage_path},
         )
-        raise HTTPException(status_code=404, detail="File not found")
+        raise HTTPException(status_code=404, detail="File not found") from None
     media_type = FORMAT_TO_MEDIA_TYPE.get(doc.format, "application/octet-stream")
     filename = doc.name or f"document.{doc.format}"
     # RFC 5987 encoding prevents header injection from filenames containing quotes or non-ASCII
     from urllib.parse import quote
+
     filename_encoded = quote(filename, safe="")
-    ascii_fallback = filename.encode("ascii", errors="replace").decode().replace('"', "_")
-    content_disposition = f'attachment; filename="{ascii_fallback}"; filename*=UTF-8\'\'{filename_encoded}'
+    ascii_fallback = (
+        filename.encode("ascii", errors="replace").decode().replace('"', "_")
+    )
+    content_disposition = f"attachment; filename=\"{ascii_fallback}\"; filename*=UTF-8''{filename_encoded}"
     return StreamingResponse(
         iter([content]),
         media_type=media_type,
@@ -252,7 +291,9 @@ async def get_document_content(
     _user=require_roles("viewer", "editor", "admin"),
 ):
     """Get the extracted text content of a document (for in-app display). Includes extraction_status and extraction_error for UI state."""
-    result = await db.execute(select(DocumentModel).where(DocumentModel.id == document_id))
+    result = await db.execute(
+        select(DocumentModel).where(DocumentModel.id == document_id)
+    )
     doc = result.scalar_one_or_none()
     if not doc:
         raise HTTPException(status_code=404, detail="Document not found")
@@ -270,7 +311,9 @@ async def list_document_comments(
     _user=require_roles("viewer", "editor", "admin"),
 ):
     """List comments for a document, sorted by created_at ascending."""
-    result = await db.execute(select(DocumentModel).where(DocumentModel.id == document_id))
+    result = await db.execute(
+        select(DocumentModel).where(DocumentModel.id == document_id)
+    )
     doc = result.scalar_one_or_none()
     if not doc:
         raise HTTPException(status_code=404, detail="Document not found")
@@ -284,7 +327,9 @@ async def list_document_comments(
     return [DocumentCommentResponse.model_validate(c) for c in comments]
 
 
-@router.post("/{document_id}/comments", response_model=DocumentCommentResponse, status_code=201)
+@router.post(
+    "/{document_id}/comments", response_model=DocumentCommentResponse, status_code=201
+)
 @limiter.limit("30/minute")
 async def create_document_comment(
     request: Request,
@@ -294,7 +339,9 @@ async def create_document_comment(
     current_user: UserModel = require_roles("editor", "admin"),
 ):
     """Add a comment to a document. Author is taken from current user."""
-    result = await db.execute(select(DocumentModel).where(DocumentModel.id == document_id))
+    result = await db.execute(
+        select(DocumentModel).where(DocumentModel.id == document_id)
+    )
     doc = result.scalar_one_or_none()
     if not doc:
         raise HTTPException(status_code=404, detail="Document not found")
@@ -319,7 +366,9 @@ async def get_document(
     _user=require_roles("viewer", "editor", "admin"),
 ):
     """Get a single document by ID."""
-    result = await db.execute(select(DocumentModel).where(DocumentModel.id == document_id))
+    result = await db.execute(
+        select(DocumentModel).where(DocumentModel.id == document_id)
+    )
     doc = result.scalar_one_or_none()
     if not doc:
         raise HTTPException(status_code=404, detail="Document not found")
@@ -336,7 +385,9 @@ async def update_document(
     _user=require_roles("editor", "admin"),
 ):
     """Update document metadata or extracted content. When content is updated, Weaviate chunks for this document are removed (RAG will use new content after re-indexing)."""
-    result = await db.execute(select(DocumentModel).where(DocumentModel.id == document_id))
+    result = await db.execute(
+        select(DocumentModel).where(DocumentModel.id == document_id)
+    )
     doc = result.scalar_one_or_none()
     if not doc:
         raise HTTPException(status_code=404, detail="Document not found")
@@ -349,7 +400,9 @@ async def update_document(
     return DocumentResponse.model_validate(doc)
 
 
-@router.post("", response_model=DocumentResponse, status_code=201, summary="Dokument hochladen")
+@router.post(
+    "", response_model=DocumentResponse, status_code=201, summary="Dokument hochladen"
+)
 @limiter.limit("30/minute")
 async def upload_document(
     request: Request,
@@ -365,9 +418,16 @@ async def upload_document(
     case = result.scalar_one_or_none()
     if not case:
         raise HTTPException(status_code=404, detail="Case not found")
-    use_async = settings.celery_enabled and bool((settings.celery_broker_url or "").strip())
+    use_async = settings.celery_enabled and bool(
+        (settings.celery_broker_url or "").strip()
+    )
     doc = await _process_one_upload(
-        case_id=case_id, file=file, document_type=document_type, uploaded_by=uploaded_by, db=db, async_extraction=use_async
+        case_id=case_id,
+        file=file,
+        document_type=document_type,
+        uploaded_by=uploaded_by,
+        db=db,
+        async_extraction=use_async,
     )
     logger.info(
         "Document uploaded",
@@ -403,14 +463,21 @@ async def upload_documents_bulk(
     case = result.scalar_one_or_none()
     if not case:
         raise HTTPException(status_code=404, detail="Case not found")
-    use_async = settings.celery_enabled and bool((settings.celery_broker_url or "").strip())
+    use_async = settings.celery_enabled and bool(
+        (settings.celery_broker_url or "").strip()
+    )
     created: list[DocumentResponse] = []
     doc_ids: list[UUID] = []
     errors: list[str] = []
     for f in files:
         try:
             doc = await _process_one_upload(
-                case_id=case_id, file=f, document_type=document_type, uploaded_by=uploaded_by, db=db, async_extraction=use_async
+                case_id=case_id,
+                file=f,
+                document_type=document_type,
+                uploaded_by=uploaded_by,
+                db=db,
+                async_extraction=use_async,
             )
             created.append(DocumentResponse.model_validate(doc))
             if use_async:
@@ -420,7 +487,11 @@ async def upload_documents_bulk(
     if errors:
         logger.warning(
             "Bulk upload partial or full failure",
-            extra={"case_id": str(case_id), "errors": errors, "created_count": len(created)},
+            extra={
+                "case_id": str(case_id),
+                "errors": errors,
+                "created_count": len(created),
+            },
         )
     if errors and not created:
         raise HTTPException(status_code=400, detail="; ".join(errors))
@@ -438,7 +509,9 @@ async def delete_document(
     _user=require_roles("editor", "admin"),
 ):
     """Delete a document (DB record and storage file)."""
-    result = await db.execute(select(DocumentModel).where(DocumentModel.id == document_id))
+    result = await db.execute(
+        select(DocumentModel).where(DocumentModel.id == document_id)
+    )
     doc = result.scalar_one_or_none()
     if not doc:
         raise HTTPException(status_code=404, detail="Document not found")
@@ -447,9 +520,10 @@ async def delete_document(
     await db.delete(doc)
     await db.flush()
     if storage_path:
-        try:
+        with contextlib.suppress(FileNotFoundError):
             delete_file(storage_path)
-        except FileNotFoundError:
-            pass
-    logger.info("Document deleted", extra={"document_id": str(document_id), "case_id": str(doc.case_id)})
-    return None
+    logger.info(
+        "Document deleted",
+        extra={"document_id": str(document_id), "case_id": str(doc.case_id)},
+    )
+    return

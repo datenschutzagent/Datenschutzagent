@@ -1,6 +1,7 @@
 """Retention Policy Lifecycle Engine: automatisch Vorgänge archivieren, die ihre Aufbewahrungsfrist überschritten haben."""
+
 import logging
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -23,7 +24,9 @@ def _retention_base_sql() -> str:
     return "COALESCE(completed_at, created_at)"
 
 
-async def scan_cases_for_retention(db: AsyncSession, dry_run: bool = False) -> list[dict]:
+async def scan_cases_for_retention(
+    db: AsyncSession, dry_run: bool = False
+) -> list[dict]:
     """Archiviert Vorgänge, bei denen retention_months seit dem Abschluss (completed_at)
     bzw. der Erstellung (created_at) abgelaufen ist.
 
@@ -36,7 +39,8 @@ async def scan_cases_for_retention(db: AsyncSession, dry_run: bool = False) -> l
     Returns list of cases that were (or would be, if dry_run=True) archived.
     """
     base = _retention_base_sql()
-    stmt = text(f"""
+    stmt = text(
+        f"""
         SELECT id, title, department, retention_months, created_at, completed_at,
                {base} AS retention_base
         FROM cases
@@ -45,23 +49,30 @@ async def scan_cases_for_retention(db: AsyncSession, dry_run: bool = False) -> l
           AND {base} IS NOT NULL
           AND {base} < NOW() - (retention_months * INTERVAL '1 month')
         ORDER BY {base} ASC
-    """)
+    """
+    )
     result = await db.execute(stmt)
     rows = result.mappings().all()
 
     archived: list[dict] = []
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     for row in rows:
         case_id = row["id"]
         retention_base = row["retention_base"]
-        archived.append({
-            "case_id": str(case_id),
-            "title": row["title"],
-            "department": row["department"],
-            "retention_months": row["retention_months"],
-            "retention_base": retention_base.isoformat() if retention_base else None,
-            "completed_at": row["completed_at"].isoformat() if row["completed_at"] else None,
-        })
+        archived.append(
+            {
+                "case_id": str(case_id),
+                "title": row["title"],
+                "department": row["department"],
+                "retention_months": row["retention_months"],
+                "retention_base": (
+                    retention_base.isoformat() if retention_base else None
+                ),
+                "completed_at": (
+                    row["completed_at"].isoformat() if row["completed_at"] else None
+                ),
+            }
+        )
 
         if dry_run:
             continue
@@ -75,8 +86,12 @@ async def scan_cases_for_retention(db: AsyncSession, dry_run: bool = False) -> l
             event_type="retention_auto_archived",
             payload={
                 "retention_months": case.retention_months,
-                "retention_base": retention_base.isoformat() if retention_base else None,
-                "completed_at": case.completed_at.isoformat() if case.completed_at else None,
+                "retention_base": (
+                    retention_base.isoformat() if retention_base else None
+                ),
+                "completed_at": (
+                    case.completed_at.isoformat() if case.completed_at else None
+                ),
                 "require_completed": settings.retention_require_completed,
                 "archived_by": "system",
             },
@@ -87,7 +102,9 @@ async def scan_cases_for_retention(db: AsyncSession, dry_run: bool = False) -> l
             extra={
                 "case_id": str(case_id),
                 "retention_months": case.retention_months,
-                "retention_base": retention_base.isoformat() if retention_base else None,
+                "retention_base": (
+                    retention_base.isoformat() if retention_base else None
+                ),
             },
         )
 
@@ -113,7 +130,8 @@ async def scan_cases_due_for_retention_warning(db: AsyncSession) -> list[dict]:
     """
     grace = max(0, int(settings.retention_grace_days))
     base = _retention_base_sql()
-    stmt = text(f"""
+    stmt = text(
+        f"""
         SELECT id, title, department, retention_months, created_at, completed_at,
                {base} AS retention_base,
                ({base} + (retention_months * INTERVAL '1 month')) AS retention_due_at
@@ -123,20 +141,25 @@ async def scan_cases_due_for_retention_warning(db: AsyncSession) -> list[dict]:
           AND {base} IS NOT NULL
           AND {base} + (retention_months * INTERVAL '1 month') BETWEEN NOW() AND NOW() + (:grace * INTERVAL '1 day')
         ORDER BY retention_due_at ASC
-    """).bindparams(grace=grace)
+    """
+    ).bindparams(grace=grace)
     result = await db.execute(stmt)
     rows = result.mappings().all()
     warnings: list[dict] = []
     for row in rows:
         due = row["retention_due_at"]
-        warnings.append({
-            "case_id": str(row["id"]),
-            "title": row["title"],
-            "department": row["department"],
-            "retention_months": row["retention_months"],
-            "retention_due_at": due.isoformat() if due else None,
-            "completed_at": row["completed_at"].isoformat() if row["completed_at"] else None,
-        })
+        warnings.append(
+            {
+                "case_id": str(row["id"]),
+                "title": row["title"],
+                "department": row["department"],
+                "retention_months": row["retention_months"],
+                "retention_due_at": due.isoformat() if due else None,
+                "completed_at": (
+                    row["completed_at"].isoformat() if row["completed_at"] else None
+                ),
+            }
+        )
     logger.info(
         "Retention warning scan complete",
         extra={"due_count": len(warnings), "grace_days": grace},

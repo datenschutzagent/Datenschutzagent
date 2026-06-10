@@ -1,4 +1,5 @@
 """Current user (me) API: profile and preferences."""
+
 import logging
 
 from fastapi import APIRouter, Depends, Request
@@ -34,7 +35,11 @@ async def update_me(
     if body.email is not None:
         current_user.email = body.email
     if body.preferences is not None:
-        prefs = body.preferences.model_dump(exclude_none=True) if hasattr(body.preferences, "model_dump") else body.preferences
+        prefs = (
+            body.preferences.model_dump(exclude_none=True)
+            if hasattr(body.preferences, "model_dump")
+            else body.preferences
+        )
         existing = dict(current_user.preferences or {})
         existing.update(prefs)
         current_user.preferences = existing
@@ -42,5 +47,8 @@ async def update_me(
         current_user.notifications_enabled = body.notifications_enabled
     await db.flush()
     await db.refresh(current_user)
-    logger.info("User profile updated", extra={"user_id": str(current_user.id), "fields": list(body.model_fields_set)})
+    logger.info(
+        "User profile updated",
+        extra={"user_id": str(current_user.id), "fields": list(body.model_fields_set)},
+    )
     return UserResponse.model_validate(current_user)

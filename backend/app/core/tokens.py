@@ -12,6 +12,7 @@ tokens per call" regardless of pipeline; keeping the legacy 15k/20k/25k ratios u
 budget would invent per-kind weights with no principled values. Budget 0 (default) keeps the
 legacy per-kind character limits unchanged.
 """
+
 from __future__ import annotations
 
 import math

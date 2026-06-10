@@ -7,6 +7,7 @@ approximately via the longest common substring ratio (tolerates minor OCR/format
 differences). Used both as a Pydantic AI ``@output_validator`` (self-correction loop) and
 as a post-processing step that drops ungrounded quotes and lowers the result confidence.
 """
+
 from __future__ import annotations
 
 import re
@@ -66,7 +67,9 @@ def partition_grounded(
     return grounded, ungrounded
 
 
-def grounding_ratio(quotes: list[str], source_text: str, threshold: float = 0.85) -> float:
+def grounding_ratio(
+    quotes: list[str], source_text: str, threshold: float = 0.85
+) -> float:
     """Fraction of non-empty quotes that are grounded (1.0 if there are no quotes)."""
     grounded, ungrounded = partition_grounded(quotes, source_text, threshold)
     total = len(grounded) + len(ungrounded)

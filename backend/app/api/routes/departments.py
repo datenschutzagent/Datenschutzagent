@@ -1,4 +1,5 @@
 """Departments (organisation units) from configurable YAML."""
+
 from fastapi import APIRouter
 
 from app.config import settings

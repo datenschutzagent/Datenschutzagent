@@ -10,6 +10,7 @@ Unterstützte Events:
 Jeder Webhook-Aufruf wird im WebhookDeliveryLogModel protokolliert.
 HMAC-SHA256-Signatur im Header X-Datenschutzagent-Signature wenn secret konfiguriert.
 """
+
 import asyncio
 import hashlib
 import hmac
@@ -18,7 +19,7 @@ import json
 import logging
 import random
 import socket
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 from urllib.parse import urlparse
 from uuid import UUID
@@ -37,7 +38,10 @@ _RETRIABLE_4XX = {408, 425, 429}
 
 def _sign_payload(secret: str, payload_bytes: bytes) -> str:
     """Erstellt HMAC-SHA256-Signatur für den Payload."""
-    return "sha256=" + hmac.new(secret.encode("utf-8"), payload_bytes, hashlib.sha256).hexdigest()
+    return (
+        "sha256="
+        + hmac.new(secret.encode("utf-8"), payload_bytes, hashlib.sha256).hexdigest()
+    )
 
 
 def _backoff_delay(attempt_index: int) -> float:
@@ -53,7 +57,7 @@ def _backoff_delay(attempt_index: int) -> float:
     base = max(0.0, float(settings.webhook_backoff_base_seconds))
     max_delay = max(base, float(settings.webhook_backoff_max_seconds))
     jitter = max(0.0, min(1.0, float(settings.webhook_backoff_jitter)))
-    raw = base * (2 ** attempt_index)
+    raw = base * (2**attempt_index)
     delay = min(raw, max_delay)
     if jitter > 0:
         spread = delay * jitter
@@ -82,16 +86,27 @@ def _assert_no_ssrf(url: str) -> None:
     try:
         resolved_ip = socket.gethostbyname(hostname)
         addr = ipaddress.ip_address(resolved_ip)
-        if addr.is_private or addr.is_loopback or addr.is_link_local or addr.is_reserved:
+        if (
+            addr.is_private
+            or addr.is_loopback
+            or addr.is_link_local
+            or addr.is_reserved
+        ):
             logger.warning(
                 "SSRF blocked at delivery time: webhook URL resolves to internal address",
-                extra={"event": "ssrf_blocked_delivery", "hostname": hostname, "resolved_ip": resolved_ip},
+                extra={
+                    "event": "ssrf_blocked_delivery",
+                    "hostname": hostname,
+                    "resolved_ip": resolved_ip,
+                },
             )
             raise ValueError(
                 f"Webhook delivery blocked: URL resolves to private/internal address ({resolved_ip})"
             )
     except socket.gaierror as exc:
-        raise ValueError(f"Webhook delivery blocked: DNS resolution failed for {hostname}: {exc}") from exc
+        raise ValueError(
+            f"Webhook delivery blocked: DNS resolution failed for {hostname}: {exc}"
+        ) from exc
 
 
 async def _deliver_webhook(
@@ -136,7 +151,9 @@ async def _deliver_webhook(
             if attempt > 0:
                 await asyncio.sleep(_backoff_delay(attempt - 1))
             try:
-                response = await client.post(url, content=payload_bytes, headers=headers)
+                response = await client.post(
+                    url, content=payload_bytes, headers=headers
+                )
                 last_status = response.status_code
                 if response.is_success:
                     return True, response.status_code, None, attempts
@@ -144,7 +161,9 @@ async def _deliver_webhook(
                 if not _is_retriable_status(response.status_code):
                     logger.warning(
                         "Webhook delivery gave non-retriable status %d for %s; giving up after %d attempt(s)",
-                        response.status_code, url, attempts,
+                        response.status_code,
+                        url,
+                        attempts,
                     )
                     return False, response.status_code, last_error, attempts
             except httpx.TimeoutException as exc:
@@ -155,7 +174,10 @@ async def _deliver_webhook(
                 last_status = None
             logger.warning(
                 "Webhook delivery attempt %d/%d failed for %s: %s",
-                attempts, max_retries, url, last_error,
+                attempts,
+                max_retries,
+                url,
+                last_error,
             )
 
     return False, last_status, last_error, attempts
@@ -173,6 +195,7 @@ async def fire_event(event_type: str, payload: dict[str, Any], db) -> int:
         Anzahl erfolgreich zugestellter Webhooks
     """
     from sqlalchemy import select
+
     from app.models.db import WebhookConfigModel, WebhookDeliveryLogModel
 
     result = await db.execute(
@@ -189,7 +212,7 @@ async def fire_event(event_type: str, payload: dict[str, Any], db) -> int:
 
     full_payload = {
         "event": event_type,
-        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "timestamp": datetime.now(UTC).isoformat(),
         **payload,
     }
 
@@ -203,11 +226,15 @@ async def fire_event(event_type: str, payload: dict[str, Any], db) -> int:
             webhook_id=webhook.id,
             event_type=event_type,
             payload=full_payload,
-            status=WebhookDeliveryStatus.SUCCESS if success else WebhookDeliveryStatus.FAILED,
+            status=(
+                WebhookDeliveryStatus.SUCCESS
+                if success
+                else WebhookDeliveryStatus.FAILED
+            ),
             http_status=http_status,
             error=error,
             attempts=attempts,
-            delivered_at=datetime.now(timezone.utc) if success else None,
+            delivered_at=datetime.now(UTC) if success else None,
         )
         db.add(log_entry)
         if success:

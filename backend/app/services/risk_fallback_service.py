@@ -14,10 +14,10 @@ Design goals:
 The heuristics are intentionally simple and deterministic — they are a
 safety net, not a competitor to the LLM.
 """
+
 from __future__ import annotations
 
 from typing import Any
-
 
 # ---------------------------------------------------------------------------
 # AVV
@@ -29,10 +29,20 @@ from typing import Any
 _AVV_KEYWORDS: dict[str, dict[str, list[str]]] = {
     "Datensensitivität": {
         "high": [
-            "gesundheit", "patient", "diagnos",
-            "biometrie", "kind", "schüler", "student",
-            "personalakte", "lohnabrechnung", "religion",
-            "sozial", "bonität", "kredit", "straf",
+            "gesundheit",
+            "patient",
+            "diagnos",
+            "biometrie",
+            "kind",
+            "schüler",
+            "student",
+            "personalakte",
+            "lohnabrechnung",
+            "religion",
+            "sozial",
+            "bonität",
+            "kredit",
+            "straf",
         ],
         "medium": ["kontakt", "kunde", "interessent", "vertrieb", "marketing"],
     },
@@ -84,9 +94,7 @@ def compute_avv_fallback(
     Returns a dict shaped like ``_AVVRiskResult.model_dump()`` so the rest of
     ``avv_risk_service.assess_avv_risk`` can consume it transparently.
     """
-    text = " ".join(
-        x for x in (partner_name, subject_matter, department, notes) if x
-    )
+    text = " ".join(x for x in (partner_name, subject_matter, department, notes) if x)
 
     dimensions: list[dict[str, Any]] = []
     for dim_name in (
@@ -98,13 +106,18 @@ def compute_avv_fallback(
     ):
         score = _score_dimension(dim_name, text)
         # Sub-AVs carry inherently higher risk per Art. 28 IV.
-        if dim_name == "Subauftragsverarbeiter-Risiko" and partner_type == "sub_processor":
+        if (
+            dim_name == "Subauftragsverarbeiter-Risiko"
+            and partner_type == "sub_processor"
+        ):
             score = max(score, 4)
-        dimensions.append({
-            "name": dim_name,
-            "score": score,
-            "rationale": "Regelbasierte Heuristik (LLM nicht verfügbar oder niedrige Konfidenz).",
-        })
+        dimensions.append(
+            {
+                "name": dim_name,
+                "score": score,
+                "rationale": "Regelbasierte Heuristik (LLM nicht verfügbar oder niedrige Konfidenz).",
+            }
+        )
 
     avg = sum(d["score"] for d in dimensions) / len(dimensions)
     # Match avv_cfg.level_for_score default thresholds: 1.5 / 2.5 / 3.5 / 5.
@@ -121,11 +134,17 @@ def compute_avv_fallback(
     if any(d["name"] == "Datensensitivität" and d["score"] >= 4 for d in dimensions):
         main_risks.append("Verarbeitung sensibler personenbezogener Daten")
     if any(d["name"] == "Drittlandrisiko" and d["score"] >= 4 for d in dimensions):
-        main_risks.append("Mögliche Datenübermittlung in Drittland ohne Angemessenheitsbeschluss")
-    if any(d["name"] == "Vertragliche Absicherung" and d["score"] >= 4 for d in dimensions):
+        main_risks.append(
+            "Mögliche Datenübermittlung in Drittland ohne Angemessenheitsbeschluss"
+        )
+    if any(
+        d["name"] == "Vertragliche Absicherung" and d["score"] >= 4 for d in dimensions
+    ):
         main_risks.append("AVV-Klauseln unvollständig oder noch nicht unterzeichnet")
     if not main_risks:
-        main_risks.append("Keine spezifischen Risikoindikatoren in den Vertragsdaten erkannt.")
+        main_risks.append(
+            "Keine spezifischen Risikoindikatoren in den Vertragsdaten erkannt."
+        )
 
     recommended_measures = [
         "Manuelle Prüfung durch DSB empfohlen (Regelbasierter Fallback).",
@@ -237,45 +256,54 @@ def compute_dsfa_fallback(
     for tpl in _DSFA_TEMPLATES:
         match = False
         trigger = tpl.get("trigger")
-        if trigger == "special_category_data" and special_category_data:
-            match = True
-        elif trigger == "international_transfer" and international_transfer:
+        if (
+            trigger == "special_category_data"
+            and special_category_data
+            or trigger == "international_transfer"
+            and international_transfer
+        ):
             match = True
         else:
             kws = tpl.get("keywords", [])
             if kws and any(kw in haystack for kw in kws):
                 match = True
         if match:
-            risks.append({
-                "description": tpl["description"],
-                "likelihood": tpl["likelihood"],
-                "severity": tpl["severity"],
-                "mitigation": tpl["mitigation"],
-            })
+            risks.append(
+                {
+                    "description": tpl["description"],
+                    "likelihood": tpl["likelihood"],
+                    "severity": tpl["severity"],
+                    "mitigation": tpl["mitigation"],
+                }
+            )
 
     # Critical findings escalate at least one generic risk.
     if open_critical_findings > 0:
-        risks.append({
-            "description": (
-                f"{open_critical_findings} offene kritische/hohe Compliance-Befunde "
-                "aus Playbook-Prüfungen."
-            ),
-            "likelihood": 4,
-            "severity": 4,
-            "mitigation": "Findings priorisiert abarbeiten; Re-Run nach Behebung.",
-        })
+        risks.append(
+            {
+                "description": (
+                    f"{open_critical_findings} offene kritische/hohe Compliance-Befunde "
+                    "aus Playbook-Prüfungen."
+                ),
+                "likelihood": 4,
+                "severity": 4,
+                "mitigation": "Findings priorisiert abarbeiten; Re-Run nach Behebung.",
+            }
+        )
 
     # Conservative baseline if nothing matched — surface that a review is needed.
     if not risks:
-        risks.append({
-            "description": (
-                "Allgemeines Datenschutzrisiko – manuelle Bewertung durch DSB erforderlich, "
-                "da der automatische Heuristik-Fallback keine spezifischen Auslöser erkannt hat."
-            ),
-            "likelihood": 2,
-            "severity": 3,
-            "mitigation": "DSB-Review anstoßen, Verarbeitungskontext präzisieren.",
-        })
+        risks.append(
+            {
+                "description": (
+                    "Allgemeines Datenschutzrisiko – manuelle Bewertung durch DSB erforderlich, "
+                    "da der automatische Heuristik-Fallback keine spezifischen Auslöser erkannt hat."
+                ),
+                "likelihood": 2,
+                "severity": 3,
+                "mitigation": "DSB-Review anstoßen, Verarbeitungskontext präzisieren.",
+            }
+        )
 
     return {
         "necessity_assessment": (

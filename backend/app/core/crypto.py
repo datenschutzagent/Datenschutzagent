@@ -8,6 +8,7 @@ nicht zu brechen.
 Einen gültigen Fernet-Schlüssel erzeugt man einmalig mit:
     python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
 """
+
 import logging
 
 from app.config import settings
@@ -29,9 +30,13 @@ def _get_fernet():
         return None
     try:
         from cryptography.fernet import Fernet
+
         _fernet = Fernet(key.encode())
     except Exception as exc:
-        logger.error("Ungültiger WEBHOOK_SECRET_ENCRYPTION_KEY: %s – Verschlüsselung deaktiviert.", exc)
+        logger.error(
+            "Ungültiger WEBHOOK_SECRET_ENCRYPTION_KEY: %s – Verschlüsselung deaktiviert.",
+            exc,
+        )
         _fernet = None
     return _fernet
 
@@ -53,7 +58,7 @@ def encrypt_secret(plaintext: str) -> str:
             raise RuntimeError(
                 "WEBHOOK_SECRET_ENCRYPTION_KEY must be set in production — refusing to "
                 "store webhook secrets in plaintext. Generate a key with: "
-                "python -c \"from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())\""
+                'python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"'
             )
         return plaintext
     return fernet.encrypt(plaintext.encode()).decode()
@@ -71,5 +76,7 @@ def decrypt_secret(ciphertext: str) -> str:
         return fernet.decrypt(ciphertext.encode()).decode()
     except Exception:
         # Fallback: Wert liegt noch im Klartext vor (z.B. vor Migration)
-        logger.debug("decrypt_secret: Fallback auf Klartext (Wert ist noch nicht verschlüsselt).")
+        logger.debug(
+            "decrypt_secret: Fallback auf Klartext (Wert ist noch nicht verschlüsselt)."
+        )
         return ciphertext

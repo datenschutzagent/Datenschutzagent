@@ -2,6 +2,7 @@
 
 Voraussetzung: lebende PostgreSQL-DB (DATABASE_URL env var) — wie bei den anderen Integrationstests.
 """
+
 import pytest
 
 pytestmark = pytest.mark.asyncio
@@ -75,12 +76,17 @@ async def test_pipeline_returns_structure(client):
     assert "tom" in data and "by_category" in data["tom"]
     assert "dsfa" in data and "coverage_pct" in data["dsfa"]
     # Buckets are always present (even if empty)
-    assert {b["bucket"] for b in data["avv"]["buckets"]} >= {"overdue", "0_30", "undated"}
+    assert {b["bucket"] for b in data["avv"]["buckets"]} >= {
+        "overdue",
+        "0_30",
+        "undated",
+    }
 
 
 async def test_pipeline_avv_buckets_classify_expiry(client):
     # AVV der bald ablaeuft -> 0_30 oder 31_90.
     from datetime import date, timedelta
+
     soon = (date.today() + timedelta(days=20)).isoformat()
     avv = await _create_avv(client, partner_name="Pipeline Soon", expiry_date=soon)
     resp = await client.patch(f"/api/v1/avv/{avv['id']}", json={"status": "signed"})
@@ -93,7 +99,9 @@ async def test_pipeline_avv_buckets_classify_expiry(client):
 
 
 async def test_pipeline_dept_filter(client):
-    await _create_avv(client, partner_name="Pipeline Dept Filter", department="OnlyMe-XYZ-Dept")
+    await _create_avv(
+        client, partner_name="Pipeline Dept Filter", department="OnlyMe-XYZ-Dept"
+    )
     resp = await client.get("/api/v1/analytics/pipeline?department=OnlyMe-XYZ-Dept")
     assert resp.status_code == 200
     data = resp.json()
@@ -154,7 +162,9 @@ async def test_maturity_returns_structure(client):
 
 
 async def test_maturity_dept_filter(client):
-    await _create_tom(client, title="Maturity-Filter-TOM", department_codes=["UniqueMaturityDept"])
+    await _create_tom(
+        client, title="Maturity-Filter-TOM", department_codes=["UniqueMaturityDept"]
+    )
     resp = await client.get("/api/v1/analytics/maturity?department=UniqueMaturityDept")
     assert resp.status_code == 200
     data = resp.json()

@@ -3,6 +3,7 @@
 These tests require a live PostgreSQL database (DATABASE_URL env var).
 DSFA screening is case-scoped: a case must exist before calling the endpoint.
 """
+
 import pytest
 
 pytestmark = pytest.mark.asyncio
@@ -11,6 +12,7 @@ pytestmark = pytest.mark.asyncio
 # ---------------------------------------------------------------------------
 # Helper
 # ---------------------------------------------------------------------------
+
 
 async def _create_case(client, **overrides) -> dict:
     payload = {
@@ -50,7 +52,9 @@ async def test_dsfa_screening_returns_result(client):
 
 
 async def test_dsfa_screening_requires_valid_case(client):
-    resp = await client.get("/api/v1/cases/00000000-0000-0000-0000-000000000000/dsfa/screening")
+    resp = await client.get(
+        "/api/v1/cases/00000000-0000-0000-0000-000000000000/dsfa/screening"
+    )
     assert resp.status_code == 404
 
 

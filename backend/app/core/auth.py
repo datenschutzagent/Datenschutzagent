@@ -1,5 +1,7 @@
 """OAuth2/OIDC authentication: JWT validation and current user resolution."""
+
 import asyncio
+import contextlib
 import json
 import logging
 from typing import Any
@@ -95,10 +97,14 @@ async def _get_signing_key(token: str):
     try:
         unverified = jwt.get_unverified_header(token)
     except Exception:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token header")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token header"
+        ) from None
     kid = unverified.get("kid")
     if not kid:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Token missing kid")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="Token missing kid"
+        )
 
     if kid in _jwks_cache:
         return _jwks_cache[kid]
@@ -117,13 +123,18 @@ async def _get_signing_key(token: str):
             )
         _jwks_uri_cached = jwks_uri
         _jwks_cache = await _load_jwks(jwks_uri)
-        logger.debug("JWKS cache refreshed", extra={"kid": kid, "key_count": len(_jwks_cache)})
+        logger.debug(
+            "JWKS cache refreshed", extra={"kid": kid, "key_count": len(_jwks_cache)}
+        )
 
         if kid not in _jwks_cache:
             # kid unknown after refresh — key may have rotated; try fresh discovery once.
             fresh_uri = await _get_jwks_uri()
             if fresh_uri and fresh_uri != jwks_uri:
-                logger.debug("JWKS key rotation detected, fetching fresh JWKS", extra={"kid": kid})
+                logger.debug(
+                    "JWKS key rotation detected, fetching fresh JWKS",
+                    extra={"kid": kid},
+                )
                 _jwks_uri_cached = fresh_uri
                 _jwks_cache = await _load_jwks(fresh_uri)
             if kid not in _jwks_cache:
@@ -169,16 +180,20 @@ async def _verify_jwt(token: str) -> dict[str, Any]:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Token expired",
-        )
+        ) from None
     except jwt.InvalidTokenError as e:
         _security_audit_logger.warning(
             "Authentication failed: invalid token",
-            extra={"event": "auth_failure", "reason": "invalid_token", "detail": str(e)[:100]},
+            extra={
+                "event": "auth_failure",
+                "reason": "invalid_token",
+                "detail": str(e)[:100],
+            },
         )
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid token",
-        )
+        ) from e
 
 
 async def get_current_user_oidc(
@@ -215,7 +230,9 @@ async def get_current_user_oidc(
         # Optionally update email/display_name from token (e.g. if changed in IdP)
         if email and (user.email or "") != email:
             user.email = email[:320] if len(email) > 320 else email
-        if (user.display_name or "").strip() == "" or user.display_name == "Standardnutzer":
+        if (
+            user.display_name or ""
+        ).strip() == "" or user.display_name == "Standardnutzer":
             user.display_name = display_name
         await db.flush()
         await db.refresh(user)
@@ -226,16 +243,27 @@ async def get_current_user_oidc(
         oidc_sub=sub,
         display_name=display_name,
         email=email[:320] if email and len(email) > 320 else (email or None),
-        role=settings.rbac_default_role if settings.rbac_default_role in ("viewer", "editor", "admin") else "viewer",
+        role=(
+            settings.rbac_default_role
+            if settings.rbac_default_role in ("viewer", "editor", "admin")
+            else "viewer"
+        ),
         preferences={"theme": "system", "language": "de"},
     )
     db.add(new_user)
     await db.flush()
     await db.refresh(new_user)
-    logger.info("New OIDC user created on first login", extra={"user_id": str(new_user.id), "role": new_user.role})
+    logger.info(
+        "New OIDC user created on first login",
+        extra={"user_id": str(new_user.id), "role": new_user.role},
+    )
     _security_audit_logger.info(
         "Authentication successful: new user provisioned",
-        extra={"event": "auth_success", "user_id": str(new_user.id), "reason": "first_login"},
+        extra={
+            "event": "auth_success",
+            "user_id": str(new_user.id),
+            "reason": "first_login",
+        },
     )
     return new_user
 
@@ -243,13 +271,12 @@ async def get_current_user_oidc(
 async def get_current_user_fallback(db: AsyncSession = Depends(get_db)):
     """Resolve current user from CURRENT_USER_ID or default user (when OIDC is disabled)."""
     import uuid
+
     raw = settings.current_user_id
     user_id = None
     if raw and str(raw).strip():
-        try:
+        with contextlib.suppress(ValueError):
             user_id = uuid.UUID(str(raw).strip())
-        except ValueError:
-            pass
     if user_id is None:
         user_id = uuid.UUID("00000000-0000-4000-8000-000000000001")
     result = await db.execute(select(UserModel).where(UserModel.id == user_id))
@@ -263,7 +290,9 @@ async def _get_user_by_sub(db: AsyncSession, sub: str) -> UserModel:
     result = await db.execute(select(UserModel).where(UserModel.oidc_sub == sub))
     user = result.scalar_one_or_none()
     if user is None:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Session user not found")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="Session user not found"
+        )
     return user
 
 
@@ -279,7 +308,6 @@ async def get_current_user_cookie(
     is not an error, it simply means the caller did not opt into cookie auth.
     """
     from app.core.session import (
-        csrf_cookie_name,
         load_session,
         refresh_session_ttl,
         session_cookie_name,
@@ -293,11 +321,15 @@ async def get_current_user_cookie(
         return None
     payload = await load_session(session_id)
     if payload is None:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Session expired")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="Session expired"
+        )
     verify_csrf(request, payload.get("csrf", ""))
     sub = payload.get("sub")
     if not sub:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Session missing sub")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="Session missing sub"
+        )
     user = await _get_user_by_sub(db, sub)
     await refresh_session_ttl(session_id)
     return user
@@ -336,7 +368,10 @@ async def get_current_user(
 
 def require_roles(*allowed_roles: str):
     """Dependency factory: require current user to have one of the given roles (e.g. editor, admin). Raises 403 otherwise."""
-    async def _dependency(current_user: UserModel = Depends(get_current_user)) -> UserModel:
+
+    async def _dependency(
+        current_user: UserModel = Depends(get_current_user),
+    ) -> UserModel:
         if current_user.role not in allowed_roles:
             logger.warning(
                 "Authorization denied: insufficient role",
@@ -351,6 +386,7 @@ def require_roles(*allowed_roles: str):
                 detail="Insufficient permissions",
             )
         return current_user
+
     return Depends(_dependency)
 
 

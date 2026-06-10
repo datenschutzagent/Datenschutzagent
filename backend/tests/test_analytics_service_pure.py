@@ -2,6 +2,7 @@
 
 Brauchen keine DB, sind also auch in CI ohne Postgres lauffaehig.
 """
+
 from app.services.analytics_service import (
     MATURITY_WEIGHTS,
     _avv_bucket,

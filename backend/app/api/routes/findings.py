@@ -1,7 +1,8 @@
 """Findings API: list, update, bulk-update, CSV export, DOCX export, comments."""
+
 import csv
 import io
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Annotated
 from uuid import UUID
 
@@ -34,12 +35,12 @@ from app.models.schemas import (
     FindingCommentResponse,
     FindingListResponse,
     FindingResponse,
+    FindingsByDepartment,
     FindingStatsResponse,
     FindingTrendItem,
-    FindingsByDepartment,
-    TopFailingCheck,
     FindingUpdate,
     ResolutionVelocityItem,
+    TopFailingCheck,
 )
 
 router = APIRouter()
@@ -47,7 +48,9 @@ router = APIRouter()
 EXPORT_MAX = 5000
 
 
-@router.get("/stats", response_model=FindingStatsResponse, summary="Befund-Statistiken abrufen")
+@router.get(
+    "/stats", response_model=FindingStatsResponse, summary="Befund-Statistiken abrufen"
+)
 async def get_findings_stats(
     db: AsyncSession = Depends(get_db),
     _user=require_roles("viewer", "editor", "admin"),
@@ -55,7 +58,9 @@ async def get_findings_stats(
     """Aggregierte Befund-Statistiken: nach Schweregrad, Kategorie, Abteilung, Top-Checks und Zeitverlauf (6 Monate).
     Alle Teilabfragen werden in einem einzigen DB-Round-Trip via CTEs ausgeführt."""
 
-    stats_result = await db.execute(text("""
+    stats_result = await db.execute(
+        text(
+            """
         WITH by_severity AS (
             SELECT severity, COUNT(*) AS cnt
             FROM findings
@@ -135,7 +140,9 @@ async def get_findings_stats(
             GROUP BY 1
         ) ff ON ff.finding_id = f.id
         GROUP BY f.severity
-    """))
+    """
+        )
+    )
     rows = stats_result.fetchall()
 
     by_severity: dict[str, int] = {}
@@ -152,26 +159,51 @@ async def get_findings_stats(
         elif qname == "category":
             by_category[key1] = n
         elif qname == "department":
-            by_department.append(FindingsByDepartment(
-                department=key1, total=n, critical=c2, high=c3, medium=c4, low=c5, info=c6,
-            ))
+            by_department.append(
+                FindingsByDepartment(
+                    department=key1,
+                    total=n,
+                    critical=c2,
+                    high=c3,
+                    medium=c4,
+                    low=c5,
+                    info=c6,
+                )
+            )
         elif qname == "top_check":
-            top_failing_checks.append(TopFailingCheck(
-                check_name=key1,
-                category=key2 or "",
-                count=n,
-                severity_breakdown={"critical": c2, "high": c3, "medium": c4, "low": c5, "info": c6},
-            ))
+            top_failing_checks.append(
+                TopFailingCheck(
+                    check_name=key1,
+                    category=key2 or "",
+                    count=n,
+                    severity_breakdown={
+                        "critical": c2,
+                        "high": c3,
+                        "medium": c4,
+                        "low": c5,
+                        "info": c6,
+                    },
+                )
+            )
         elif qname == "trend":
-            trend.append(FindingTrendItem(
-                month=key1, critical=c2, high=c3, medium=c4, low=c5, info=c6,
-            ))
+            trend.append(
+                FindingTrendItem(
+                    month=key1,
+                    critical=c2,
+                    high=c3,
+                    medium=c4,
+                    low=c5,
+                    info=c6,
+                )
+            )
         elif qname == "velocity":
-            resolution_velocity.append(ResolutionVelocityItem(
-                severity=key1,
-                avg_days_to_fix=float(n or 0),
-                sample_size=int(c2 or 0),
-            ))
+            resolution_velocity.append(
+                ResolutionVelocityItem(
+                    severity=key1,
+                    avg_days_to_fix=float(n or 0),
+                    sample_size=int(c2 or 0),
+                )
+            )
 
     return FindingStatsResponse(
         by_severity=by_severity,
@@ -186,12 +218,18 @@ async def get_findings_stats(
 @router.get("", response_model=FindingListResponse, summary="Findings auflisten")
 async def list_findings(
     case_id: Annotated[UUID | None, Query()] = None,
-    q: Annotated[str | None, Query(description="Volltext-Suche in Check-Name und Beschreibung")] = None,
+    q: Annotated[
+        str | None, Query(description="Volltext-Suche in Check-Name und Beschreibung")
+    ] = None,
     severity: Annotated[str | None, Query()] = None,
     status: Annotated[str | None, Query()] = None,
     category: Annotated[str | None, Query()] = None,
-    source_strategy: Annotated[str | None, Query(description="Filter by check source: full_text or rag")] = None,
-    has_due_date: Annotated[bool | None, Query(description="True = only findings with a due date set")] = None,
+    source_strategy: Annotated[
+        str | None, Query(description="Filter by check source: full_text or rag")
+    ] = None,
+    has_due_date: Annotated[
+        bool | None, Query(description="True = only findings with a due date set")
+    ] = None,
     limit: Annotated[int, Query(ge=1, le=500)] = 100,
     offset: Annotated[int, Query(ge=0)] = 0,
     db: AsyncSession = Depends(get_db),
@@ -199,6 +237,7 @@ async def list_findings(
 ):
     """List findings with optional filters. Returns paginated results."""
     from sqlalchemy import or_
+
     query = select(FindingModel)
     if case_id is not None:
         query = query.where(FindingModel.case_id == case_id)
@@ -300,23 +339,30 @@ async def bulk_delete_findings(
 def _build_findings_docx(case_title: str, findings: list, docs_by_id: dict) -> bytes:
     """Build DOCX with structured findings report: title page, summary table, per-finding sections."""
     severity_labels = {
-        FindingSeverity.CRITICAL: "Kritisch", FindingSeverity.HIGH: "Hoch",
-        FindingSeverity.MEDIUM: "Mittel", FindingSeverity.LOW: "Niedrig", FindingSeverity.INFO: "Info",
+        FindingSeverity.CRITICAL: "Kritisch",
+        FindingSeverity.HIGH: "Hoch",
+        FindingSeverity.MEDIUM: "Mittel",
+        FindingSeverity.LOW: "Niedrig",
+        FindingSeverity.INFO: "Info",
     }
     status_labels = {
-        FindingStatus.OPEN: "Offen", FindingStatus.ACCEPTED: "Akzeptiert",
-        FindingStatus.OVERRULED: "Überfahren", FindingStatus.FIXED: "Behoben",
+        FindingStatus.OPEN: "Offen",
+        FindingStatus.ACCEPTED: "Akzeptiert",
+        FindingStatus.OVERRULED: "Überfahren",
+        FindingStatus.FIXED: "Behoben",
     }
 
     doc = DocxDocument()
     doc.add_heading("Befunde-Bericht", 0)
     doc.add_paragraph(f"Vorgang: {case_title}")
-    doc.add_paragraph(f"Erstellt: {datetime.now(timezone.utc).strftime('%d.%m.%Y')}")
+    doc.add_paragraph(f"Erstellt: {datetime.now(UTC).strftime('%d.%m.%Y')}")
     doc.add_paragraph()
 
     # Summary table
-    severity_counts = {s: sum(1 for f in findings if f.severity == s) for s in severity_labels}
-    status_counts = {s: sum(1 for f in findings if f.status == s) for s in status_labels}
+    severity_counts = {
+        s: sum(1 for f in findings if f.severity == s) for s in severity_labels
+    }
+    {s: sum(1 for f in findings if f.status == s) for s in status_labels}
     doc.add_heading("Zusammenfassung", level=1)
     summary_table = doc.add_table(rows=1 + len(severity_labels), cols=2)
     summary_table.style = "Table Grid"
@@ -338,7 +384,14 @@ def _build_findings_docx(case_title: str, findings: list, docs_by_id: dict) -> b
             ("Schweregrad", severity_labels.get(f.severity, f.severity)),
             ("Status", status_labels.get(f.status, f.status)),
             ("Kategorie", f.category),
-            ("Dokument", docs_by_id.get(f.document_id, "Vorgangsbezogen") if f.document_id else "Vorgangsbezogen"),
+            (
+                "Dokument",
+                (
+                    docs_by_id.get(f.document_id, "Vorgangsbezogen")
+                    if f.document_id
+                    else "Vorgangsbezogen"
+                ),
+            ),
             ("Strategie", f.source_strategy or ""),
         ]
         for i, (label, value) in enumerate(labels_rows):
@@ -410,13 +463,18 @@ async def export_findings(
     case_ids = {f.case_id for f in findings}
     cases_by_id: dict[UUID, str] = {}
     if case_ids:
-        cases_result = await db.execute(select(CaseModel).where(CaseModel.id.in_(case_ids)))
+        cases_result = await db.execute(
+            select(CaseModel).where(CaseModel.id.in_(case_ids))
+        )
         cases_by_id = {c.id: c.title for c in cases_result.scalars().all()}
 
     import re as _re
     from urllib.parse import quote as _quote
-    date_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-    slug = _re.sub(r'[^\w\s-]', "", case_title.replace("/", "-").replace("\\", "-"))[:50].strip()
+
+    date_str = datetime.now(UTC).strftime("%Y-%m-%d")
+    slug = _re.sub(r"[^\w\s-]", "", case_title.replace("/", "-").replace("\\", "-"))[
+        :50
+    ].strip()
 
     export_headers = {
         "X-Total-Count": str(total_count),
@@ -430,7 +488,10 @@ async def export_findings(
         return Response(
             content=content_bytes,
             media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-            headers={"Content-Disposition": f'attachment; filename="{filename}"; filename*=UTF-8\'\'{_fn_enc}', **export_headers},
+            headers={
+                "Content-Disposition": f"attachment; filename=\"{filename}\"; filename*=UTF-8''{_fn_enc}",
+                **export_headers,
+            },
         )
 
     severity_labels = {
@@ -449,31 +510,35 @@ async def export_findings(
 
     buf = io.StringIO()
     writer = csv.writer(buf)
-    writer.writerow([
-        "ID",
-        "Vorgang",
-        "Checkname",
-        "Kategorie",
-        "Schweregrad",
-        "Status",
-        "Beschreibung",
-        "Empfehlung",
-        "Dokument",
-        "Strategie",
-    ])
+    writer.writerow(
+        [
+            "ID",
+            "Vorgang",
+            "Checkname",
+            "Kategorie",
+            "Schweregrad",
+            "Status",
+            "Beschreibung",
+            "Empfehlung",
+            "Dokument",
+            "Strategie",
+        ]
+    )
     for f in findings:
-        writer.writerow([
-            str(f.id),
-            cases_by_id.get(f.case_id, str(f.case_id)),
-            f.check_name,
-            f.category,
-            severity_labels.get(f.severity, f.severity),
-            status_labels.get(f.status, f.status),
-            f.description,
-            f.recommendation,
-            docs_by_id.get(f.document_id, "") if f.document_id else "",
-            f.source_strategy or "",
-        ])
+        writer.writerow(
+            [
+                str(f.id),
+                cases_by_id.get(f.case_id, str(f.case_id)),
+                f.check_name,
+                f.category,
+                severity_labels.get(f.severity, f.severity),
+                status_labels.get(f.status, f.status),
+                f.description,
+                f.recommendation,
+                docs_by_id.get(f.document_id, "") if f.document_id else "",
+                f.source_strategy or "",
+            ]
+        )
 
     filename = f"Befunde-{slug}-{date_str}.csv"
     _fn_enc = _quote(filename, safe="")
@@ -483,7 +548,10 @@ async def export_findings(
     return Response(
         content=body.encode("utf-8"),
         media_type="text/csv; charset=utf-8",
-        headers={"Content-Disposition": f'attachment; filename="{filename}"; filename*=UTF-8\'\'{_fn_enc}', **export_headers},
+        headers={
+            "Content-Disposition": f"attachment; filename=\"{filename}\"; filename*=UTF-8''{_fn_enc}",
+            **export_headers,
+        },
     )
 
 
@@ -526,6 +594,7 @@ async def update_finding(
 
 # --- Finding Comments ---
 
+
 @router.get("/{finding_id}/comments", response_model=list[FindingCommentResponse])
 async def list_finding_comments(
     finding_id: UUID,
@@ -541,10 +610,15 @@ async def list_finding_comments(
         .where(FindingCommentModel.finding_id == finding_id)
         .order_by(FindingCommentModel.created_at.asc())
     )
-    return [FindingCommentResponse.model_validate(c) for c in comments_result.scalars().all()]
+    return [
+        FindingCommentResponse.model_validate(c)
+        for c in comments_result.scalars().all()
+    ]
 
 
-@router.post("/{finding_id}/comments", response_model=FindingCommentResponse, status_code=201)
+@router.post(
+    "/{finding_id}/comments", response_model=FindingCommentResponse, status_code=201
+)
 @limiter.limit("30/minute")
 async def create_finding_comment(
     request: Request,
@@ -586,7 +660,12 @@ async def create_finding_comment(
 
 # --- LLM-Befund-Chat (KI-Assistent) ---
 
-@router.get("/{finding_id}/chat", response_model=list[FindingChatMessageResponse], summary="Chat-Verlauf abrufen")
+
+@router.get(
+    "/{finding_id}/chat",
+    response_model=list[FindingChatMessageResponse],
+    summary="Chat-Verlauf abrufen",
+)
 async def get_finding_chat(
     finding_id: UUID,
     db: AsyncSession = Depends(get_db),
@@ -607,7 +686,12 @@ async def get_finding_chat(
     ]
 
 
-@router.post("/{finding_id}/chat", response_model=FindingChatMessageResponse, status_code=201, summary="Nachricht an KI-Assistent senden")
+@router.post(
+    "/{finding_id}/chat",
+    response_model=FindingChatMessageResponse,
+    status_code=201,
+    summary="Nachricht an KI-Assistent senden",
+)
 @limiter.limit("5/minute")
 async def send_finding_chat_message(
     request: Request,
@@ -618,14 +702,15 @@ async def send_finding_chat_message(
 ):
     """Sendet eine Nutzernachricht und erhält eine KI-Antwort im Befund-Kontext."""
     from app.services.finding_chat_service import chat_with_finding
+
     result = await db.execute(select(FindingModel).where(FindingModel.id == finding_id))
     if result.scalar_one_or_none() is None:
         raise HTTPException(status_code=404, detail="Finding not found")
 
     try:
-        response_text = await chat_with_finding(finding_id, body.content, db)
+        await chat_with_finding(finding_id, body.content, db)
     except Exception as exc:
-        raise HTTPException(status_code=502, detail=f"LLM-Fehler: {exc}")
+        raise HTTPException(status_code=502, detail=f"LLM-Fehler: {exc}") from exc
 
     # Die letzte Assistent-Nachricht zurückgeben
     last_result = await db.execute(

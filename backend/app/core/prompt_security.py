@@ -5,6 +5,7 @@ User-controlled fields (case titles, descriptions, department names, etc.) must 
 sanitized before being interpolated into LLM prompts to prevent adversarial manipulation
 of AI-generated compliance assessments.
 """
+
 import logging
 import re
 
@@ -70,14 +71,15 @@ def wrap_untrusted_content(value: str | None, *, max_chars: int = 8000) -> str:
     if len(text) > max_chars:
         text = text[:max_chars]
     # Defang any forged marker tokens so the wrapper cannot be escaped.
-    text = (
-        text.replace(_USER_CONTENT_MARKER_BEGIN, "[BLOCKED_MARKER_BEGIN]")
-            .replace(_USER_CONTENT_MARKER_END, "[BLOCKED_MARKER_END]")
+    text = text.replace(_USER_CONTENT_MARKER_BEGIN, "[BLOCKED_MARKER_BEGIN]").replace(
+        _USER_CONTENT_MARKER_END, "[BLOCKED_MARKER_END]"
     )
     return f"{_USER_CONTENT_MARKER_BEGIN}\n{text}\n{_USER_CONTENT_MARKER_END}"
 
 
-def sanitize_prompt_field(value: str | None, max_chars: int = _DEFAULT_MAX_FIELD_CHARS) -> str:
+def sanitize_prompt_field(
+    value: str | None, max_chars: int = _DEFAULT_MAX_FIELD_CHARS
+) -> str:
     """Sanitize a user-controlled value before interpolation into an LLM prompt.
 
     - Handles None gracefully

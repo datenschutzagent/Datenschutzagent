@@ -1,17 +1,27 @@
 """TOM-Katalog API (Art. 32 DSGVO) – Technisch-Organisatorische Maßnahmen."""
+
 import logging
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, UploadFile
+from fastapi import (
+    APIRouter,
+    Depends,
+    File,
+    Form,
+    HTTPException,
+    Query,
+    Request,
+    UploadFile,
+)
 from fastapi.responses import StreamingResponse
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.config import settings
 from app.core.auth import require_roles
 from app.core.rate_limit import limiter
-from app.config import settings
 from app.database import get_db
-from app.models.db import TOMModel, TOMAttachmentModel
+from app.models.db import TOMAttachmentModel, TOMModel
 from app.models.schemas import (
     TOMAttachmentResponse,
     TOMCreate,
@@ -20,7 +30,7 @@ from app.models.schemas import (
     TOMStatsResponse,
     TOMUpdate,
 )
-from app.storage import save_tom_file, get_tom_file, delete_tom_file
+from app.storage import delete_tom_file, get_tom_file, save_tom_file
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -56,7 +66,11 @@ async def list_toms(
     count_q = select(func.count()).select_from(q.subquery())
     total = (await db.execute(count_q)).scalar_one()
 
-    q = q.order_by(TOMModel.category.asc(), TOMModel.title.asc()).offset(skip).limit(limit)
+    q = (
+        q.order_by(TOMModel.category.asc(), TOMModel.title.asc())
+        .offset(skip)
+        .limit(limit)
+    )
     result = await db.execute(q)
     items = [TOMResponse.model_validate(r) for r in result.scalars().all()]
     return TOMListResponse(items=items, total=total)
@@ -76,7 +90,9 @@ async def get_tom_stats(
     implemented = 0
 
     for tom in all_toms:
-        by_status[tom.implementation_status] = by_status.get(tom.implementation_status, 0) + 1
+        by_status[tom.implementation_status] = (
+            by_status.get(tom.implementation_status, 0) + 1
+        )
         by_category[tom.category] = by_category.get(tom.category, 0) + 1
         if tom.implementation_status == "implemented":
             implemented += 1
@@ -143,8 +159,16 @@ async def update_tom(
     if not tom:
         raise HTTPException(status_code=404, detail="TOM nicht gefunden")
 
-    for field in ["title", "description", "category", "implementation_status",
-                  "responsible", "review_date", "evidence", "department_codes"]:
+    for field in [
+        "title",
+        "description",
+        "category",
+        "implementation_status",
+        "responsible",
+        "review_date",
+        "evidence",
+        "department_codes",
+    ]:
         val = getattr(body, field, None)
         if val is not None:
             setattr(tom, field, val)
@@ -172,7 +196,12 @@ async def delete_tom(
 # TOM Attachments
 # ---------------------------------------------------------------------------
 
-@router.get("/{tom_id}/attachments", response_model=list[TOMAttachmentResponse], summary="Anhänge auflisten")
+
+@router.get(
+    "/{tom_id}/attachments",
+    response_model=list[TOMAttachmentResponse],
+    summary="Anhänge auflisten",
+)
 async def list_tom_attachments(
     tom_id: UUID,
     db: AsyncSession = Depends(get_db),
@@ -191,7 +220,12 @@ async def list_tom_attachments(
     return [TOMAttachmentResponse.model_validate(r) for r in rows]
 
 
-@router.post("/{tom_id}/attachments", response_model=TOMAttachmentResponse, status_code=201, summary="Anhang hochladen")
+@router.post(
+    "/{tom_id}/attachments",
+    response_model=TOMAttachmentResponse,
+    status_code=201,
+    summary="Anhang hochladen",
+)
 @limiter.limit("10/minute")
 async def upload_tom_attachment(
     request: Request,
@@ -239,7 +273,9 @@ async def upload_tom_attachment(
     return TOMAttachmentResponse.model_validate(attachment)
 
 
-@router.get("/{tom_id}/attachments/{attachment_id}/download", summary="Anhang herunterladen")
+@router.get(
+    "/{tom_id}/attachments/{attachment_id}/download", summary="Anhang herunterladen"
+)
 async def download_tom_attachment(
     tom_id: UUID,
     attachment_id: UUID,
@@ -259,9 +295,10 @@ async def download_tom_attachment(
     try:
         content = get_tom_file(attachment.storage_path)
     except FileNotFoundError:
-        raise HTTPException(status_code=404, detail="Datei nicht gefunden")
+        raise HTTPException(status_code=404, detail="Datei nicht gefunden") from None
 
     from urllib.parse import quote as _quote
+
     _name = attachment.name or f"attachment.{attachment.format}"
     _name_enc = _quote(_name, safe="")
     _name_ascii = _name.encode("ascii", errors="replace").decode().replace('"', "_")
@@ -270,13 +307,15 @@ async def download_tom_attachment(
         iter([content]),
         media_type=media_type,
         headers={
-            "Content-Disposition": f'attachment; filename="{_name_ascii}"; filename*=UTF-8\'\'{_name_enc}',
+            "Content-Disposition": f"attachment; filename=\"{_name_ascii}\"; filename*=UTF-8''{_name_enc}",
             "Content-Length": str(len(content)),
         },
     )
 
 
-@router.delete("/{tom_id}/attachments/{attachment_id}", status_code=204, summary="Anhang löschen")
+@router.delete(
+    "/{tom_id}/attachments/{attachment_id}", status_code=204, summary="Anhang löschen"
+)
 async def delete_tom_attachment(
     tom_id: UUID,
     attachment_id: UUID,

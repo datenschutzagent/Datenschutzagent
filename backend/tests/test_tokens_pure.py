@@ -1,15 +1,20 @@
 """Pure unit tests for the heuristic token budget (app.core.tokens — no LLM, no DB)."""
+
 from app.config import settings
-from app.core.tokens import effective_context_chars, estimate_tokens, token_budget_to_chars
+from app.core.tokens import (
+    effective_context_chars,
+    estimate_tokens,
+    token_budget_to_chars,
+)
 
 
 def test_estimate_tokens_ceils(monkeypatch):
     monkeypatch.setattr(settings, "llm_chars_per_token", 3.5, raising=False)
     assert estimate_tokens("") == 0
     assert estimate_tokens(None) == 0
-    assert estimate_tokens("abc") == 1       # 3 / 3.5 → ceil = 1
-    assert estimate_tokens("a" * 35) == 10   # exactly 10 tokens
-    assert estimate_tokens("a" * 36) == 11   # one char over → next token
+    assert estimate_tokens("abc") == 1  # 3 / 3.5 → ceil = 1
+    assert estimate_tokens("a" * 35) == 10  # exactly 10 tokens
+    assert estimate_tokens("a" * 36) == 11  # one char over → next token
 
 
 def test_token_budget_to_chars_uses_ratio(monkeypatch):

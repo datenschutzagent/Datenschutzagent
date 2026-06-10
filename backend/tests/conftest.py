@@ -1,4 +1,5 @@
 """Pytest configuration and fixtures for backend tests."""
+
 import os
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -24,6 +25,7 @@ def anyio_backend():
 async def client():
     """Async HTTP client for the FastAPI app. Requires DATABASE_URL (e.g. postgres) for lifespan."""
     from app.main import app
+
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as ac:
         yield ac
@@ -70,8 +72,9 @@ def mock_llm(monkeypatch):
     fake_agent = MagicMock()
     fake_agent.run = AsyncMock(return_value=_FakeLLMResult())
 
-    with patch("app.core.llm.create_agent", return_value=fake_agent) as _create, \
-         patch("app.core.llm.llm_retry_call", new_callable=AsyncMock) as retry_mock:
+    with patch("app.core.llm.create_agent", return_value=fake_agent) as _create, patch(
+        "app.core.llm.llm_retry_call", new_callable=AsyncMock
+    ) as retry_mock:
         retry_mock.return_value = _FakeLLMResult()
         fake_agent._retry_mock = retry_mock
         yield fake_agent

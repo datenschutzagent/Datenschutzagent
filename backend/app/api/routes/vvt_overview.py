@@ -1,15 +1,13 @@
 """VVT overview at university level: list, stats, export (no LLM)."""
+
 import csv
 import io
 import logging
-from uuid import UUID
-
 from collections import defaultdict
 from datetime import datetime
+from uuid import UUID
 
 from fastapi import APIRouter, Depends, Query
-
-logger = logging.getLogger(__name__)
 from fastapi.responses import Response
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -22,6 +20,8 @@ from app.models.schemas import (
     VVTOverviewStatsGroup,
     VVTOverviewStatsResponse,
 )
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -74,7 +74,9 @@ async def get_vvt_overview(
     department: str | None = Query(None, description="Filter by department"),
     case_type: str | None = Query(None, description="Filter by case_type"),
     status: str | None = Query(None, description="Filter by status"),
-    has_vvt: bool | None = Query(None, description="Filter: only with VVT (true) or without (false)"),
+    has_vvt: bool | None = Query(
+        None, description="Filter: only with VVT (true) or without (false)"
+    ),
     skip: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=500),
     db: AsyncSession = Depends(get_db),
@@ -139,8 +141,14 @@ async def get_vvt_overview_stats(db: AsyncSession = Depends(get_db)):
     total = len(items)
     with_vvt = sum(1 for i in items if i.has_vvt_document)
     without_vvt = total - with_vvt
-    completeness_values = [i.vvt_completeness for i in items if i.vvt_completeness is not None]
-    avg_completeness = round(sum(completeness_values) / len(completeness_values), 1) if completeness_values else None
+    completeness_values = [
+        i.vvt_completeness for i in items if i.vvt_completeness is not None
+    ]
+    avg_completeness = (
+        round(sum(completeness_values) / len(completeness_values), 1)
+        if completeness_values
+        else None
+    )
 
     by_dep: dict[str, list[VVTOverviewItem]] = defaultdict(list)
     by_type: dict[str, list[VVTOverviewItem]] = defaultdict(list)
@@ -148,11 +156,15 @@ async def get_vvt_overview_stats(db: AsyncSession = Depends(get_db)):
         by_dep[i.department].append(i)
         by_type[i.case_type].append(i)
 
-    def to_group(name: str, group_items: list[VVTOverviewItem]) -> VVTOverviewStatsGroup:
+    def to_group(
+        name: str, group_items: list[VVTOverviewItem]
+    ) -> VVTOverviewStatsGroup:
         n = len(group_items)
         w = sum(1 for x in group_items if x.has_vvt_document)
         wo = n - w
-        vals = [x.vvt_completeness for x in group_items if x.vvt_completeness is not None]
+        vals = [
+            x.vvt_completeness for x in group_items if x.vvt_completeness is not None
+        ]
         avg = round(sum(vals) / len(vals), 1) if vals else None
         return VVTOverviewStatsGroup(
             name=name,
@@ -162,8 +174,12 @@ async def get_vvt_overview_stats(db: AsyncSession = Depends(get_db)):
             avg_completeness=avg,
         )
 
-    by_department = [to_group(name, group_items) for name, group_items in sorted(by_dep.items())]
-    by_case_type = [to_group(name, group_items) for name, group_items in sorted(by_type.items())]
+    by_department = [
+        to_group(name, group_items) for name, group_items in sorted(by_dep.items())
+    ]
+    by_case_type = [
+        to_group(name, group_items) for name, group_items in sorted(by_type.items())
+    ]
 
     return VVTOverviewStatsResponse(
         total_cases=total,
@@ -220,26 +236,43 @@ async def get_vvt_overview_export(
 
     buf = io.StringIO()
     writer = csv.writer(buf)
-    writer.writerow([
-        "Case-ID", "Titel", "Fachbereich", "Vorgangstyp", "Status",
-        "VVT vorhanden", "VVT-Vollständigkeit (%)", "VVT-Dokumentname", "Stand (updated_at)",
-    ])
+    writer.writerow(
+        [
+            "Case-ID",
+            "Titel",
+            "Fachbereich",
+            "Vorgangstyp",
+            "Status",
+            "VVT vorhanden",
+            "VVT-Vollständigkeit (%)",
+            "VVT-Dokumentname",
+            "Stand (updated_at)",
+        ]
+    )
     for i in items:
-        writer.writerow([
-            str(i.case_id),
-            i.title,
-            i.department,
-            i.case_type,
-            i.status,
-            "Ja" if i.has_vvt_document else "Nein",
-            str(i.vvt_completeness) if i.vvt_completeness is not None else "",
-            i.vvt_document_name or "",
-            i.updated_at.isoformat() if isinstance(i.updated_at, datetime) else str(i.updated_at),
-        ])
+        writer.writerow(
+            [
+                str(i.case_id),
+                i.title,
+                i.department,
+                i.case_type,
+                i.status,
+                "Ja" if i.has_vvt_document else "Nein",
+                str(i.vvt_completeness) if i.vvt_completeness is not None else "",
+                i.vvt_document_name or "",
+                (
+                    i.updated_at.isoformat()
+                    if isinstance(i.updated_at, datetime)
+                    else str(i.updated_at)
+                ),
+            ]
+        )
 
     date_str = datetime.utcnow().strftime("%Y-%m-%d")
     filename = f"VVT-Uebersicht-{date_str}.csv"
-    logger.info("VVT overview exported", extra={"row_count": len(items), "filename": filename})
+    logger.info(
+        "VVT overview exported", extra={"row_count": len(items), "filename": filename}
+    )
     return Response(
         content=buf.getvalue(),
         media_type="text/csv; charset=utf-8",

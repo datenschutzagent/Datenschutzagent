@@ -1,4 +1,5 @@
 """Webhook-Management API: Konfiguration ausgehender HTTP-Benachrichtigungen."""
+
 import ipaddress
 import logging
 import socket
@@ -45,10 +46,19 @@ def _validate_webhook_url(url: str) -> str:
     try:
         resolved_ip = socket.gethostbyname(hostname)
         addr = ipaddress.ip_address(resolved_ip)
-        if addr.is_private or addr.is_loopback or addr.is_link_local or addr.is_reserved:
+        if (
+            addr.is_private
+            or addr.is_loopback
+            or addr.is_link_local
+            or addr.is_reserved
+        ):
             logger.warning(
                 "SSRF attempt blocked: webhook URL resolves to internal address",
-                extra={"event": "ssrf_blocked", "hostname": hostname, "resolved_ip": resolved_ip},
+                extra={
+                    "event": "ssrf_blocked",
+                    "hostname": hostname,
+                    "resolved_ip": resolved_ip,
+                },
             )
             raise ValueError(
                 f"Webhook URL must not point to private or internal addresses (resolved: {resolved_ip})"
@@ -137,7 +147,9 @@ async def list_webhooks(
     db: AsyncSession = Depends(get_db),
     _user=require_roles("admin"),
 ) -> list[WebhookResponse]:
-    result = await db.execute(select(WebhookConfigModel).order_by(WebhookConfigModel.created_at.desc()))
+    result = await db.execute(
+        select(WebhookConfigModel).order_by(WebhookConfigModel.created_at.desc())
+    )
     return [_orm_to_response(w) for w in result.scalars().all()]
 
 
@@ -151,7 +163,10 @@ async def create_webhook(
 ) -> WebhookResponse:
     invalid = [e for e in body.events if e not in VALID_EVENTS]
     if invalid:
-        raise HTTPException(status_code=400, detail=f"Unbekannte Events: {invalid}. Erlaubt: {sorted(VALID_EVENTS)}")
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unbekannte Events: {invalid}. Erlaubt: {sorted(VALID_EVENTS)}",
+        )
     creator = getattr(_user, "display_name", "") if _user else ""
     webhook = WebhookConfigModel(
         name=body.name,
@@ -173,7 +188,9 @@ async def update_webhook(
     db: AsyncSession = Depends(get_db),
     _user=require_roles("admin"),
 ) -> WebhookResponse:
-    result = await db.execute(select(WebhookConfigModel).where(WebhookConfigModel.id == webhook_id))
+    result = await db.execute(
+        select(WebhookConfigModel).where(WebhookConfigModel.id == webhook_id)
+    )
     webhook = result.scalar_one_or_none()
     if not webhook:
         raise HTTPException(status_code=404, detail="Webhook nicht gefunden")
@@ -198,7 +215,9 @@ async def delete_webhook(
     db: AsyncSession = Depends(get_db),
     _user=require_roles("admin"),
 ):
-    result = await db.execute(select(WebhookConfigModel).where(WebhookConfigModel.id == webhook_id))
+    result = await db.execute(
+        select(WebhookConfigModel).where(WebhookConfigModel.id == webhook_id)
+    )
     webhook = result.scalar_one_or_none()
     if not webhook:
         raise HTTPException(status_code=404, detail="Webhook nicht gefunden")
@@ -215,11 +234,14 @@ async def test_webhook(
     _user=require_roles("admin"),
 ):
     """Sendet ein Test-Event an den konfigurierten Webhook-Endpunkt."""
-    result = await db.execute(select(WebhookConfigModel).where(WebhookConfigModel.id == webhook_id))
+    result = await db.execute(
+        select(WebhookConfigModel).where(WebhookConfigModel.id == webhook_id)
+    )
     webhook = result.scalar_one_or_none()
     if not webhook:
         raise HTTPException(status_code=404, detail="Webhook nicht gefunden")
     from app.services.webhook_service import _deliver_webhook
+
     success, http_status, error = await _deliver_webhook(
         webhook.id,
         webhook.url,

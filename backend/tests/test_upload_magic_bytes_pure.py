@@ -4,13 +4,13 @@ Exercises the signature-sniffing logic in isolation so the integration tests
 in test_documents_api.py do not need to construct crafted payloads for every
 mismatch case.
 """
+
 from __future__ import annotations
 
 import pytest
 from fastapi import HTTPException
 
 from app.api.routes.documents import _verify_magic_bytes
-
 
 PDF_SAMPLE = b"%PDF-1.7\n...rest-of-pdf..."
 DOCX_SAMPLE = b"PK\x03\x04" + b"\x00" * 12 + b"[Content_Types].xml"
@@ -77,7 +77,7 @@ def test_pdf_content_claiming_pptx_is_rejected():
 
 
 def test_plain_text_passes_as_csv():
-    _verify_magic_bytes("Zweck;Rechtsgrundlage\nLohn;Art. 6\n".encode(), "csv", "export.csv")
+    _verify_magic_bytes(b"Zweck;Rechtsgrundlage\nLohn;Art. 6\n", "csv", "export.csv")
 
 
 def test_utf8_bom_csv_passes():

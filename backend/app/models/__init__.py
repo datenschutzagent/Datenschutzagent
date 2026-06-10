@@ -1,4 +1,11 @@
 """Domain and API models."""
+
+from app.models.db import (
+    Base,
+    CaseModel,
+    DocumentModel,
+    FindingModel,
+)
 from app.models.schemas import (
     CaseCreate,
     CaseListResponse,
@@ -7,12 +14,6 @@ from app.models.schemas import (
     DocumentResponse,
     FindingResponse,
     FindingUpdate,
-)
-from app.models.db import (
-    Base,
-    CaseModel,
-    DocumentModel,
-    FindingModel,
 )
 
 __all__ = [

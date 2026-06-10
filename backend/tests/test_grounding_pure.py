@@ -1,5 +1,11 @@
 """Pure unit tests for evidence grounding (no DB, no LLM)."""
-from app.core.grounding import grounding_ratio, is_grounded, partition_grounded, _normalize
+
+from app.core.grounding import (
+    _normalize,
+    grounding_ratio,
+    is_grounded,
+    partition_grounded,
+)
 
 SOURCE = (
     "Die Speicherdauer der Lohndaten betraegt 10 Jahre gemaess HGB. "
@@ -10,7 +16,9 @@ SOURCE = (
 
 class TestIsGrounded:
     def test_exact_quote_is_grounded(self):
-        assert is_grounded("die Speicherdauer der Lohndaten betraegt 10 Jahre", _normalize(SOURCE))
+        assert is_grounded(
+            "die Speicherdauer der Lohndaten betraegt 10 Jahre", _normalize(SOURCE)
+        )
 
     def test_quote_with_different_whitespace_and_case(self):
         assert is_grounded("RECHTSGRUNDLAGE   der    Verarbeitung", _normalize(SOURCE))
@@ -32,7 +40,12 @@ class TestIsGrounded:
 class TestPartitionAndRatio:
     def test_partition_drops_empty_and_classifies(self):
         grounded, ungrounded = partition_grounded(
-            ["", "  ", "Eine Uebermittlung in Drittlaender findet nicht statt", "voellig erfundener inhalt xyz abc"],
+            [
+                "",
+                "  ",
+                "Eine Uebermittlung in Drittlaender findet nicht statt",
+                "voellig erfundener inhalt xyz abc",
+            ],
             SOURCE,
         )
         assert grounded == ["Eine Uebermittlung in Drittlaender findet nicht statt"]
@@ -43,7 +56,10 @@ class TestPartitionAndRatio:
 
     def test_ratio_half(self):
         ratio = grounding_ratio(
-            ["Die Speicherdauer der Lohndaten betraegt 10 Jahre", "frei erfundene aussage ohne bezug"],
+            [
+                "Die Speicherdauer der Lohndaten betraegt 10 Jahre",
+                "frei erfundene aussage ohne bezug",
+            ],
             SOURCE,
         )
         assert ratio == 0.5

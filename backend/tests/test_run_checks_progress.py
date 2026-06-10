@@ -1,4 +1,5 @@
 """Tests for run-check progress / timeout decoupling in run_checks_service."""
+
 import asyncio
 import uuid
 from types import SimpleNamespace
@@ -9,7 +10,9 @@ import pytest
 from app.services.run_checks_service import _CheckRunState, _run_with_limits
 
 
-def _minimal_state(*, on_check_done=None, timeout: float | None = 1.0) -> _CheckRunState:
+def _minimal_state(
+    *, on_check_done=None, timeout: float | None = 1.0
+) -> _CheckRunState:
     return _CheckRunState(
         db=MagicMock(),
         case=SimpleNamespace(documents=[]),
@@ -42,7 +45,12 @@ async def test_run_with_limits_progress_outside_timeout():
         return True
 
     await _run_with_limits(
-        state, _fast_check(), "TestCheck", "document", uuid.uuid4(), "full_text",
+        state,
+        _fast_check(),
+        "TestCheck",
+        "document",
+        uuid.uuid4(),
+        "full_text",
     )
 
     assert state.errors == []
@@ -65,7 +73,12 @@ async def test_run_with_limits_timeout_does_not_call_progress():
         return True
 
     await _run_with_limits(
-        state, _slow_check(), "SlowCheck", "document", uuid.uuid4(), "full_text",
+        state,
+        _slow_check(),
+        "SlowCheck",
+        "document",
+        uuid.uuid4(),
+        "full_text",
     )
 
     assert len(state.errors) == 1
@@ -88,7 +101,12 @@ async def test_run_with_limits_llm_error_skips_progress():
         return False
 
     await _run_with_limits(
-        state, _failed_check(), "FailedCheck", "document", uuid.uuid4(), "full_text",
+        state,
+        _failed_check(),
+        "FailedCheck",
+        "document",
+        uuid.uuid4(),
+        "full_text",
     )
 
     assert state.errors == []

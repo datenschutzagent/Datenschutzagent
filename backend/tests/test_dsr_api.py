@@ -4,6 +4,7 @@ These tests require a live PostgreSQL database (DATABASE_URL env var).
 They test create, read, update, and delete behaviour for DSR requests
 (Betroffenenrechts-Anfragen, Art. 15–22 DSGVO).
 """
+
 import pytest
 
 pytestmark = pytest.mark.asyncio
@@ -12,6 +13,7 @@ pytestmark = pytest.mark.asyncio
 # ---------------------------------------------------------------------------
 # Helper
 # ---------------------------------------------------------------------------
+
 
 async def _create_dsr(client, **overrides) -> dict:
     payload = {
@@ -50,7 +52,9 @@ async def test_create_dsr_request_calculates_deadline(client):
 
 
 async def test_create_dsr_request_with_extension(client):
-    dsr = await _create_dsr(client, received_at="2026-04-14", deadline_extension_days=30)
+    dsr = await _create_dsr(
+        client, received_at="2026-04-14", deadline_extension_days=30
+    )
     # 30 base days + 30 extension days = 60 days total
     assert dsr["response_deadline"] == "2026-06-13"
 
@@ -85,7 +89,9 @@ async def test_list_dsr_filter_status(client):
     dsr_id = dsr["id"]
 
     # Advance status to in_progress
-    patch_resp = await client.patch(f"/api/v1/dsr/{dsr_id}", json={"status": "in_progress"})
+    patch_resp = await client.patch(
+        f"/api/v1/dsr/{dsr_id}", json={"status": "in_progress"}
+    )
     assert patch_resp.status_code == 200
 
     resp = await client.get("/api/v1/dsr?status=in_progress")

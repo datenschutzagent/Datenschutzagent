@@ -10,8 +10,9 @@ Case) gemaess Art. 13/14 DSGVO. Die Generierung nutzt:
 - AVV-Vertraege der gleichen Abteilung (best-effort)
 - Org-Profil (Name) aus Settings
 """
+
 import logging
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID
 
@@ -80,7 +81,9 @@ oder [KONTAKT] ein, wo konkrete Angaben fehlen."""
 
 class _PrivacyPolicyLLMResult(BaseModel):
     title: str = Field(description="Titel der Datenschutzerklärung")
-    content_markdown: str = Field(description="Vollständige Datenschutzerklärung als Markdown")
+    content_markdown: str = Field(
+        description="Vollständige Datenschutzerklärung als Markdown"
+    )
     version_note: str = Field(description="Kurze Notiz zur Version / zu Änderungen")
 
 
@@ -106,27 +109,36 @@ async def generate_privacy_policy(
     org_name = settings.org_name or "Ihre Organisation"
 
     retention = (
-        f"{case.retention_months} Monate" if case.retention_months
+        f"{case.retention_months} Monate"
+        if case.retention_months
         else "[Speicherfrist eintragen]"
     )
 
     user_content = _PRIVACY_POLICY_USER_TEMPLATE.format(
         org_name=sanitize_prompt_field(org_name, max_chars=200),
-        contact=sanitize_prompt_field(contact or "[Kontaktdaten des Verantwortlichen eintragen]", max_chars=500),
+        contact=sanitize_prompt_field(
+            contact or "[Kontaktdaten des Verantwortlichen eintragen]", max_chars=500
+        ),
         case_title=sanitize_prompt_field(case.title, max_chars=300),
         case_department=sanitize_prompt_field(case.department or "—", max_chars=200),
         case_type=sanitize_prompt_field(case.case_type or "—", max_chars=100),
-        processing_context=sanitize_prompt_field(case.processing_context or "—", max_chars=500),
+        processing_context=sanitize_prompt_field(
+            case.processing_context or "—", max_chars=500
+        ),
         special_category="Ja" if case.special_category_data else "Nein",
         international_transfer="Ja" if case.international_transfer else "Nein",
         retention=sanitize_prompt_field(retention, max_chars=100),
         findings_summary=sanitize_prompt_field(findings_summary, max_chars=3000),
         avv_summary=sanitize_prompt_field(avv_summary, max_chars=2000),
-        notes=sanitize_prompt_field(notes or "Keine besonderen Hinweise.", max_chars=1000),
+        notes=sanitize_prompt_field(
+            notes or "Keine besonderen Hinweise.", max_chars=1000
+        ),
     )
 
     agent = create_agent(_PRIVACY_POLICY_SYSTEM)
-    result = await agent.run(user_content, output_type=wrap_output_type(_PrivacyPolicyLLMResult))
+    result = await agent.run(
+        user_content, output_type=wrap_output_type(_PrivacyPolicyLLMResult)
+    )
     data = result.output
 
     return {
@@ -137,7 +149,7 @@ async def generate_privacy_policy(
         "case_title": case.title,
         "case_department": case.department,
         "org_name": org_name,
-        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "generated_at": datetime.now(UTC).isoformat(),
     }
 
 
@@ -198,8 +210,9 @@ async def save_privacy_policy(
     """Persistiert eine generierte Datenschutzerklaerung und vergibt eine
     fortlaufende Versionsnummer pro Case."""
     next_version_result = await db.execute(
-        select(func.coalesce(func.max(PrivacyPolicyModel.version), 0))
-        .where(PrivacyPolicyModel.case_id == case_id)
+        select(func.coalesce(func.max(PrivacyPolicyModel.version), 0)).where(
+            PrivacyPolicyModel.case_id == case_id
+        )
     )
     next_version = int(next_version_result.scalar_one() or 0) + 1
 
@@ -210,7 +223,7 @@ async def save_privacy_policy(
         content_markdown=payload.get("content_markdown", ""),
         version_note=payload.get("version_note", ""),
         payload=payload,
-        generated_at=datetime.now(timezone.utc),
+        generated_at=datetime.now(UTC),
         created_by=created_by,
     )
     db.add(model)

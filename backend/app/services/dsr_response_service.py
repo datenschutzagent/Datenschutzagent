@@ -1,4 +1,5 @@
 """DSR-Service: Antwortschreiben für Betroffenenrechts-Anfragen (Art. 15–22 DSGVO) per LLM generieren."""
+
 import logging
 from uuid import UUID
 
@@ -51,24 +52,37 @@ Beginne mit "[BRIEFKOPF ORGANISATION]" und "[DATUM]" als Platzhalter."""
 async def generate_draft_response(request_id: UUID, db: AsyncSession) -> str:
     """Generiert einen LLM-Entwurf für das Antwortschreiben einer DSR-Anfrage."""
     from datetime import date
-    result = await db.execute(select(DSRRequestModel).where(DSRRequestModel.id == request_id))
+
+    result = await db.execute(
+        select(DSRRequestModel).where(DSRRequestModel.id == request_id)
+    )
     request = result.scalar_one_or_none()
     if not request:
         raise ValueError(f"DSR request {request_id} not found")
 
     today = date.today()
     days_remaining = max(0, (request.response_deadline - today).days)
-    request_type_label = _REQUEST_TYPE_LABELS.get(request.request_type, request.request_type)
+    request_type_label = _REQUEST_TYPE_LABELS.get(
+        request.request_type, request.request_type
+    )
 
     logger.info(
         "Generating DSR draft response",
-        extra={"dsr_request_id": str(request_id), "request_type": request.request_type, "days_remaining": days_remaining},
+        extra={
+            "dsr_request_id": str(request_id),
+            "request_type": request.request_type,
+            "days_remaining": days_remaining,
+        },
     )
 
     user_content = _USER_TEMPLATE.format(
         request_type_label=sanitize_prompt_field(request_type_label, max_chars=100),
-        department=sanitize_prompt_field(request.department or "Nicht angegeben", max_chars=100),
-        description=sanitize_prompt_field(request.description or "Keine Beschreibung vorhanden.", max_chars=1000),
+        department=sanitize_prompt_field(
+            request.department or "Nicht angegeben", max_chars=100
+        ),
+        description=sanitize_prompt_field(
+            request.description or "Keine Beschreibung vorhanden.", max_chars=1000
+        ),
         received_at=request.received_at.strftime("%d.%m.%Y"),
         response_deadline=request.response_deadline.strftime("%d.%m.%Y"),
         days_remaining=days_remaining,

@@ -3,8 +3,9 @@
 Tests compute_stale(), render_report_markdown(), and _payload_to_report()
 without any database or external service dependencies.
 """
+
 import uuid
-from datetime import datetime, timezone, timedelta
+from datetime import UTC, datetime, timedelta
 
 from app.models.db import DSBReportModel
 from app.models.schemas import DSBReportResponse, DSBReportRisk, DSBReportSummary
@@ -14,12 +15,11 @@ from app.services.dsb_report_service import (
     render_report_markdown,
 )
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
-_BASE_TIME = datetime(2024, 6, 1, 12, 0, 0, tzinfo=timezone.utc)
+_BASE_TIME = datetime(2024, 6, 1, 12, 0, 0, tzinfo=UTC)
 _LATER_TIME = _BASE_TIME + timedelta(hours=1)
 
 
@@ -81,49 +81,63 @@ def make_report(
 
 def test_not_stale_same_docs_same_run_at():
     row = make_report_row(basis_document_count=2, basis_last_run_checks_at=_BASE_TIME)
-    stale, reason = compute_stale(row, current_document_count=2, current_last_run_checks_at=_BASE_TIME)
+    stale, reason = compute_stale(
+        row, current_document_count=2, current_last_run_checks_at=_BASE_TIME
+    )
     assert stale is False
     assert reason is None
 
 
 def test_stale_document_count_changed():
     row = make_report_row(basis_document_count=2, basis_last_run_checks_at=_BASE_TIME)
-    stale, reason = compute_stale(row, current_document_count=3, current_last_run_checks_at=_BASE_TIME)
+    stale, reason = compute_stale(
+        row, current_document_count=3, current_last_run_checks_at=_BASE_TIME
+    )
     assert stale is True
     assert reason == "new_documents"
 
 
 def test_stale_newer_run_checks_at():
     row = make_report_row(basis_document_count=2, basis_last_run_checks_at=_BASE_TIME)
-    stale, reason = compute_stale(row, current_document_count=2, current_last_run_checks_at=_LATER_TIME)
+    stale, reason = compute_stale(
+        row, current_document_count=2, current_last_run_checks_at=_LATER_TIME
+    )
     assert stale is True
     assert reason == "new_analysis"
 
 
 def test_stale_both_changed():
     row = make_report_row(basis_document_count=2, basis_last_run_checks_at=_BASE_TIME)
-    stale, reason = compute_stale(row, current_document_count=5, current_last_run_checks_at=_LATER_TIME)
+    stale, reason = compute_stale(
+        row, current_document_count=5, current_last_run_checks_at=_LATER_TIME
+    )
     assert stale is True
     assert reason == "both"
 
 
 def test_stale_no_previous_run_but_current_run_exists():
     row = make_report_row(basis_document_count=2, basis_last_run_checks_at=None)
-    stale, reason = compute_stale(row, current_document_count=2, current_last_run_checks_at=_BASE_TIME)
+    stale, reason = compute_stale(
+        row, current_document_count=2, current_last_run_checks_at=_BASE_TIME
+    )
     assert stale is True
     assert reason == "new_analysis"
 
 
 def test_not_stale_no_run_checks_ever():
     row = make_report_row(basis_document_count=2, basis_last_run_checks_at=None)
-    stale, reason = compute_stale(row, current_document_count=2, current_last_run_checks_at=None)
+    stale, reason = compute_stale(
+        row, current_document_count=2, current_last_run_checks_at=None
+    )
     assert stale is False
     assert reason is None
 
 
 def test_stale_only_doc_count_changed_no_run_at():
     row = make_report_row(basis_document_count=2, basis_last_run_checks_at=None)
-    stale, reason = compute_stale(row, current_document_count=4, current_last_run_checks_at=None)
+    stale, reason = compute_stale(
+        row, current_document_count=4, current_last_run_checks_at=None
+    )
     assert stale is True
     assert reason == "new_documents"
 
@@ -164,7 +178,9 @@ def test_render_markdown_no_findings_message():
 
 
 def test_render_markdown_with_risks_shows_titles():
-    risks = [DSBReportRisk(title="DSGVO Verletzung", severity="high", description="Fehler")]
+    risks = [
+        DSBReportRisk(title="DSGVO Verletzung", severity="high", description="Fehler")
+    ]
     report = make_report(risks=risks)
     md = render_report_markdown(report)
     assert "DSGVO Verletzung" in md

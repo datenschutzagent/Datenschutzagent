@@ -1,4 +1,5 @@
 """AVV-Management API (Art. 28 DSGVO) – Auftragsverarbeitungsverträge."""
+
 import logging
 from uuid import UUID
 
@@ -22,18 +23,24 @@ router = APIRouter()
 logger = logging.getLogger(__name__)
 
 
-@router.get("/stats", response_model=AVVStatsResponse, summary="AVV-Statistiken abrufen")
+@router.get(
+    "/stats", response_model=AVVStatsResponse, summary="AVV-Statistiken abrufen"
+)
 async def get_avv_stats(
     db: AsyncSession = Depends(get_db),
     _user=require_roles("viewer", "editor", "admin"),
 ):
     """Aggregierte AVV-Statistiken: Status-Verteilung, Ablaufrisiko, Risiko-Score-Verteilung."""
     from datetime import date, timedelta
+
     from sqlalchemy import text
+
     today = date.today()
     threshold_90 = today + timedelta(days=90)
 
-    result = await db.execute(text("""
+    result = await db.execute(
+        text(
+            """
         WITH by_status AS (
             SELECT status AS key1, COUNT(*) AS cnt FROM avv_contracts GROUP BY status
         ),
@@ -65,7 +72,10 @@ async def get_avv_stats(
         SELECT 'expired', NULL, expired, NULL FROM expiry
         UNION ALL
         SELECT 'total',   NULL, cnt, NULL FROM total
-    """), {"today": today, "threshold_90": threshold_90})
+    """
+        ),
+        {"today": today, "threshold_90": threshold_90},
+    )
     rows = result.fetchall()
 
     by_status: dict[str, int] = {}
@@ -104,7 +114,9 @@ async def list_avv_contracts(
     status: str | None = Query(default=None),
     department: str | None = Query(default=None),
     partner_type: str | None = Query(default=None),
-    expiring_soon: bool = Query(default=False, description="Nur bald ablaufende Verträge (90 Tage)"),
+    expiring_soon: bool = Query(
+        default=False, description="Nur bald ablaufende Verträge (90 Tage)"
+    ),
     skip: int = Query(default=0, ge=0),
     limit: int = Query(default=100, ge=1, le=500),
     db: AsyncSession = Depends(get_db),
@@ -119,6 +131,7 @@ async def list_avv_contracts(
         q = q.where(AVVContractModel.partner_type == partner_type)
     if expiring_soon:
         from datetime import date, timedelta
+
         threshold = date.today() + timedelta(days=90)
         q = q.where(
             AVVContractModel.expiry_date <= threshold,
@@ -135,7 +148,9 @@ async def list_avv_contracts(
     return AVVListResponse(items=items, total=total)
 
 
-@router.post("", response_model=AVVContractResponse, status_code=201, summary="AVV anlegen")
+@router.post(
+    "", response_model=AVVContractResponse, status_code=201, summary="AVV anlegen"
+)
 @limiter.limit("30/minute")
 async def create_avv_contract(
     request: Request,
@@ -165,14 +180,18 @@ async def get_avv_contract(
     db: AsyncSession = Depends(get_db),
     _user=require_roles("viewer", "editor", "admin"),
 ):
-    result = await db.execute(select(AVVContractModel).where(AVVContractModel.id == contract_id))
+    result = await db.execute(
+        select(AVVContractModel).where(AVVContractModel.id == contract_id)
+    )
     contract = result.scalar_one_or_none()
     if not contract:
         raise HTTPException(status_code=404, detail="AVV nicht gefunden")
     return AVVContractResponse.model_validate(contract)
 
 
-@router.patch("/{contract_id}", response_model=AVVContractResponse, summary="AVV aktualisieren")
+@router.patch(
+    "/{contract_id}", response_model=AVVContractResponse, summary="AVV aktualisieren"
+)
 @limiter.limit("60/minute")
 async def update_avv_contract(
     request: Request,
@@ -181,13 +200,24 @@ async def update_avv_contract(
     db: AsyncSession = Depends(get_db),
     _user=require_roles("editor", "admin"),
 ):
-    result = await db.execute(select(AVVContractModel).where(AVVContractModel.id == contract_id))
+    result = await db.execute(
+        select(AVVContractModel).where(AVVContractModel.id == contract_id)
+    )
     contract = result.scalar_one_or_none()
     if not contract:
         raise HTTPException(status_code=404, detail="AVV nicht gefunden")
 
-    for field in ["partner_name", "partner_type", "subject_matter", "department",
-                  "status", "assignee", "contract_date", "expiry_date", "notes"]:
+    for field in [
+        "partner_name",
+        "partner_type",
+        "subject_matter",
+        "department",
+        "status",
+        "assignee",
+        "contract_date",
+        "expiry_date",
+        "notes",
+    ]:
         val = getattr(body, field, None)
         if val is not None:
             setattr(contract, field, val)
@@ -197,7 +227,9 @@ async def update_avv_contract(
     return AVVContractResponse.model_validate(contract)
 
 
-@router.post("/{contract_id}/risk-assessment", summary="Supplier-Risikobewertung durchführen")
+@router.post(
+    "/{contract_id}/risk-assessment", summary="Supplier-Risikobewertung durchführen"
+)
 @limiter.limit("5/minute")
 async def assess_avv_risk(
     request: Request,
@@ -212,16 +244,21 @@ async def assess_avv_risk(
     Das Ergebnis wird im AVV-Datensatz gespeichert.
     """
     from app.services.avv_risk_service import assess_avv_risk as _assess
-    result = await db.execute(select(AVVContractModel).where(AVVContractModel.id == contract_id))
+
+    result = await db.execute(
+        select(AVVContractModel).where(AVVContractModel.id == contract_id)
+    )
     if result.scalar_one_or_none() is None:
         raise HTTPException(status_code=404, detail="AVV nicht gefunden")
     try:
         assessment = await _assess(contract_id, db)
     except ValueError as exc:
-        raise HTTPException(status_code=404, detail=str(exc))
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
     except Exception as exc:
         logger.error("AVV risk assessment failed for %s: %s", contract_id, exc)
-        raise HTTPException(status_code=500, detail=f"Risikobewertung fehlgeschlagen: {exc}")
+        raise HTTPException(
+            status_code=500, detail=f"Risikobewertung fehlgeschlagen: {exc}"
+        ) from exc
     return assessment
 
 
@@ -231,7 +268,9 @@ async def delete_avv_contract(
     db: AsyncSession = Depends(get_db),
     _user=require_roles("admin"),
 ):
-    result = await db.execute(select(AVVContractModel).where(AVVContractModel.id == contract_id))
+    result = await db.execute(
+        select(AVVContractModel).where(AVVContractModel.id == contract_id)
+    )
     contract = result.scalar_one_or_none()
     if not contract:
         raise HTTPException(status_code=404, detail="AVV nicht gefunden")

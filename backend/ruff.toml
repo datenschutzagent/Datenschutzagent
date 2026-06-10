@@ -24,14 +24,48 @@ ignore = [
 ]
 
 [lint.per-file-ignores]
-"tests/*" = ["S101", "S105"]  # assert and hardcoded passwords in tests are fine
-# Celery tasks and health checks legitimately use broad except to prevent worker crashes.
+# Tests: assert/hardcoded passwords are fine; pytest.raises(Exception) is acceptable
+# for "must not succeed" assertions where the exact type is not the point.
+"tests/*" = ["S101", "S105", "B017"]
+# Re-export aggregator modules: names are imported solely to expose them via the
+# module/package namespace (e.g. `from app.models.schemas import CaseCreate`).
+# These must NOT have their "unused" imports auto-removed.
+"**/__init__.py" = ["F401"]
+"app/models/schemas.py" = ["F401"]
+"app/models/db.py" = ["F401"]
+# Broad `except Exception` (BLE001) is used deliberately as an error boundary in the
+# files below: Celery tasks and health/connection checks that must not crash the worker,
+# extraction fallbacks that must degrade gracefully, optional integrations (Weaviate,
+# notifications, webhooks, metrics, OIDC/session) whose failure must not break the
+# request, and API route handlers that map any unexpected error to an HTTP 500.
 "app/celery_app.py" = ["BLE001"]
-"app/services/connection_checks.py" = ["BLE001"]
-"app/services/run_checks_service.py" = ["BLE001"]
+"app/config.py" = ["BLE001"]
+"app/main.py" = ["BLE001"]
 "app/storage.py" = ["BLE001"]
-# Extraction fallbacks (pymupdf4llm→get_text, OCR, .doc conversion) must degrade gracefully
-# rather than crash the extraction task on any single page/tool failure.
+"app/core/auth.py" = ["BLE001"]
+"app/core/crypto.py" = ["BLE001"]
+"app/core/llm.py" = ["BLE001"]
+"app/core/metrics.py" = ["BLE001"]
+"app/core/session.py" = ["BLE001"]
+"app/api/routes/auth.py" = ["BLE001"]
+"app/api/routes/avv.py" = ["BLE001"]
+"app/api/routes/cases.py" = ["BLE001"]
+"app/api/routes/dsfa.py" = ["BLE001"]
+"app/api/routes/findings.py" = ["BLE001"]
+"app/api/routes/privacy_policy.py" = ["BLE001"]
+"app/api/routes/tom.py" = ["BLE001"]
+"app/services/check_runner.py" = ["BLE001"]
+"app/services/connection_checks.py" = ["BLE001"]
+"app/services/data_breach_service.py" = ["BLE001"]
 "app/services/document_processor.py" = ["BLE001"]
+"app/services/dsb_report_service.py" = ["BLE001"]
+"app/services/dsfa_service.py" = ["BLE001"]
+"app/services/notification_service.py" = ["BLE001"]
+"app/services/org_profile_loader.py" = ["BLE001"]
+"app/services/playbook_import.py" = ["BLE001"]
+"app/services/risk_config_loader.py" = ["BLE001"]
+"app/services/run_checks_service.py" = ["BLE001"]
+"app/services/weaviate_service.py" = ["BLE001"]
+"app/services/webhook_service.py" = ["BLE001"]
 # Eval runner intentionally catches broad failures from optional LLM-backed evals.
 "evals/run.py" = ["BLE001"]

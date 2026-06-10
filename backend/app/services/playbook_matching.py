@@ -1,4 +1,5 @@
 """Score playbooks against case attributes (department, processing context, case type, org profile)."""
+
 from typing import Any
 
 from app.models.db import PlaybookModel
@@ -9,7 +10,9 @@ def _has_department_constraint(spec: dict[str, Any]) -> bool:
     if isinstance(dvals, list) and any(v is not None and str(v).strip() for v in dvals):
         return True
     dcodes = spec.get("department_codes") or []
-    return isinstance(dcodes, list) and any(c is not None and str(c).strip() for c in dcodes)
+    return isinstance(dcodes, list) and any(
+        c is not None and str(c).strip() for c in dcodes
+    )
 
 
 def _match_spec(playbook: PlaybookModel) -> dict[str, Any]:
@@ -51,7 +54,11 @@ def _department_ok(case_department: str, spec: dict[str, Any]) -> bool:
     if dcodes:
         ok = False
         for c in dcodes:
-            if case_department == c or case_department.startswith(f"{c} –") or case_department.startswith(f"{c} "):
+            if (
+                case_department == c
+                or case_department.startswith(f"{c} –")
+                or case_department.startswith(f"{c} ")
+            ):
                 ok = True
                 break
         if not ok:

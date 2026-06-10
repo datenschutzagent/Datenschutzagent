@@ -1,4 +1,5 @@
 """Request correlation ID middleware and context variable."""
+
 import uuid
 from contextvars import ContextVar
 

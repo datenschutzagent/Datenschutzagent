@@ -1,4 +1,5 @@
 """Smoke tests for the offline eval harness (no LLM, no DB)."""
+
 from types import SimpleNamespace
 
 from evals import extraction_eval, grounding_eval, ocr_eval
@@ -53,7 +54,9 @@ def test_ocr_char_accuracy_scoring():
     evaluator = ocr_eval.OcrCharAccuracy()
     ref = "Rechtsgrundlage: Art. 6 DSGVO"
     # Perfect recovery → accuracy 1.0; empty recovery → 0.0.
-    perfect = evaluator.evaluate(SimpleNamespace(output={"reference": ref, "text": ref}))
+    perfect = evaluator.evaluate(
+        SimpleNamespace(output={"reference": ref, "text": ref})
+    )
     empty = evaluator.evaluate(SimpleNamespace(output={"reference": ref, "text": ""}))
     assert perfect == 1.0
     assert empty == 0.0

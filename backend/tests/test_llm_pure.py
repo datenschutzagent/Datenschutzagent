@@ -3,6 +3,7 @@
 Covers the model/cost levers added for Batch B: the optional analysis model, provider-aware
 default model settings (incl. the Anthropic prompt-cache breakpoint) and the temperature override.
 """
+
 import pytest
 from pydantic import BaseModel
 
@@ -69,13 +70,20 @@ def test_default_model_settings_anthropic_caching_disabled(monkeypatch):
 
 def test_ensure_v1_base_url_appends_missing_suffix():
     assert llm.ensure_v1_base_url("http://localhost:8080") == "http://localhost:8080/v1"
-    assert llm.ensure_v1_base_url("http://localhost:8000/v1") == "http://localhost:8000/v1"
-    assert llm.ensure_v1_base_url("http://localhost:8000/v1/") == "http://localhost:8000/v1"
+    assert (
+        llm.ensure_v1_base_url("http://localhost:8000/v1") == "http://localhost:8000/v1"
+    )
+    assert (
+        llm.ensure_v1_base_url("http://localhost:8000/v1/")
+        == "http://localhost:8000/v1"
+    )
 
 
 def test_active_model_name_openai_compatible(monkeypatch):
     monkeypatch.setattr(settings, "llm_provider", "openai_compatible", raising=False)
-    monkeypatch.setattr(settings, "llm_model", "Qwen/Qwen2.5-14B-Instruct", raising=False)
+    monkeypatch.setattr(
+        settings, "llm_model", "Qwen/Qwen2.5-14B-Instruct", raising=False
+    )
     monkeypatch.setattr(settings, "llm_analysis_model", "", raising=False)
     assert llm.get_active_model_name() == "Qwen/Qwen2.5-14B-Instruct"
 
@@ -132,7 +140,9 @@ def test_wrap_output_type_prompted_mode_wraps(monkeypatch):
     from pydantic_ai import PromptedOutput
 
     monkeypatch.setattr(settings, "llm_provider", "ollama", raising=False)
-    monkeypatch.setattr(settings, "llm_structured_output_mode", "prompted", raising=False)
+    monkeypatch.setattr(
+        settings, "llm_structured_output_mode", "prompted", raising=False
+    )
     wrapped = llm.wrap_output_type(_DummyOutput)
     assert isinstance(wrapped, PromptedOutput)
 
@@ -188,7 +198,9 @@ def test_gather_all_preserves_order_and_runs_all_on_failure():
     completed: list[int] = []
 
     async def ok(i):
-        await asyncio.sleep(0.01 * (3 - i))  # later coros finish first without order guarantee
+        await asyncio.sleep(
+            0.01 * (3 - i)
+        )  # later coros finish first without order guarantee
         completed.append(i)
         return i
 

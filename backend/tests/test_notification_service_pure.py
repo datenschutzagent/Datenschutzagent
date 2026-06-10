@@ -1,4 +1,5 @@
 """Pure unit tests for notification_service helpers (no DB)."""
+
 from __future__ import annotations
 
 from app.services.notification_service import _user_accepts_notifications
@@ -12,6 +13,7 @@ class _StubUser:
 
 class _LegacyUser:
     """Simulates older UserModel rows that lack the new column attribute."""
+
     def __init__(self, email: str | None):
         self.email = email
 
@@ -51,4 +53,6 @@ def test_severity_label_mapping_is_complete():
     from app.services.notification_service import _SEVERITY_LABEL_DE
 
     for sev in FindingSeverity:
-        assert sev in _SEVERITY_LABEL_DE, f"FindingSeverity.{sev.name} fehlt in _SEVERITY_LABEL_DE"
+        assert (
+            sev in _SEVERITY_LABEL_DE
+        ), f"FindingSeverity.{sev.name} fehlt in _SEVERITY_LABEL_DE"
