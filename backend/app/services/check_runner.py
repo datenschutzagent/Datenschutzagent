@@ -7,8 +7,10 @@ from typing import List
 from uuid import UUID
 
 from pydantic import BaseModel, Field
+from pydantic_ai import ModelRetry
 
 from app.config import settings
+from app.core.grounding import grounding_ratio, partition_grounded
 from app.core.llm import create_agent, llm_retry_call
 from app.core.prompt_security import (
     SYSTEM_PROMPT_SAFETY_PREAMBLE,
@@ -18,6 +20,7 @@ from app.core.prompt_security import (
 from app.core.request_id import get_request_id
 from app.models.schemas import FindingSeverityEnum
 from app.services.prompt_template_service import get_active_template, render
+from app.services.weaviate_service import chunk_text, truncate_sentence_aware
 
 # Max chars for a check instruction (playbook requirement text). Defense-in-depth
 # even though playbooks are admin-controlled — imported playbooks may be less trusted.
@@ -74,8 +77,86 @@ class CheckResult(BaseModel):
     is_compliant: bool = Field(description="True if the check passed, False otherwise.")
     severity: FindingSeverityEnum = Field(description="Severity of the finding if not compliant.")
     description: str = Field(description="Explanation of the finding.")
-    evidence: List[str] = Field(description="Quotes from the text supporting the finding.")
+    evidence: List[str] = Field(description="Verbatim quotes from the document supporting the finding.")
     recommendation: str = Field(description="Recommendation to fix the issue.")
+    confidence: float = Field(
+        default=0.7,
+        ge=0.0,
+        le=1.0,
+        description="Self-assessed confidence (0=unsure, 1=certain). Low confidence is acceptable "
+        "when the document is incomplete or ambiguous.",
+    )
+
+
+# Appended to every check system prompt so verdicts are consistent and verifiable:
+# a severity rubric (the model otherwise has no definition of low/medium/high/critical),
+# a verbatim-evidence rule (so quotes can be grounded against the source), and a request
+# for a calibrated confidence.
+CHECK_OUTPUT_GUIDANCE = (
+    "\n\nSeverity rubric for non-compliant findings:\n"
+    "- critical: unlawful processing or a violation that can cause serious harm to data subjects "
+    "(e.g. missing legal basis, unsafeguarded third-country transfer, special-category data exposed).\n"
+    "- high: a clear legal requirement is unmet with material risk (e.g. missing retention period, "
+    "no AVV for a processor).\n"
+    "- medium: a relevant gap or inconsistency with limited risk.\n"
+    "- low: a minor or formal deficiency.\n"
+    "- info: an observation without a compliance defect.\n"
+    "For compliant results use severity 'info'.\n"
+    "Evidence MUST be verbatim quotes copied from the provided document — never paraphrase or "
+    "invent quotes. If you cannot quote supporting text, return an empty evidence list.\n"
+    "Set confidence (0.0-1.0) to reflect how certain you are given the available text."
+)
+
+
+def _make_grounding_validator(source_text: str):
+    """Build a Pydantic AI output validator that requests self-correction on hallucinated evidence.
+
+    Only pushes back in the egregious case — a non-compliant verdict whose every quote is
+    ungrounded — and never on the final allowed attempt, so it self-corrects without ever
+    hard-failing the pipeline. Quote pruning + confidence adjustment happens in
+    :func:`_apply_grounding` afterwards.
+    """
+    def _validate(ctx, output: CheckResult) -> CheckResult:
+        if not settings.evidence_grounding_enabled:
+            return output
+        if (
+            not output.is_compliant
+            and output.evidence
+            and source_text
+            and source_text.strip()
+            and ctx.retry < settings.llm_output_retries
+        ):
+            ratio = grounding_ratio(output.evidence, source_text, settings.evidence_grounding_threshold)
+            if ratio == 0.0:
+                raise ModelRetry(
+                    "None of the evidence quotes appear in the provided document. "
+                    "Quote ONLY text that appears verbatim in the document, or return an empty "
+                    "evidence list if you cannot."
+                )
+        return output
+
+    return _validate
+
+
+def _apply_grounding(result: CheckResult, source_text: str) -> CheckResult:
+    """Drop ungrounded (hallucinated) evidence quotes and lower confidence accordingly."""
+    if not settings.evidence_grounding_enabled or not result.evidence:
+        return result
+    if not source_text or not source_text.strip():
+        return result
+    grounded, ungrounded = partition_grounded(
+        result.evidence, source_text, settings.evidence_grounding_threshold
+    )
+    if ungrounded:
+        total = len(grounded) + len(ungrounded)
+        penalty = len(ungrounded) / total if total else 0.0
+        result.evidence = grounded
+        result.confidence = round(max(0.0, result.confidence * (1.0 - 0.5 * penalty)), 2)
+        logger.warning(
+            "Grounding dropped %d/%d ungrounded evidence quote(s); confidence→%.2f  [request_id=%s]",
+            len(ungrounded), total, result.confidence, get_request_id(),
+        )
+    return result
 
 
 # Modul-weiter Redis-Client-Singleton: wird einmalig pro Prozess erstellt und
@@ -215,6 +296,95 @@ def _legal_bases_section(legal_bases_context: str | None) -> str:
     return "Relevant legal requirements (excerpts from referenced legal bases):\n---\n" + legal_bases_context.strip() + "\n---\n\n"
 
 
+# Severity ordering for aggregating map-reduce results (higher = worse).
+_SEVERITY_RANK = {"info": 0, "low": 1, "medium": 2, "high": 3, "critical": 4}
+
+# Appended to the system prompt when a check runs over a document fragment (map-reduce), so
+# the model judges only the fragment and does not flag merely-absent information as a violation.
+_FRAGMENT_SYSTEM_SUFFIX = (
+    "\n\nNOTE: You are seeing ONE fragment of a larger document. Judge only what is present "
+    "in this fragment. Report non-compliant ONLY if this fragment actively contradicts or "
+    "violates the requirement. If the relevant information is simply not in this fragment, "
+    "treat it as compliant (info) — it may appear elsewhere in the document."
+)
+
+
+# Re-exported for callers/tests; canonical implementation lives in weaviate_service.
+_truncate_sentence_aware = truncate_sentence_aware
+
+
+def _build_context_windows(text: str, limit: int, max_windows: int) -> list[str]:
+    """Group sentence-aware chunks into <= max_windows windows of up to ``limit`` chars each."""
+    windows: list[str] = []
+    current = ""
+    for chunk in chunk_text(text or ""):
+        if current and len(current) + len(chunk) + 2 > limit:
+            windows.append(current)
+            current = chunk
+            if len(windows) >= max_windows:
+                return windows
+        else:
+            current = f"{current}\n\n{chunk}" if current else chunk
+    if current and len(windows) < max_windows:
+        windows.append(current)
+    return windows[:max_windows]
+
+
+def _aggregate_check_results(results: list[CheckResult]) -> CheckResult:
+    """Combine per-fragment results: any active violation wins (strict auditor)."""
+    non_compliant = [r for r in results if not r.is_compliant]
+    if non_compliant:
+        worst = max(non_compliant, key=lambda r: _SEVERITY_RANK.get(r.severity, 0))
+        merged_evidence: list[str] = []
+        for r in non_compliant:
+            for q in r.evidence:
+                if q not in merged_evidence:
+                    merged_evidence.append(q)
+        return CheckResult(
+            is_compliant=False,
+            severity=worst.severity,
+            description=worst.description,
+            evidence=merged_evidence,
+            recommendation=worst.recommendation,
+            confidence=round(min(r.confidence for r in results), 2),
+        )
+    # All fragments compliant.
+    base = results[0]
+    return CheckResult(
+        is_compliant=True,
+        severity="info",
+        description=base.description,
+        evidence=base.evidence,
+        recommendation=base.recommendation,
+        confidence=round(min(r.confidence for r in results), 2),
+    )
+
+
+async def _llm_check_call(
+    *,
+    system: str,
+    user_content: str,
+    source_text: str,
+    case_id: UUID | None,
+    playbook_revision: str,
+    label: str,
+) -> CheckResult:
+    """Shared single check call: cache lookup → grounded LLM run → cache store."""
+    agent = create_agent(
+        system_prompt=system,
+        output_validator=_make_grounding_validator(source_text),
+    )
+    cache_key = _cache_key(system, user_content, case_id, playbook_revision)
+    cached = await _cache_get(cache_key)
+    if cached is not None:
+        logger.info("LLM cache hit for check '%s'  [request_id=%s]", label[:60], get_request_id())
+        return cached
+    result = await llm_retry_call(agent, user_content, output_type=CheckResult, request_id=get_request_id())
+    out = _apply_grounding(result.output, source_text)
+    await _cache_set(cache_key, out)
+    return out
+
+
 async def run_check(
     document_text: str,
     check_instruction: str,
@@ -224,45 +394,76 @@ async def run_check(
     case_id: UUID | None = None,
     playbook_revision: str = "",
 ) -> CheckResult:
-    """Run a single check against a document using the LLM."""
+    """Run a single check against a document using the LLM.
+
+    For documents longer than the per-doc context limit, the check runs over sentence-aware
+    fragments (map-reduce) and the results are aggregated, instead of silently truncating to
+    the first N characters (which can hide non-compliance beyond the cut-off).
+    """
     language_hint = _language_hint(language) if language else ""
     system_tpl = await get_active_template("check_full_text_document_system")
     system = render(system_tpl or DEFAULT_CHECK_FULL_TEXT_DOCUMENT_SYSTEM, {"language_hint": language_hint})
     # Phase 4: tell the model up-front that marker-wrapped content is data.
-    system = SYSTEM_PROMPT_SAFETY_PREAMBLE + "\n\n" + system
+    system = SYSTEM_PROMPT_SAFETY_PREAMBLE + "\n\n" + system + CHECK_OUTPUT_GUIDANCE
     user_tpl = await get_active_template("check_full_text_document_user")
     limit = _context_chars_per_doc()
-    if document_text and len(document_text) > limit:
-        logger.info("Document text truncated: %d → %d chars for check '%s'  [request_id=%s]", len(document_text), limit, check_instruction[:80], get_request_id())
-        truncated_text = document_text[:limit] + f"\n\n[... truncated, {len(document_text)} chars total ...]"
-    else:
-        truncated_text = document_text or ""
-    user_content = render(
-        user_tpl or DEFAULT_CHECK_FULL_TEXT_DOCUMENT_USER,
-        {
-            "requirement": sanitize_prompt_field(check_instruction, max_chars=_CHECK_INSTRUCTION_MAX_CHARS),
-            "document_text": wrap_untrusted_content(truncated_text, max_chars=limit),
-            "legal_bases_section": _legal_bases_section(legal_bases_context),
-        },
-    )
-    agent = create_agent(system_prompt=system)
-    cache_key = _cache_key(system, user_content, case_id, playbook_revision)
-    cached = await _cache_get(cache_key)
-    if cached is not None:
-        logger.info("LLM cache hit for check '%s'  [request_id=%s]", check_instruction[:60], get_request_id())
-        return cached
+    requirement = sanitize_prompt_field(check_instruction, max_chars=_CHECK_INSTRUCTION_MAX_CHARS)
+    legal_section = _legal_bases_section(legal_bases_context)
     t0 = time.monotonic()
-    result = await llm_retry_call(agent, user_content, output_type=CheckResult, request_id=get_request_id())
+
+    over_limit = bool(document_text) and len(document_text) > limit
+    if over_limit and getattr(settings, "long_doc_map_reduce_enabled", True):
+        windows = _build_context_windows(document_text, limit, getattr(settings, "long_doc_max_chunks", 6))
+        logger.info(
+            "Long document (%d chars) → map-reduce over %d fragments for check '%s'  [request_id=%s]",
+            len(document_text), len(windows), check_instruction[:80], get_request_id(),
+        )
+        frag_system = system + _FRAGMENT_SYSTEM_SUFFIX
+        results: list[CheckResult] = []
+        for window in windows:
+            user_content = render(
+                user_tpl or DEFAULT_CHECK_FULL_TEXT_DOCUMENT_USER,
+                {
+                    "requirement": requirement,
+                    "document_text": wrap_untrusted_content(window, max_chars=limit),
+                    "legal_bases_section": legal_section,
+                },
+            )
+            results.append(await _llm_check_call(
+                system=frag_system, user_content=user_content, source_text=window,
+                case_id=case_id, playbook_revision=playbook_revision, label=check_instruction,
+            ))
+        out = _aggregate_check_results(results) if results else CheckResult(
+            is_compliant=True, severity="info", description="No content to evaluate.",
+            evidence=[], recommendation="", confidence=0.3,
+        )
+    else:
+        truncated_text, truncated = _truncate_sentence_aware(document_text or "", limit)
+        user_content = render(
+            user_tpl or DEFAULT_CHECK_FULL_TEXT_DOCUMENT_USER,
+            {
+                "requirement": requirement,
+                "document_text": wrap_untrusted_content(truncated_text, max_chars=limit),
+                "legal_bases_section": legal_section,
+            },
+        )
+        out = await _llm_check_call(
+            system=system, user_content=user_content, source_text=truncated_text,
+            case_id=case_id, playbook_revision=playbook_revision, label=check_instruction,
+        )
+        if truncated:
+            out.confidence = round(out.confidence * 0.9, 2)  # partial context → less certain
+
     elapsed = round(time.monotonic() - t0, 2)
     logger.info(
-        "run_check completed: compliant=%s severity=%s elapsed=%.2fs  [request_id=%s]",
-        result.output.is_compliant,
-        result.output.severity if not result.output.is_compliant else "-",
+        "run_check completed: compliant=%s severity=%s confidence=%.2f elapsed=%.2fs  [request_id=%s]",
+        out.is_compliant,
+        out.severity if not out.is_compliant else "-",
+        out.confidence,
         elapsed,
         get_request_id(),
     )
-    await _cache_set(cache_key, result.output)
-    return result.output
+    return out
 
 
 async def run_cross_document_check(
@@ -282,19 +483,19 @@ async def run_cross_document_check(
     language_hint = _language_hint(language) if language else ""
     system_tpl = await get_active_template("check_full_text_cross_system")
     system = render(system_tpl or DEFAULT_CHECK_FULL_TEXT_CROSS_SYSTEM, {"language_hint": language_hint})
-    system = SYSTEM_PROMPT_SAFETY_PREAMBLE + "\n\n" + system
+    system = SYSTEM_PROMPT_SAFETY_PREAMBLE + "\n\n" + system + CHECK_OUTPUT_GUIDANCE
     limit = _context_chars_per_doc()
-    parts: List[str] = []
+    parts: list[str] = []
+    source_parts: list[str] = []
     for i, (doc_id, text) in enumerate(documents, 1):
-        raw = text or ""
-        if len(raw) > limit:
-            logger.info("Cross-doc text truncated: %d → %d chars (doc %s)", len(raw), limit, doc_id)
-            truncated = raw[:limit] + f"\n[... truncated, {len(raw)} chars total ...]"
-        else:
-            truncated = raw
+        truncated, was_truncated = _truncate_sentence_aware(text or "", limit)
+        if was_truncated:
+            logger.info("Cross-doc text truncated: %d → ~%d chars (doc %s)", len(text or ""), limit, doc_id)
         wrapped = wrap_untrusted_content(truncated, max_chars=limit)
         parts.append(f"--- Document {i} (id: {doc_id}) ---\n{wrapped}")
+        source_parts.append(truncated)
     combined = "\n\n".join(parts)
+    source_text = "\n\n".join(source_parts)
     user_tpl = await get_active_template("check_full_text_cross_user")
     user_content = render(
         user_tpl or DEFAULT_CHECK_FULL_TEXT_CROSS_USER,
@@ -304,24 +505,21 @@ async def run_cross_document_check(
             "legal_bases_section": _legal_bases_section(legal_bases_context),
         },
     )
-    agent = create_agent(system_prompt=system)
-    cache_key = _cache_key(system, user_content, case_id, playbook_revision)
-    cached = await _cache_get(cache_key)
-    if cached is not None:
-        logger.info("LLM cache hit for cross-doc check '%s'  [request_id=%s]", check_instruction[:60], get_request_id())
-        return cached
     t0 = time.monotonic()
-    result = await llm_retry_call(agent, user_content, output_type=CheckResult, request_id=get_request_id())
+    out = await _llm_check_call(
+        system=system, user_content=user_content, source_text=source_text,
+        case_id=case_id, playbook_revision=playbook_revision, label=check_instruction,
+    )
     elapsed = round(time.monotonic() - t0, 2)
     logger.info(
-        "run_cross_document_check completed: compliant=%s doc_count=%d elapsed=%.2fs  [request_id=%s]",
-        result.output.is_compliant,
+        "run_cross_document_check completed: compliant=%s doc_count=%d confidence=%.2f elapsed=%.2fs  [request_id=%s]",
+        out.is_compliant,
         len(documents),
+        out.confidence,
         elapsed,
         get_request_id(),
     )
-    await _cache_set(cache_key, result.output)
-    return result.output
+    return out
 
 
 async def run_check_rag(
@@ -348,6 +546,7 @@ async def run_check_rag(
     language_hint = _language_hint(language) if language else ""
     system_tpl = await get_active_template("check_rag_document_system")
     system = render(system_tpl or DEFAULT_CHECK_RAG_DOCUMENT_SYSTEM, {"language_hint": language_hint})
+    system = system + CHECK_OUTPUT_GUIDANCE
     user_tpl = await get_active_template("check_rag_document_user")
     user_content = render(
         user_tpl or DEFAULT_CHECK_RAG_DOCUMENT_USER,
@@ -357,25 +556,22 @@ async def run_check_rag(
             "legal_bases_section": _legal_bases_section(legal_bases_context),
         },
     )
-    agent = create_agent(system_prompt=system)
-    cache_key = _cache_key(system, user_content, case_id, playbook_revision)
-    cached = await _cache_get(cache_key)
-    if cached is not None:
-        logger.info("LLM cache hit for RAG check '%s'  [request_id=%s]", check_instruction[:60], get_request_id())
-        return cached
     t0 = time.monotonic()
-    result = await llm_retry_call(agent, user_content, output_type=CheckResult, request_id=get_request_id())
+    out = await _llm_check_call(
+        system=system, user_content=user_content, source_text=combined,
+        case_id=case_id, playbook_revision=playbook_revision, label=check_instruction,
+    )
     elapsed = round(time.monotonic() - t0, 2)
     logger.info(
-        "run_check_rag completed: compliant=%s doc=%s chunks=%d elapsed=%.2fs  [request_id=%s]",
-        result.output.is_compliant,
+        "run_check_rag completed: compliant=%s doc=%s chunks=%d confidence=%.2f elapsed=%.2fs  [request_id=%s]",
+        out.is_compliant,
         document_id,
         len(chunks),
+        out.confidence,
         elapsed,
         get_request_id(),
     )
-    await _cache_set(cache_key, result.output)
-    return result.output
+    return out
 
 
 async def run_cross_document_check_rag(
@@ -403,6 +599,7 @@ async def run_cross_document_check_rag(
     language_hint = _language_hint(language) if language else ""
     system_tpl = await get_active_template("check_rag_cross_system")
     system = render(system_tpl or DEFAULT_CHECK_RAG_CROSS_SYSTEM, {"language_hint": language_hint})
+    system = system + CHECK_OUTPUT_GUIDANCE
     user_tpl = await get_active_template("check_rag_cross_user")
     user_content = render(
         user_tpl or DEFAULT_CHECK_RAG_CROSS_USER,
@@ -412,22 +609,19 @@ async def run_cross_document_check_rag(
             "legal_bases_section": _legal_bases_section(legal_bases_context),
         },
     )
-    agent = create_agent(system_prompt=system)
-    cache_key = _cache_key(system, user_content, case_id, playbook_revision)
-    cached = await _cache_get(cache_key)
-    if cached is not None:
-        logger.info("LLM cache hit for cross-RAG check '%s'  [request_id=%s]", check_instruction[:60], get_request_id())
-        return cached
     t0 = time.monotonic()
-    result = await llm_retry_call(agent, user_content, output_type=CheckResult, request_id=get_request_id())
+    out = await _llm_check_call(
+        system=system, user_content=user_content, source_text=combined,
+        case_id=case_id, playbook_revision=playbook_revision, label=check_instruction,
+    )
     elapsed = round(time.monotonic() - t0, 2)
     logger.info(
-        "run_cross_document_check_rag completed: compliant=%s case=%s chunks=%d elapsed=%.2fs  [request_id=%s]",
-        result.output.is_compliant,
+        "run_cross_document_check_rag completed: compliant=%s case=%s chunks=%d confidence=%.2f elapsed=%.2fs  [request_id=%s]",
+        out.is_compliant,
         case_id,
         len(chunks),
+        out.confidence,
         elapsed,
         get_request_id(),
     )
-    await _cache_set(cache_key, result.output)
-    return result.output
+    return out

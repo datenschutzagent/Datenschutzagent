@@ -6,10 +6,100 @@ from uuid import uuid4
 
 from app.services.check_runner import (
     CONTEXT_CHARS_PER_DOC,
+    CheckResult,
+    _aggregate_check_results,
+    _apply_grounding,
+    _build_context_windows,
     _cache_key,
     _language_hint,
     _legal_bases_section,
+    _truncate_sentence_aware,
 )
+
+
+def _mk(is_compliant, severity="info", evidence=None, confidence=0.8, description="d", recommendation="r"):
+    return CheckResult(
+        is_compliant=is_compliant, severity=severity, description=description,
+        evidence=evidence or [], recommendation=recommendation, confidence=confidence,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Long-document handling
+# ---------------------------------------------------------------------------
+
+
+def test_truncate_sentence_aware_no_truncation_when_short():
+    text = "Satz eins. Satz zwei."
+    out, truncated = _truncate_sentence_aware(text, 1000)
+    assert out == text
+    assert truncated is False
+
+
+def test_truncate_sentence_aware_truncates_on_boundary():
+    # Limit above the chunker's chunk size so sentence-aware truncation engages.
+    text = ("Dies ist ein vollständiger Satz. " * 200).strip()
+    out, truncated = _truncate_sentence_aware(text, 1500)
+    assert truncated is True
+    assert len(out) <= 1500
+    # Should not cut mid-word: ends cleanly with a period from a complete sentence.
+    assert out.endswith(".")
+
+
+def test_build_context_windows_respects_limit_and_cap():
+    text = ("Ein Satz hier. " * 1000).strip()
+    windows = _build_context_windows(text, 2000, max_windows=3)
+    assert 1 <= len(windows) <= 3
+    assert all(len(w) <= 2000 for w in windows)
+
+
+# ---------------------------------------------------------------------------
+# Map-reduce aggregation (strict auditor: any active violation wins)
+# ---------------------------------------------------------------------------
+
+
+def test_aggregate_all_compliant():
+    out = _aggregate_check_results([_mk(True, confidence=0.9), _mk(True, confidence=0.6)])
+    assert out.is_compliant is True
+    assert out.severity == "info"
+    assert out.confidence == 0.6  # min confidence
+
+
+def test_aggregate_any_violation_wins_with_max_severity():
+    out = _aggregate_check_results([
+        _mk(True, confidence=0.9),
+        _mk(False, severity="medium", evidence=["a"], confidence=0.7),
+        _mk(False, severity="critical", evidence=["b"], confidence=0.8),
+    ])
+    assert out.is_compliant is False
+    assert out.severity == "critical"
+    assert set(out.evidence) == {"a", "b"}
+    assert out.confidence == 0.7
+
+
+# ---------------------------------------------------------------------------
+# Grounding post-processing
+# ---------------------------------------------------------------------------
+
+
+def test_apply_grounding_drops_hallucinated_quote_and_lowers_confidence():
+    source = "Die Speicherdauer betraegt zehn Jahre gemaess gesetzlicher Vorgaben."
+    result = _mk(
+        False, severity="high",
+        evidence=["Die Speicherdauer betraegt zehn Jahre", "voellig erfundenes zitat ohne bezug"],
+        confidence=0.8,
+    )
+    out = _apply_grounding(result, source)
+    assert out.evidence == ["Die Speicherdauer betraegt zehn Jahre"]
+    assert out.confidence < 0.8
+
+
+def test_apply_grounding_keeps_grounded_quotes_unchanged():
+    source = "Rechtsgrundlage der Verarbeitung ist Art. 6 Abs. 1 lit. c DSGVO."
+    result = _mk(False, severity="high", evidence=["Rechtsgrundlage der Verarbeitung ist Art. 6"], confidence=0.8)
+    out = _apply_grounding(result, source)
+    assert out.evidence == ["Rechtsgrundlage der Verarbeitung ist Art. 6"]
+    assert out.confidence == 0.8
 
 
 # ---------------------------------------------------------------------------

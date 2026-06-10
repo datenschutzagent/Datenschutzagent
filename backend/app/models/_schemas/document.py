@@ -20,6 +20,9 @@ class DocumentResponse(BaseModel):
     extraction_method: ExtractionMethodEnum | None = None
     extraction_status: ExtractionStatusEnum | None = None
     extraction_error: str | None = None
+    extraction_char_count: int | None = None
+    extraction_page_count: int | None = None
+    extraction_ocr_ratio: float | None = None
 
     model_config = {"from_attributes": True}
 

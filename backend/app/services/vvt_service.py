@@ -12,6 +12,7 @@ from app.core.llm import create_agent, llm_retry_call
 from app.core.prompt_security import sanitize_prompt_field
 from app.services.org_profile_loader import DEFAULT_VVT_FIELD_NAMES, get_vvt_field_names
 from app.services.prompt_template_service import get_active_template, render
+from app.services.weaviate_service import truncate_sentence_aware
 
 logger = logging.getLogger(__name__)
 
@@ -124,11 +125,10 @@ async def normalize_vvt(
     agent = create_agent(system_prompt=system)
     vvt_limit = getattr(settings, "max_context_chars_vvt", 25000)
     raw = raw_text or ""
-    if len(raw) > vvt_limit:
-        logger.info("VVT text truncated: %d → %d chars", len(raw), vvt_limit)
-        truncated = raw[:vvt_limit] + f"\n\n[... truncated, {len(raw)} chars total ...]"
-    else:
-        truncated = raw
+    truncated, was_truncated = truncate_sentence_aware(raw, vvt_limit)
+    if was_truncated:
+        logger.info("VVT text truncated (sentence-aware): %d → ~%d chars", len(raw), vvt_limit)
+        truncated = truncated + f"\n\n[... truncated, {len(raw)} chars total ...]"
     field_list = ", ".join(f'"{n}"' for n in canonical_fields)
     user_tpl = await get_active_template("vvt_user")
     user_content = render(

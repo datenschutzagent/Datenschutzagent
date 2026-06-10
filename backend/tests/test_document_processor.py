@@ -128,3 +128,33 @@ class TestExtractTextDispatcher:
         content = _make_docx_bytes(["Groß"])
         result = extract_text("DOC.DOCX", content)
         assert "Groß" in result.text
+
+
+class TestStructurePreservation:
+    def test_xlsx_preserves_columns_with_empty_cells(self):
+        # Middle column empty: column alignment (and column letters) must stay intact so that
+        # evidence like "Spalte C" remains meaningful.
+        content = _make_xlsx_bytes({"VVT": [["Zweck", None, "Rechtsgrundlage"], ["Lohn", None, "Art. 6"]]})
+        text = extract_text_from_xlsx(content)
+        # Column-letter header row present
+        assert "| A | B | C |" in text
+        # Row keeps the empty middle column → 'Zweck' in A, '' in B, 'Rechtsgrundlage' in C
+        assert "| Zweck |  | Rechtsgrundlage |" in text
+        assert "| Lohn |  | Art. 6 |" in text
+
+    def test_docx_table_rendered_as_markdown(self):
+        content = _make_docx_bytes([], table_rows=[["Feld", "Wert"], ["Zweck", "Lohnabrechnung"]])
+        text = extract_text_from_docx(content)
+        assert "| Feld | Wert |" in text
+        assert "| --- | --- |" in text
+        assert "| Zweck | Lohnabrechnung |" in text
+
+
+class TestLegacyDoc:
+    def test_doc_without_converter_raises(self, monkeypatch):
+        import app.services.document_processor as dp
+
+        # Simulate no converter installed → clear error instead of silent empty text.
+        monkeypatch.setattr(dp.shutil, "which", lambda _name: None)
+        with pytest.raises(dp.UnsupportedDocumentError):
+            extract_text("altes_dokument.doc", b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1fakeole2")

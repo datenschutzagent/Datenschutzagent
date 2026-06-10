@@ -89,6 +89,26 @@ def chunk_text(
     return [c for c in chunks if c.strip()]
 
 
+def truncate_sentence_aware(text: str, limit: int) -> tuple[str, bool]:
+    """Truncate ``text`` to <= ``limit`` chars on sentence/paragraph boundaries.
+
+    Returns (text, truncated_flag). Unlike raw ``text[:limit]`` this never cuts a sentence in
+    half; when even the first chunk exceeds ``limit`` it falls back to a hard character cut.
+    """
+    text = text or ""
+    if len(text) <= limit:
+        return text, False
+    out: list[str] = []
+    total = 0
+    for chunk in chunk_text(text):
+        if total + len(chunk) + 2 > limit:
+            break
+        out.append(chunk)
+        total += len(chunk) + 2
+    truncated = "\n\n".join(out) if out else text[:limit]
+    return truncated, True
+
+
 _ollama_embed_client = None
 
 
