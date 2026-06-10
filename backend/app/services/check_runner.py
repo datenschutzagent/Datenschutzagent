@@ -74,6 +74,11 @@ def _cache_key(system_prompt: str, user_content: str, case_id: UUID | None, play
 
 
 class CheckResult(BaseModel):
+    reasoning: str = Field(
+        default="",
+        description="Brief step-by-step reasoning that leads to the verdict. Fill this FIRST, "
+        "before deciding is_compliant/severity, so the verdict follows from the analysis.",
+    )
     is_compliant: bool = Field(description="True if the check passed, False otherwise.")
     severity: FindingSeverityEnum = Field(description="Severity of the finding if not compliant.")
     description: str = Field(description="Explanation of the finding.")
@@ -109,14 +114,35 @@ CHECK_OUTPUT_GUIDANCE = (
 
 
 def _make_grounding_validator(source_text: str):
-    """Build a Pydantic AI output validator that requests self-correction on hallucinated evidence.
+    """Build a Pydantic AI output validator that requests self-correction on inconsistent output.
 
-    Only pushes back in the egregious case — a non-compliant verdict whose every quote is
-    ungrounded — and never on the final allowed attempt, so it self-corrects without ever
-    hard-failing the pipeline. Quote pruning + confidence adjustment happens in
-    :func:`_apply_grounding` afterwards.
+    Enforces two things via ``ModelRetry`` (which lets the model self-correct within the
+    configured ``output_retries`` budget, never hard-failing on the final attempt):
+
+    1. Schema consistency — a compliant verdict must use severity 'info'; a non-compliant
+       verdict must use a real severity and carry a non-empty recommendation.
+    2. Evidence grounding — in the egregious case of a non-compliant verdict whose every quote
+       is ungrounded, ask the model to quote verbatim or return no evidence.
+
+    Quote pruning + confidence adjustment still happens in :func:`_apply_grounding` afterwards.
     """
     def _validate(ctx, output: CheckResult) -> CheckResult:
+        # Schema consistency (cheap, deterministic). Skip on the final allowed attempt so a
+        # stubborn model never hard-fails the pipeline.
+        if ctx.retry < settings.llm_output_retries:
+            if output.is_compliant and output.severity != "info":
+                raise ModelRetry("A compliant result (is_compliant=true) must use severity 'info'.")
+            if not output.is_compliant:
+                if output.severity == "info":
+                    raise ModelRetry(
+                        "A non-compliant result (is_compliant=false) must use a real severity "
+                        "(low/medium/high/critical), not 'info'."
+                    )
+                if not (output.recommendation or "").strip():
+                    raise ModelRetry(
+                        "A non-compliant result must include a non-empty recommendation describing "
+                        "how to fix the issue."
+                    )
         if not settings.evidence_grounding_enabled:
             return output
         if (
@@ -341,6 +367,7 @@ def _aggregate_check_results(results: list[CheckResult]) -> CheckResult:
                 if q not in merged_evidence:
                     merged_evidence.append(q)
         return CheckResult(
+            reasoning=worst.reasoning,
             is_compliant=False,
             severity=worst.severity,
             description=worst.description,
@@ -351,6 +378,7 @@ def _aggregate_check_results(results: list[CheckResult]) -> CheckResult:
     # All fragments compliant.
     base = results[0]
     return CheckResult(
+        reasoning=base.reasoning,
         is_compliant=True,
         severity="info",
         description=base.description,
