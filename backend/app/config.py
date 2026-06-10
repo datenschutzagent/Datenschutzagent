@@ -222,6 +222,9 @@ class Settings(BaseSettings):
     # Number of PDF pages OCR'd concurrently against the Ollama vision endpoint. Higher =
     # faster on multi-page scans but more load on the vision model; keep modest for local Ollama.
     ocr_concurrency: int = 4
+    # Total OCR attempts per page (>=1). A page is retried (with linear backoff) on a transient
+    # error or an empty response, so a single hiccup no longer silently loses the page.
+    ocr_retry_attempts: int = 2
 
     # Current user (optional UUID; if unset, default user is used for GET/PATCH /me when OIDC is disabled)
     current_user_id: str | None = None

@@ -23,6 +23,7 @@ class DocumentResponse(BaseModel):
     extraction_char_count: int | None = None
     extraction_page_count: int | None = None
     extraction_ocr_ratio: float | None = None
+    extraction_ocr_low_quality_pages: int | None = None
 
     model_config = {"from_attributes": True}
 

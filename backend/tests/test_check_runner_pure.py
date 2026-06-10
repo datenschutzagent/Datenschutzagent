@@ -2,8 +2,13 @@
 
 Tests _language_hint() and _legal_bases_section() — no LLM, Weaviate, or DB needed.
 """
+from types import SimpleNamespace
 from uuid import uuid4
 
+import pytest
+from pydantic_ai import ModelRetry
+
+from app.config import settings
 from app.services.check_runner import (
     CONTEXT_CHARS_PER_DOC,
     CheckResult,
@@ -13,6 +18,7 @@ from app.services.check_runner import (
     _cache_key,
     _language_hint,
     _legal_bases_section,
+    _make_grounding_validator,
     _truncate_sentence_aware,
 )
 
@@ -22,6 +28,49 @@ def _mk(is_compliant, severity="info", evidence=None, confidence=0.8, descriptio
         is_compliant=is_compliant, severity=severity, description=description,
         evidence=evidence or [], recommendation=recommendation, confidence=confidence,
     )
+
+
+# ---------------------------------------------------------------------------
+# CheckResult schema (C1: reasoning field) + output validator (C2: consistency)
+# ---------------------------------------------------------------------------
+
+
+def test_checkresult_reasoning_defaults_empty():
+    # Backwards-compatible: existing constructions/cache entries without reasoning still validate.
+    r = _mk(True)
+    assert r.reasoning == ""
+    assert CheckResult.model_validate_json(r.model_dump_json()).reasoning == ""
+
+
+def _validate_with(output: CheckResult, retry: int = 0) -> CheckResult:
+    """Invoke the output validator with no source text (isolates schema-consistency checks)."""
+    return _make_grounding_validator("")(SimpleNamespace(retry=retry), output)
+
+
+def test_validator_rejects_compliant_with_non_info_severity():
+    with pytest.raises(ModelRetry):
+        _validate_with(_mk(True, severity="high"))
+
+
+def test_validator_rejects_noncompliant_with_info_severity():
+    with pytest.raises(ModelRetry):
+        _validate_with(_mk(False, severity="info", evidence=["x"]))
+
+
+def test_validator_rejects_noncompliant_with_empty_recommendation():
+    with pytest.raises(ModelRetry):
+        _validate_with(_mk(False, severity="high", evidence=["x"], recommendation="  "))
+
+
+def test_validator_accepts_consistent_results():
+    assert _validate_with(_mk(True, severity="info")).is_compliant is True
+    assert _validate_with(_mk(False, severity="high", recommendation="Fix it")).is_compliant is False
+
+
+def test_validator_does_not_hard_fail_on_final_attempt():
+    # On the final allowed attempt the validator must not raise, even for inconsistent output.
+    out = _validate_with(_mk(True, severity="high"), retry=settings.llm_output_retries)
+    assert out.severity == "high"
 
 
 # ---------------------------------------------------------------------------

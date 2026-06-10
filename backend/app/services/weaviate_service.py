@@ -22,32 +22,29 @@ def _split_sentences(text: str) -> list[str]:
     return [p.strip() for p in parts if p and p.strip()]
 
 
-def chunk_text(
-    text: str,
-    *,
-    chunk_size: int | None = None,
-    overlap: int | None = None,
-) -> list[str]:
-    """Split text into sentence-aware overlapping chunks.
+# Markdown table / sheet-label recognisers. The extractor (document_processor) emits XLSX sheets
+# and DOCX tables as Markdown pipe-tables and labels XLSX sheets with "--- Sheet: <name> ---".
+_SHEET_LABEL = re.compile(r"^---\s*Sheet:.*---\s*$")
 
-    Unlike naive character-based chunking, this respects sentence and paragraph
-    boundaries so LLM context windows receive complete thoughts rather than
-    mid-sentence fragments.  When a single sentence exceeds ``chunk_size``, it
-    is included as its own chunk.
 
-    Args:
-        text: Source text to chunk.
-        chunk_size: Target maximum characters per chunk (defaults to
-            ``settings.weaviate_chunk_size_chars``).
-        overlap: Number of *trailing characters* from the previous chunk to
-            prepend to the next (defaults to
-            ``settings.weaviate_chunk_overlap_chars``).
+def _is_table_row(line: str) -> bool:
+    s = line.strip()
+    return len(s) >= 2 and s.startswith("|") and s.endswith("|")
+
+
+def _is_separator_row(line: str) -> bool:
+    """True for a Markdown header-separator row like ``| --- | --- |``."""
+    s = line.strip().strip("|")
+    cells = s.split("|")
+    return bool(cells) and all("-" in c and set(c.strip()) <= set("-: ") for c in cells)
+
+
+def _chunk_prose(text: str, size: int, overlap_chars: int) -> list[str]:
+    """Sentence-aware overlapping chunking for free text (no Markdown tables).
+
+    Respects sentence/paragraph boundaries so context windows receive complete thoughts. When a
+    single sentence exceeds ``size`` it is emitted as its own chunk.
     """
-    size = chunk_size or settings.weaviate_chunk_size_chars
-    overlap_chars = overlap or settings.weaviate_chunk_overlap_chars
-    if not text or size <= 0:
-        return []
-
     sentences = _split_sentences(text)
     if not sentences:
         return []
@@ -85,6 +82,124 @@ def chunk_text(
 
     if current_parts:
         chunks.append(" ".join(current_parts))
+
+    return [c for c in chunks if c.strip()]
+
+
+def _chunk_table(label: str | None, header: str, sep: str, body_rows: list[str], size: int) -> list[str]:
+    """Split a Markdown table into chunks, repeating the (sheet label +) header on each chunk.
+
+    Repeating the column-letter / column-name header on every chunk is what keeps coordinate-based
+    evidence (e.g. "Sheet X, Spalte C, Zeile 12") meaningful after a large table is split.
+    """
+    prefix_lines = ([label] if label else []) + [header, sep]
+    prefix = "\n".join(prefix_lines)
+    if not body_rows:
+        return [prefix]
+
+    chunks: list[str] = []
+    batch: list[str] = []
+    cur_len = len(prefix)
+    for row in body_rows:
+        add = len(row) + 1
+        if batch and cur_len + add > size:
+            chunks.append(prefix + "\n" + "\n".join(batch))
+            batch = [row]
+            cur_len = len(prefix) + add
+        else:
+            batch.append(row)
+            cur_len += add
+    if batch:
+        chunks.append(prefix + "\n" + "\n".join(batch))
+    return chunks
+
+
+def _segment_blocks(lines: list[str]) -> list[tuple[str, object]]:
+    """Segment lines into ordered ("prose", text) and ("table", (label, header, sep, rows)) blocks."""
+    blocks: list[tuple[str, object]] = []
+    prose: list[str] = []
+    pending_label: str | None = None  # a "--- Sheet: ... ---" line awaiting its table
+    i = 0
+    n = len(lines)
+
+    def _flush_prose() -> None:
+        nonlocal prose
+        if prose:
+            text = "\n".join(prose).strip()
+            if text:
+                blocks.append(("prose", text))
+            prose = []
+
+    while i < n:
+        line = lines[i]
+        # A table starts where a row is followed by a separator row.
+        if _is_table_row(line) and i + 1 < n and _is_separator_row(lines[i + 1]):
+            _flush_prose()
+            header, sep = line, lines[i + 1]
+            j = i + 2
+            rows: list[str] = []
+            while j < n and _is_table_row(lines[j]) and not _is_separator_row(lines[j]):
+                rows.append(lines[j])
+                j += 1
+            blocks.append(("table", (pending_label, header, sep, rows)))
+            pending_label = None
+            i = j
+            continue
+        if _SHEET_LABEL.match(line):
+            # Attach to the immediately following table; otherwise keep as prose.
+            _flush_prose()
+            pending_label = line
+            i += 1
+            continue
+        if pending_label is not None:
+            # Label was not directly followed by a table → treat it as prose after all.
+            prose.append(pending_label)
+            pending_label = None
+        prose.append(line)
+        i += 1
+
+    if pending_label is not None:
+        prose.append(pending_label)
+    _flush_prose()
+    return blocks
+
+
+def chunk_text(
+    text: str,
+    *,
+    chunk_size: int | None = None,
+    overlap: int | None = None,
+) -> list[str]:
+    """Split text into structure-aware overlapping chunks.
+
+    Free text is chunked on sentence/paragraph boundaries (complete thoughts, with character
+    overlap between chunks). Markdown tables — as emitted for XLSX sheets and DOCX tables by the
+    extractor — are kept intact: never split mid-row, and when a table exceeds ``chunk_size`` it
+    is split into header-carrying chunks so column/row coordinates survive indexing.
+
+    Args:
+        text: Source text to chunk.
+        chunk_size: Target maximum characters per chunk (defaults to
+            ``settings.weaviate_chunk_size_chars``).
+        overlap: Number of *trailing characters* from the previous (prose) chunk to prepend to
+            the next (defaults to ``settings.weaviate_chunk_overlap_chars``).
+    """
+    size = chunk_size or settings.weaviate_chunk_size_chars
+    overlap_chars = overlap or settings.weaviate_chunk_overlap_chars
+    if not text or size <= 0:
+        return []
+
+    blocks = _segment_blocks(text.split("\n"))
+    if not blocks:
+        return []
+
+    chunks: list[str] = []
+    for kind, payload in blocks:
+        if kind == "table":
+            label, header, sep, rows = payload  # type: ignore[misc]
+            chunks.extend(_chunk_table(label, header, sep, rows, size))
+        else:
+            chunks.extend(_chunk_prose(payload, size, overlap_chars))  # type: ignore[arg-type]
 
     return [c for c in chunks if c.strip()]
 

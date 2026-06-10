@@ -22,7 +22,7 @@ CaseStatusEnum = Literal[
 DocumentTypeEnum = Literal[
     "vvt", "screening", "info_sheet_de", "info_sheet_en", "dsfa", "avv", "other"
 ]
-DocumentFormatEnum = Literal["docx", "pdf", "xlsx", "doc"]
+DocumentFormatEnum = Literal["docx", "pdf", "xlsx", "doc", "jpg", "png", "tiff"]
 FindingSeverityEnum = Literal[
     FindingSeverity.CRITICAL, FindingSeverity.HIGH, FindingSeverity.MEDIUM,
     FindingSeverity.LOW, FindingSeverity.INFO,

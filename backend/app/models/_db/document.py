@@ -37,6 +37,8 @@ class DocumentModel(Base):
     extraction_char_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
     extraction_page_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
     extraction_ocr_ratio: Mapped[float | None] = mapped_column(Float, nullable=True)
+    # Number of pages OCR'd but with almost no recovered text (likely lost despite OCR).
+    extraction_ocr_low_quality_pages: Mapped[int | None] = mapped_column(Integer, nullable=True)
     uploaded_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 
     case: Mapped["CaseModel"] = relationship("CaseModel", back_populates="documents")

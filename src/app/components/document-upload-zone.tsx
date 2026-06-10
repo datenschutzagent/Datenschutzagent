@@ -53,7 +53,7 @@ export function DocumentUploadZone({ caseId, uploadedBy = "", onUploadComplete }
   };
 
   const processFiles = (files: File[]) => {
-    const allowedFormats = ['.docx', '.pdf', '.xlsx', '.doc'];
+    const allowedFormats = ['.docx', '.pdf', '.xlsx', '.doc', '.jpg', '.jpeg', '.png', '.tif', '.tiff'];
     const maxSize = 10 * 1024 * 1024; // 10MB
 
     const newFiles: UploadedFile[] = files.map((file) => {
@@ -188,7 +188,7 @@ export function DocumentUploadZone({ caseId, uploadedBy = "", onUploadComplete }
               <input
                 type="file"
                 multiple
-                accept=".docx,.pdf,.xlsx,.doc"
+                accept=".docx,.pdf,.xlsx,.doc,.jpg,.jpeg,.png,.tif,.tiff"
                 className="hidden"
                 onChange={handleFileSelect}
               />
@@ -196,7 +196,7 @@ export function DocumentUploadZone({ caseId, uploadedBy = "", onUploadComplete }
           </p>
         )}
         <p className="text-sm text-muted-foreground">
-          Unterstützte Formate: DOCX, PDF, XLSX, DOC (max. 10 MB)
+          Unterstützte Formate: DOCX, PDF, XLSX, DOC, JPG, PNG, TIFF (max. 10 MB)
         </p>
       </div>
 
