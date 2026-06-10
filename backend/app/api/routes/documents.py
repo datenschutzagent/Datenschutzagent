@@ -26,13 +26,19 @@ from app.storage import save_file, delete_file, get_file
 
 router = APIRouter()
 
-ALLOWED_EXTENSIONS = {"docx", "pdf", "xlsx", "doc"}
-EXT_TO_FORMAT = {"docx": "docx", "pdf": "pdf", "xlsx": "xlsx", "doc": "doc"}
+ALLOWED_EXTENSIONS = {"docx", "pdf", "xlsx", "doc", "jpg", "jpeg", "png", "tif", "tiff"}
+EXT_TO_FORMAT = {
+    "docx": "docx", "pdf": "pdf", "xlsx": "xlsx", "doc": "doc",
+    "jpg": "jpg", "jpeg": "jpg", "png": "png", "tif": "tiff", "tiff": "tiff",
+}
 FORMAT_TO_MEDIA_TYPE = {
     "pdf": "application/pdf",
     "docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
     "xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     "doc": "application/msword",
+    "jpg": "image/jpeg",
+    "png": "image/png",
+    "tiff": "image/tiff",
 }
 
 # Magic-byte signatures per format. We rely on these instead of MIME headers because
@@ -42,6 +48,10 @@ _PDF_MAGIC = b"%PDF-"
 _ZIP_MAGIC = b"PK\x03\x04"
 _ZIP_EMPTY_MAGIC = b"PK\x05\x06"  # empty archive — reject as malformed
 _OLE2_MAGIC = b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1"
+_JPEG_MAGIC = b"\xff\xd8\xff"
+_PNG_MAGIC = b"\x89PNG\r\n\x1a\n"
+_TIFF_MAGIC_LE = b"II*\x00"  # little-endian TIFF
+_TIFF_MAGIC_BE = b"MM\x00*"  # big-endian TIFF
 
 
 def _verify_magic_bytes(content: bytes, expected_format: str, filename: str) -> None:
@@ -57,6 +67,12 @@ def _verify_magic_bytes(content: bytes, expected_format: str, filename: str) -> 
         ok = header.startswith(_ZIP_MAGIC)
     elif expected_format == "doc":
         ok = header.startswith(_OLE2_MAGIC)
+    elif expected_format == "jpg":
+        ok = header.startswith(_JPEG_MAGIC)
+    elif expected_format == "png":
+        ok = header.startswith(_PNG_MAGIC)
+    elif expected_format == "tiff":
+        ok = header.startswith((_TIFF_MAGIC_LE, _TIFF_MAGIC_BE))
     else:
         ok = False
     if not ok:
