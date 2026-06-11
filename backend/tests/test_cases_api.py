@@ -60,9 +60,9 @@ async def test_get_case_not_found(client):
 
 async def test_list_cases_includes_created(client):
     case = await _create_case(client, title="List-Test-Vorgang")
-    resp = await client.get("/api/v1/cases")
+    resp = await client.get("/api/v1/cases", params={"limit": 500})
     assert resp.status_code == 200
-    ids = [c["id"] for c in resp.json()]
+    ids = [c["id"] for c in resp.json()["items"]]
     assert case["id"] in ids
 
 

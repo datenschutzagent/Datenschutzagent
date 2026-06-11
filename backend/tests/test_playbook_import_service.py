@@ -52,6 +52,9 @@ checks: []
 def _make_db_no_existing_playbooks() -> AsyncMock:
     """DB session mock that reports no existing playbooks (empty table)."""
     db = AsyncMock()
+    # Sync result object: AsyncMock children are AsyncMock, so scalars() would
+    # otherwise return a coroutine although production code calls it synchronously.
+    db.execute.return_value = MagicMock()
     mock_scalars = MagicMock()
     mock_scalars.first.return_value = None
     db.execute.return_value.scalars.return_value = mock_scalars
@@ -61,6 +64,9 @@ def _make_db_no_existing_playbooks() -> AsyncMock:
 def _make_db_with_existing_playbooks() -> AsyncMock:
     """DB session mock that reports at least one existing playbook."""
     db = AsyncMock()
+    # Sync result object: AsyncMock children are AsyncMock, so scalars() would
+    # otherwise return a coroutine although production code calls it synchronously.
+    db.execute.return_value = MagicMock()
     mock_scalars = MagicMock()
     mock_scalars.first.return_value = MagicMock()  # Non-None → skip import
     db.execute.return_value.scalars.return_value = mock_scalars

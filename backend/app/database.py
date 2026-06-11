@@ -9,15 +9,24 @@ from app.models.db import Base
 
 logger = logging.getLogger(__name__)
 
-# Use asyncpg; replace postgresql+asyncpg in URL if needed
-engine = create_async_engine(
-    settings.database_url,
-    echo=settings.debug,
-    pool_size=settings.db_pool_size,
-    max_overflow=settings.db_max_overflow,
-    pool_recycle=settings.db_pool_recycle_seconds,
-    pool_timeout=settings.db_pool_timeout_seconds,
-)
+# Use asyncpg; replace postgresql+asyncpg in URL if needed.
+# Tests (APP_ENVIRONMENT=test) run every case on a fresh event loop, but pooled asyncpg
+# connections are bound to the loop they were created on — reusing them across loops fails
+# with "got Future attached to a different loop". NullPool opens/closes a connection per
+# checkout instead; production keeps the regular QueuePool.
+if settings.app_environment == "test":
+    from sqlalchemy.pool import NullPool
+
+    engine = create_async_engine(settings.database_url, echo=settings.debug, poolclass=NullPool)
+else:
+    engine = create_async_engine(
+        settings.database_url,
+        echo=settings.debug,
+        pool_size=settings.db_pool_size,
+        max_overflow=settings.db_max_overflow,
+        pool_recycle=settings.db_pool_recycle_seconds,
+        pool_timeout=settings.db_pool_timeout_seconds,
+    )
 
 async_session_factory = async_sessionmaker(
     engine,
