@@ -3,14 +3,21 @@ FROM python:3.12-slim
 
 WORKDIR /app
 
-# System deps for building wheels (libpq-dev for psycopg2; build-essential only at build time)
-RUN apt-get update && apt-get install -y --no-install-recommends \
+# System deps for building wheels (libpq-dev for psycopg2; build-essential only at build time).
+# The dist-upgrade pulls Debian security fixes the base image does not ship yet
+# (e.g. openssl CVE-2026-45447 fixed in 3.5.6-1~deb13u2) — the Trivy gate fails on
+# fixable HIGH/CRITICAL CVEs, so the image must be patched at build time.
+RUN apt-get update && apt-get upgrade -y --no-install-recommends \
+    && apt-get install -y --no-install-recommends \
     build-essential \
     libpq-dev \
     && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+# Upgrade pip itself first: the base image ships an older pip whose dist-info is part of
+# the scanned image surface (Trivy python-pkg), and old resolvers occasionally mis-pin.
+RUN pip install --no-cache-dir --upgrade pip \
+    && pip install --no-cache-dir -r requirements.txt
 
 # Remove build tools to reduce attack surface (libpq-dev runtime still needed)
 RUN apt-get purge -y --auto-remove build-essential \

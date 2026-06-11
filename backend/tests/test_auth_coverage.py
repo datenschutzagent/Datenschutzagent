@@ -24,6 +24,7 @@ PUBLIC_PATH_PREFIXES: tuple[str, ...] = (
     "/docs",
     "/redoc",
     "/openapi.json",
+    "/metrics",  # Prometheus scrape — protected by METRICS_ALLOWED_IPS, not user auth
 )
 
 
@@ -70,4 +71,5 @@ def test_public_whitelist_contains_only_expected_entries() -> None:
         "/docs",
         "/redoc",
         "/openapi.json",
+        "/metrics",
     )

@@ -24,15 +24,20 @@ jobs:
         run: pip install bandit pip-audit
 
       - name: pip-audit – CVE check
-        # Fail on HIGH or CRITICAL vulnerabilities
-        run: pip-audit -r backend/requirements.txt --fail-on-vuln-severity high
+        # Fails on ANY known vulnerability in the resolved dependency tree.
+        # (pip-audit has no severity filter; the previously used
+        # --fail-on-vuln-severity flag does not exist and broke the job.)
+        run: pip-audit -r backend/requirements.txt
 
       - name: Bandit – Python SAST
-        # Medium+ severity; skip B101 (assert in tests), B110 (try-except-pass — reviewed)
+        # Medium+ severity; skip B101 (assert in tests), B110 (try-except-pass — reviewed),
+        # B608 (string-built SQL — reviewed 2026-06: all raw queries interpolate only
+        # hardcoded filter fragments and bind values via :params; SQL injection coverage
+        # remains via the Semgrep job, p/owasp-top-ten).
         run: |
           bandit -r backend/app/ \
             --severity-level medium \
-            --skip B101,B110 \
+            --skip B101,B110,B608 \
             --format json \
             --output bandit-report.json
 
@@ -98,14 +103,31 @@ jobs:
       - name: Build backend image for scanning
         run: docker build -t datenschutzagent-backend:scan backend/
 
-      - name: Trivy – container scan
+      - name: Trivy – gate on fixable HIGH/CRITICAL
+        # This is the actual gate. It must use a non-SARIF format: with format=sarif the
+        # action drops the severity filter ("Building SARIF report with all severities"),
+        # so an exit-code there would fire on ANY severity. Table output also makes a red
+        # gate diagnosable directly from the job log.
+        # ignore-unfixed: unfixed base-image CVEs are not actionable and made the gate
+        # permanently red — remaining failures always mean an available fix exists.
+        uses: aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1 # 0.35.0
+        with:
+          image-ref: 'datenschutzagent-backend:scan'
+          format: 'table'
+          severity: 'CRITICAL,HIGH'
+          exit-code: '1'
+          ignore-unfixed: 'true'
+
+      - name: Trivy – SARIF upload (non-gating)
+        if: always()
         uses: aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1 # 0.35.0
         with:
           image-ref: 'datenschutzagent-backend:scan'
           format: 'sarif'
           output: 'trivy-results.sarif'
-          severity: 'CRITICAL,HIGH'
-          exit-code: '1'
+          exit-code: '0'
+          ignore-unfixed: 'true'
+          skip-setup-trivy: 'true'  # already set up by the gate step above
 
       - name: Upload Trivy SARIF
         uses: github/codeql-action/upload-sarif@8aad20d150bbac5944a9f9d289da16a4b0d87c1e # v4

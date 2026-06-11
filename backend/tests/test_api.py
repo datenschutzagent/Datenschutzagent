@@ -23,8 +23,9 @@ async def test_departments_list(client):
 
 
 async def test_cases_list(client):
-    """GET /api/v1/cases returns 200 and a list."""
+    """GET /api/v1/cases returns 200 and a pagination envelope (items + total)."""
     response = await client.get("/api/v1/cases")
     assert response.status_code == 200
     data = response.json()
-    assert isinstance(data, list)
+    assert isinstance(data["items"], list)
+    assert isinstance(data["total"], int)

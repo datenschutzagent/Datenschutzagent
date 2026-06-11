@@ -25,8 +25,14 @@ _NOW = datetime(2024, 6, 1, 12, 0, 0, tzinfo=UTC)
 
 
 def _make_db_session() -> AsyncMock:
-    """Build a minimal AsyncSession mock."""
+    """Build a minimal AsyncSession mock.
+
+    The execute() result must be a sync MagicMock: AsyncMock children are AsyncMock
+    themselves, so result.scalar_one_or_none() would return a coroutine instead of
+    the configured value (the production code calls it synchronously).
+    """
     db = AsyncMock()
+    db.execute.return_value = MagicMock()
     return db
 
 

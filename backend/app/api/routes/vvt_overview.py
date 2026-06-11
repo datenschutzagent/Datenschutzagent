@@ -271,7 +271,8 @@ async def get_vvt_overview_export(
     date_str = datetime.utcnow().strftime("%Y-%m-%d")
     filename = f"VVT-Uebersicht-{date_str}.csv"
     logger.info(
-        "VVT overview exported", extra={"row_count": len(items), "filename": filename}
+        "VVT overview exported",
+        extra={"row_count": len(items), "export_filename": filename},
     )
     return Response(
         content=buf.getvalue(),

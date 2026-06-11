@@ -702,9 +702,11 @@ async def compute_maturity_scores(db: AsyncSession) -> list[dict[str, Any]]:
     # 5) Velocity: Score 100 bei Median DSR <= optimal_days, 0 bei >= worst_days
     # (linear interpoliert). Schwellen aus RiskConfig.maturity.velocity.
     maturity_cfg = get_risk_config().maturity
+    # received_at/responded_at are DATE columns: date - date already yields whole days
+    # (integer) in Postgres; EXTRACT(EPOCH FROM ...) on that integer is an error.
     vel_q = text(
         """
-        SELECT department, EXTRACT(EPOCH FROM (responded_at - received_at))/86400.0 AS days
+        SELECT department, (responded_at - received_at)::float AS days
         FROM dsr_requests
         WHERE responded_at IS NOT NULL AND department IS NOT NULL
     """
