@@ -418,8 +418,8 @@ async def screen_dsfa_requirement(case_id: UUID, db: AsyncSession) -> dict[str, 
     """Prüft ob eine DSFA gemäß Art. 35 DSGVO erforderlich ist (EDSA-9-Faktoren-Test).
 
     Returns dict with:
-      - required: bool (True wenn ≥2 Risikofaktoren)
-      - score: int (Anzahl zutreffender Faktoren)
+      - required: bool (True wenn score >= required_threshold aus der RiskConfig)
+      - score: float (gewichtete Summe der zutreffenden Faktoren)
       - factors: list of dicts with id, label, met
       - recommendation: str
     """

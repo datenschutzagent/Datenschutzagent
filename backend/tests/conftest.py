@@ -20,9 +20,52 @@ def anyio_backend():
     return "asyncio"
 
 
+@pytest.fixture(scope="session", autouse=True)
+def _seed_database():
+    """Create tables and the default user once per test session.
+
+    The httpx ASGITransport client does not run the app lifespan, so the table creation
+    (init_db) and default-user seeding that production startup performs never happen in
+    tests — every DB-bound API test would 404 on the current-user lookup. Runs in its own
+    event loop; the engine is disposed afterwards because asyncpg connections are bound to
+    the loop they were created on.
+    """
+    if not (os.environ.get("DATABASE_URL") or "").strip():
+        yield  # pure tests without a database
+        return
+    import asyncio
+
+    async def _seed() -> None:
+        from sqlalchemy import select
+
+        from app.config import settings
+        from app.database import async_session_factory, engine, init_db
+        from app.main import DEFAULT_USER_ID
+        from app.models.db import UserModel
+
+        await init_db()
+        async with async_session_factory() as session:
+            res = await session.execute(select(UserModel).where(UserModel.id == DEFAULT_USER_ID))
+            if res.scalar_one_or_none() is None:
+                session.add(
+                    UserModel(
+                        id=DEFAULT_USER_ID,
+                        display_name=settings.default_user_display_name,
+                        email=None,
+                        role=settings.rbac_default_role,
+                        preferences={"theme": "system", "language": "de"},
+                    )
+                )
+                await session.commit()
+        await engine.dispose()  # connections are bound to this throwaway loop
+
+    asyncio.run(_seed())
+    yield
+
+
 @pytest.fixture
 async def client():
-    """Async HTTP client for the FastAPI app. Requires DATABASE_URL (e.g. postgres) for lifespan."""
+    """Async HTTP client for the FastAPI app. Requires DATABASE_URL (e.g. postgres)."""
     from app.main import app
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as ac:

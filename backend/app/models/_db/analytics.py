@@ -2,7 +2,7 @@
 import uuid
 from datetime import date, datetime, timezone
 
-from sqlalchemy import Date, DateTime, Float, Index, String, UniqueConstraint
+from sqlalchemy import Date, DateTime, Float, Index, String, UniqueConstraint, func
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -26,6 +26,11 @@ class ComplianceMaturitySnapshotModel(Base):
     tom_score: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
     velocity_score: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
     composite_score: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    # server_default matches the Alembic migration (DEFAULT NOW()): the snapshot writer
+    # inserts via raw SQL without created_at, so schemas created by init_db/create_all
+    # need the DB-level default too.
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+        server_default=func.now(),
     )

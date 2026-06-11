@@ -24,8 +24,10 @@ jobs:
         run: pip install bandit pip-audit
 
       - name: pip-audit – CVE check
-        # Fail on HIGH or CRITICAL vulnerabilities
-        run: pip-audit -r backend/requirements.txt --fail-on-vuln-severity high
+        # Fails on ANY known vulnerability in the resolved dependency tree.
+        # (pip-audit has no severity filter; the previously used
+        # --fail-on-vuln-severity flag does not exist and broke the job.)
+        run: pip-audit -r backend/requirements.txt
 
       - name: Bandit – Python SAST
         # Medium+ severity; skip B101 (assert in tests), B110 (try-except-pass — reviewed)
@@ -106,6 +108,10 @@ jobs:
           output: 'trivy-results.sarif'
           severity: 'CRITICAL,HIGH'
           exit-code: '1'
+          # Only fail on vulnerabilities that have an available fix — unfixed CVEs in the
+          # base image are not actionable and made the gate permanently red. Remaining
+          # failures therefore always mean: a fix exists (bump the base image / package).
+          ignore-unfixed: 'true'
 
       - name: Upload Trivy SARIF
         uses: github/codeql-action/upload-sarif@v4

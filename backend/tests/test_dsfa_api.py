@@ -44,7 +44,8 @@ async def test_dsfa_screening_returns_result(client):
     assert "factors" in data
     assert "recommendation" in data
     assert isinstance(data["required"], bool)
-    assert isinstance(data["score"], int)
+    # Weighted factor score (configurable weights in risk_config) — numeric, not necessarily int.
+    assert isinstance(data["score"], int | float)
     assert isinstance(data["factors"], list)
     assert isinstance(data["recommendation"], str)
 
@@ -65,6 +66,8 @@ async def test_dsfa_screening_has_factors(client):
     assert isinstance(factors, list)
     assert len(factors) > 0
     for factor in factors:
-        assert "name" in factor, f"Factor missing 'name': {factor}"
-        assert "triggered" in factor, f"Factor missing 'triggered': {factor}"
-        assert "rationale" in factor, f"Factor missing 'rationale': {factor}"
+        assert "id" in factor, f"Factor missing 'id': {factor}"
+        assert "label" in factor, f"Factor missing 'label': {factor}"
+        assert "met" in factor, f"Factor missing 'met': {factor}"
+        assert "description" in factor, f"Factor missing 'description': {factor}"
+        assert "weight" in factor, f"Factor missing 'weight': {factor}"
