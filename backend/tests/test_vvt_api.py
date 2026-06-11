@@ -3,6 +3,7 @@
 These tests require a live PostgreSQL database (DATABASE_URL env var).
 They test VVT list, stats, and export endpoints.
 """
+
 import pytest
 
 pytestmark = pytest.mark.asyncio
@@ -13,7 +14,9 @@ pytestmark = pytest.mark.asyncio
 # ---------------------------------------------------------------------------
 
 
-async def _create_case(client, title: str = "VVT Test Case", department: str = "IT") -> dict:
+async def _create_case(
+    client, title: str = "VVT Test Case", department: str = "IT"
+) -> dict:
     resp = await client.post(
         "/api/v1/cases",
         json={

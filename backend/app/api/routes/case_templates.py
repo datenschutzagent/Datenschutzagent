@@ -1,4 +1,5 @@
 """Vorgangs-Vorlagen API – wiederverwendbare Case-Templates."""
+
 import logging
 from uuid import UUID
 
@@ -38,7 +39,12 @@ async def list_templates(
     return [CaseTemplateResponse.model_validate(t) for t in result.scalars().all()]
 
 
-@router.post("", response_model=CaseTemplateResponse, status_code=201, summary="Vorlage erstellen")
+@router.post(
+    "",
+    response_model=CaseTemplateResponse,
+    status_code=201,
+    summary="Vorlage erstellen",
+)
 @limiter.limit("30/minute")
 async def create_template(
     request: Request,
@@ -70,17 +76,26 @@ async def delete_template(
     db: AsyncSession = Depends(get_db),
     _user=require_roles("admin"),
 ):
-    result = await db.execute(select(CaseTemplateModel).where(CaseTemplateModel.id == template_id))
+    result = await db.execute(
+        select(CaseTemplateModel).where(CaseTemplateModel.id == template_id)
+    )
     template = result.scalar_one_or_none()
     if not template:
         raise HTTPException(status_code=404, detail="Vorlage nicht gefunden")
     if template.is_builtin:
-        raise HTTPException(status_code=403, detail="Eingebaute Vorlagen können nicht gelöscht werden")
+        raise HTTPException(
+            status_code=403, detail="Eingebaute Vorlagen können nicht gelöscht werden"
+        )
     await db.delete(template)
     await db.flush()
 
 
-@router.post("/apply", response_model=CaseResponse, status_code=201, summary="Vorlage auf neuen Vorgang anwenden")
+@router.post(
+    "/apply",
+    response_model=CaseResponse,
+    status_code=201,
+    summary="Vorlage auf neuen Vorgang anwenden",
+)
 @limiter.limit("10/minute")
 async def apply_template(
     request: Request,
@@ -89,7 +104,9 @@ async def apply_template(
     user=require_roles("editor", "admin"),
 ):
     """Erstellt einen neuen Vorgang basierend auf einer Vorlage."""
-    result = await db.execute(select(CaseTemplateModel).where(CaseTemplateModel.id == body.template_id))
+    result = await db.execute(
+        select(CaseTemplateModel).where(CaseTemplateModel.id == body.template_id)
+    )
     template = result.scalar_one_or_none()
     if not template:
         raise HTTPException(status_code=404, detail="Vorlage nicht gefunden")

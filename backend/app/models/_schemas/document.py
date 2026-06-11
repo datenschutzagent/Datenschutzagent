@@ -1,10 +1,16 @@
 """Document-related schemas."""
+
 from datetime import datetime
 from uuid import UUID
 
 from pydantic import BaseModel, Field
 
-from .common import DocumentTypeEnum, DocumentFormatEnum, ExtractionMethodEnum, ExtractionStatusEnum
+from .common import (
+    DocumentFormatEnum,
+    DocumentTypeEnum,
+    ExtractionMethodEnum,
+    ExtractionStatusEnum,
+)
 
 
 class DocumentResponse(BaseModel):
@@ -30,6 +36,7 @@ class DocumentResponse(BaseModel):
 
 class DocumentUpdate(BaseModel):
     """Partial update for document (e.g. extracted content for LLM/checks)."""
+
     content: str | None = None
 
 

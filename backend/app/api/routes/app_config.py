@@ -1,4 +1,5 @@
 """Public app configuration endpoint — no authentication required."""
+
 from fastapi import APIRouter, Request
 from pydantic import BaseModel
 

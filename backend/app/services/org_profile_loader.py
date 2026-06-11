@@ -1,4 +1,5 @@
 """Load organisation profile metadata (org_name, vvt_fields) from profile.yaml or env settings."""
+
 from __future__ import annotations
 
 import logging
@@ -89,7 +90,10 @@ def get_processing_context_options(settings: Settings) -> list[dict[str, str]]:
       1. settings.processing_context_options (env, format: "value:Label,value2:Label2")
       2. Built-in defaults
     """
-    if settings.processing_context_options and settings.processing_context_options.strip():
+    if (
+        settings.processing_context_options
+        and settings.processing_context_options.strip()
+    ):
         options: list[dict[str, str]] = []
         for entry in settings.processing_context_options.split(","):
             entry = entry.strip()

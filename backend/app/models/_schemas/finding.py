@@ -1,4 +1,5 @@
 """Finding-related schemas."""
+
 from datetime import date, datetime
 from uuid import UUID
 

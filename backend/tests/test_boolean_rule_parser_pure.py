@@ -1,4 +1,5 @@
 """Pure tests for the boolean rule parser (no DB, no IO)."""
+
 from __future__ import annotations
 
 import pytest
@@ -12,7 +13,6 @@ from app.services.boolean_rule_parser import (
     evaluate,
     parse,
 )
-
 
 # ---------------------------------------------------------------------------
 # Tokenisation / parser errors

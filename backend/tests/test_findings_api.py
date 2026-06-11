@@ -3,6 +3,7 @@
 These tests require a live PostgreSQL database (DATABASE_URL env var).
 They test listing, filtering, updating, and bulk-updating findings.
 """
+
 import pytest
 
 pytestmark = pytest.mark.asyncio

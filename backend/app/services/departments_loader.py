@@ -1,4 +1,5 @@
 """Resolve and load organisation units (departments) from YAML — configurable per org profile or path."""
+
 from pathlib import Path
 from typing import Any
 
@@ -46,28 +47,34 @@ def load_departments_from_yaml(path: Path) -> list[dict[str, Any]]:
         for entry in data["units"]:
             if not isinstance(entry, dict):
                 continue
-            items.append({
-                "code": entry.get("code", ""),
-                "label": entry.get("label", ""),
-                "type": entry.get("type", "unit"),
-            })
+            items.append(
+                {
+                    "code": entry.get("code", ""),
+                    "label": entry.get("label", ""),
+                    "type": entry.get("type", "unit"),
+                }
+            )
         return items
     for entry in data.get("fachbereiche") or []:
         if not isinstance(entry, dict):
             continue
-        items.append({
-            "code": entry.get("code", ""),
-            "label": entry.get("label", ""),
-            "type": entry.get("type", "fachbereich"),
-        })
+        items.append(
+            {
+                "code": entry.get("code", ""),
+                "label": entry.get("label", ""),
+                "type": entry.get("type", "fachbereich"),
+            }
+        )
     for entry in data.get("zentrale_einrichtungen") or []:
         if not isinstance(entry, dict):
             continue
-        items.append({
-            "code": entry.get("code", ""),
-            "label": entry.get("label", ""),
-            "type": entry.get("type", "zentral"),
-        })
+        items.append(
+            {
+                "code": entry.get("code", ""),
+                "label": entry.get("label", ""),
+                "type": entry.get("type", "zentral"),
+            }
+        )
     return items
 
 

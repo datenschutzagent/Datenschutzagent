@@ -1,4 +1,5 @@
 """Pure unit tests for Settings validators (no DB, no SMTP needed)."""
+
 import pytest
 
 from app.config import Settings
@@ -33,7 +34,9 @@ def test_openai_compatible_requires_base_url():
 
 def test_openai_compatible_requires_model():
     with pytest.raises(ValueError, match="LLM_MODEL"):
-        Settings(llm_provider="openai_compatible", llm_base_url="http://localhost:8000/v1")
+        Settings(
+            llm_provider="openai_compatible", llm_base_url="http://localhost:8000/v1"
+        )
 
 
 def test_openai_compatible_accepts_base_url_and_model():

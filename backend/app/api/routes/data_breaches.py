@@ -1,6 +1,7 @@
 """Datenpannen-Management API (Art. 33/34 DSGVO) – 72-Stunden-Meldepflicht."""
+
 import logging
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
@@ -19,10 +20,10 @@ from app.models.schemas import (
     DataBreachActivityResponse,
     DataBreachCreate,
     DataBreachListResponse,
-    DataBreachResponse,
-    DataBreachUpdate,
-    DataBreachStatsResponse,
     DataBreachMonthlyItem,
+    DataBreachResponse,
+    DataBreachStatsResponse,
+    DataBreachUpdate,
 )
 
 router = APIRouter()
@@ -31,14 +32,21 @@ logger = logging.getLogger(__name__)
 _NOTIFICATION_DEADLINE_HOURS = 72  # Art. 33 Abs. 1 DSGVO
 
 
-@router.get("/stats", response_model=DataBreachStatsResponse, summary="Datenpannen-Statistiken abrufen")
+@router.get(
+    "/stats",
+    response_model=DataBreachStatsResponse,
+    summary="Datenpannen-Statistiken abrufen",
+)
 async def get_data_breach_stats(
     db: AsyncSession = Depends(get_db),
     _user=require_roles("viewer", "editor", "admin"),
 ):
     """Aggregierte Datenpannen-Statistiken: 72h-Compliance, Risikoverteilung, Monatstrend."""
     from sqlalchemy import text
-    result = await db.execute(text("""
+
+    result = await db.execute(
+        text(
+            """
         WITH by_status AS (
             SELECT status AS key1, COUNT(*) AS cnt FROM data_breaches GROUP BY status
         ),
@@ -88,7 +96,9 @@ async def get_data_breach_stats(
         SELECT 'monthly', month, cnt, NULL, total_persons FROM monthly
         UNION ALL
         SELECT 'total',   NULL, cnt, NULL, NULL FROM total
-    """))
+    """
+        )
+    )
     rows = result.fetchall()
 
     by_status: dict[str, int] = {}
@@ -115,9 +125,11 @@ async def get_data_breach_stats(
         elif qname == "persons":
             avg_affected_persons = float(f1) if f1 is not None else None
         elif qname == "monthly":
-            monthly_trend.append(DataBreachMonthlyItem(
-                month=key1, count=int(cnt or 0), total_persons=int(f2 or 0)
-            ))
+            monthly_trend.append(
+                DataBreachMonthlyItem(
+                    month=key1, count=int(cnt or 0), total_persons=int(f2 or 0)
+                )
+            )
         elif qname == "total":
             total = int(cnt or 0)
 
@@ -137,7 +149,9 @@ async def list_data_breaches(
     status: str | None = Query(default=None),
     risk_level: str | None = Query(default=None),
     department: str | None = Query(default=None),
-    overdue_only: bool = Query(default=False, description="Nur Pannen mit überschrittener 72h-Frist"),
+    overdue_only: bool = Query(
+        default=False, description="Nur Pannen mit überschrittener 72h-Frist"
+    ),
     skip: int = Query(default=0, ge=0),
     limit: int = Query(default=100, ge=1, le=500),
     db: AsyncSession = Depends(get_db),
@@ -152,23 +166,31 @@ async def list_data_breaches(
     if department:
         q = q.where(DataBreachModel.department.ilike(f"%{department}%"))
     if overdue_only:
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         q = q.where(
             DataBreachModel.notification_deadline < now,
-            DataBreachModel.status.notin_(["reported_to_authority", "closed", "no_notification_required"]),
+            DataBreachModel.status.notin_(
+                ["reported_to_authority", "closed", "no_notification_required"]
+            ),
         )
 
     count_q = select(func.count()).select_from(q.subquery())
     total = (await db.execute(count_q)).scalar_one()
 
-    q = q.order_by(DataBreachModel.notification_deadline.asc()).offset(skip).limit(limit)
+    q = (
+        q.order_by(DataBreachModel.notification_deadline.asc())
+        .offset(skip)
+        .limit(limit)
+    )
     result = await db.execute(q)
     items = [DataBreachResponse.model_validate(r) for r in result.scalars().all()]
 
     return DataBreachListResponse(items=items, total=total)
 
 
-@router.post("", response_model=DataBreachResponse, status_code=201, summary="Datenpanne melden")
+@router.post(
+    "", response_model=DataBreachResponse, status_code=201, summary="Datenpanne melden"
+)
 @limiter.limit("30/minute")
 async def create_data_breach(
     request: Request,
@@ -177,7 +199,9 @@ async def create_data_breach(
     _user=require_roles("editor", "admin"),
 ):
     """Erfasst eine neue Datenschutzverletzung und setzt die 72h-Frist."""
-    notification_deadline = body.discovered_at + timedelta(hours=_NOTIFICATION_DEADLINE_HOURS)
+    notification_deadline = body.discovered_at + timedelta(
+        hours=_NOTIFICATION_DEADLINE_HOURS
+    )
 
     breach = DataBreachModel(
         title=body.title,
@@ -209,20 +233,28 @@ async def create_data_breach(
     return DataBreachResponse.model_validate(breach)
 
 
-@router.get("/{breach_id}", response_model=DataBreachResponse, summary="Datenpanne abrufen")
+@router.get(
+    "/{breach_id}", response_model=DataBreachResponse, summary="Datenpanne abrufen"
+)
 async def get_data_breach(
     breach_id: UUID,
     db: AsyncSession = Depends(get_db),
     _user=require_roles("viewer", "editor", "admin"),
 ):
-    result = await db.execute(select(DataBreachModel).where(DataBreachModel.id == breach_id))
+    result = await db.execute(
+        select(DataBreachModel).where(DataBreachModel.id == breach_id)
+    )
     breach = result.scalar_one_or_none()
     if not breach:
         raise HTTPException(status_code=404, detail="Datenpanne nicht gefunden")
     return DataBreachResponse.model_validate(breach)
 
 
-@router.patch("/{breach_id}", response_model=DataBreachResponse, summary="Datenpanne aktualisieren")
+@router.patch(
+    "/{breach_id}",
+    response_model=DataBreachResponse,
+    summary="Datenpanne aktualisieren",
+)
 @limiter.limit("60/minute")
 async def update_data_breach(
     request: Request,
@@ -232,16 +264,28 @@ async def update_data_breach(
     _user=require_roles("editor", "admin"),
 ):
     """Aktualisiert Status, Risikobewertung oder Meldestatus einer Datenpanne."""
-    result = await db.execute(select(DataBreachModel).where(DataBreachModel.id == breach_id))
+    result = await db.execute(
+        select(DataBreachModel).where(DataBreachModel.id == breach_id)
+    )
     breach = result.scalar_one_or_none()
     if not breach:
         raise HTTPException(status_code=404, detail="Datenpanne nicht gefunden")
 
     old_status = breach.status
     fields = [
-        "title", "description", "status", "breach_type", "affected_data_categories",
-        "affected_persons_count", "department", "assignee", "risk_level",
-        "authority_notified_at", "subjects_notified_at", "authority_reference", "measures_taken",
+        "title",
+        "description",
+        "status",
+        "breach_type",
+        "affected_data_categories",
+        "affected_persons_count",
+        "department",
+        "assignee",
+        "risk_level",
+        "authority_notified_at",
+        "subjects_notified_at",
+        "authority_reference",
+        "measures_taken",
     ]
     for field in fields:
         val = getattr(body, field, None)
@@ -271,7 +315,9 @@ async def delete_data_breach(
     db: AsyncSession = Depends(get_db),
     _user=require_roles("admin"),
 ):
-    result = await db.execute(select(DataBreachModel).where(DataBreachModel.id == breach_id))
+    result = await db.execute(
+        select(DataBreachModel).where(DataBreachModel.id == breach_id)
+    )
     breach = result.scalar_one_or_none()
     if not breach:
         raise HTTPException(status_code=404, detail="Datenpanne nicht gefunden")
@@ -292,12 +338,15 @@ async def generate_notification_draft(
     _user=require_roles("editor", "admin"),
 ):
     """Generiert per LLM einen Meldungsentwurf für die Aufsichtsbehörde."""
-    result = await db.execute(select(DataBreachModel).where(DataBreachModel.id == breach_id))
+    result = await db.execute(
+        select(DataBreachModel).where(DataBreachModel.id == breach_id)
+    )
     breach = result.scalar_one_or_none()
     if not breach:
         raise HTTPException(status_code=404, detail="Datenpanne nicht gefunden")
 
     from app.services.data_breach_service import generate_breach_notification
+
     await generate_breach_notification(breach_id, db)
     await db.refresh(breach)
     return DataBreachResponse.model_validate(breach)
@@ -313,7 +362,9 @@ async def get_breach_activity(
     db: AsyncSession = Depends(get_db),
     _user=require_roles("viewer", "editor", "admin"),
 ):
-    result = await db.execute(select(DataBreachModel).where(DataBreachModel.id == breach_id))
+    result = await db.execute(
+        select(DataBreachModel).where(DataBreachModel.id == breach_id)
+    )
     if result.scalar_one_or_none() is None:
         raise HTTPException(status_code=404, detail="Datenpanne nicht gefunden")
 
@@ -323,6 +374,5 @@ async def get_breach_activity(
         .order_by(DataBreachActivityLogModel.created_at.asc())
     )
     return [
-        DataBreachActivityResponse.model_validate(e)
-        for e in log_result.scalars().all()
+        DataBreachActivityResponse.model_validate(e) for e in log_result.scalars().all()
     ]

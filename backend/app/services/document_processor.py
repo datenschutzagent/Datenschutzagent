@@ -12,6 +12,7 @@ Goals beyond plain text dumping:
 - Quality signals: report char/page counts and the OCR page ratio so weak extractions can
   be flagged downstream.
 """
+
 import base64
 import csv
 import io
@@ -60,6 +61,7 @@ class ExtractionResult:
             (below ``ocr_min_chars_per_page``) — i.e. likely lost despite OCR. A downstream quality
             signal so reviewers can spot scans that did not extract cleanly.
     """
+
     text: str
     extraction_method: Literal["text", "ocr"]
     char_count: int = 0
@@ -92,9 +94,16 @@ def _ocr_chat_endpoint() -> tuple[str, dict[str, str]]:
     for openai_compatible → none for Ollama).
     """
     base = (getattr(settings, "ocr_base_url", "") or "").strip()
-    api_key = settings.ocr_api_key.get_secret_value() if hasattr(settings, "ocr_api_key") else ""
+    api_key = (
+        settings.ocr_api_key.get_secret_value()
+        if hasattr(settings, "ocr_api_key")
+        else ""
+    )
     if not base:
-        if settings.llm_provider.lower() == "openai_compatible" and (settings.llm_base_url or "").strip():
+        if (
+            settings.llm_provider.lower() == "openai_compatible"
+            and (settings.llm_base_url or "").strip()
+        ):
             base = settings.llm_base_url
             api_key = api_key or settings.llm_api_key.get_secret_value()
         else:
@@ -108,7 +117,9 @@ def _ocr_chat_endpoint() -> tuple[str, dict[str, str]]:
 
 def _ocr_model_name() -> str:
     """OCR vision model: explicit ``ocr_model`` override, else the legacy ``ollama_ocr_model``."""
-    return (getattr(settings, "ocr_model", "") or "").strip() or settings.ollama_ocr_model
+    return (
+        getattr(settings, "ocr_model", "") or ""
+    ).strip() or settings.ollama_ocr_model
 
 
 def _pdf_markdown(content: bytes, pages: list[int] | None = None) -> str:
@@ -121,9 +132,13 @@ def _pdf_markdown(content: bytes, pages: list[int] | None = None) -> str:
         import pymupdf4llm
 
         with fitz.open(stream=content, filetype="pdf") as doc:
-            return pymupdf4llm.to_markdown(doc, pages=pages, show_progress=False).strip()
+            return pymupdf4llm.to_markdown(
+                doc, pages=pages, show_progress=False
+            ).strip()
     except Exception as exc:
-        logger.warning("pymupdf4llm markdown extraction failed, falling back to get_text: %s", exc)
+        logger.warning(
+            "pymupdf4llm markdown extraction failed, falling back to get_text: %s", exc
+        )
         try:
             with fitz.open(stream=content, filetype="pdf") as doc:
                 indices = pages if pages is not None else range(len(doc))
@@ -145,7 +160,10 @@ def _pdf_markdown_pages(content: bytes) -> list[str] | None:
 
         with fitz.open(stream=content, filetype="pdf") as doc:
             chunks = pymupdf4llm.to_markdown(doc, page_chunks=True, show_progress=False)
-        return [((c.get("text") if isinstance(c, dict) else "") or "").strip() for c in chunks]
+        return [
+            ((c.get("text") if isinstance(c, dict) else "") or "").strip()
+            for c in chunks
+        ]
     except Exception as exc:
         logger.warning("pymupdf4llm per-page markdown extraction failed: %s", exc)
         return None
@@ -186,7 +204,9 @@ def _ocr_pages(content: bytes, page_indices: list[int]) -> dict[int, str]:
             dpi = _dpi_for_attempt(attempt)
             try:
                 png_bytes = _pdf_page_to_png_bytes(content, i, dpi=dpi)
-                image_uri = f"data:image/png;base64,{base64.b64encode(png_bytes).decode()}"
+                image_uri = (
+                    f"data:image/png;base64,{base64.b64encode(png_bytes).decode()}"
+                )
                 payload = {
                     "model": model,
                     "messages": [
@@ -201,7 +221,9 @@ def _ocr_pages(content: bytes, page_indices: list[int]) -> dict[int, str]:
                     "stream": False,
                     "temperature": 0,
                 }
-                resp = httpx.post(chat_url, json=payload, headers=headers, timeout=timeout)
+                resp = httpx.post(
+                    chat_url, json=payload, headers=headers, timeout=timeout
+                )
                 resp.raise_for_status()
                 data = resp.json()
                 choices = data.get("choices") or []
@@ -213,10 +235,19 @@ def _ocr_pages(content: bytes, page_indices: list[int]) -> dict[int, str]:
                     return i, text
                 logger.warning(
                     "Vision OCR recovered little text for page %s at %d DPI (attempt %d/%d)",
-                    i + 1, dpi, attempt, attempts,
+                    i + 1,
+                    dpi,
+                    attempt,
+                    attempts,
                 )
             except Exception as exc:
-                logger.warning("Vision OCR failed for page %s (attempt %d/%d): %s", i + 1, attempt, attempts, exc)
+                logger.warning(
+                    "Vision OCR failed for page %s (attempt %d/%d): %s",
+                    i + 1,
+                    attempt,
+                    attempts,
+                    exc,
+                )
             if attempt < attempts:
                 time.sleep(attempt)  # simple linear backoff: 1s, 2s, ...
         return i, best
@@ -272,12 +303,55 @@ def _image_heavy_pages(doc) -> set[int]:
 # two languages give a clean signal). Not a full language identifier — just enough to pick the LLM
 # language hint when the caller did not specify one.
 _DE_STOPWORDS = frozenset(
-    {"der", "die", "das", "und", "ist", "nicht", "werden", "wird", "für", "mit", "auch",
-     "sich", "eine", "einer", "von", "den", "dem", "des", "im", "zur", "zum", "bei", "durch"}
+    {
+        "der",
+        "die",
+        "das",
+        "und",
+        "ist",
+        "nicht",
+        "werden",
+        "wird",
+        "für",
+        "mit",
+        "auch",
+        "sich",
+        "eine",
+        "einer",
+        "von",
+        "den",
+        "dem",
+        "des",
+        "im",
+        "zur",
+        "zum",
+        "bei",
+        "durch",
+    }
 )
 _EN_STOPWORDS = frozenset(
-    {"the", "and", "are", "with", "for", "this", "that", "from", "have", "will", "not",
-     "shall", "been", "their", "which", "such", "any", "into", "data", "processing"}
+    {
+        "the",
+        "and",
+        "are",
+        "with",
+        "for",
+        "this",
+        "that",
+        "from",
+        "have",
+        "will",
+        "not",
+        "shall",
+        "been",
+        "their",
+        "which",
+        "such",
+        "any",
+        "into",
+        "data",
+        "processing",
+    }
 )
 
 
@@ -332,7 +406,9 @@ def _assemble_pages(pages: list[str], num_pages: int) -> str:
     return _assemble_anchored(pages, num_pages, _page_anchor)
 
 
-def _digital_pdf_result(content: bytes, page_digital: list[str], num_pages: int) -> ExtractionResult:
+def _digital_pdf_result(
+    content: bytes, page_digital: list[str], num_pages: int
+) -> ExtractionResult:
     """Assemble the fully digital extraction: per-page Markdown with page anchors.
 
     Falls back to whole-document Markdown (no anchors) when per-page parsing fails, and to
@@ -383,7 +459,8 @@ def extract_text_from_pdf(content: bytes) -> ExtractionResult:
 
     min_chars = settings.ocr_min_chars_per_page
     sparse_pages = sorted(
-        {i for i, t in enumerate(page_digital) if len((t or "").strip()) < min_chars} | image_heavy
+        {i for i, t in enumerate(page_digital) if len((t or "").strip()) < min_chars}
+        | image_heavy
     )
 
     # No OCR needed (or disabled): return per-page Markdown with page anchors.
@@ -404,7 +481,11 @@ def extract_text_from_pdf(content: bytes) -> ExtractionResult:
     max_ocr_pages = getattr(settings, "ocr_max_pages", 200)
     ocr_targets = sorted(ocr_pages)[:max_ocr_pages]
     if len(ocr_pages) > max_ocr_pages:
-        logger.warning("OCR limited to first %d of %d candidate pages", max_ocr_pages, len(ocr_pages))
+        logger.warning(
+            "OCR limited to first %d of %d candidate pages",
+            max_ocr_pages,
+            len(ocr_pages),
+        )
     ocr_results = _ocr_pages(content, ocr_targets)
 
     # Layout-preserving Markdown for the digital pages, parsed once for the whole document
@@ -422,7 +503,9 @@ def extract_text_from_pdf(content: bytes) -> ExtractionResult:
             page_text = ocr_text
         else:
             # Digital (or OCR-failed) page → layout-preserving Markdown, fall back to plain text.
-            digital_md = page_md[i] if (page_md is not None and i < len(page_md)) else ""
+            digital_md = (
+                page_md[i] if (page_md is not None and i < len(page_md)) else ""
+            )
             page_text = digital_md or (page_digital[i] or "")
             parts.append(page_text)
         # A page we intended to OCR that still has almost no text was likely lost despite OCR.
@@ -433,7 +516,8 @@ def extract_text_from_pdf(content: bytes) -> ExtractionResult:
     if low_quality:
         logger.warning(
             "OCR recovered little/no text on %d of %d page(s) — extraction may be incomplete",
-            low_quality, num_pages,
+            low_quality,
+            num_pages,
         )
     return ExtractionResult(
         text=text,
@@ -483,8 +567,12 @@ def _iter_header_footer_text(doc) -> list[str]:
     seen: set[str] = set()
     for section in doc.sections:
         for hf in (
-            section.header, section.first_page_header, section.even_page_header,
-            section.footer, section.first_page_footer, section.even_page_footer,
+            section.header,
+            section.first_page_header,
+            section.even_page_header,
+            section.footer,
+            section.first_page_footer,
+            section.even_page_footer,
         ):
             if hf is None:
                 continue
@@ -499,7 +587,9 @@ def _iter_header_footer_text(doc) -> list[str]:
                     if md and md not in seen:
                         seen.add(md)
                         parts.append(md)
-            except Exception as exc:  # malformed header/footer must never break extraction
+            except (
+                Exception
+            ) as exc:  # malformed header/footer must never break extraction
                 logger.debug("DOCX header/footer extraction skipped a part: %s", exc)
     return parts
 
@@ -595,7 +685,10 @@ def extract_text_from_xlsx(content: bytes) -> str:
         out.append("| " + " | ".join(col_header) + " |")
         out.append("| " + " | ".join(["---"] * (max_cols + 1)) + " |")
         for row_no, r in enumerate(rows, start=1):
-            cells = ["" if c is None else str(c).replace("\n", " ").replace("|", "\\|") for c in r]
+            cells = [
+                "" if c is None else str(c).replace("\n", " ").replace("|", "\\|")
+                for c in r
+            ]
             cells += [""] * (max_cols - len(cells))
             out.append("| " + " | ".join([str(row_no), *cells]) + " |")
     return "\n".join(out)
@@ -678,7 +771,9 @@ def extract_text_from_csv(content: bytes) -> str:
     evidence ("Spalte C, Zeile 12") work exactly as for XLSX. Row numbers match the physical
     line numbers of the file (empty lines keep their row).
     """
-    text = _decode_text_bytes(content).lstrip("\ufeff")  # strip UTF-8 BOM (Excel exports)
+    text = _decode_text_bytes(content).lstrip(
+        "\ufeff"
+    )  # strip UTF-8 BOM (Excel exports)
     if not text.strip():
         return ""
     delimiter = _sniff_csv_delimiter(text[:4096])
@@ -717,8 +812,17 @@ def extract_text_from_doc(content: bytes) -> str:
                 src = Path(tmp) / "in.doc"
                 src.write_bytes(content)
                 subprocess.run(
-                    [soffice, "--headless", "--convert-to", "docx", "--outdir", tmp, str(src)],
-                    capture_output=True, timeout=180,
+                    [
+                        soffice,
+                        "--headless",
+                        "--convert-to",
+                        "docx",
+                        "--outdir",
+                        tmp,
+                        str(src),
+                    ],
+                    capture_output=True,
+                    timeout=180,
                 )
                 out = Path(tmp) / "in.docx"
                 if out.exists():
@@ -760,7 +864,13 @@ def _decode_text_bytes(content: bytes) -> str:
 
 
 # Map a file extension to the PyMuPDF image filetype it understands.
-_IMAGE_EXT_TO_FITZ = {"jpg": "jpg", "jpeg": "jpg", "png": "png", "tif": "tiff", "tiff": "tiff"}
+_IMAGE_EXT_TO_FITZ = {
+    "jpg": "jpg",
+    "jpeg": "jpg",
+    "png": "png",
+    "tif": "tiff",
+    "tiff": "tiff",
+}
 
 
 def extract_text_from_image(content: bytes, filetype: str) -> ExtractionResult:
@@ -779,7 +889,10 @@ def extract_text_from_image(content: bytes, filetype: str) -> ExtractionResult:
         logger.exception("Image→PDF conversion failed", extra={"filetype": filetype})
         return ExtractionResult(text="", extraction_method=EXTRACTION_METHOD_OCR)
     if not settings.ollama_ocr_enabled:
-        logger.warning("Image upload but OCR is disabled — returning empty text (filetype=%s)", filetype)
+        logger.warning(
+            "Image upload but OCR is disabled — returning empty text (filetype=%s)",
+            filetype,
+        )
     return extract_text_from_pdf(pdf_bytes)
 
 
@@ -796,40 +909,70 @@ def extract_text(filename: str, content: bytes) -> ExtractionResult:
         try:
             return extract_text_from_image(content, _IMAGE_EXT_TO_FITZ[ext])
         except Exception:
-            logger.exception("Image text extraction failed", extra={"doc_filename": filename})
+            logger.exception(
+                "Image text extraction failed", extra={"doc_filename": filename}
+            )
             raise
     if filename_lower.endswith(".docx"):
         try:
             text = extract_text_from_docx(content)
-            return ExtractionResult(text=text, extraction_method=EXTRACTION_METHOD_TEXT, char_count=len(text))
+            return ExtractionResult(
+                text=text,
+                extraction_method=EXTRACTION_METHOD_TEXT,
+                char_count=len(text),
+            )
         except Exception:
-            logger.exception("DOCX text extraction failed", extra={"doc_filename": filename})
+            logger.exception(
+                "DOCX text extraction failed", extra={"doc_filename": filename}
+            )
             raise
     if filename_lower.endswith(".xlsx"):
         try:
             text = extract_text_from_xlsx(content)
-            return ExtractionResult(text=text, extraction_method=EXTRACTION_METHOD_TEXT, char_count=len(text))
+            return ExtractionResult(
+                text=text,
+                extraction_method=EXTRACTION_METHOD_TEXT,
+                char_count=len(text),
+            )
         except Exception:
-            logger.exception("XLSX text extraction failed", extra={"doc_filename": filename})
+            logger.exception(
+                "XLSX text extraction failed", extra={"doc_filename": filename}
+            )
             raise
     if filename_lower.endswith(".pptx"):
         try:
             text = extract_text_from_pptx(content)
-            return ExtractionResult(text=text, extraction_method=EXTRACTION_METHOD_TEXT, char_count=len(text))
+            return ExtractionResult(
+                text=text,
+                extraction_method=EXTRACTION_METHOD_TEXT,
+                char_count=len(text),
+            )
         except Exception:
-            logger.exception("PPTX text extraction failed", extra={"doc_filename": filename})
+            logger.exception(
+                "PPTX text extraction failed", extra={"doc_filename": filename}
+            )
             raise
     if filename_lower.endswith(".csv"):
         try:
             text = extract_text_from_csv(content)
-            return ExtractionResult(text=text, extraction_method=EXTRACTION_METHOD_TEXT, char_count=len(text))
+            return ExtractionResult(
+                text=text,
+                extraction_method=EXTRACTION_METHOD_TEXT,
+                char_count=len(text),
+            )
         except Exception:
-            logger.exception("CSV text extraction failed", extra={"doc_filename": filename})
+            logger.exception(
+                "CSV text extraction failed", extra={"doc_filename": filename}
+            )
             raise
     if filename_lower.endswith(".doc"):
         text = extract_text_from_doc(content)
-        return ExtractionResult(text=text, extraction_method=EXTRACTION_METHOD_TEXT, char_count=len(text))
+        return ExtractionResult(
+            text=text, extraction_method=EXTRACTION_METHOD_TEXT, char_count=len(text)
+        )
     text = _decode_text_bytes(content)
     if not text:
         logger.debug("No decodable text for %s", filename)
-    return ExtractionResult(text=text, extraction_method=EXTRACTION_METHOD_TEXT, char_count=len(text))
+    return ExtractionResult(
+        text=text, extraction_method=EXTRACTION_METHOD_TEXT, char_count=len(text)
+    )

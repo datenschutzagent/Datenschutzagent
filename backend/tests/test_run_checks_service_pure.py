@@ -3,13 +3,13 @@
 Only tests module-level pure functions (_legal_base_applicable) and
 schema defaults. No database, LLM, or Weaviate required.
 """
+
 import uuid
 from types import SimpleNamespace
 
 from app.models.db import LegalBaseModel
 from app.models.schemas import RunChecksRequest
 from app.services.run_checks_service import _legal_base_applicable
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -120,17 +120,23 @@ def test_conditional_multiple_department_codes_one_matches():
 
 
 def test_conditional_case_type_match():
-    base = make_legal_base(applicability="conditional", case_types=["Softwareeinführung"])
+    base = make_legal_base(
+        applicability="conditional", case_types=["Softwareeinführung"]
+    )
     assert _legal_base_applicable(base, "IT", "Softwareeinführung") is True
 
 
 def test_conditional_case_type_no_match():
-    base = make_legal_base(applicability="conditional", case_types=["Softwareeinführung"])
+    base = make_legal_base(
+        applicability="conditional", case_types=["Softwareeinführung"]
+    )
     assert _legal_base_applicable(base, "IT", "Datenpanne") is False
 
 
 def test_conditional_multiple_case_types_one_matches():
-    base = make_legal_base(applicability="conditional", case_types=["Datenpanne", "Softwareeinführung"])
+    base = make_legal_base(
+        applicability="conditional", case_types=["Datenpanne", "Softwareeinführung"]
+    )
     assert _legal_base_applicable(base, "IT", "Datenpanne") is True
 
 
@@ -213,9 +219,12 @@ def test_run_checks_request_strategies_default():
 # Document extraction-status filtering (Bug #2)
 # ---------------------------------------------------------------------------
 
+
 def _make_doc(extraction_status: str) -> SimpleNamespace:
     """Minimal document stub with id and extraction_status."""
-    return SimpleNamespace(id=uuid.uuid4(), content="text", extraction_status=extraction_status)
+    return SimpleNamespace(
+        id=uuid.uuid4(), content="text", extraction_status=extraction_status
+    )
 
 
 def test_only_done_documents_are_checked():

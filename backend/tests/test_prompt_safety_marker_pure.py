@@ -1,11 +1,11 @@
 """Pure tests for the prompt-injection marker wrapper (Phase 4)."""
+
 from __future__ import annotations
 
 from app.core.prompt_security import (
     SYSTEM_PROMPT_SAFETY_PREAMBLE,
     wrap_untrusted_content,
 )
-
 
 _BEGIN = "<<<USER_CONTENT_BEGIN>>>"
 _END = "<<<USER_CONTENT_END>>>"

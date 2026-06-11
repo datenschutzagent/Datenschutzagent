@@ -1,9 +1,6 @@
 import hashlib
-import json
 import logging
 import time
-import uuid
-from typing import List
 from uuid import UUID
 
 from pydantic import BaseModel, Field
@@ -57,7 +54,12 @@ def _org_profile_hash() -> str:
     return _org_profile_hash_cached
 
 
-def _cache_key(system_prompt: str, user_content: str, case_id: UUID | None, playbook_revision: str = "") -> str:
+def _cache_key(
+    system_prompt: str,
+    user_content: str,
+    case_id: UUID | None,
+    playbook_revision: str = "",
+) -> str:
     """SHA-256 hash of org+case+model+playbook_revision+system+user prompt as a Redis key.
 
     Scoping the key by ``org_profile`` and ``case_id`` prevents cross-case or
@@ -83,9 +85,13 @@ class CheckResult(BaseModel):
         "before deciding is_compliant/severity, so the verdict follows from the analysis.",
     )
     is_compliant: bool = Field(description="True if the check passed, False otherwise.")
-    severity: FindingSeverityEnum = Field(description="Severity of the finding if not compliant.")
+    severity: FindingSeverityEnum = Field(
+        description="Severity of the finding if not compliant."
+    )
     description: str = Field(description="Explanation of the finding.")
-    evidence: List[str] = Field(description="Verbatim quotes from the document supporting the finding.")
+    evidence: list[str] = Field(
+        description="Verbatim quotes from the document supporting the finding."
+    )
     recommendation: str = Field(description="Recommendation to fix the issue.")
     confidence: float = Field(
         default=0.7,
@@ -139,12 +145,15 @@ def _make_grounding_validator(source_text: str):
 
     Quote pruning + confidence adjustment still happens in :func:`_apply_grounding` afterwards.
     """
+
     def _validate(ctx, output: CheckResult) -> CheckResult:
         # Schema consistency (cheap, deterministic). Skip on the final allowed attempt so a
         # stubborn model never hard-fails the pipeline.
         if ctx.retry < settings.llm_output_retries:
             if output.is_compliant and output.severity != "info":
-                raise ModelRetry("A compliant result (is_compliant=true) must use severity 'info'.")
+                raise ModelRetry(
+                    "A compliant result (is_compliant=true) must use severity 'info'."
+                )
             if not output.is_compliant:
                 if output.severity == "info":
                     raise ModelRetry(
@@ -165,7 +174,9 @@ def _make_grounding_validator(source_text: str):
             and source_text.strip()
             and ctx.retry < settings.llm_output_retries
         ):
-            ratio = grounding_ratio(output.evidence, source_text, settings.evidence_grounding_threshold)
+            ratio = grounding_ratio(
+                output.evidence, source_text, settings.evidence_grounding_threshold
+            )
             if ratio == 0.0:
                 raise ModelRetry(
                     "None of the evidence quotes appear in the provided document. "
@@ -190,10 +201,15 @@ def _apply_grounding(result: CheckResult, source_text: str) -> CheckResult:
         total = len(grounded) + len(ungrounded)
         penalty = len(ungrounded) / total if total else 0.0
         result.evidence = grounded
-        result.confidence = round(max(0.0, result.confidence * (1.0 - 0.5 * penalty)), 2)
+        result.confidence = round(
+            max(0.0, result.confidence * (1.0 - 0.5 * penalty)), 2
+        )
         logger.warning(
             "Grounding dropped %d/%d ungrounded evidence quote(s); confidence→%.2f  [request_id=%s]",
-            len(ungrounded), total, result.confidence, get_request_id(),
+            len(ungrounded),
+            total,
+            result.confidence,
+            get_request_id(),
         )
     return result
 
@@ -210,6 +226,7 @@ def _get_redis_client():
     if _redis_client is None:
         try:
             import redis.asyncio as aioredis  # type: ignore
+
             _redis_client = aioredis.from_url(
                 settings.celery_broker_url,
                 decode_responses=True,
@@ -249,6 +266,7 @@ async def _cache_set(key: str, result: CheckResult) -> None:
     except Exception as exc:
         logger.warning("LLM cache SET failed: %s", exc, extra={"cache_key": key})
 
+
 def _context_chars_per_doc() -> int:
     """Per-document character limit for LLM context (honors the optional token budget)."""
     return effective_context_chars("per_doc")
@@ -259,7 +277,6 @@ def _rag_context_chars() -> int:
     return effective_context_chars("rag")
 
 
-
 # Per-document character limit for LLM context (single-doc and cross-doc)
 # These are module-level defaults; use _context_chars_per_doc() / _rag_context_chars() at call time
 # to respect runtime configuration from settings.
@@ -267,9 +284,7 @@ CONTEXT_CHARS_PER_DOC = 15000
 RAG_CONTEXT_CHARS = 20000
 
 # Built-in defaults when no DB template is active (use same placeholder names as configurable templates)
-DEFAULT_CHECK_FULL_TEXT_DOCUMENT_SYSTEM = (
-    "You are a strict data protection auditor. Analyze the provided document text against the specific requirement. {language_hint}"
-)
+DEFAULT_CHECK_FULL_TEXT_DOCUMENT_SYSTEM = "You are a strict data protection auditor. Analyze the provided document text against the specific requirement. {language_hint}"
 DEFAULT_CHECK_FULL_TEXT_DOCUMENT_USER = """{legal_bases_section}Requirement: {requirement}
 
 Document Text:
@@ -332,7 +347,11 @@ def _legal_bases_section(legal_bases_context: str | None) -> str:
     """Format optional legal bases context for prompt. Returns empty string if none."""
     if not legal_bases_context or not legal_bases_context.strip():
         return ""
-    return "Relevant legal requirements (excerpts from referenced legal bases):\n---\n" + legal_bases_context.strip() + "\n---\n\n"
+    return (
+        "Relevant legal requirements (excerpts from referenced legal bases):\n---\n"
+        + legal_bases_context.strip()
+        + "\n---\n\n"
+    )
 
 
 # Severity ordering for aggregating map-reduce results (higher = worse).
@@ -424,7 +443,11 @@ async def _llm_check_call(
     cache_key = _cache_key(system, user_content, case_id, playbook_revision)
     cached = await _cache_get(cache_key)
     if cached is not None:
-        logger.info("LLM cache hit for check '%s'  [request_id=%s]", label[:60], get_request_id())
+        logger.info(
+            "LLM cache hit for check '%s'  [request_id=%s]",
+            label[:60],
+            get_request_id(),
+        )
         return cached
 
     n = max(1, getattr(settings, "llm_self_consistency_n", 1))
@@ -438,21 +461,32 @@ async def _llm_check_call(
         # Sample concurrently — the global LLM semaphore (max_concurrent_llm_calls) caps the
         # actual provider load; sharing one agent across runs is safe (stateless per run).
         results = await gather_all(
-            llm_retry_call(agent, user_content, output_type=CheckResult, request_id=get_request_id())
+            llm_retry_call(
+                agent,
+                user_content,
+                output_type=CheckResult,
+                request_id=get_request_id(),
+            )
             for _ in range(n)
         )
         samples = [_apply_grounding(r.output, source_text) for r in results]
         out = _aggregate_self_consistency(samples)
         logger.info(
             "Self-consistency over %d samples for check '%s': compliant=%s confidence=%.2f  [request_id=%s]",
-            n, label[:60], out.is_compliant, out.confidence, get_request_id(),
+            n,
+            label[:60],
+            out.is_compliant,
+            out.confidence,
+            get_request_id(),
         )
     else:
         agent = create_agent(
             system_prompt=system,
             output_validator=_make_grounding_validator(source_text),
         )
-        result = await llm_retry_call(agent, user_content, output_type=CheckResult, request_id=get_request_id())
+        result = await llm_retry_call(
+            agent, user_content, output_type=CheckResult, request_id=get_request_id()
+        )
         out = _apply_grounding(result.output, source_text)
     await _cache_set(cache_key, out)
     return out
@@ -478,21 +512,31 @@ async def run_check(
     language = language or detect_language(document_text)
     language_hint = _language_hint(language) if language else ""
     system_tpl = await get_active_template("check_full_text_document_system")
-    system = render(system_tpl or DEFAULT_CHECK_FULL_TEXT_DOCUMENT_SYSTEM, {"language_hint": language_hint})
+    system = render(
+        system_tpl or DEFAULT_CHECK_FULL_TEXT_DOCUMENT_SYSTEM,
+        {"language_hint": language_hint},
+    )
     # Phase 4: tell the model up-front that marker-wrapped content is data.
     system = SYSTEM_PROMPT_SAFETY_PREAMBLE + "\n\n" + system + CHECK_OUTPUT_GUIDANCE
     user_tpl = await get_active_template("check_full_text_document_user")
     limit = _context_chars_per_doc()
-    requirement = sanitize_prompt_field(check_instruction, max_chars=_CHECK_INSTRUCTION_MAX_CHARS)
+    requirement = sanitize_prompt_field(
+        check_instruction, max_chars=_CHECK_INSTRUCTION_MAX_CHARS
+    )
     legal_section = _legal_bases_section(legal_bases_context)
     t0 = time.monotonic()
 
     over_limit = bool(document_text) and len(document_text) > limit
     if over_limit and getattr(settings, "long_doc_map_reduce_enabled", True):
-        windows = _build_context_windows(document_text, limit, getattr(settings, "long_doc_max_chunks", 6))
+        windows = _build_context_windows(
+            document_text, limit, getattr(settings, "long_doc_max_chunks", 6)
+        )
         logger.info(
             "Long document (%d chars) → map-reduce over %d fragments for check '%s'  [request_id=%s]",
-            len(document_text), len(windows), check_instruction[:80], get_request_id(),
+            len(document_text),
+            len(windows),
+            check_instruction[:80],
+            get_request_id(),
         )
         frag_system = system + _FRAGMENT_SYSTEM_SUFFIX
         fragment_users = [
@@ -510,14 +554,26 @@ async def run_check(
         # results[0] as the representative compliant result); the global LLM semaphore caps load.
         results = await gather_all(
             _llm_check_call(
-                system=frag_system, user_content=user_content, source_text=window,
-                case_id=case_id, playbook_revision=playbook_revision, label=check_instruction,
+                system=frag_system,
+                user_content=user_content,
+                source_text=window,
+                case_id=case_id,
+                playbook_revision=playbook_revision,
+                label=check_instruction,
             )
-            for window, user_content in zip(windows, fragment_users)
+            for window, user_content in zip(windows, fragment_users, strict=False)
         )
-        out = _aggregate_check_results(results) if results else CheckResult(
-            is_compliant=True, severity="info", description="No content to evaluate.",
-            evidence=[], recommendation="", confidence=0.3,
+        out = (
+            _aggregate_check_results(results)
+            if results
+            else CheckResult(
+                is_compliant=True,
+                severity="info",
+                description="No content to evaluate.",
+                evidence=[],
+                recommendation="",
+                confidence=0.3,
+            )
         )
     else:
         truncated_text, truncated = _truncate_sentence_aware(document_text or "", limit)
@@ -525,16 +581,24 @@ async def run_check(
             user_tpl or DEFAULT_CHECK_FULL_TEXT_DOCUMENT_USER,
             {
                 "requirement": requirement,
-                "document_text": wrap_untrusted_content(truncated_text, max_chars=limit),
+                "document_text": wrap_untrusted_content(
+                    truncated_text, max_chars=limit
+                ),
                 "legal_bases_section": legal_section,
             },
         )
         out = await _llm_check_call(
-            system=system, user_content=user_content, source_text=truncated_text,
-            case_id=case_id, playbook_revision=playbook_revision, label=check_instruction,
+            system=system,
+            user_content=user_content,
+            source_text=truncated_text,
+            case_id=case_id,
+            playbook_revision=playbook_revision,
+            label=check_instruction,
         )
         if truncated:
-            out.confidence = round(out.confidence * 0.9, 2)  # partial context → less certain
+            out.confidence = round(
+                out.confidence * 0.9, 2
+            )  # partial context → less certain
 
     elapsed = round(time.monotonic() - t0, 2)
     logger.info(
@@ -549,7 +613,7 @@ async def run_check(
 
 
 async def run_cross_document_check(
-    documents: List[tuple[UUID, str]],
+    documents: list[tuple[UUID, str]],
     check_instruction: str,
     language: str | None = None,
     legal_bases_context: str | None = None,
@@ -566,7 +630,10 @@ async def run_cross_document_check(
         language = detect_language(documents[0][1])
     language_hint = _language_hint(language) if language else ""
     system_tpl = await get_active_template("check_full_text_cross_system")
-    system = render(system_tpl or DEFAULT_CHECK_FULL_TEXT_CROSS_SYSTEM, {"language_hint": language_hint})
+    system = render(
+        system_tpl or DEFAULT_CHECK_FULL_TEXT_CROSS_SYSTEM,
+        {"language_hint": language_hint},
+    )
     system = SYSTEM_PROMPT_SAFETY_PREAMBLE + "\n\n" + system + CHECK_OUTPUT_GUIDANCE
     limit = _context_chars_per_doc()
     parts: list[str] = []
@@ -574,7 +641,12 @@ async def run_cross_document_check(
     for i, (doc_id, text) in enumerate(documents, 1):
         truncated, was_truncated = _truncate_sentence_aware(text or "", limit)
         if was_truncated:
-            logger.info("Cross-doc text truncated: %d → ~%d chars (doc %s)", len(text or ""), limit, doc_id)
+            logger.info(
+                "Cross-doc text truncated: %d → ~%d chars (doc %s)",
+                len(text or ""),
+                limit,
+                doc_id,
+            )
         wrapped = wrap_untrusted_content(truncated, max_chars=limit)
         parts.append(f"--- Document {i} (id: {doc_id}) ---\n{wrapped}")
         source_parts.append(truncated)
@@ -584,15 +656,21 @@ async def run_cross_document_check(
     user_content = render(
         user_tpl or DEFAULT_CHECK_FULL_TEXT_CROSS_USER,
         {
-            "requirement": sanitize_prompt_field(check_instruction, max_chars=_CHECK_INSTRUCTION_MAX_CHARS),
+            "requirement": sanitize_prompt_field(
+                check_instruction, max_chars=_CHECK_INSTRUCTION_MAX_CHARS
+            ),
             "documents": combined,
             "legal_bases_section": _legal_bases_section(legal_bases_context),
         },
     )
     t0 = time.monotonic()
     out = await _llm_check_call(
-        system=system, user_content=user_content, source_text=source_text,
-        case_id=case_id, playbook_revision=playbook_revision, label=check_instruction,
+        system=system,
+        user_content=user_content,
+        source_text=source_text,
+        case_id=case_id,
+        playbook_revision=playbook_revision,
+        label=check_instruction,
     )
     elapsed = round(time.monotonic() - t0, 2)
     logger.info(
@@ -620,7 +698,9 @@ async def run_check_rag(
     """
     from app.services.weaviate_service import get_relevant_chunks
 
-    chunks = get_relevant_chunks(document_id, check_instruction, top_k=settings.weaviate_top_k)
+    chunks = get_relevant_chunks(
+        document_id, check_instruction, top_k=settings.weaviate_top_k
+    )
     if not chunks:
         return None
     combined = "\n\n---\n\n".join(chunks)
@@ -629,14 +709,19 @@ async def run_check_rag(
         combined = combined[:rag_limit] + "\n\n[... truncated ...]"
     language_hint = _language_hint(language) if language else ""
     system_tpl = await get_active_template("check_rag_document_system")
-    system = render(system_tpl or DEFAULT_CHECK_RAG_DOCUMENT_SYSTEM, {"language_hint": language_hint})
+    system = render(
+        system_tpl or DEFAULT_CHECK_RAG_DOCUMENT_SYSTEM,
+        {"language_hint": language_hint},
+    )
     # Same injection hardening as the full-text paths: marker-wrapped excerpts are data.
     system = SYSTEM_PROMPT_SAFETY_PREAMBLE + "\n\n" + system + CHECK_OUTPUT_GUIDANCE
     user_tpl = await get_active_template("check_rag_document_user")
     user_content = render(
         user_tpl or DEFAULT_CHECK_RAG_DOCUMENT_USER,
         {
-            "requirement": sanitize_prompt_field(check_instruction, max_chars=_CHECK_INSTRUCTION_MAX_CHARS),
+            "requirement": sanitize_prompt_field(
+                check_instruction, max_chars=_CHECK_INSTRUCTION_MAX_CHARS
+            ),
             # Headroom keeps the appended "[... truncated ...]" suffix intact.
             "excerpts": wrap_untrusted_content(combined, max_chars=rag_limit + 100),
             "legal_bases_section": _legal_bases_section(legal_bases_context),
@@ -644,8 +729,12 @@ async def run_check_rag(
     )
     t0 = time.monotonic()
     out = await _llm_check_call(
-        system=system, user_content=user_content, source_text=combined,
-        case_id=case_id, playbook_revision=playbook_revision, label=check_instruction,
+        system=system,
+        user_content=user_content,
+        source_text=combined,
+        case_id=case_id,
+        playbook_revision=playbook_revision,
+        label=check_instruction,
     )
     elapsed = round(time.monotonic() - t0, 2)
     logger.info(
@@ -684,23 +773,33 @@ async def run_cross_document_check_rag(
         combined = combined[:cross_rag_limit] + "\n\n[... truncated ...]"
     language_hint = _language_hint(language) if language else ""
     system_tpl = await get_active_template("check_rag_cross_system")
-    system = render(system_tpl or DEFAULT_CHECK_RAG_CROSS_SYSTEM, {"language_hint": language_hint})
+    system = render(
+        system_tpl or DEFAULT_CHECK_RAG_CROSS_SYSTEM, {"language_hint": language_hint}
+    )
     # Same injection hardening as the full-text paths: marker-wrapped excerpts are data.
     system = SYSTEM_PROMPT_SAFETY_PREAMBLE + "\n\n" + system + CHECK_OUTPUT_GUIDANCE
     user_tpl = await get_active_template("check_rag_cross_user")
     user_content = render(
         user_tpl or DEFAULT_CHECK_RAG_CROSS_USER,
         {
-            "requirement": sanitize_prompt_field(check_instruction, max_chars=_CHECK_INSTRUCTION_MAX_CHARS),
+            "requirement": sanitize_prompt_field(
+                check_instruction, max_chars=_CHECK_INSTRUCTION_MAX_CHARS
+            ),
             # Headroom keeps the appended "[... truncated ...]" suffix intact.
-            "excerpts": wrap_untrusted_content(combined, max_chars=cross_rag_limit + 100),
+            "excerpts": wrap_untrusted_content(
+                combined, max_chars=cross_rag_limit + 100
+            ),
             "legal_bases_section": _legal_bases_section(legal_bases_context),
         },
     )
     t0 = time.monotonic()
     out = await _llm_check_call(
-        system=system, user_content=user_content, source_text=combined,
-        case_id=case_id, playbook_revision=playbook_revision, label=check_instruction,
+        system=system,
+        user_content=user_content,
+        source_text=combined,
+        case_id=case_id,
+        playbook_revision=playbook_revision,
+        label=check_instruction,
     )
     elapsed = round(time.monotonic() - t0, 2)
     logger.info(

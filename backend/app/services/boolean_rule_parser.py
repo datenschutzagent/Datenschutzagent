@@ -17,12 +17,12 @@ server — and the bar to fix that retroactively is extremely high. The
 parser handles AND/OR/NOT + parentheses, which is all the EDSA-style
 combinator logic we need.
 """
+
 from __future__ import annotations
 
 import re
+from collections.abc import Iterable
 from dataclasses import dataclass
-from typing import Iterable
-
 
 # ---------------------------------------------------------------------------
 # AST
@@ -36,19 +36,19 @@ class Identifier:
 
 @dataclass(frozen=True)
 class Not:
-    operand: "Expr"
+    operand: Expr
 
 
 @dataclass(frozen=True)
 class And:
-    left: "Expr"
-    right: "Expr"
+    left: Expr
+    right: Expr
 
 
 @dataclass(frozen=True)
 class Or:
-    left: "Expr"
-    right: "Expr"
+    left: Expr
+    right: Expr
 
 
 Expr = Identifier | Not | And | Or
@@ -121,7 +121,9 @@ class _Cursor:
             raise ValueError(f"Expected {expected!r} but reached end of expression")
         actual = self.tokens[self.i]
         if actual != expected:
-            raise ValueError(f"Expected {expected!r} but got {actual!r} at token {self.i}")
+            raise ValueError(
+                f"Expected {expected!r} but got {actual!r} at token {self.i}"
+            )
         self.i += 1
 
 
@@ -210,7 +212,7 @@ def collect_identifiers(expr: Expr) -> set[str]:
             out.add(node.name)
         elif isinstance(node, Not):
             _walk(node.operand)
-        elif isinstance(node, (And, Or)):
+        elif isinstance(node, And | Or):
             _walk(node.left)
             _walk(node.right)
 

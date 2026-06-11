@@ -1,4 +1,5 @@
 """DSFA API: Datenschutz-Folgenabschätzung (Art. 35 DSGVO) generieren und verwalten."""
+
 import asyncio
 import logging
 import uuid
@@ -30,7 +31,9 @@ router = APIRouter()
 logger = logging.getLogger(__name__)
 
 
-@router.get("/{case_id}/dsfa/screening", summary="DSFA-Screening (Prüft ob DSFA erforderlich)")
+@router.get(
+    "/{case_id}/dsfa/screening", summary="DSFA-Screening (Prüft ob DSFA erforderlich)"
+)
 async def screen_dsfa(
     case_id: UUID,
     db: AsyncSession = Depends(get_db),
@@ -40,6 +43,7 @@ async def screen_dsfa(
     erforderlich ist. Gibt score, Faktoren und Empfehlung zurück (keine LLM-Kosten).
     """
     from app.services.dsfa_service import screen_dsfa_requirement
+
     case_result = await db.execute(select(CaseModel).where(CaseModel.id == case_id))
     if case_result.scalar_one_or_none() is None:
         raise HTTPException(status_code=404, detail="Vorgang nicht gefunden")
@@ -54,10 +58,15 @@ async def get_dsfa(
     _user=require_roles("viewer", "editor", "admin"),
 ):
     """Gibt die aktuelle DSFA für einen Vorgang zurück."""
-    result = await db.execute(select(DSFAAssessmentModel).where(DSFAAssessmentModel.case_id == case_id))
+    result = await db.execute(
+        select(DSFAAssessmentModel).where(DSFAAssessmentModel.case_id == case_id)
+    )
     dsfa = result.scalar_one_or_none()
     if not dsfa:
-        raise HTTPException(status_code=404, detail="Keine DSFA für diesen Vorgang vorhanden. Bitte zuerst generieren.")
+        raise HTTPException(
+            status_code=404,
+            detail="Keine DSFA für diesen Vorgang vorhanden. Bitte zuerst generieren.",
+        )
     response = DSFAResponse.model_validate(dsfa)
     # Soft-Migration: Legacy-Records (string-Skala) on-the-fly auf die
     # numerische 1-5-Skala + Matrix normalisieren, ohne die DB anzufassen.
@@ -65,7 +74,12 @@ async def get_dsfa(
     return response
 
 
-@router.post("/{case_id}/dsfa/generate", response_model=DSFAJobStatusResponse, status_code=202, summary="DSFA generieren")
+@router.post(
+    "/{case_id}/dsfa/generate",
+    response_model=DSFAJobStatusResponse,
+    status_code=202,
+    summary="DSFA generieren",
+)
 @limiter.limit("5/minute")
 async def generate_dsfa(
     request: Request,
@@ -81,6 +95,7 @@ async def generate_dsfa(
     # Concurrency: prevent two parallel DSFA generations for the same case
     # racing each other and producing duplicate jobs.
     from app.core.concurrency import try_acquire_dsfa_lock
+
     if not await try_acquire_dsfa_lock(db, case_id):
         raise HTTPException(
             status_code=423,
@@ -88,6 +103,7 @@ async def generate_dsfa(
         )
 
     from app.config import settings
+
     job_id = uuid.uuid4()
     job = DSFAJobModel(
         id=job_id,
@@ -99,6 +115,7 @@ async def generate_dsfa(
 
     if settings.celery_enabled:
         from app.celery_app import build_dsfa_task
+
         task = build_dsfa_task.delay(str(job_id), get_request_id())
         job.celery_task_id = task.id
         await db.flush()
@@ -141,7 +158,9 @@ async def get_dsfa_job_status(
     )
 
 
-@router.patch("/{case_id}/dsfa/finalize", response_model=DSFAResponse, summary="DSFA finalisieren")
+@router.patch(
+    "/{case_id}/dsfa/finalize", response_model=DSFAResponse, summary="DSFA finalisieren"
+)
 @limiter.limit("30/minute")
 async def finalize_dsfa(
     request: Request,
@@ -151,7 +170,9 @@ async def finalize_dsfa(
     _user=require_roles("editor", "admin"),
 ):
     """Markiert die DSFA als finalisiert (nicht mehr bearbeitbar)."""
-    result = await db.execute(select(DSFAAssessmentModel).where(DSFAAssessmentModel.case_id == case_id))
+    result = await db.execute(
+        select(DSFAAssessmentModel).where(DSFAAssessmentModel.case_id == case_id)
+    )
     dsfa = result.scalar_one_or_none()
     if not dsfa:
         raise HTTPException(status_code=404, detail="Keine DSFA vorhanden")
@@ -174,7 +195,9 @@ async def _run_dsfa_inline(job_id: UUID, db: AsyncSession) -> None:
     from app.services.dsfa_service import generate_dsfa, save_dsfa
 
     async with async_session_factory() as session:
-        job_result = await session.execute(select(DSFAJobModel).where(DSFAJobModel.id == job_id))
+        job_result = await session.execute(
+            select(DSFAJobModel).where(DSFAJobModel.id == job_id)
+        )
         job = job_result.scalar_one_or_none()
         if not job:
             return

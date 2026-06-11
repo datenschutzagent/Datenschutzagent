@@ -3,6 +3,7 @@
 Uses a real temp directory (pytest tmp_path) for YAML files and mocks
 the database session to avoid a live PostgreSQL connection.
 """
+
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock
 

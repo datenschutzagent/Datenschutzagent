@@ -3,6 +3,7 @@
 Labelled (quote, should_be_grounded) pairs measure whether ``partition_grounded`` correctly
 keeps verbatim quotes and rejects hallucinated ones. No LLM required.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -62,5 +63,8 @@ class GroundingF1(Evaluator):
 
 
 def build_dataset() -> Dataset:
-    cases = [Case(name=name, inputs=source, expected_output=None) for name, source, _ in _LABELLED]
+    cases = [
+        Case(name=name, inputs=source, expected_output=None)
+        for name, source, _ in _LABELLED
+    ]
     return Dataset(name="evidence_grounding", cases=cases, evaluators=[GroundingF1()])

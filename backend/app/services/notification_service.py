@@ -1,4 +1,5 @@
 """E-Mail-Benachrichtigungen für Fristen und überfällige Befunde."""
+
 import logging
 import smtplib
 import ssl
@@ -51,32 +52,52 @@ def _send_email(to_address: str, subject: str, body: str) -> None:
             smtp.ehlo()
             smtp.starttls(context=context)
             if settings.smtp_username:
-                smtp.login(settings.smtp_username, settings.smtp_password.get_secret_value())
+                smtp.login(
+                    settings.smtp_username, settings.smtp_password.get_secret_value()
+                )
             smtp.send_message(msg)
     else:
         with smtplib.SMTP(settings.smtp_host, settings.smtp_port) as smtp:
             if settings.smtp_username:
-                smtp.login(settings.smtp_username, settings.smtp_password.get_secret_value())
+                smtp.login(
+                    settings.smtp_username, settings.smtp_password.get_secret_value()
+                )
             smtp.send_message(msg)
 
 
 def test_smtp_connection() -> dict:
     """Testet die SMTP-Verbindung. Gibt status='ok' oder 'error' zurück."""
     if not settings.smtp_enabled:
-        return {"status": "disabled", "detail": "SMTP ist nicht aktiviert (SMTP_ENABLED=false)"}
+        return {
+            "status": "disabled",
+            "detail": "SMTP ist nicht aktiviert (SMTP_ENABLED=false)",
+        }
     try:
         if settings.smtp_tls:
             context = ssl.create_default_context()
-            with smtplib.SMTP(settings.smtp_host, settings.smtp_port, timeout=5) as smtp:
+            with smtplib.SMTP(
+                settings.smtp_host, settings.smtp_port, timeout=5
+            ) as smtp:
                 smtp.ehlo()
                 smtp.starttls(context=context)
                 if settings.smtp_username:
-                    smtp.login(settings.smtp_username, settings.smtp_password.get_secret_value())
+                    smtp.login(
+                        settings.smtp_username,
+                        settings.smtp_password.get_secret_value(),
+                    )
         else:
-            with smtplib.SMTP(settings.smtp_host, settings.smtp_port, timeout=5) as smtp:
+            with smtplib.SMTP(
+                settings.smtp_host, settings.smtp_port, timeout=5
+            ) as smtp:
                 if settings.smtp_username:
-                    smtp.login(settings.smtp_username, settings.smtp_password.get_secret_value())
-        return {"status": "ok", "detail": f"Verbunden mit {settings.smtp_host}:{settings.smtp_port}"}
+                    smtp.login(
+                        settings.smtp_username,
+                        settings.smtp_password.get_secret_value(),
+                    )
+        return {
+            "status": "ok",
+            "detail": f"Verbunden mit {settings.smtp_host}:{settings.smtp_port}",
+        }
     except Exception as exc:
         return {"status": "error", "detail": str(exc)}
 
@@ -125,7 +146,8 @@ async def scan_and_notify_deadlines(db: AsyncSession) -> dict:
         if not assignee_user or not assignee_user.email:
             logger.info(
                 "deadline_warning skipped: assignee '%s' for case %s has no registered user with e-mail",
-                case.assignee, case.id,
+                case.assignee,
+                case.id,
             )
             continue
         # Anti-Spam: nicht öfter als einmal pro Cooldown-Fenster benachrichtigen
@@ -146,12 +168,18 @@ async def scan_and_notify_deadlines(db: AsyncSession) -> dict:
             activity = ActivityLogModel(
                 case_id=case.id,
                 event_type="notification_sent",
-                payload={"type": "deadline_warning", "recipient": assignee_user.email, "days_left": days_left},
+                payload={
+                    "type": "deadline_warning",
+                    "recipient": assignee_user.email,
+                    "days_left": days_left,
+                },
             )
             db.add(activity)
             sent_count += 1
         except Exception as exc:
-            logger.warning("Failed to send deadline notification for case %s: %s", case.id, exc)
+            logger.warning(
+                "Failed to send deadline notification for case %s: %s", case.id, exc
+            )
 
     # Vorgänge mit überschrittener Frist
     overdue_result = await db.execute(
@@ -171,7 +199,8 @@ async def scan_and_notify_deadlines(db: AsyncSession) -> dict:
         if not assignee_user or not assignee_user.email:
             logger.info(
                 "deadline_overdue skipped: assignee '%s' for case %s has no registered user with e-mail",
-                case.assignee, case.id,
+                case.assignee,
+                case.id,
             )
             continue
         # Anti-Spam: nicht öfter als einmal pro Cooldown-Fenster benachrichtigen
@@ -192,18 +221,26 @@ async def scan_and_notify_deadlines(db: AsyncSession) -> dict:
             activity = ActivityLogModel(
                 case_id=case.id,
                 event_type="notification_sent",
-                payload={"type": "deadline_overdue", "recipient": assignee_user.email, "days_overdue": days_overdue},
+                payload={
+                    "type": "deadline_overdue",
+                    "recipient": assignee_user.email,
+                    "days_overdue": days_overdue,
+                },
             )
             db.add(activity)
             sent_count += 1
         except Exception as exc:
-            logger.warning("Failed to send overdue notification for case %s: %s", case.id, exc)
+            logger.warning(
+                "Failed to send overdue notification for case %s: %s", case.id, exc
+            )
 
     # -------------------------------------------------------
     # Datenpannen: 72-Stunden-Meldepflicht (Art. 33 DSGVO)
     # -------------------------------------------------------
     now = now_utc  # Alias für Datenpannen-Abschnitt (timezone-aware)
-    breach_warning_dt = now + timedelta(hours=settings.notification_breach_warning_hours)
+    breach_warning_dt = now + timedelta(
+        hours=settings.notification_breach_warning_hours
+    )
 
     breaches_result = await db.execute(
         select(DataBreachModel).where(
@@ -222,13 +259,16 @@ async def scan_and_notify_deadlines(db: AsyncSession) -> dict:
         if not assignee_user or not assignee_user.email:
             logger.info(
                 "breach_warning skipped: assignee '%s' for breach %s has no registered user with e-mail",
-                breach.assignee, breach.id,
+                breach.assignee,
+                breach.id,
             )
             continue
         # Anti-Spam: nicht öfter als einmal pro Cooldown-Fenster benachrichtigen
         if breach.last_notified_at and (now - breach.last_notified_at) < cooldown:
             continue
-        hours_left = max(0, int((breach.notification_deadline - now).total_seconds() / 3600))
+        hours_left = max(
+            0, int((breach.notification_deadline - now).total_seconds() / 3600)
+        )
         subject = f"[Datenschutzagent] Datenpanne – Meldepflicht in {hours_left}h: {breach.title}"
         body = (
             f"Guten Tag {assignee_user.display_name},\n\n"
@@ -242,14 +282,22 @@ async def scan_and_notify_deadlines(db: AsyncSession) -> dict:
         try:
             _send_email(assignee_user.email, subject, body)
             breach.last_notified_at = now
-            db.add(DataBreachActivityLogModel(
-                breach_id=breach.id,
-                event_type="notification_sent",
-                payload={"type": "breach_warning", "recipient": assignee_user.email, "hours_left": hours_left},
-            ))
+            db.add(
+                DataBreachActivityLogModel(
+                    breach_id=breach.id,
+                    event_type="notification_sent",
+                    payload={
+                        "type": "breach_warning",
+                        "recipient": assignee_user.email,
+                        "hours_left": hours_left,
+                    },
+                )
+            )
             sent_count += 1
         except Exception as exc:
-            logger.warning("Failed to send breach notification for breach %s: %s", breach.id, exc)
+            logger.warning(
+                "Failed to send breach notification for breach %s: %s", breach.id, exc
+            )
 
     # Überfällige Datenpannen (Meldepflicht abgelaufen, noch nicht abgeschlossen)
     overdue_breaches_result = await db.execute(
@@ -267,13 +315,16 @@ async def scan_and_notify_deadlines(db: AsyncSession) -> dict:
         if not assignee_user or not assignee_user.email:
             logger.info(
                 "breach_overdue skipped: assignee '%s' for breach %s has no registered user with e-mail",
-                breach.assignee, breach.id,
+                breach.assignee,
+                breach.id,
             )
             continue
         # Anti-Spam: nicht öfter als einmal pro Cooldown-Fenster benachrichtigen
         if breach.last_notified_at and (now - breach.last_notified_at) < cooldown:
             continue
-        hours_overdue = max(0, int((now - breach.notification_deadline).total_seconds() / 3600))
+        hours_overdue = max(
+            0, int((now - breach.notification_deadline).total_seconds() / 3600)
+        )
         subject = f"[Datenschutzagent] ÜBERFÄLLIG – Datenpanne nicht gemeldet ({hours_overdue}h): {breach.title}"
         body = (
             f"Guten Tag {assignee_user.display_name},\n\n"
@@ -287,14 +338,24 @@ async def scan_and_notify_deadlines(db: AsyncSession) -> dict:
         try:
             _send_email(assignee_user.email, subject, body)
             breach.last_notified_at = now
-            db.add(DataBreachActivityLogModel(
-                breach_id=breach.id,
-                event_type="notification_sent",
-                payload={"type": "breach_overdue", "recipient": assignee_user.email, "hours_overdue": hours_overdue},
-            ))
+            db.add(
+                DataBreachActivityLogModel(
+                    breach_id=breach.id,
+                    event_type="notification_sent",
+                    payload={
+                        "type": "breach_overdue",
+                        "recipient": assignee_user.email,
+                        "hours_overdue": hours_overdue,
+                    },
+                )
+            )
             sent_count += 1
         except Exception as exc:
-            logger.warning("Failed to send overdue breach notification for breach %s: %s", breach.id, exc)
+            logger.warning(
+                "Failed to send overdue breach notification for breach %s: %s",
+                breach.id,
+                exc,
+            )
 
     # -------------------------------------------------------
     # DSR-Anfragen: 30-Tage-Antwortpflicht (Art. 12 DSGVO)
@@ -318,7 +379,8 @@ async def scan_and_notify_deadlines(db: AsyncSession) -> dict:
         if not assignee_user or not assignee_user.email:
             logger.info(
                 "dsr_warning skipped: assignee '%s' for DSR %s has no registered user with e-mail",
-                dsr.assignee, dsr.id,
+                dsr.assignee,
+                dsr.id,
             )
             continue
         # Anti-Spam: nicht öfter als einmal pro Cooldown-Fenster benachrichtigen
@@ -329,9 +391,12 @@ async def scan_and_notify_deadlines(db: AsyncSession) -> dict:
             continue
         days_left = (dsr.response_deadline - today).days
         req_type_labels = {
-            "access": "Auskunft", "rectification": "Berichtigung",
-            "erasure": "Löschung", "portability": "Datenübertragbarkeit",
-            "restriction": "Einschränkung", "objection": "Widerspruch",
+            "access": "Auskunft",
+            "rectification": "Berichtigung",
+            "erasure": "Löschung",
+            "portability": "Datenübertragbarkeit",
+            "restriction": "Einschränkung",
+            "objection": "Widerspruch",
         }
         req_label = req_type_labels.get(dsr.request_type, dsr.request_type)
         subject = f"[Datenschutzagent] DSR-Anfrage ({req_label}) – Antwortfrist in {days_left} Tag(en)"
@@ -347,19 +412,29 @@ async def scan_and_notify_deadlines(db: AsyncSession) -> dict:
         try:
             _send_email(assignee_user.email, subject, body)
             dsr.last_notified_at = now_utc
-            db.add(DSRActivityLogModel(
-                request_id=dsr.id,
-                event_type="notification_sent",
-                payload={"type": "dsr_warning", "recipient": assignee_user.email, "days_left": days_left},
-            ))
+            db.add(
+                DSRActivityLogModel(
+                    request_id=dsr.id,
+                    event_type="notification_sent",
+                    payload={
+                        "type": "dsr_warning",
+                        "recipient": assignee_user.email,
+                        "days_left": days_left,
+                    },
+                )
+            )
             sent_count += 1
         except Exception as exc:
-            logger.warning("Failed to send DSR notification for DSR %s: %s", dsr.id, exc)
+            logger.warning(
+                "Failed to send DSR notification for DSR %s: %s", dsr.id, exc
+            )
 
     # -------------------------------------------------------
     # AVV-Verträge: Ablaufwarnung
     # -------------------------------------------------------
-    avv_warning_date = today + timedelta(days=settings.notification_avv_expiry_warning_days)
+    avv_warning_date = today + timedelta(
+        days=settings.notification_avv_expiry_warning_days
+    )
 
     avv_result = await db.execute(
         select(AVVContractModel).where(
@@ -378,7 +453,8 @@ async def scan_and_notify_deadlines(db: AsyncSession) -> dict:
         if not assignee_user or not assignee_user.email:
             logger.info(
                 "avv_expiry skipped: assignee '%s' for AVV %s has no registered user with e-mail",
-                avv.assignee, avv.id,
+                avv.assignee,
+                avv.id,
             )
             continue
         # Anti-Spam: nicht öfter als einmal pro Cooldown-Fenster benachrichtigen
@@ -400,7 +476,9 @@ async def scan_and_notify_deadlines(db: AsyncSession) -> dict:
             avv.last_notified_at = now_utc
             sent_count += 1
         except Exception as exc:
-            logger.warning("Failed to send AVV expiry notification for AVV %s: %s", avv.id, exc)
+            logger.warning(
+                "Failed to send AVV expiry notification for AVV %s: %s", avv.id, exc
+            )
 
     if sent_count > 0:
         await db.flush()
@@ -450,7 +528,9 @@ async def scan_and_notify_critical_findings(db: AsyncSession) -> dict:
         .join(CaseModel, FindingModel.case_id == CaseModel.id)
         .where(
             and_(
-                FindingModel.severity.in_([FindingSeverity.CRITICAL, FindingSeverity.HIGH]),
+                FindingModel.severity.in_(
+                    [FindingSeverity.CRITICAL, FindingSeverity.HIGH]
+                ),
                 FindingModel.status == FindingStatus.OPEN,
                 CaseModel.archived_at == None,  # noqa: E711
             )
@@ -471,11 +551,14 @@ async def scan_and_notify_critical_findings(db: AsyncSession) -> dict:
         if not recipient:
             logger.info(
                 "critical_finding_notify skipped: assignee '%s' for finding %s has no notifiable user",
-                case.assignee, finding.id,
+                case.assignee,
+                finding.id,
             )
             continue
 
-        severity_de = _SEVERITY_LABEL_DE.get(FindingSeverity(finding.severity), finding.severity)
+        severity_de = _SEVERITY_LABEL_DE.get(
+            FindingSeverity(finding.severity), finding.severity
+        )
         subject = f"[Datenschutzagent] {severity_de}: Befund in '{case.title}'"
         body = (
             f"Guten Tag {recipient.display_name},\n\n"
@@ -490,24 +573,34 @@ async def scan_and_notify_critical_findings(db: AsyncSession) -> dict:
         try:
             _send_email(recipient.email, subject, body)
             finding.last_notified_at = now_utc
-            db.add(ActivityLogModel(
-                case_id=case.id,
-                event_type="notification_sent",
-                payload={
-                    "type": "critical_finding",
-                    "recipient": recipient.email,
-                    "finding_id": str(finding.id),
-                    "severity": finding.severity,
-                },
-            ))
+            db.add(
+                ActivityLogModel(
+                    case_id=case.id,
+                    event_type="notification_sent",
+                    payload={
+                        "type": "critical_finding",
+                        "recipient": recipient.email,
+                        "finding_id": str(finding.id),
+                        "severity": finding.severity,
+                    },
+                )
+            )
             sent_count += 1
-        except Exception as exc:  # noqa: BLE001 — never let one bad recipient kill the scan
-            logger.warning("Failed to send critical finding notification for finding %s: %s", finding.id, exc)
+        except (
+            Exception
+        ) as exc:  # noqa: BLE001 — never let one bad recipient kill the scan
+            logger.warning(
+                "Failed to send critical finding notification for finding %s: %s",
+                finding.id,
+                exc,
+            )
 
     if sent_count > 0:
         await db.flush()
 
-    logger.info("Critical-finding notification scan complete", extra={"sent": sent_count})
+    logger.info(
+        "Critical-finding notification scan complete", extra={"sent": sent_count}
+    )
     return {"sent": sent_count}
 
 
@@ -534,7 +627,9 @@ async def scan_and_notify_maturity_decline(
 
     cfg = get_risk_config().risk_velocity
     if not cfg.enabled:
-        logger.info("Maturity-decline notifications skipped: risk_velocity disabled in config")
+        logger.info(
+            "Maturity-decline notifications skipped: risk_velocity disabled in config"
+        )
         return {"sent": 0, "skipped_disabled": True}
 
     velocity = await compute_risk_velocity(
@@ -543,10 +638,15 @@ async def scan_and_notify_maturity_decline(
         window_days=window_days if window_days is not None else cfg.window_days,
     )
 
-    effective_threshold = threshold_pct if threshold_pct is not None else cfg.significant_change_pct
+    effective_threshold = (
+        threshold_pct if threshold_pct is not None else cfg.significant_change_pct
+    )
     declined = [
-        d for d in velocity.get("departments", [])
-        if d.get("trend") == "down" and d.get("delta") is not None and abs(d["delta"]) >= effective_threshold
+        d
+        for d in velocity.get("departments", [])
+        if d.get("trend") == "down"
+        and d.get("delta") is not None
+        and abs(d["delta"]) >= effective_threshold
     ]
     if not declined:
         logger.info("Maturity-decline scan: no significant declines detected")
@@ -561,12 +661,16 @@ async def scan_and_notify_maturity_decline(
             )
         )
     )
-    recipients = [u for u in admins_result.scalars().all() if _user_accepts_notifications(u)]
+    recipients = [
+        u for u in admins_result.scalars().all() if _user_accepts_notifications(u)
+    ]
     if not recipients:
         logger.info("Maturity-decline scan: no admin recipients available")
         return {"sent": 0, "declines": len(declined), "skipped_no_recipients": True}
 
-    lines = ["Folgende Abteilungen zeigen einen signifikanten Rückgang der Compliance-Reife:\n"]
+    lines = [
+        "Folgende Abteilungen zeigen einen signifikanten Rückgang der Compliance-Reife:\n"
+    ]
     for d in declined:
         lines.append(
             f"  - {d['department']}: {d['previous_composite']} -> {d['current_composite']} "
@@ -593,10 +697,18 @@ async def scan_and_notify_maturity_decline(
             _send_email(admin.email, subject, body)
             sent_count += 1
         except Exception as exc:  # noqa: BLE001
-            logger.warning("Failed to send maturity-decline notification to %s: %s", admin.email, exc)
+            logger.warning(
+                "Failed to send maturity-decline notification to %s: %s",
+                admin.email,
+                exc,
+            )
 
     logger.info(
         "Maturity-decline notification scan complete",
         extra={"sent": sent_count, "declines": len(declined)},
     )
-    return {"sent": sent_count, "declines": len(declined), "departments": [d["department"] for d in declined]}
+    return {
+        "sent": sent_count,
+        "declines": len(declined),
+        "departments": [d["department"] for d in declined],
+    }

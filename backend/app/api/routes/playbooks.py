@@ -11,7 +11,6 @@ from app.core.rate_limit import limiter
 from app.database import get_db
 from app.models.db import (
     CaseModel,
-    DocumentModel,
     PlaybookModel,
     PlaybookRevisionModel,
     UserModel,
@@ -32,8 +31,14 @@ router = APIRouter()
 
 @router.get("/for-selection", response_model=list[PlaybookMatchResult])
 async def list_playbooks_for_selection(
-    department: str = Query(..., min_length=1, description="Case department value (e.g. from GET /departments)."),
-    processing_context: str | None = Query(None, description="Optional processing_context from case."),
+    department: str = Query(
+        ...,
+        min_length=1,
+        description="Case department value (e.g. from GET /departments).",
+    ),
+    processing_context: str | None = Query(
+        None, description="Optional processing_context from case."
+    ),
     case_type: str | None = Query(None),
     strict_case_type: bool = Query(
         False,
@@ -63,9 +68,18 @@ async def list_playbooks_for_selection(
 
 @router.get("", response_model=list[PlaybookResponse], summary="Playbooks auflisten")
 async def list_playbooks(
-    skip: int = Query(default=0, ge=0, description="Anzahl übersprungener Einträge (Pagination)"),
-    limit: int = Query(default=200, ge=1, le=500, description="Maximale Anzahl zurückgegebener Einträge"),
-    is_active: bool | None = Query(default=None, description="Filtert nach Aktiv-Status (true/false)"),
+    skip: int = Query(
+        default=0, ge=0, description="Anzahl übersprungener Einträge (Pagination)"
+    ),
+    limit: int = Query(
+        default=200,
+        ge=1,
+        le=500,
+        description="Maximale Anzahl zurückgegebener Einträge",
+    ),
+    is_active: bool | None = Query(
+        default=None, description="Filtert nach Aktiv-Status (true/false)"
+    ),
     db: AsyncSession = Depends(get_db),
 ):
     """List playbooks with optional filtering by active state and pagination."""
@@ -76,6 +90,7 @@ async def list_playbooks(
     result = await db.execute(q)
     playbooks = result.scalars().all()
     return [PlaybookResponse.model_validate(p) for p in playbooks]
+
 
 @router.post("", response_model=PlaybookResponse, status_code=201)
 @limiter.limit("20/minute")
@@ -98,13 +113,16 @@ async def create_playbook(
     await db.refresh(db_playbook)
     return PlaybookResponse.model_validate(db_playbook)
 
+
 @router.get("/{playbook_id}", response_model=PlaybookResponse)
 async def get_playbook(
     playbook_id: UUID,
     db: AsyncSession = Depends(get_db),
 ):
     """Get a playbook by ID."""
-    result = await db.execute(select(PlaybookModel).where(PlaybookModel.id == playbook_id))
+    result = await db.execute(
+        select(PlaybookModel).where(PlaybookModel.id == playbook_id)
+    )
     playbook = result.scalar_one_or_none()
     if not playbook:
         raise HTTPException(status_code=404, detail="Playbook not found")
@@ -119,7 +137,9 @@ async def update_playbook(
     _user=require_roles("editor", "admin"),
 ):
     """Update a playbook (partial). Saves a revision snapshot before applying changes."""
-    result = await db.execute(select(PlaybookModel).where(PlaybookModel.id == playbook_id))
+    result = await db.execute(
+        select(PlaybookModel).where(PlaybookModel.id == playbook_id)
+    )
     playbook = result.scalar_one_or_none()
     if not playbook:
         raise HTTPException(status_code=404, detail="Playbook not found")
@@ -150,7 +170,9 @@ async def list_playbook_revisions(
     _user=require_roles("viewer", "editor", "admin"),
 ):
     """List version history snapshots for a playbook (newest first)."""
-    pb_result = await db.execute(select(PlaybookModel).where(PlaybookModel.id == playbook_id))
+    pb_result = await db.execute(
+        select(PlaybookModel).where(PlaybookModel.id == playbook_id)
+    )
     if not pb_result.scalar_one_or_none():
         raise HTTPException(status_code=404, detail="Playbook not found")
 
@@ -164,7 +186,9 @@ async def list_playbook_revisions(
     return [PlaybookRevisionResponse.model_validate(r) for r in revisions]
 
 
-@router.post("/{playbook_id}/revisions/{revision_id}/restore", response_model=PlaybookResponse)
+@router.post(
+    "/{playbook_id}/revisions/{revision_id}/restore", response_model=PlaybookResponse
+)
 async def restore_playbook_revision(
     playbook_id: UUID,
     revision_id: UUID,
@@ -172,7 +196,9 @@ async def restore_playbook_revision(
     _user=require_roles("editor", "admin"),
 ):
     """Restore a playbook to a previous revision snapshot."""
-    pb_result = await db.execute(select(PlaybookModel).where(PlaybookModel.id == playbook_id))
+    pb_result = await db.execute(
+        select(PlaybookModel).where(PlaybookModel.id == playbook_id)
+    )
     playbook = pb_result.scalar_one_or_none()
     if not playbook:
         raise HTTPException(status_code=404, detail="Playbook not found")
@@ -211,19 +237,23 @@ async def delete_playbook(
     _user=require_roles("editor", "admin"),
 ):
     """Delete a playbook."""
-    result = await db.execute(select(PlaybookModel).where(PlaybookModel.id == playbook_id))
+    result = await db.execute(
+        select(PlaybookModel).where(PlaybookModel.id == playbook_id)
+    )
     playbook = result.scalar_one_or_none()
     if not playbook:
         raise HTTPException(status_code=404, detail="Playbook not found")
     await db.delete(playbook)
     await db.flush()
-    return None
+    return
 
 
 @router.get("/{playbook_id}/coverage-preview", response_model=PlaybookCoverageResponse)
 async def get_playbook_coverage_preview(
     playbook_id: UUID,
-    case_id: UUID = Query(..., description="Case ID to check document availability against."),
+    case_id: UUID = Query(
+        ..., description="Case ID to check document availability against."
+    ),
     db: AsyncSession = Depends(get_db),
 ):
     """Preview which checks of the playbook will apply to the given case's documents.
@@ -231,7 +261,9 @@ async def get_playbook_coverage_preview(
     Returns a per-check breakdown (applicable / not applicable + reason) and a list of
     document types that are missing but required by at least one check.
     """
-    pb_result = await db.execute(select(PlaybookModel).where(PlaybookModel.id == playbook_id))
+    pb_result = await db.execute(
+        select(PlaybookModel).where(PlaybookModel.id == playbook_id)
+    )
     playbook = pb_result.scalar_one_or_none()
     if not playbook:
         raise HTTPException(status_code=404, detail="Playbook not found")
@@ -246,7 +278,9 @@ async def get_playbook_coverage_preview(
         raise HTTPException(status_code=404, detail="Case not found")
 
     present_doc_types = {d.type for d in case.documents}
-    raw_checks = playbook.content.get("checks", []) if isinstance(playbook.content, dict) else []
+    raw_checks = (
+        playbook.content.get("checks", []) if isinstance(playbook.content, dict) else []
+    )
 
     items: list[PlaybookCoverageItem] = []
     missing_doc_types: set[str] = set()
@@ -269,13 +303,15 @@ async def get_playbook_coverage_preview(
                 missing_doc_types.update(missing)
                 reason = f"Fehlende Dokumenttypen: {', '.join(missing)}"
 
-        items.append(PlaybookCoverageItem(
-            name=name,
-            category=category,
-            scope=scope,
-            applicable=applicable,
-            reason=reason,
-        ))
+        items.append(
+            PlaybookCoverageItem(
+                name=name,
+                category=category,
+                scope=scope,
+                applicable=applicable,
+                reason=reason,
+            )
+        )
 
     applicable_count = sum(1 for i in items if i.applicable)
     return PlaybookCoverageResponse(

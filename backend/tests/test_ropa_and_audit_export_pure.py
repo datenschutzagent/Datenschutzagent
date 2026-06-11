@@ -4,13 +4,11 @@ The DOCX renderer needs python-docx so we only verify it loads; the CSV
 path is fully exercised here. HMAC tests cover both the happy path and
 tampered-body detection.
 """
+
 from __future__ import annotations
 
 import hashlib
 import hmac
-import os
-
-import pytest
 
 from app.services.audit_export_service import (
     _audit_signing_key,
@@ -18,10 +16,9 @@ from app.services.audit_export_service import (
 )
 from app.services.ropa_export_service import (
     _ART30_SECTIONS,
-    build_ropa_csv,
     _project_art30_rows,
+    build_ropa_csv,
 )
-
 
 # ---------------------------------------------------------------------------
 # ROPA — Art-30 section coverage
@@ -95,14 +92,16 @@ def test_provenance_source_marks_vvt_correctly():
     by_key = {r["key"]: r for r in rows}
     assert by_key["zwecke"]["source"] == "vvt"
     # When VVT doesn't carry a verantwortlicher value, ``case`` fallback applies.
-    rows2 = _project_art30_rows(case_summary=_CASE, vvt_fields=_fields(**{"Verantwortlicher": ""}))
+    rows2 = _project_art30_rows(
+        case_summary=_CASE, vvt_fields=_fields(**{"Verantwortlicher": ""})
+    )
     by_key2 = {r["key"]: r for r in rows2}
     assert by_key2["verantwortlicher"]["source"] == "case"
 
 
 def test_csv_uses_bom_for_excel_compat():
     body = build_ropa_csv(case_summary=_CASE, vvt_fields=_fields())
-    assert body.startswith("﻿".encode("utf-8"))
+    assert body.startswith("﻿".encode())
 
 
 # ---------------------------------------------------------------------------
@@ -112,7 +111,9 @@ def test_csv_uses_bom_for_excel_compat():
 
 def test_signature_round_trip(monkeypatch):
     monkeypatch.setenv("AUDIT_EXPORT_SIGNING_KEY", "test-secret-123")
-    payload = b"id,event_type,payload,created_at\nabc,run_checks,{},2026-05-29T00:00:00\n"
+    payload = (
+        b"id,event_type,payload,created_at\nabc,run_checks,{},2026-05-29T00:00:00\n"
+    )
     sig = hmac.new(b"test-secret-123", payload, hashlib.sha256).hexdigest()
     assert verify_audit_signature(payload, sig) is True
 

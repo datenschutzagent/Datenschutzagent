@@ -7,25 +7,24 @@ and asserts that anything outside an explicit public whitelist inherits the auth
 dependency, so that forgetting to mount a router under the authenticated tree is
 caught before it reaches production.
 """
+
 from __future__ import annotations
 
-import pytest
 from fastapi.routing import APIRoute
 
 from app.core.auth import get_current_user
 from app.main import app
 
-
 # Paths that are intentionally public. Keep tight — every entry here is an
 # unauthenticated surface that must be justified.
 PUBLIC_PATH_PREFIXES: tuple[str, ...] = (
     "/health",
-    "/api/v1/auth/",       # OIDC config, login callback, token exchange
-    "/api/v1/config",      # App config for the frontend bootstrap
+    "/api/v1/auth/",  # OIDC config, login callback, token exchange
+    "/api/v1/config",  # App config for the frontend bootstrap
     "/docs",
     "/redoc",
     "/openapi.json",
-    "/metrics",            # Prometheus scrape — protected by METRICS_ALLOWED_IPS, not user auth
+    "/metrics",  # Prometheus scrape — protected by METRICS_ALLOWED_IPS, not user auth
 )
 
 
@@ -41,7 +40,10 @@ def _depends_on_current_user(route: APIRoute) -> bool:
 
 
 def _is_public(path: str) -> bool:
-    return any(path == prefix.rstrip("/") or path.startswith(prefix) for prefix in PUBLIC_PATH_PREFIXES)
+    return any(
+        path == prefix.rstrip("/") or path.startswith(prefix)
+        for prefix in PUBLIC_PATH_PREFIXES
+    )
 
 
 def test_all_non_public_routes_require_authentication() -> None:

@@ -1,4 +1,5 @@
 """Pure unit tests for the Weaviate hybrid-search helper (no Weaviate server)."""
+
 from app.config import settings
 from app.services.weaviate_service import _query_collection
 
@@ -32,7 +33,9 @@ def test_hybrid_called_with_query_vector_alpha(monkeypatch):
     monkeypatch.setattr(settings, "weaviate_hybrid_enabled", True, raising=False)
     monkeypatch.setattr(settings, "weaviate_hybrid_alpha", 0.5, raising=False)
     col = _FakeCollection()
-    resp = _query_collection(col, "Speicherdauer Art. 28", _VECTOR, limit=5, filters="F")
+    resp = _query_collection(
+        col, "Speicherdauer Art. 28", _VECTOR, limit=5, filters="F"
+    )
     assert resp == "hybrid-response"
     assert col.query.near_vector_calls == []
     (call,) = col.query.hybrid_calls

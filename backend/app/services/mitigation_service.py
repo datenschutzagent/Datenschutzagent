@@ -6,6 +6,7 @@ the residual values plus a per-mitigation effect trace for UI display.
 
 See risk_config_loader.MitigationCatalogConfig for the catalog schema.
 """
+
 from __future__ import annotations
 
 from typing import Any
@@ -82,12 +83,14 @@ def apply_avv_mitigations(
         for dim, delta in dim_deltas.items():
             dim_total_delta[dim] = dim_total_delta.get(dim, 0.0) + delta
         score_total_delta += score_delta
-        applied_effects.append({
-            "id": m.id,
-            "label": m.label,
-            "score_delta": round(score_delta, 3),
-            "dimension_deltas": {k: round(v, 3) for k, v in dim_deltas.items()},
-        })
+        applied_effects.append(
+            {
+                "id": m.id,
+                "label": m.label,
+                "score_delta": round(score_delta, 3),
+                "dimension_deltas": {k: round(v, 3) for k, v in dim_deltas.items()},
+            }
+        )
 
     residual_dimensions: list[dict[str, Any]] = []
     for d in inherent_dimensions:
@@ -95,13 +98,19 @@ def apply_avv_mitigations(
         inh_score = float(d.get("score", 3))
         delta = dim_total_delta.get(name, 0.0)
         new_score = _clamp_score(inh_score + delta, floor=floor, ceil=5.0)
-        residual_dimensions.append({
-            "name": name,
-            "score": round(new_score, 2),
-            "inherent_score": int(inh_score) if inh_score == int(inh_score) else round(inh_score, 2),
-            "delta": round(delta, 3),
-            "rationale": d.get("rationale", ""),
-        })
+        residual_dimensions.append(
+            {
+                "name": name,
+                "score": round(new_score, 2),
+                "inherent_score": (
+                    int(inh_score)
+                    if inh_score == int(inh_score)
+                    else round(inh_score, 2)
+                ),
+                "delta": round(delta, 3),
+                "rationale": d.get("rationale", ""),
+            }
+        )
 
     # Weighted mean (matches avv_risk_service._weighted_average semantics).
     weights = avv_cfg.dimension_weights or {}
@@ -113,11 +122,18 @@ def apply_avv_mitigations(
                 w = float(weights.get(d["name"], 1.0))
                 total_w += w
                 weighted += float(d["score"]) * w
-            mean = (weighted / total_w) if total_w > 0 else (
-                sum(float(d["score"]) for d in residual_dimensions) / len(residual_dimensions)
+            mean = (
+                (weighted / total_w)
+                if total_w > 0
+                else (
+                    sum(float(d["score"]) for d in residual_dimensions)
+                    / len(residual_dimensions)
+                )
             )
         else:
-            mean = sum(float(d["score"]) for d in residual_dimensions) / len(residual_dimensions)
+            mean = sum(float(d["score"]) for d in residual_dimensions) / len(
+                residual_dimensions
+            )
     else:
         mean = 3.0
 
@@ -181,14 +197,19 @@ def apply_dsfa_mitigations(
             lik_delta_sum += m.reduction.likelihood_delta
             sev_delta_sum += m.reduction.severity_delta
             per_risk_effects.append(m.id)
-            effect_index.setdefault(m.id, {
-                "id": m.id,
-                "label": m.label,
-                "likelihood_delta": m.reduction.likelihood_delta,
-                "severity_delta": m.reduction.severity_delta,
-                "applied_to_risks": [],
-            })
-            effect_index[m.id]["applied_to_risks"].append(r.get("description", "")[:120])
+            effect_index.setdefault(
+                m.id,
+                {
+                    "id": m.id,
+                    "label": m.label,
+                    "likelihood_delta": m.reduction.likelihood_delta,
+                    "severity_delta": m.reduction.severity_delta,
+                    "applied_to_risks": [],
+                },
+            )
+            effect_index[m.id]["applied_to_risks"].append(
+                r.get("description", "")[:120]
+            )
 
         new_lik = _clamp_int(inh_lik + lik_delta_sum, floor=floor_lik, ceil=5)
         new_sev = _clamp_int(inh_sev + sev_delta_sum, floor=floor_sev, ceil=5)
@@ -197,16 +218,18 @@ def apply_dsfa_mitigations(
         except KeyError:
             new_level = r.get("risk_level", "medium")
 
-        residual_risks.append({
-            **r,
-            "likelihood_score": new_lik,
-            "severity_score": new_sev,
-            "risk_level": new_level,
-            "inherent_likelihood_score": inh_lik,
-            "inherent_severity_score": inh_sev,
-            "inherent_risk_level": r.get("risk_level", new_level),
-            "applied_mitigation_ids": per_risk_effects,
-        })
+        residual_risks.append(
+            {
+                **r,
+                "likelihood_score": new_lik,
+                "severity_score": new_sev,
+                "risk_level": new_level,
+                "inherent_likelihood_score": inh_lik,
+                "inherent_severity_score": inh_sev,
+                "inherent_risk_level": r.get("risk_level", new_level),
+                "applied_mitigation_ids": per_risk_effects,
+            }
+        )
 
     residual_overall = _max_level(residual_risks) if residual_risks else "low"
     inherent_overall = _max_level(inherent_risks) if inherent_risks else "low"
@@ -215,7 +238,8 @@ def apply_dsfa_mitigations(
         "residual_risks": residual_risks,
         "residual_overall_level": residual_overall,
         "inherent_overall_level": inherent_overall,
-        "dpo_consultation_required": residual_overall in dsfa_cfg.dpo_consultation_required_when_residual_in,
+        "dpo_consultation_required": residual_overall
+        in dsfa_cfg.dpo_consultation_required_when_residual_in,
         "applied_effects": list(effect_index.values()),
     }
 
@@ -239,7 +263,9 @@ def _max_level(risks: list[dict[str, Any]]) -> str:
     )
 
 
-def _resolve_active(applicable: list[MitigationConfig], applied_ids: list[str]) -> list[MitigationConfig]:
+def _resolve_active(
+    applicable: list[MitigationConfig], applied_ids: list[str]
+) -> list[MitigationConfig]:
     """Return catalog entries whose id is in applied_ids, preserving order.
 
     Silently ignores ids not found in the catalog — they may refer to

@@ -2,6 +2,7 @@
 
 Tests _language_hint() and _legal_bases_section() — no LLM, Weaviate, or DB needed.
 """
+
 from types import SimpleNamespace
 from uuid import uuid4
 
@@ -24,10 +25,21 @@ from app.services.check_runner import (
 )
 
 
-def _mk(is_compliant, severity="info", evidence=None, confidence=0.8, description="d", recommendation="r"):
+def _mk(
+    is_compliant,
+    severity="info",
+    evidence=None,
+    confidence=0.8,
+    description="d",
+    recommendation="r",
+):
     return CheckResult(
-        is_compliant=is_compliant, severity=severity, description=description,
-        evidence=evidence or [], recommendation=recommendation, confidence=confidence,
+        is_compliant=is_compliant,
+        severity=severity,
+        description=description,
+        evidence=evidence or [],
+        recommendation=recommendation,
+        confidence=confidence,
     )
 
 
@@ -65,7 +77,12 @@ def test_validator_rejects_noncompliant_with_empty_recommendation():
 
 def test_validator_accepts_consistent_results():
     assert _validate_with(_mk(True, severity="info")).is_compliant is True
-    assert _validate_with(_mk(False, severity="high", recommendation="Fix it")).is_compliant is False
+    assert (
+        _validate_with(
+            _mk(False, severity="high", recommendation="Fix it")
+        ).is_compliant
+        is False
+    )
 
 
 def test_validator_does_not_hard_fail_on_final_attempt():
@@ -109,18 +126,22 @@ def test_build_context_windows_respects_limit_and_cap():
 
 
 def test_aggregate_all_compliant():
-    out = _aggregate_check_results([_mk(True, confidence=0.9), _mk(True, confidence=0.6)])
+    out = _aggregate_check_results(
+        [_mk(True, confidence=0.9), _mk(True, confidence=0.6)]
+    )
     assert out.is_compliant is True
     assert out.severity == "info"
     assert out.confidence == 0.6  # min confidence
 
 
 def test_aggregate_any_violation_wins_with_max_severity():
-    out = _aggregate_check_results([
-        _mk(True, confidence=0.9),
-        _mk(False, severity="medium", evidence=["a"], confidence=0.7),
-        _mk(False, severity="critical", evidence=["b"], confidence=0.8),
-    ])
+    out = _aggregate_check_results(
+        [
+            _mk(True, confidence=0.9),
+            _mk(False, severity="medium", evidence=["a"], confidence=0.7),
+            _mk(False, severity="critical", evidence=["b"], confidence=0.8),
+        ]
+    )
     assert out.is_compliant is False
     assert out.severity == "critical"
     assert set(out.evidence) == {"a", "b"}
@@ -135,8 +156,12 @@ def test_aggregate_any_violation_wins_with_max_severity():
 def test_apply_grounding_drops_hallucinated_quote_and_lowers_confidence():
     source = "Die Speicherdauer betraegt zehn Jahre gemaess gesetzlicher Vorgaben."
     result = _mk(
-        False, severity="high",
-        evidence=["Die Speicherdauer betraegt zehn Jahre", "voellig erfundenes zitat ohne bezug"],
+        False,
+        severity="high",
+        evidence=[
+            "Die Speicherdauer betraegt zehn Jahre",
+            "voellig erfundenes zitat ohne bezug",
+        ],
         confidence=0.8,
     )
     out = _apply_grounding(result, source)
@@ -146,7 +171,12 @@ def test_apply_grounding_drops_hallucinated_quote_and_lowers_confidence():
 
 def test_apply_grounding_keeps_grounded_quotes_unchanged():
     source = "Rechtsgrundlage der Verarbeitung ist Art. 6 Abs. 1 lit. c DSGVO."
-    result = _mk(False, severity="high", evidence=["Rechtsgrundlage der Verarbeitung ist Art. 6"], confidence=0.8)
+    result = _mk(
+        False,
+        severity="high",
+        evidence=["Rechtsgrundlage der Verarbeitung ist Art. 6"],
+        confidence=0.8,
+    )
     out = _apply_grounding(result, source)
     assert out.evidence == ["Rechtsgrundlage der Verarbeitung ist Art. 6"]
     assert out.confidence == 0.8
@@ -279,9 +309,11 @@ def test_cache_key_accepts_none_case():
 def test_cache_key_includes_org_profile_scope():
     """Changing org_profile must invalidate the cache (multi-tenant isolation)."""
     from app.services import check_runner
+
     case = uuid4()
     check_runner._org_profile_hash_cached = None
     from app.config import settings
+
     original = settings.org_profile
     try:
         settings.org_profile = "tenant-a"
@@ -315,7 +347,9 @@ def test_cache_key_stable_for_same_playbook_revision():
     case = uuid4()
     playbook_id = uuid4()
     revision = f"{playbook_id}:2.3"
-    assert _cache_key("sys", "user", case, revision) == _cache_key("sys", "user", case, revision)
+    assert _cache_key("sys", "user", case, revision) == _cache_key(
+        "sys", "user", case, revision
+    )
 
 
 def test_cache_key_empty_revision_differs_from_non_empty():
@@ -359,7 +393,11 @@ def test_self_consistency_majority_non_compliant():
 
 
 def test_self_consistency_majority_compliant():
-    samples = [_mk(True, confidence=0.7), _mk(True, confidence=0.9), _mk(False, severity="low", confidence=0.8)]
+    samples = [
+        _mk(True, confidence=0.7),
+        _mk(True, confidence=0.9),
+        _mk(False, severity="low", confidence=0.8),
+    ]
     out = _aggregate_self_consistency(samples)
     assert out.is_compliant is True
     assert out.confidence == round(min(0.9, 2 / 3), 2)
@@ -367,7 +405,10 @@ def test_self_consistency_majority_compliant():
 
 def test_self_consistency_tie_prefers_non_compliant():
     # 1 vs 1: strict auditor — the non-compliant verdict wins on a tie.
-    samples = [_mk(True, confidence=0.9), _mk(False, severity="critical", confidence=0.5)]
+    samples = [
+        _mk(True, confidence=0.9),
+        _mk(False, severity="critical", confidence=0.5),
+    ]
     out = _aggregate_self_consistency(samples)
     assert out.is_compliant is False
     assert out.severity == "critical"
@@ -402,9 +443,13 @@ class TestRagInjectionHardening:
 
         monkeypatch.setattr(cr, "get_active_template", _no_template)
         monkeypatch.setattr(cr, "_llm_check_call", _fake_call)
-        monkeypatch.setattr(ws, "get_relevant_chunks", lambda _doc, _q, top_k=5: list(self._CHUNKS))
         monkeypatch.setattr(
-            ws, "get_relevant_chunks_for_case", lambda _case, _q, top_k_per_doc=5: list(self._CHUNKS)
+            ws, "get_relevant_chunks", lambda _doc, _q, top_k=5: list(self._CHUNKS)
+        )
+        monkeypatch.setattr(
+            ws,
+            "get_relevant_chunks_for_case",
+            lambda _case, _q, top_k_per_doc=5: list(self._CHUNKS),
         )
         return captured
 
@@ -413,7 +458,9 @@ class TestRagInjectionHardening:
         from app.core.prompt_security import SYSTEM_PROMPT_SAFETY_PREAMBLE
         from app.services.check_runner import run_check_rag
 
-        out = await run_check_rag(uuid4(), uuid4(), "Speicherdauer muss konkret sein", language="de")
+        out = await run_check_rag(
+            uuid4(), uuid4(), "Speicherdauer muss konkret sein", language="de"
+        )
         assert out is not None
         assert captured["system"].startswith(SYSTEM_PROMPT_SAFETY_PREAMBLE)
         # Excerpts are wrapped in the untrusted-content markers …
@@ -430,7 +477,9 @@ class TestRagInjectionHardening:
         from app.core.prompt_security import SYSTEM_PROMPT_SAFETY_PREAMBLE
         from app.services.check_runner import run_cross_document_check_rag
 
-        out = await run_cross_document_check_rag(uuid4(), "Konsistenz der Angaben prüfen", language="de")
+        out = await run_cross_document_check_rag(
+            uuid4(), "Konsistenz der Angaben prüfen", language="de"
+        )
         assert out is not None
         assert captured["system"].startswith(SYSTEM_PROMPT_SAFETY_PREAMBLE)
         assert "<<<USER_CONTENT_BEGIN>>>" in captured["user_content"]
@@ -453,11 +502,15 @@ class TestParallelFanOut:
 
         monkeypatch.setattr(cr, "get_active_template", _none)
         monkeypatch.setattr(settings, "max_context_chars_per_doc", 300, raising=False)
-        monkeypatch.setattr(settings, "long_doc_map_reduce_enabled", True, raising=False)
+        monkeypatch.setattr(
+            settings, "long_doc_map_reduce_enabled", True, raising=False
+        )
         monkeypatch.setattr(settings, "long_doc_max_chunks", 4, raising=False)
 
     @pytest.mark.anyio
-    async def test_map_reduce_fragments_run_concurrently_in_window_order(self, monkeypatch, _no_templates):
+    async def test_map_reduce_fragments_run_concurrently_in_window_order(
+        self, monkeypatch, _no_templates
+    ):
         import asyncio
 
         from app.services import check_runner as cr
@@ -473,7 +526,10 @@ class TestParallelFanOut:
             return _mk(True)
 
         monkeypatch.setattr(cr, "_llm_check_call", _fake_call)
-        text = " ".join(f"Satz Nummer {i} über die Verarbeitung personenbezogener Daten." for i in range(60))
+        text = " ".join(
+            f"Satz Nummer {i} über die Verarbeitung personenbezogener Daten."
+            for i in range(60)
+        )
         out = await cr.run_check(text, "Anforderung", language="de")
         assert out.is_compliant is True
         # At least two fragments, and every start precedes the first end → concurrent execution.
@@ -483,7 +539,9 @@ class TestParallelFanOut:
         assert seen_sources == sorted(seen_sources, key=text.index)
 
     @pytest.mark.anyio
-    async def test_map_reduce_propagates_fragment_failure(self, monkeypatch, _no_templates):
+    async def test_map_reduce_propagates_fragment_failure(
+        self, monkeypatch, _no_templates
+    ):
         import asyncio
 
         from app.services import check_runner as cr
@@ -492,14 +550,19 @@ class TestParallelFanOut:
 
         async def _fail_second(**kwargs):
             calls["n"] += 1
-            my_index = calls["n"]  # read before awaiting — siblings increment concurrently
+            my_index = calls[
+                "n"
+            ]  # read before awaiting — siblings increment concurrently
             await asyncio.sleep(0.01)
             if my_index == 2:
                 raise RuntimeError("provider down")
             return _mk(True)
 
         monkeypatch.setattr(cr, "_llm_check_call", _fail_second)
-        text = " ".join(f"Satz Nummer {i} über die Verarbeitung personenbezogener Daten." for i in range(60))
+        text = " ".join(
+            f"Satz Nummer {i} über die Verarbeitung personenbezogener Daten."
+            for i in range(60)
+        )
         with pytest.raises(RuntimeError, match="provider down"):
             await cr.run_check(text, "Anforderung", language="de")
 
@@ -522,7 +585,16 @@ class TestParallelFanOut:
 
         monkeypatch.setattr(cr, "llm_retry_call", _fake_retry)
         out = await cr._llm_check_call(
-            system="s", user_content="u", source_text="", case_id=None, playbook_revision="", label="l"
+            system="s",
+            user_content="u",
+            source_text="",
+            case_id=None,
+            playbook_revision="",
+            label="l",
         )
         assert out.is_compliant is True
-        assert events[:3] == ["start", "start", "start"]  # all samples in flight together
+        assert events[:3] == [
+            "start",
+            "start",
+            "start",
+        ]  # all samples in flight together

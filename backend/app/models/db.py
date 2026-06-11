@@ -1,10 +1,11 @@
 """Backward-compatible re-export – alle bestehenden Imports bleiben gültig."""
+
 # noqa: F401, F403
 from app.models._db import (
-    Base,
     ActivityLogModel,
     AVVContractModel,
     AvvMitigationLinkModel,
+    Base,
     CaseMitigationLinkModel,
     CaseModel,
     CaseTemplateModel,

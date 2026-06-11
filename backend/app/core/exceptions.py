@@ -3,6 +3,7 @@
 Using typed exceptions instead of bare Exception / ValueError lets callers
 catch specific failure modes without accidentally swallowing unrelated errors.
 """
+
 from enum import StrEnum
 
 

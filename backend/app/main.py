@@ -1,13 +1,13 @@
 """FastAPI application entry point."""
+
 import logging
 import logging.config
 import time
-import urllib.request
 import uuid
-from pathlib import Path
 from contextlib import asynccontextmanager
+from pathlib import Path
 
-from fastapi import FastAPI, Request, Response
+from fastapi import FastAPI, HTTPException, Request, Response
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -20,6 +20,7 @@ def _configure_logging() -> None:
     """Configure JSON structured logging for production; plain text when DEBUG=true."""
     try:
         from pythonjsonlogger.json import JsonFormatter  # type: ignore[import-untyped]
+
         json_available = True
     except ImportError:
         json_available = False
@@ -31,7 +32,11 @@ def _configure_logging() -> None:
         handler.setFormatter(
             JsonFormatter(
                 fmt="%(asctime)s %(levelname)s %(name)s %(message)s %(request_id)s",
-                rename_fields={"levelname": "level", "asctime": "timestamp", "name": "logger"},
+                rename_fields={
+                    "levelname": "level",
+                    "asctime": "timestamp",
+                    "name": "logger",
+                },
                 defaults={"request_id": "-"},
             )
         )
@@ -51,21 +56,23 @@ def _configure_logging() -> None:
 def _settings_debug() -> bool:
     """Read DEBUG from env without importing settings (avoids circular import)."""
     import os
+
     return os.environ.get("DEBUG", "").lower() in ("1", "true", "yes")
+
 
 _configure_logging()
 
 _startup_logger = logging.getLogger("app.startup")
 
-from app.config import settings
-from app.core.rate_limit import limiter
-from app.core.request_id import RequestIDMiddleware, get_request_id
-from app.api import router as api_router
-from app.api.routes import auth as auth_routes
-from app.api.routes import app_config as app_config_routes
-from app.database import init_db, async_session_factory
-from app.models.db import UserModel
-from app.services.playbook_import import import_playbooks_from_yaml
+from app.api import router as api_router  # noqa: E402
+from app.api.routes import app_config as app_config_routes  # noqa: E402
+from app.api.routes import auth as auth_routes  # noqa: E402
+from app.config import settings  # noqa: E402
+from app.core.rate_limit import limiter  # noqa: E402
+from app.core.request_id import RequestIDMiddleware, get_request_id  # noqa: E402
+from app.database import async_session_factory, init_db  # noqa: E402
+from app.models.db import UserModel  # noqa: E402
+from app.services.playbook_import import import_playbooks_from_yaml  # noqa: E402
 
 # Fixed default user ID when CURRENT_USER_ID is not set (must match users.py)
 DEFAULT_USER_ID = uuid.UUID("00000000-0000-4000-8000-000000000001")
@@ -96,7 +103,9 @@ async def lifespan(app: FastAPI):
             "accessible. Disable DEBUG for production deployments."
         )
     await init_db()
-    seed_dir = Path(settings.playbooks_seed_dir) if settings.playbooks_seed_dir else None
+    seed_dir = (
+        Path(settings.playbooks_seed_dir) if settings.playbooks_seed_dir else None
+    )
     async with async_session_factory() as session:
         try:
             n = await import_playbooks_from_yaml(session, seed_dir)
@@ -108,7 +117,9 @@ async def lifespan(app: FastAPI):
             await session.rollback()
         # Ensure default user exists for GET/PATCH /me when CURRENT_USER_ID is unset
         try:
-            res = await session.execute(select(UserModel).where(UserModel.id == DEFAULT_USER_ID))
+            res = await session.execute(
+                select(UserModel).where(UserModel.id == DEFAULT_USER_ID)
+            )
             if res.scalar_one_or_none() is None:
                 default_user = UserModel(
                     id=DEFAULT_USER_ID,
@@ -118,15 +129,24 @@ async def lifespan(app: FastAPI):
                 )
                 session.add(default_user)
                 await session.commit()
-                _startup_logger.info("Default user created", extra={"user_id": str(DEFAULT_USER_ID)})
+                _startup_logger.info(
+                    "Default user created", extra={"user_id": str(DEFAULT_USER_ID)}
+                )
         except Exception as exc:
             _startup_logger.error("Default user creation failed on startup: %s", exc)
             await session.rollback()
     # OpenTelemetry (optional — activate by setting OTEL_EXPORTER_OTLP_ENDPOINT)
     if settings.otel_exporter_endpoint:
-        from app.core.metrics import configure_opentelemetry, instrument_fastapi, instrument_sqlalchemy
+        from app.core.metrics import (
+            configure_opentelemetry,
+            instrument_fastapi,
+            instrument_sqlalchemy,
+        )
         from app.database import engine as _db_engine
-        if configure_opentelemetry(settings.otel_service_name, settings.otel_exporter_endpoint):
+
+        if configure_opentelemetry(
+            settings.otel_service_name, settings.otel_exporter_endpoint
+        ):
             instrument_fastapi(app)
             instrument_sqlalchemy(_db_engine.sync_engine)
 
@@ -136,23 +156,68 @@ async def lifespan(app: FastAPI):
 
 
 _OPENAPI_TAGS = [
-    {"name": "cases", "description": "Datenschutz-Vorgänge verwalten (erstellen, bearbeiten, archivieren, Prüfungen ausführen)."},
-    {"name": "documents", "description": "Dokumente hochladen, herunterladen und Textextraktion verwalten."},
-    {"name": "findings", "description": "Prüfergebnisse (Findings) einsehen, bewerten und kommentieren."},
-    {"name": "playbooks", "description": "Prüfkataloge (Playbooks) erstellen, versionieren und aktivieren."},
-    {"name": "legal-bases", "description": "Rechtsgrundlagen-Bibliothek (DSGVO, BDSG, sektoral) verwalten."},
-    {"name": "admin", "description": "Systemkonfiguration und Nutzer­verwaltung (nur Admins)."},
+    {
+        "name": "cases",
+        "description": "Datenschutz-Vorgänge verwalten (erstellen, bearbeiten, archivieren, Prüfungen ausführen).",
+    },
+    {
+        "name": "documents",
+        "description": "Dokumente hochladen, herunterladen und Textextraktion verwalten.",
+    },
+    {
+        "name": "findings",
+        "description": "Prüfergebnisse (Findings) einsehen, bewerten und kommentieren.",
+    },
+    {
+        "name": "playbooks",
+        "description": "Prüfkataloge (Playbooks) erstellen, versionieren und aktivieren.",
+    },
+    {
+        "name": "legal-bases",
+        "description": "Rechtsgrundlagen-Bibliothek (DSGVO, BDSG, sektoral) verwalten.",
+    },
+    {
+        "name": "admin",
+        "description": "Systemkonfiguration und Nutzer­verwaltung (nur Admins).",
+    },
     {"name": "me", "description": "Eigenes Nutzerprofil und Präferenzen."},
-    {"name": "auth", "description": "OIDC-Konfiguration für das Frontend (öffentlich)."},
-    {"name": "config", "description": "Öffentliche App-Konfiguration (Organisationsname, Optionen)."},
+    {
+        "name": "auth",
+        "description": "OIDC-Konfiguration für das Frontend (öffentlich).",
+    },
+    {
+        "name": "config",
+        "description": "Öffentliche App-Konfiguration (Organisationsname, Optionen).",
+    },
     {"name": "departments", "description": "Abteilungsliste der Organisation."},
-    {"name": "vvt-overview", "description": "VVT-Gesamtübersicht auf Organisationsebene (Art. 30 DSGVO)."},
-    {"name": "dsfa", "description": "Datenschutz-Folgenabschätzung (Art. 35 DSGVO) generieren und verwalten."},
-    {"name": "dsr", "description": "Betroffenenrechts-Anfragen (Art. 15–22 DSGVO) erfassen und bearbeiten."},
-    {"name": "data-breaches", "description": "Datenpannen-Management (Art. 33/34 DSGVO) – 72-Stunden-Meldepflicht."},
-    {"name": "avv", "description": "Auftragsverarbeitungsverträge (Art. 28 DSGVO) verwalten."},
-    {"name": "tom", "description": "Technisch-Organisatorische Maßnahmen (Art. 32 DSGVO) – Katalog und Implementierungsstatus."},
-    {"name": "case-templates", "description": "Vorgangs-Vorlagen für häufig wiederkehrende Verarbeitungstätigkeiten."},
+    {
+        "name": "vvt-overview",
+        "description": "VVT-Gesamtübersicht auf Organisationsebene (Art. 30 DSGVO).",
+    },
+    {
+        "name": "dsfa",
+        "description": "Datenschutz-Folgenabschätzung (Art. 35 DSGVO) generieren und verwalten.",
+    },
+    {
+        "name": "dsr",
+        "description": "Betroffenenrechts-Anfragen (Art. 15–22 DSGVO) erfassen und bearbeiten.",
+    },
+    {
+        "name": "data-breaches",
+        "description": "Datenpannen-Management (Art. 33/34 DSGVO) – 72-Stunden-Meldepflicht.",
+    },
+    {
+        "name": "avv",
+        "description": "Auftragsverarbeitungsverträge (Art. 28 DSGVO) verwalten.",
+    },
+    {
+        "name": "tom",
+        "description": "Technisch-Organisatorische Maßnahmen (Art. 32 DSGVO) – Katalog und Implementierungsstatus.",
+    },
+    {
+        "name": "case-templates",
+        "description": "Vorgangs-Vorlagen für häufig wiederkehrende Verarbeitungstätigkeiten.",
+    },
 ]
 
 app = FastAPI(
@@ -170,7 +235,10 @@ app = FastAPI(
     openapi_tags=_OPENAPI_TAGS,
 )
 
-def _problem_detail(status_code: int, detail: str, error_code: str | None = None) -> JSONResponse:
+
+def _problem_detail(
+    status_code: int, detail: str, error_code: str | None = None
+) -> JSONResponse:
     """Return an RFC 7807 Problem Details JSON response."""
     body: dict = {
         "status": status_code,
@@ -188,7 +256,6 @@ def _problem_detail(status_code: int, detail: str, error_code: str | None = None
 
 async def _http_exception_handler(request: Request, exc) -> JSONResponse:
     """Map FastAPI HTTPException to RFC 7807 Problem Details format."""
-    from fastapi import HTTPException as FastAPIHTTPException
     from app.core.exceptions import ErrorCode
 
     _status = exc.status_code
@@ -209,12 +276,15 @@ async def _http_exception_handler(request: Request, exc) -> JSONResponse:
     return _problem_detail(_status, detail, error_code)
 
 
-async def _validation_exception_handler(request: Request, exc: RequestValidationError) -> JSONResponse:
+async def _validation_exception_handler(
+    request: Request, exc: RequestValidationError
+) -> JSONResponse:
     """Map Pydantic validation errors to RFC 7807 Problem Details."""
     from app.core.exceptions import ErrorCode
+
     errors = exc.errors()
     detail = "; ".join(
-        f"{'.'.join(str(l) for l in e['loc'])}: {e['msg']}" for e in errors
+        f"{'.'.join(str(p) for p in e['loc'])}: {e['msg']}" for e in errors
     )
     return _problem_detail(422, detail, ErrorCode.VALIDATION_ERROR)
 
@@ -225,6 +295,7 @@ app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 # RFC 7807 Problem Details for HTTP and validation errors
 from fastapi import HTTPException as _FastAPIHTTPException  # noqa: E402
+
 app.add_exception_handler(_FastAPIHTTPException, _http_exception_handler)  # type: ignore[arg-type]
 app.add_exception_handler(RequestValidationError, _validation_exception_handler)  # type: ignore[arg-type]
 
@@ -297,13 +368,20 @@ async def add_security_headers(request: Request, call_next) -> Response:
         forwarded_proto = request.headers.get("x-forwarded-proto", "").lower()
         is_https = request.url.scheme == "https" or forwarded_proto == "https"
         if is_https:
-            response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
+            response.headers["Strict-Transport-Security"] = (
+                "max-age=31536000; includeSubDomains"
+            )
     return response
+
 
 app.include_router(api_router, prefix=settings.api_v1_prefix)
 # Public routes (no auth required)
-app.include_router(auth_routes.router, prefix=f"{settings.api_v1_prefix}/auth", tags=["auth"])
-app.include_router(app_config_routes.router, prefix=settings.api_v1_prefix, tags=["config"])
+app.include_router(
+    auth_routes.router, prefix=f"{settings.api_v1_prefix}/auth", tags=["auth"]
+)
+app.include_router(
+    app_config_routes.router, prefix=settings.api_v1_prefix, tags=["config"]
+)
 
 
 @app.get("/metrics", include_in_schema=False)
@@ -317,7 +395,8 @@ async def prometheus_metrics(request: Request) -> Response:
     if allowed_ips and client_ip not in allowed_ips:
         raise HTTPException(status_code=403, detail="Forbidden")
 
-    from prometheus_client import generate_latest, CONTENT_TYPE_LATEST
+    from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
+
     from app.core.metrics import db_pool_checkedout, db_pool_total
     from app.database import engine
 
@@ -338,7 +417,9 @@ async def track_request_metrics(request: Request, call_next) -> Response:
     if request.url.path in ("/health", "/metrics"):
         return await call_next(request)
     import time as _time
+
     from app.core.metrics import http_request_duration_seconds
+
     start = _time.monotonic()
     response = await call_next(request)
     # Collapse path parameters to avoid high-cardinality label explosion
@@ -360,8 +441,9 @@ async def health():
     """Health check for load balancers and Docker.
     Checks Ollama (if enabled), Postgres, and Redis. Returns degraded if any are unreachable.
     """
-    from app.services.connection_checks import check_ollama, check_postgres, check_redis
     import asyncio
+
+    from app.services.connection_checks import check_ollama, check_postgres, check_redis
 
     ollama_res, pg_res, redis_res = await asyncio.gather(
         check_ollama(),
@@ -380,15 +462,15 @@ async def health():
     redis_status = _status(redis_res)
 
     degraded = (
-        (settings.ollama_enabled and ollama_status not in ("ok", "disabled"))
-        or pg_status != "ok"
-    )
+        settings.ollama_enabled and ollama_status not in ("ok", "disabled")
+    ) or pg_status != "ok"
 
     # F12: Limit infrastructure details in the health response to avoid
     # exposing internal topology to unauthenticated callers.
     # In debug mode the full breakdown is returned for troubleshooting.
     if settings.debug:
         from app.core.llm import get_circuit_breaker
+
         cb = get_circuit_breaker()
         return {
             "status": "degraded" if degraded else "ok",

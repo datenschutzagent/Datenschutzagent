@@ -1,4 +1,5 @@
 """Case-related schemas."""
+
 from datetime import date, datetime
 from typing import Any, Literal
 from uuid import UUID
@@ -6,8 +7,8 @@ from uuid import UUID
 from pydantic import BaseModel, Field, model_validator
 
 from .common import (
-    CaseStatusEnum,
     CaseLanguageEnum,
+    CaseStatusEnum,
     VVTFieldStatusEnum,
 )
 from .document import DocumentResponse
@@ -44,7 +45,9 @@ class CaseUpdate(BaseModel):
 
 
 class RunChecksRequest(BaseModel):
-    playbook_id: UUID = Field(..., description="Playbook whose checks to run against case documents.")
+    playbook_id: UUID = Field(
+        ..., description="Playbook whose checks to run against case documents."
+    )
     strategies: list[Literal["full_text", "rag"]] = Field(
         default=["full_text"],
         description="Run full_text and/or rag (RAG uses Weaviate chunks). Both can run in parallel for comparison.",
@@ -97,6 +100,7 @@ class CaseListResponse(BaseModel):
 
 class ActivityResponse(BaseModel):
     """Single activity log entry for the timeline."""
+
     id: UUID
     case_id: UUID
     event_type: str
@@ -118,6 +122,7 @@ class CaseRiskScoreHistoryItem(BaseModel):
 
 class CaseRiskScoreResponse(BaseModel):
     """Current risk score and history for a case (derived from run_checks_jobs)."""
+
     case_id: UUID
     score: int  # 0-100, lower = better
     history: list[CaseRiskScoreHistoryItem] = []
@@ -164,6 +169,7 @@ class CaseCloneResponse(BaseModel):
 
 class VVTFieldResponse(BaseModel):
     """Single field in the canonical VVT model."""
+
     field_name: str
     required: bool = True
     status: VVTFieldStatusEnum
@@ -175,6 +181,7 @@ class VVTFieldResponse(BaseModel):
 
 class VVTNormalizationResponse(BaseModel):
     """Response for VVT normalization: template detection + extracted fields."""
+
     document_id: UUID | None = None
     document_name: str = ""
     source_template: str = ""
@@ -183,6 +190,7 @@ class VVTNormalizationResponse(BaseModel):
 
 class VVTOverviewItem(BaseModel):
     """One row in the VVT overview: case with VVT metadata (no LLM)."""
+
     case_id: UUID
     title: str
     department: str
@@ -196,6 +204,7 @@ class VVTOverviewItem(BaseModel):
 
 class VVTOverviewStatsGroup(BaseModel):
     """Aggregation for one department or case_type."""
+
     name: str  # department or case_type value
     total_cases: int
     with_vvt: int
@@ -205,6 +214,7 @@ class VVTOverviewStatsGroup(BaseModel):
 
 class VVTOverviewStatsResponse(BaseModel):
     """Stats for VVT overview: totals + by department + by case_type."""
+
     total_cases: int = 0
     with_vvt: int = 0
     without_vvt: int = 0
@@ -215,6 +225,7 @@ class VVTOverviewStatsResponse(BaseModel):
 
 class AnnotatedDocumentListItem(BaseModel):
     """One document that has findings and can be downloaded as annotated DOCX."""
+
     document_id: UUID
     document_name: str
     finding_count: int

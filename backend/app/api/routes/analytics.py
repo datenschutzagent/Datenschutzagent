@@ -1,4 +1,5 @@
 """Cross-Module-Analytics: org-Risiko, Pipeline (AVV/TOM/DSFA), Velocity, Maturity."""
+
 from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, Query
@@ -24,7 +25,9 @@ router = APIRouter()
 
 @router.get("/org-risk", summary="Organisations-Risikolage abrufen")
 async def get_org_risk_dashboard(
-    department: str | None = Query(default=None, description="Optional: Nur ein Department auswerten."),
+    department: str | None = Query(
+        default=None, description="Optional: Nur ein Department auswerten."
+    ),
     db: AsyncSession = Depends(get_db),
     _user=require_roles("viewer", "editor", "admin"),
 ):
@@ -43,7 +46,9 @@ async def get_org_risk_dashboard(
         dept_filter_avv = " AND department = :dept "
         dept_filter_cases = " AND department = :dept "
 
-    result = await db.execute(text(f"""
+    result = await db.execute(
+        text(
+            f"""
         WITH dept_findings AS (
             SELECT c.department,
                    SUM(CASE WHEN f.severity = 'critical' THEN 1 ELSE 0 END) AS critical_open,
@@ -127,7 +132,10 @@ async def get_org_risk_dashboard(
         SELECT 'trend', month,
                critical, high, medium, low, info, 0, 0, 0
         FROM org_trend
-    """), params)
+    """
+        ),
+        params,
+    )
     rows = result.fetchall()
 
     dept_rows = []
@@ -139,42 +147,64 @@ async def get_org_risk_dashboard(
     for row in rows:
         qname = row[0]
         if qname == "dept":
-            _, dept, crit, high, breaches, overdue, avg_avv, special_cat, intl, active_cases = row
-            composite = min(100, int(
-                (crit or 0) * 25 +
-                (high or 0) * 10 +
-                (breaches or 0) * 15 +
-                (overdue or 0) * 8 +
-                ((avg_avv or 0) * 0.3)
-            ))
-            dept_rows.append({
-                "department": dept,
-                "critical_open_findings": int(crit or 0),
-                "high_open_findings": int(high or 0),
-                "active_breaches": int(breaches or 0),
-                "overdue_dsr": int(overdue or 0),
-                "avg_avv_risk_score": round(float(avg_avv), 1) if avg_avv is not None else None,
-                "special_category_cases": int(special_cat or 0),
-                "intl_transfer_cases": int(intl or 0),
-                "active_cases": int(active_cases or 0),
-                "composite_risk_score": composite,
-            })
+            (
+                _,
+                dept,
+                crit,
+                high,
+                breaches,
+                overdue,
+                avg_avv,
+                special_cat,
+                intl,
+                active_cases,
+            ) = row
+            composite = min(
+                100,
+                int(
+                    (crit or 0) * 25
+                    + (high or 0) * 10
+                    + (breaches or 0) * 15
+                    + (overdue or 0) * 8
+                    + ((avg_avv or 0) * 0.3)
+                ),
+            )
+            dept_rows.append(
+                {
+                    "department": dept,
+                    "critical_open_findings": int(crit or 0),
+                    "high_open_findings": int(high or 0),
+                    "active_breaches": int(breaches or 0),
+                    "overdue_dsr": int(overdue or 0),
+                    "avg_avv_risk_score": (
+                        round(float(avg_avv), 1) if avg_avv is not None else None
+                    ),
+                    "special_category_cases": int(special_cat or 0),
+                    "intl_transfer_cases": int(intl or 0),
+                    "active_cases": int(active_cases or 0),
+                    "composite_risk_score": composite,
+                }
+            )
             total_critical += int(crit or 0)
             total_breaches += int(breaches or 0)
             total_overdue_dsr += int(overdue or 0)
         elif qname == "trend":
             _, month, critical, high, medium, low, info, *_ = row
-            trend.append({
-                "month": month,
-                "critical": int(critical or 0),
-                "high": int(high or 0),
-                "medium": int(medium or 0),
-                "low": int(low or 0),
-                "info": int(info or 0),
-            })
+            trend.append(
+                {
+                    "month": month,
+                    "critical": int(critical or 0),
+                    "high": int(high or 0),
+                    "medium": int(medium or 0),
+                    "low": int(low or 0),
+                    "info": int(info or 0),
+                }
+            )
 
     dept_rows.sort(key=lambda r: r["composite_risk_score"], reverse=True)
-    top_risk_departments = [r["department"] for r in dept_rows[:5] if r["composite_risk_score"] > 0]
+    top_risk_departments = [
+        r["department"] for r in dept_rows[:5] if r["composite_risk_score"] > 0
+    ]
 
     return {
         "generated_at": datetime.now(UTC).isoformat(),
@@ -185,7 +215,9 @@ async def get_org_risk_dashboard(
         "total_open_critical": total_critical,
         "total_active_breaches": total_breaches,
         "total_overdue_dsr": total_overdue_dsr,
-        "departments_at_risk": sum(1 for r in dept_rows if r["composite_risk_score"] >= 25),
+        "departments_at_risk": sum(
+            1 for r in dept_rows if r["composite_risk_score"] >= 25
+        ),
     }
 
 
@@ -236,7 +268,9 @@ async def get_maturity_stats(
     summary="Risiko-Trend pro Abteilung (Composite + Sub-Scores)",
 )
 async def get_risk_velocity(
-    department: str | None = Query(default=None, description="Optional: Nur ein Department auswerten."),
+    department: str | None = Query(
+        default=None, description="Optional: Nur ein Department auswerten."
+    ),
     window_days: int | None = Query(
         default=None,
         ge=1,
@@ -253,4 +287,6 @@ async def get_risk_velocity(
     für jeden Sub-Score (vvt/dsfa/avv/tom/velocity). Datenquelle:
     `compliance_maturity_snapshots`.
     """
-    return await compute_risk_velocity(db, department=department, window_days=window_days)
+    return await compute_risk_velocity(
+        db, department=department, window_days=window_days
+    )

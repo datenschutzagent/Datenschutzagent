@@ -1,4 +1,5 @@
 """DSR API: Betroffenenrechts-Anfragen (Art. 15–22 DSGVO) verwalten."""
+
 import logging
 from datetime import date, timedelta
 from uuid import UUID
@@ -18,11 +19,11 @@ from app.models.db import (
 from app.models.schemas import (
     DSRActivityResponse,
     DSRListResponse,
+    DSRMonthlyVolumeItem,
     DSRRequestCreate,
     DSRRequestResponse,
     DSRRequestUpdate,
     DSRStatsResponse,
-    DSRMonthlyVolumeItem,
 )
 
 router = APIRouter()
@@ -31,14 +32,19 @@ logger = logging.getLogger(__name__)
 _DEFAULT_DEADLINE_DAYS = 30  # Art. 12 Abs. 3 DSGVO
 
 
-@router.get("/stats", response_model=DSRStatsResponse, summary="DSR-Statistiken abrufen")
+@router.get(
+    "/stats", response_model=DSRStatsResponse, summary="DSR-Statistiken abrufen"
+)
 async def get_dsr_stats(
     db: AsyncSession = Depends(get_db),
     _user=require_roles("viewer", "editor", "admin"),
 ):
     """Aggregierte DSR-Statistiken: Antwortzeiten, On-Time-Rate, Typ- und Status-Verteilung."""
     from sqlalchemy import text
-    result = await db.execute(text("""
+
+    result = await db.execute(
+        text(
+            """
         WITH by_type AS (
             SELECT request_type AS key1, COUNT(*) AS cnt FROM dsr_requests GROUP BY request_type
         ),
@@ -81,7 +87,9 @@ async def get_dsr_stats(
         SELECT 'monthly'  AS qname, month, cnt, NULL, NULL, NULL FROM monthly
         UNION ALL
         SELECT 'total'    AS qname, NULL, cnt, NULL, NULL, NULL FROM total
-    """))
+    """
+        )
+    )
     rows = result.fetchall()
 
     by_type: dict[str, int] = {}
@@ -102,7 +110,9 @@ async def get_dsr_stats(
             total_responded = int(cnt or 0)
             if total_responded > 0:
                 avg_days = float(f1) if f1 is not None else None
-                on_time_rate = round(float(f2) / total_responded, 4) if f2 is not None else None
+                on_time_rate = (
+                    round(float(f2) / total_responded, 4) if f2 is not None else None
+                )
         elif qname == "overdue":
             overdue_count = int(cnt or 0)
         elif qname == "monthly":
@@ -157,7 +167,12 @@ async def list_dsr_requests(
     return DSRListResponse(items=items, total=total)
 
 
-@router.post("", response_model=DSRRequestResponse, status_code=201, summary="DSR-Anfrage erstellen")
+@router.post(
+    "",
+    response_model=DSRRequestResponse,
+    status_code=201,
+    summary="DSR-Anfrage erstellen",
+)
 @limiter.limit("30/minute")
 async def create_dsr_request(
     request: Request,
@@ -185,7 +200,10 @@ async def create_dsr_request(
     activity = DSRActivityLogModel(
         request_id=request.id,
         event_type="created",
-        payload={"request_type": body.request_type, "deadline": response_deadline.isoformat()},
+        payload={
+            "request_type": body.request_type,
+            "deadline": response_deadline.isoformat(),
+        },
     )
     db.add(activity)
     await db.flush()
@@ -201,20 +219,28 @@ async def create_dsr_request(
     return DSRRequestResponse.model_validate(request)
 
 
-@router.get("/{request_id}", response_model=DSRRequestResponse, summary="DSR-Anfrage abrufen")
+@router.get(
+    "/{request_id}", response_model=DSRRequestResponse, summary="DSR-Anfrage abrufen"
+)
 async def get_dsr_request(
     request_id: UUID,
     db: AsyncSession = Depends(get_db),
     _user=require_roles("viewer", "editor", "admin"),
 ):
-    result = await db.execute(select(DSRRequestModel).where(DSRRequestModel.id == request_id))
+    result = await db.execute(
+        select(DSRRequestModel).where(DSRRequestModel.id == request_id)
+    )
     request = result.scalar_one_or_none()
     if not request:
         raise HTTPException(status_code=404, detail="DSR-Anfrage nicht gefunden")
     return DSRRequestResponse.model_validate(request)
 
 
-@router.patch("/{request_id}", response_model=DSRRequestResponse, summary="DSR-Anfrage aktualisieren")
+@router.patch(
+    "/{request_id}",
+    response_model=DSRRequestResponse,
+    summary="DSR-Anfrage aktualisieren",
+)
 @limiter.limit("60/minute")
 async def update_dsr_request(
     request: Request,
@@ -224,7 +250,9 @@ async def update_dsr_request(
     _user=require_roles("editor", "admin"),
 ):
     """Aktualisiert Status, Zugewiesenen oder Antwort einer DSR-Anfrage."""
-    result = await db.execute(select(DSRRequestModel).where(DSRRequestModel.id == request_id))
+    result = await db.execute(
+        select(DSRRequestModel).where(DSRRequestModel.id == request_id)
+    )
     request = result.scalar_one_or_none()
     if not request:
         raise HTTPException(status_code=404, detail="DSR-Anfrage nicht gefunden")
@@ -273,7 +301,9 @@ async def delete_dsr_request(
     db: AsyncSession = Depends(get_db),
     _user=require_roles("admin"),
 ):
-    result = await db.execute(select(DSRRequestModel).where(DSRRequestModel.id == request_id))
+    result = await db.execute(
+        select(DSRRequestModel).where(DSRRequestModel.id == request_id)
+    )
     request = result.scalar_one_or_none()
     if not request:
         raise HTTPException(status_code=404, detail="DSR-Anfrage nicht gefunden")
@@ -282,7 +312,11 @@ async def delete_dsr_request(
     logger.info("DSR request deleted", extra={"dsr_request_id": str(request_id)})
 
 
-@router.post("/{request_id}/generate-draft", response_model=DSRRequestResponse, summary="Antwortschreiben-Entwurf generieren")
+@router.post(
+    "/{request_id}/generate-draft",
+    response_model=DSRRequestResponse,
+    summary="Antwortschreiben-Entwurf generieren",
+)
 @limiter.limit("5/minute")
 async def generate_response_draft(
     request: Request,
@@ -291,18 +325,25 @@ async def generate_response_draft(
     _user=require_roles("editor", "admin"),
 ):
     """Generiert per LLM einen Entwurf für das Antwortschreiben."""
-    result = await db.execute(select(DSRRequestModel).where(DSRRequestModel.id == request_id))
+    result = await db.execute(
+        select(DSRRequestModel).where(DSRRequestModel.id == request_id)
+    )
     request = result.scalar_one_or_none()
     if not request:
         raise HTTPException(status_code=404, detail="DSR-Anfrage nicht gefunden")
 
     from app.services.dsr_response_service import generate_draft_response
+
     await generate_draft_response(request_id, db)
     await db.refresh(request)
     return DSRRequestResponse.model_validate(request)
 
 
-@router.get("/{request_id}/activity", response_model=list[DSRActivityResponse], summary="Aktivitätsprotokoll abrufen")
+@router.get(
+    "/{request_id}/activity",
+    response_model=list[DSRActivityResponse],
+    summary="Aktivitätsprotokoll abrufen",
+)
 async def get_dsr_activity(
     request_id: UUID,
     db: AsyncSession = Depends(get_db),

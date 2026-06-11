@@ -1,4 +1,5 @@
 """Application configuration."""
+
 from __future__ import annotations
 
 import urllib.parse
@@ -34,7 +35,9 @@ class Settings(BaseSettings):
 
     # Celery (Redis as broker; worker uses sync DB). If empty, document extraction runs synchronously.
     celery_broker_url: str = "redis://localhost:6379/0"
-    celery_enabled: bool = True  # Set False or leave broker empty to skip async extraction
+    celery_enabled: bool = (
+        True  # Set False or leave broker empty to skip async extraction
+    )
 
     # Storage (MinIO/S3 or local path)
     storage_backend: str = "local"
@@ -46,24 +49,38 @@ class Settings(BaseSettings):
 
     # CORS (in .env als kommagetrennte Liste, z. B. CORS_ORIGINS=http://localhost:3002)
     # Production: set to your exact HTTPS frontend origin, e.g. https://datenschutzagent.example.com
-    cors_origins: str | list[str] = ["http://localhost:3002", "http://127.0.0.1:3002", "http://localhost:5173", "http://127.0.0.1:5173"]
+    cors_origins: str | list[str] = [
+        "http://localhost:3002",
+        "http://127.0.0.1:3002",
+        "http://localhost:5173",
+        "http://127.0.0.1:5173",
+    ]
 
     @field_validator("cors_origins", mode="before")
     @classmethod
     def parse_cors_origins(cls, v: str | list[str]) -> list[str]:
-        if isinstance(v, list):
-            items = v
-        else:
-            items = [x.strip() for x in str(v).split(",") if x.strip()]
+        items = (
+            v
+            if isinstance(v, list)
+            else [x.strip() for x in str(v).split(",") if x.strip()]
+        )
         # Reject obvious misconfigurations (wildcards, regex chars, empty scheme) that would
         # open CSRF surface. Exact scheme://host[:port] only.
         for origin in items:
             if origin == "*" or "*" in origin:
                 raise ValueError(f"CORS_ORIGINS wildcard not allowed: {origin!r}")
-            if any(c in origin for c in ("?", "(", ")", "[", "]", "{", "}", "^", "$", "\\")):
-                raise ValueError(f"CORS_ORIGINS regex/special chars not allowed: {origin!r}")
+            if any(
+                c in origin for c in ("?", "(", ")", "[", "]", "{", "}", "^", "$", "\\")
+            ):
+                raise ValueError(
+                    f"CORS_ORIGINS regex/special chars not allowed: {origin!r}"
+                )
             p = urllib.parse.urlparse(origin)
-            if p.scheme not in ("http", "https") or not p.netloc or p.path not in ("", "/"):
+            if (
+                p.scheme not in ("http", "https")
+                or not p.netloc
+                or p.path not in ("", "/")
+            ):
                 raise ValueError(
                     f"CORS_ORIGINS must be 'scheme://host[:port]' only, got: {origin!r}"
                 )
@@ -77,11 +94,13 @@ class Settings(BaseSettings):
     @field_validator("trusted_proxies", mode="before")
     @classmethod
     def parse_trusted_proxies(cls, v: str | list[str]) -> list[str]:
-        if isinstance(v, list):
-            items = v
-        else:
-            items = [x.strip() for x in str(v).split(",") if x.strip()]
+        items = (
+            v
+            if isinstance(v, list)
+            else [x.strip() for x in str(v).split(",") if x.strip()]
+        )
         import ipaddress as _ip
+
         for entry in items:
             try:
                 _ip.ip_network(entry, strict=False)
@@ -150,8 +169,10 @@ class Settings(BaseSettings):
 
     # LLM context limits (chars per document; lower = faster/cheaper, higher = more context)
     max_context_chars_per_doc: int = 15000  # single-doc full-text context window limit
-    max_context_chars_rag: int = 20000       # assembled RAG context limit
-    max_context_chars_vvt: int = 25000       # VVT/ROPA normalization context limit (higher because ROPA docs can be large)
+    max_context_chars_rag: int = 20000  # assembled RAG context limit
+    max_context_chars_vvt: int = (
+        25000  # VVT/ROPA normalization context limit (higher because ROPA docs can be large)
+    )
 
     # Optional token-based context budget (heuristic, no tokenizer dependency).
     # > 0: ALL three max_context_chars_* limits are overridden by ONE derived character limit
@@ -208,7 +229,9 @@ class Settings(BaseSettings):
     # When enabled, ungrounded (likely hallucinated) quotes trigger a Pydantic AI ModelRetry
     # so the model re-answers with verbatim quotes; persistent failures lower the confidence.
     evidence_grounding_enabled: bool = True
-    evidence_grounding_threshold: float = 0.85  # fuzzy-match ratio to count a quote as grounded
+    evidence_grounding_threshold: float = (
+        0.85  # fuzzy-match ratio to count a quote as grounded
+    )
 
     # Maximale Anzahl gleichzeitiger LLM-Anfragen. Global pro Event-Loop (FastAPI-Worker bzw.
     # Celery-Task) in llm_retry_call durchgesetzt — deckt damit auch verschachtelte Parallelität
@@ -254,8 +277,10 @@ class Settings(BaseSettings):
     # auf einem anderen Server als das Text-Modell). Leer = vom aktiven Provider abgeleitet:
     # openai_compatible → LLM_BASE_URL, sonst OLLAMA_BASE_URL. "/v1" wird ergänzt, wenn es fehlt.
     ocr_base_url: str = ""
-    ocr_api_key: SecretStr = SecretStr("")  # optional; leer = LLM_API_KEY (openai_compatible) bzw. ohne Auth
-    ocr_model: str = ""                     # leer = OLLAMA_OCR_MODEL
+    ocr_api_key: SecretStr = SecretStr(
+        ""
+    )  # optional; leer = LLM_API_KEY (openai_compatible) bzw. ohne Auth
+    ocr_model: str = ""  # leer = OLLAMA_OCR_MODEL
     ocr_min_chars_per_page: int = 50  # below this avg chars/page → use OCR fallback
     # Resolution for PDF page images sent to the vision model. ~300 DPI is the established OCR
     # standard; 150 noticeably degrades recognition of small print and stamps on scans.
@@ -270,7 +295,9 @@ class Settings(BaseSettings):
     # ``ocr_image_heavy_max_chars``. Set the threshold to 1.0 to disable this heuristic.
     ocr_image_area_threshold: float = 0.5
     ocr_image_heavy_max_chars: int = 300
-    ocr_max_pages: int = 200  # max pages to process with OCR (prevents memory exhaustion)
+    ocr_max_pages: int = (
+        200  # max pages to process with OCR (prevents memory exhaustion)
+    )
     # Per-page OCR: decide page-by-page whether to OCR (handles mixed PDFs with both digital
     # and scanned pages) instead of an all-or-nothing per-document decision.
     ocr_per_page: bool = True
@@ -288,7 +315,9 @@ class Settings(BaseSettings):
     oidc_enabled: bool = False
     oidc_issuer_url: str = ""  # e.g. https://auth.example.com/realms/datenschutzagent
     oidc_client_id: str = ""
-    oidc_client_secret: SecretStr = SecretStr("")  # For token introspection / backend flows; can be empty for public clients
+    oidc_client_secret: SecretStr = SecretStr(
+        ""
+    )  # For token introspection / backend flows; can be empty for public clients
     oidc_audience: str | None = None  # Optional; if set, JWT aud claim must match
     oidc_scopes: str = "openid profile email"  # Space-separated
 
@@ -310,8 +339,10 @@ class Settings(BaseSettings):
     csrf_cookie_name_development: str = "ds_csrf"
 
     # LLM response cache (Redis; avoids re-running identical checks on unchanged documents)
-    llm_cache_enabled: bool = False  # set True to activate; requires Redis (celery_broker_url)
-    llm_cache_ttl: int = 86400       # seconds (default: 24 h)
+    llm_cache_enabled: bool = (
+        False  # set True to activate; requires Redis (celery_broker_url)
+    )
+    llm_cache_ttl: int = 86400  # seconds (default: 24 h)
 
     # SMTP / E-Mail-Benachrichtigungen (optional)
     smtp_enabled: bool = False
@@ -321,10 +352,14 @@ class Settings(BaseSettings):
     smtp_password: SecretStr = SecretStr("")
     smtp_from_address: str = "datenschutzagent@example.org"
     smtp_tls: bool = True
-    notification_deadline_warning_days: int = 7        # Warnung X Tage vor Vorgangs-Fristablauf
-    notification_breach_warning_hours: int = 12        # Warnung X Stunden vor Datenpannen-Meldepflicht
-    notification_dsr_warning_days: int = 5             # Warnung X Tage vor DSR-Antwortpflicht
-    notification_avv_expiry_warning_days: int = 90     # Warnung X Tage vor AVV-Ablauf
+    notification_deadline_warning_days: int = (
+        7  # Warnung X Tage vor Vorgangs-Fristablauf
+    )
+    notification_breach_warning_hours: int = (
+        12  # Warnung X Stunden vor Datenpannen-Meldepflicht
+    )
+    notification_dsr_warning_days: int = 5  # Warnung X Tage vor DSR-Antwortpflicht
+    notification_avv_expiry_warning_days: int = 90  # Warnung X Tage vor AVV-Ablauf
 
     # Prompt injection protection: when True, requests containing injection patterns are
     # rejected with an exception instead of just logged. True = block (default); set False
@@ -338,18 +373,28 @@ class Settings(BaseSettings):
 
     # LLM-Provider (ollama | openai | anthropic | openai_compatible)
     # Ollama-Konfiguration bleibt unverändert (ollama_base_url, ollama_model, etc.)
-    llm_provider: str = "ollama"      # Aktiver Provider: "ollama", "openai", "anthropic" oder "openai_compatible"
-    openai_api_key: SecretStr = SecretStr("")  # OpenAI API-Key (wenn llm_provider=openai)
+    llm_provider: str = (
+        "ollama"  # Aktiver Provider: "ollama", "openai", "anthropic" oder "openai_compatible"
+    )
+    openai_api_key: SecretStr = SecretStr(
+        ""
+    )  # OpenAI API-Key (wenn llm_provider=openai)
     openai_model: str = "gpt-4o-mini"
-    anthropic_api_key: SecretStr = SecretStr("")  # Anthropic API-Key (wenn llm_provider=anthropic)
+    anthropic_api_key: SecretStr = SecretStr(
+        ""
+    )  # Anthropic API-Key (wenn llm_provider=anthropic)
     anthropic_model: str = "claude-3-5-haiku-latest"  # Anthropic-Modell
 
     # Custom OpenAI-kompatibler Server (llama.cpp "llama-server", vLLM, LiteLLM, TGI, ...).
     # Nur wirksam bei LLM_PROVIDER=openai_compatible. Die Basis-URL darf mit oder ohne "/v1"
     # angegeben werden (fehlendes "/v1" wird ergänzt).
-    llm_base_url: str = ""            # z. B. http://localhost:8000/v1 (vLLM) oder http://localhost:8080 (llama.cpp)
-    llm_api_key: SecretStr = SecretStr("")  # optional, z. B. für vLLM --api-key; leer = ohne Auth
-    llm_model: str = ""               # served model name, z. B. "Qwen/Qwen2.5-14B-Instruct"
+    llm_base_url: str = (
+        ""  # z. B. http://localhost:8000/v1 (vLLM) oder http://localhost:8080 (llama.cpp)
+    )
+    llm_api_key: SecretStr = SecretStr(
+        ""
+    )  # optional, z. B. für vLLM --api-key; leer = ohne Auth
+    llm_model: str = ""  # served model name, z. B. "Qwen/Qwen2.5-14B-Instruct"
 
     # Strukturierte Ausgabe: wie Pydantic-AI das Output-Schema durchsetzt.
     #   tool     – Tool-/Function-Calling (Standard; bisheriges Verhalten, von allen Providern unterstützt)
@@ -363,8 +408,8 @@ class Settings(BaseSettings):
     llm_structured_output_mode: Literal["tool", "native", "prompted"] = "tool"
 
     # Webhook-Benachrichtigungen (ausgehend)
-    webhook_max_retries: int = 3          # Anzahl Wiederholungsversuche bei Fehler
-    webhook_timeout_seconds: float = 10.0 # HTTP-Timeout pro Versuch
+    webhook_max_retries: int = 3  # Anzahl Wiederholungsversuche bei Fehler
+    webhook_timeout_seconds: float = 10.0  # HTTP-Timeout pro Versuch
     # Basiswartezeit (Sekunden) für exponentielles Backoff: 2s → 4s → 8s → 16s
     webhook_backoff_base_seconds: float = 2.0
     # Oberes Limit für Wartezeiten zwischen Retries (Sekunden)
@@ -401,7 +446,9 @@ class Settings(BaseSettings):
 
     # Weaviate (optional; RAG document checks)
     weaviate_url: str = "http://localhost:8080"
-    weaviate_api_key: SecretStr = SecretStr("")  # API-Key für Weaviate-Authentifizierung (WEAVIATE_API_KEY)
+    weaviate_api_key: SecretStr = SecretStr(
+        ""
+    )  # API-Key für Weaviate-Authentifizierung (WEAVIATE_API_KEY)
     weaviate_indexing_enabled: bool = False
 
     @field_validator("weaviate_indexing_enabled", mode="before")
@@ -411,6 +458,7 @@ class Settings(BaseSettings):
             return v
         s = str(v).strip().lower()
         return s in ("true", "1", "yes", "on")
+
     weaviate_chunk_size_chars: int = 800
     weaviate_chunk_overlap_chars: int = 100
     weaviate_top_k: int = 5
@@ -427,7 +475,7 @@ class Settings(BaseSettings):
     # Damit sind auch stärkere multilinguale Embedder (bge-m3, multilingual-e5) nutzbar.
     embedding_base_url: str = ""
     embedding_api_key: SecretStr = SecretStr("")  # optional; leer = ohne Auth
-    embedding_model: str = ""                     # leer = OLLAMA_EMBEDDING_MODEL
+    embedding_model: str = ""  # leer = OLLAMA_EMBEDDING_MODEL
 
     # ---------------------------------------------------------------------------
     # Focused model validators (run in definition order by Pydantic).
@@ -441,12 +489,14 @@ class Settings(BaseSettings):
             netloc = p.netloc
             if "@" in netloc:
                 netloc = f"***@{netloc.split('@', 1)[1]}"
-            return urllib.parse.urlunparse((p.scheme, netloc, p.path, p.params, p.query, p.fragment))
+            return urllib.parse.urlunparse(
+                (p.scheme, netloc, p.path, p.params, p.query, p.fragment)
+            )
         except Exception:
             return "<unparseable>"
 
     @model_validator(mode="after")
-    def _validate_database(self) -> "Settings":
+    def _validate_database(self) -> Settings:
         """F5: DATABASE_URL must be set — no default credentials."""
         if not self.database_url:
             raise ValueError(
@@ -456,7 +506,7 @@ class Settings(BaseSettings):
         return self
 
     @model_validator(mode="after")
-    def _validate_celery_broker(self) -> "Settings":
+    def _validate_celery_broker(self) -> Settings:
         """Validate CELERY_BROKER_URL format when Celery is enabled."""
         broker_url = (self.celery_broker_url or "").strip()
         if not self.celery_enabled or not broker_url:
@@ -482,7 +532,9 @@ class Settings(BaseSettings):
     def _validate_chars_per_token(self) -> Settings:
         """llm_chars_per_token must be positive — it divides character lengths."""
         if self.llm_chars_per_token <= 0:
-            raise ValueError("LLM_CHARS_PER_TOKEN must be > 0 (heuristic characters per token).")
+            raise ValueError(
+                "LLM_CHARS_PER_TOKEN must be > 0 (heuristic characters per token)."
+            )
         return self
 
     @model_validator(mode="after")
@@ -503,10 +555,14 @@ class Settings(BaseSettings):
         return self
 
     @model_validator(mode="after")
-    def _validate_storage(self) -> "Settings":
+    def _validate_storage(self) -> Settings:
         """Require S3 credentials when storage_backend=minio."""
         if self.storage_backend == "minio":
-            missing = [f for f in ("s3_endpoint_url", "s3_access_key", "s3_secret_key") if not getattr(self, f)]
+            missing = [
+                f
+                for f in ("s3_endpoint_url", "s3_access_key", "s3_secret_key")
+                if not getattr(self, f)
+            ]
             if missing:
                 raise ValueError(
                     f"storage_backend=minio requires: {', '.join(m.upper() for m in missing)}"
@@ -514,9 +570,10 @@ class Settings(BaseSettings):
         return self
 
     @model_validator(mode="after")
-    def _validate_oidc(self) -> "Settings":
+    def _validate_oidc(self) -> Settings:
         """F2: OIDC audience and webhook encryption must be set when OIDC is enabled."""
         import logging as _logging
+
         _log = _logging.getLogger("app.startup")
 
         if self.oidc_enabled:
@@ -533,19 +590,20 @@ class Settings(BaseSettings):
             if not self.webhook_secret_encryption_key.get_secret_value():
                 raise ValueError(
                     "SECURITY: WEBHOOK_SECRET_ENCRYPTION_KEY must be set when OIDC is enabled. "
-                    "Generate: python -c \"from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())\""
+                    'Generate: python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"'
                 )
         elif not self.webhook_secret_encryption_key.get_secret_value():
             _log.warning(
                 "SECURITY: WEBHOOK_SECRET_ENCRYPTION_KEY not set — webhook secrets stored unencrypted. "
-                "Generate: python -c \"from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())\""
+                'Generate: python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"'
             )
         return self
 
     @model_validator(mode="after")
-    def _validate_production_profile(self) -> "Settings":
+    def _validate_production_profile(self) -> Settings:
         """Hard-fail on misconfigured production deployments; warn in other envs."""
         import logging as _logging
+
         _log = _logging.getLogger("app.startup")
 
         if not self.debug:
@@ -554,7 +612,8 @@ class Settings(BaseSettings):
             if http_origins:
                 _log.warning(
                     "SECURITY: CORS_ORIGINS contains non-HTTPS origins in non-debug mode: %s. "
-                    "Use HTTPS-only origins in production.", http_origins,
+                    "Use HTTPS-only origins in production.",
+                    http_origins,
                 )
 
         if self.app_environment != "production":
@@ -570,7 +629,9 @@ class Settings(BaseSettings):
         origins = self.cors_origins if isinstance(self.cors_origins, list) else []
         http_origins = [o for o in origins if o.startswith("http://")]
         if http_origins:
-            problems.append(f"CORS_ORIGINS must use HTTPS only (rejected: {http_origins})")
+            problems.append(
+                f"CORS_ORIGINS must use HTTPS only (rejected: {http_origins})"
+            )
         trusted = self.trusted_proxies if isinstance(self.trusted_proxies, list) else []
         if not trusted:
             _log.warning(
@@ -578,14 +639,15 @@ class Settings(BaseSettings):
                 "Set it to the CIDR range of your load balancer."
             )
         if problems:
-            raise ValueError("SECURITY: APP_ENVIRONMENT=production requires: " + "; ".join(problems))
+            raise ValueError(
+                "SECURITY: APP_ENVIRONMENT=production requires: " + "; ".join(problems)
+            )
         return self
 
     @property
     def database_sync_url(self) -> str:
         """Sync DB URL for Celery worker (psycopg2)."""
         return self.database_url.replace("postgresql+asyncpg", "postgresql+psycopg2", 1)
-
 
 
 settings = Settings()

@@ -7,6 +7,7 @@ Covers:
     findings, conservative baseline when nothing matches.
   - Confidence-policy: strategy validators, enabled flags.
 """
+
 from __future__ import annotations
 
 import pytest
@@ -16,7 +17,6 @@ from app.services.risk_fallback_service import (
     compute_avv_fallback,
     compute_dsfa_fallback,
 )
-
 
 # ---------------------------------------------------------------------------
 # Confidence policy
@@ -62,7 +62,9 @@ def test_avv_fallback_empty_input_returns_mid_score():
         notes=None,
     )
     assert {d["score"] for d in r["dimensions"]} == {3}  # all defaults to 3
-    assert r["overall_risk_level"] == "high"  # 3.0 ≤ 3.5 → high under default thresholds
+    assert (
+        r["overall_risk_level"] == "high"
+    )  # 3.0 ≤ 3.5 → high under default thresholds
     assert r["confidence"] == 0.3
     assert len(r["dimensions"]) == 5
 
@@ -95,8 +97,12 @@ def test_avv_fallback_sub_processor_raises_subprocessor_dim():
         department="IT",
         notes=None,
     )
-    sub_dim_proc = next(d for d in r_proc["dimensions"] if d["name"] == "Subauftragsverarbeiter-Risiko")
-    sub_dim_sub = next(d for d in r_sub["dimensions"] if d["name"] == "Subauftragsverarbeiter-Risiko")
+    sub_dim_proc = next(
+        d for d in r_proc["dimensions"] if d["name"] == "Subauftragsverarbeiter-Risiko"
+    )
+    sub_dim_sub = next(
+        d for d in r_sub["dimensions"] if d["name"] == "Subauftragsverarbeiter-Risiko"
+    )
     assert sub_dim_proc["score"] == 3
     assert sub_dim_sub["score"] == 4
 
@@ -122,7 +128,9 @@ def test_avv_fallback_draft_contract_flags_contractual_dim():
         department=None,
         notes="AVV im Entwurf, noch nicht unterzeichnet.",
     )
-    contract_dim = next(d for d in r["dimensions"] if d["name"] == "Vertragliche Absicherung")
+    contract_dim = next(
+        d for d in r["dimensions"] if d["name"] == "Vertragliche Absicherung"
+    )
     assert contract_dim["score"] == 4
     assert any("unvollständig" in mr or "unterzeichnet" in mr for mr in r["main_risks"])
 
@@ -136,8 +144,14 @@ def test_avv_fallback_output_shape_matches_llm_result():
         department="x",
         notes="x",
     )
-    required = {"dimensions", "overall_risk_level", "main_risks",
-                "recommended_measures", "summary", "confidence"}
+    required = {
+        "dimensions",
+        "overall_risk_level",
+        "main_risks",
+        "recommended_measures",
+        "summary",
+        "confidence",
+    }
     assert required.issubset(r.keys())
     for d in r["dimensions"]:
         assert set(d.keys()) == {"name", "score", "rationale"}
@@ -243,9 +257,20 @@ def test_dsfa_fallback_output_shape_matches_llm_result():
         international_transfer=False,
         open_critical_findings=0,
     )
-    required = {"necessity_assessment", "proportionality_assessment", "risks", "measures", "confidence"}
+    required = {
+        "necessity_assessment",
+        "proportionality_assessment",
+        "risks",
+        "measures",
+        "confidence",
+    }
     assert required.issubset(r.keys())
     for risk in r["risks"]:
-        assert set(risk.keys()) >= {"description", "likelihood", "severity", "mitigation"}
+        assert set(risk.keys()) >= {
+            "description",
+            "likelihood",
+            "severity",
+            "mitigation",
+        }
         assert 1 <= risk["likelihood"] <= 5
         assert 1 <= risk["severity"] <= 5

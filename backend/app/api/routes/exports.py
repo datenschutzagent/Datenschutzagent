@@ -8,9 +8,9 @@ Routes:
 Globaler Endpoint (org-weit, nicht case-spezifisch):
   - GET /tom-gaps                       — Org-weite Baseline-Coverage
 """
+
 from __future__ import annotations
 
-import io
 import logging
 from typing import Literal
 from urllib.parse import quote
@@ -19,8 +19,8 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import Response
 from sqlalchemy import select
-from sqlalchemy.orm import selectinload
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from app.config import settings
 from app.core.auth import require_roles
@@ -52,7 +52,9 @@ async def get_tom_gaps_global(
     return analyse_gaps(get_risk_config().tom_baseline, toms)
 
 
-@router.get("/cases/{case_id}/tom-gaps", summary="TOM-Baseline-Coverage für einen Vorgang")
+@router.get(
+    "/cases/{case_id}/tom-gaps", summary="TOM-Baseline-Coverage für einen Vorgang"
+)
 async def get_tom_gaps_for_case(
     case_id: UUID,
     db: AsyncSession = Depends(get_db),
@@ -76,8 +78,7 @@ async def get_tom_gaps_for_case(
         # Department codes are an ARRAY(String) on TOMModel. Match on
         # exact department string; empty/None list = "applies everywhere".
         in_scope = [
-            t for t in rows
-            if not t.department_codes or dept in t.department_codes
+            t for t in rows if not t.department_codes or dept in t.department_codes
         ]
         if in_scope:
             rows = in_scope
@@ -113,7 +114,9 @@ async def export_case_audit_trail(
 
     body, content_type, signature = await export_full_trail(case_id, db, fmt=fmt)
     ext = "csv" if fmt == "csv" else "jsonl"
-    safe_title = "".join(c if c.isalnum() or c in "-_" else "_" for c in (case.title or "case")[:40])
+    safe_title = "".join(
+        c if c.isalnum() or c in "-_" else "_" for c in (case.title or "case")[:40]
+    )
     filename = f"audit_{safe_title}_{case_id.hex[:8]}.{ext}"
     return Response(
         content=body,
@@ -156,7 +159,9 @@ async def export_case_ropa(
 
     vvt_docs = [d for d in case.documents if d.type == "vvt"]
     if not vvt_docs:
-        raise HTTPException(status_code=404, detail="Kein VVT-Dokument für diesen Vorgang")
+        raise HTTPException(
+            status_code=404, detail="Kein VVT-Dokument für diesen Vorgang"
+        )
 
     if document_id is not None:
         doc = next((d for d in vvt_docs if d.id == document_id), None)
@@ -167,10 +172,14 @@ async def export_case_ropa(
 
     raw_text = doc.content or ""
     if not raw_text.strip():
-        raise HTTPException(status_code=404, detail="VVT-Dokument hat keinen extrahierten Inhalt")
+        raise HTTPException(
+            status_code=404, detail="VVT-Dokument hat keinen extrahierten Inhalt"
+        )
 
     vvt_fields = get_vvt_field_names(settings)
-    extraction = await normalize_vvt(raw_text, language=case.language, field_names=vvt_fields)
+    extraction = await normalize_vvt(
+        raw_text, language=case.language, field_names=vvt_fields
+    )
     fields_payload = [
         {
             "field_name": f.field_name,
@@ -189,7 +198,9 @@ async def export_case_ropa(
 
     if fmt == "docx":
         body = build_ropa_docx(case_summary=case_summary, vvt_fields=fields_payload)
-        ctype = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+        ctype = (
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+        )
         filename = f"ROPA_{_safe_filename(case.title)}_{case_id.hex[:8]}.docx"
     else:
         body = build_ropa_csv(case_summary=case_summary, vvt_fields=fields_payload)
@@ -199,9 +210,13 @@ async def export_case_ropa(
     return Response(
         content=body,
         media_type=ctype,
-        headers={"Content-Disposition": f"attachment; filename=\"{filename}\"; filename*=UTF-8''{quote(filename)}"},
+        headers={
+            "Content-Disposition": f"attachment; filename=\"{filename}\"; filename*=UTF-8''{quote(filename)}"
+        },
     )
 
 
 def _safe_filename(title: str | None) -> str:
-    return "".join(c if c.isalnum() or c in "-_" else "_" for c in (title or "case")[:40])
+    return "".join(
+        c if c.isalnum() or c in "-_" else "_" for c in (title or "case")[:40]
+    )

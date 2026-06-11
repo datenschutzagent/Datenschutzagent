@@ -9,6 +9,7 @@ Eine Datenschutzerklaerung gehoert zu einem Case (Vorgang). Endpunkte:
 - PATCH  /privacy-policies/{policy_id}            Inhalt/Titel bearbeiten
 - DELETE /privacy-policies/{policy_id}            Loeschen (admin)
 """
+
 import logging
 from uuid import UUID
 
@@ -67,6 +68,7 @@ async def list_privacy_policies(
     _user=require_roles("viewer", "editor", "admin"),
 ) -> list[PrivacyPolicyResponse]:
     from app.services.privacy_policy_service import list_privacy_policies as _list
+
     items = await _list(db)
     return [_orm_to_response(p) for p in items]
 
@@ -77,10 +79,14 @@ async def get_privacy_policy(
     db: AsyncSession = Depends(get_db),
     _user=require_roles("viewer", "editor", "admin"),
 ) -> PrivacyPolicyResponse:
-    result = await db.execute(select(PrivacyPolicyModel).where(PrivacyPolicyModel.id == policy_id))
+    result = await db.execute(
+        select(PrivacyPolicyModel).where(PrivacyPolicyModel.id == policy_id)
+    )
     policy = result.scalar_one_or_none()
     if not policy:
-        raise HTTPException(status_code=404, detail="Datenschutzerklaerung nicht gefunden")
+        raise HTTPException(
+            status_code=404, detail="Datenschutzerklaerung nicht gefunden"
+        )
     return _orm_to_response(policy)
 
 
@@ -99,10 +105,14 @@ async def update_privacy_policy(
     db: AsyncSession = Depends(get_db),
     _user=require_roles("editor", "admin"),
 ) -> PrivacyPolicyResponse:
-    result = await db.execute(select(PrivacyPolicyModel).where(PrivacyPolicyModel.id == policy_id))
+    result = await db.execute(
+        select(PrivacyPolicyModel).where(PrivacyPolicyModel.id == policy_id)
+    )
     policy = result.scalar_one_or_none()
     if not policy:
-        raise HTTPException(status_code=404, detail="Datenschutzerklaerung nicht gefunden")
+        raise HTTPException(
+            status_code=404, detail="Datenschutzerklaerung nicht gefunden"
+        )
     if body.title is not None:
         policy.title = body.title
     if body.content_markdown is not None:
@@ -114,16 +124,22 @@ async def update_privacy_policy(
     return _orm_to_response(policy)
 
 
-@router.delete("/{policy_id}", status_code=204, summary="Datenschutzerklaerung loeschen")
+@router.delete(
+    "/{policy_id}", status_code=204, summary="Datenschutzerklaerung loeschen"
+)
 async def delete_privacy_policy(
     policy_id: UUID,
     db: AsyncSession = Depends(get_db),
     _user=require_roles("admin"),
 ):
-    result = await db.execute(select(PrivacyPolicyModel).where(PrivacyPolicyModel.id == policy_id))
+    result = await db.execute(
+        select(PrivacyPolicyModel).where(PrivacyPolicyModel.id == policy_id)
+    )
     policy = result.scalar_one_or_none()
     if not policy:
-        raise HTTPException(status_code=404, detail="Datenschutzerklaerung nicht gefunden")
+        raise HTTPException(
+            status_code=404, detail="Datenschutzerklaerung nicht gefunden"
+        )
     await db.delete(policy)
     await db.flush()
 
@@ -142,7 +158,9 @@ async def list_privacy_policies_for_case(
     db: AsyncSession = Depends(get_db),
     _user=require_roles("viewer", "editor", "admin"),
 ) -> list[PrivacyPolicyResponse]:
-    from app.services.privacy_policy_service import list_privacy_policies_for_case as _list
+    from app.services.privacy_policy_service import (
+        list_privacy_policies_for_case as _list,
+    )
 
     case = await db.get(CaseModel, case_id)
     if case is None:
@@ -171,6 +189,8 @@ async def generate_privacy_policy_for_case(
     """
     from app.services.privacy_policy_service import (
         generate_privacy_policy as _gen,
+    )
+    from app.services.privacy_policy_service import (
         save_privacy_policy,
     )
 
@@ -179,12 +199,16 @@ async def generate_privacy_policy_for_case(
         raise HTTPException(status_code=404, detail="Vorgang nicht gefunden")
 
     try:
-        payload = await _gen(db=db, case_id=case_id, contact=body.contact, notes=body.notes)
+        payload = await _gen(
+            db=db, case_id=case_id, contact=body.contact, notes=body.notes
+        )
     except ValueError as exc:
-        raise HTTPException(status_code=404, detail=str(exc))
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
     except Exception as exc:
         logger.error("Privacy policy generation failed: %s", exc)
-        raise HTTPException(status_code=500, detail=f"Generierung fehlgeschlagen: {exc}")
+        raise HTTPException(
+            status_code=500, detail=f"Generierung fehlgeschlagen: {exc}"
+        ) from exc
 
     creator = getattr(_user, "display_name", "") if _user else ""
     policy = await save_privacy_policy(db, case_id, payload, created_by=creator)

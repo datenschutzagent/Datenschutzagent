@@ -6,6 +6,7 @@ Covers:
     matrix lookup of the residual cell
   - Catalog helpers: by_id, applicable, unknown ids ignored
 """
+
 from __future__ import annotations
 
 import pytest
@@ -22,7 +23,6 @@ from app.services.risk_config_loader import (
     MitigationReduction,
     RiskConfig,
 )
-
 
 # ---------------------------------------------------------------------------
 # Catalog helpers
@@ -83,16 +83,24 @@ def test_avv_no_mitigations_is_identity():
     dims = [_dim("Datensensitivität", 3), _dim("Drittlandrisiko", 3)]
     out = apply_avv_mitigations(dims, [], cat, avv_cfg)
     assert out["residual_avg_score"] == 3.0
-    assert out["residual_risk_level"] == "high"  # 3 → high under default 1.5/2.5/3.5/5.0
+    assert (
+        out["residual_risk_level"] == "high"
+    )  # 3 → high under default 1.5/2.5/3.5/5.0
     assert out["applied_effects"] == []
     # Each residual dimension carries inherent + delta + rationale.
-    assert all("inherent_score" in d and "delta" in d for d in out["residual_dimensions"])
+    assert all(
+        "inherent_score" in d and "delta" in d for d in out["residual_dimensions"]
+    )
 
 
 def test_avv_score_delta_reduces_average():
     cat = _catalog(
-        MitigationConfig(id="m1", label="M1", applies_to="avv",
-                         reduction=MitigationReduction(score_delta=-1.0)),
+        MitigationConfig(
+            id="m1",
+            label="M1",
+            applies_to="avv",
+            reduction=MitigationReduction(score_delta=-1.0),
+        ),
     )
     avv_cfg = AvvRiskConfig()
     dims = [_dim("A", 4), _dim("B", 4)]  # mean = 4
@@ -104,11 +112,18 @@ def test_avv_score_delta_reduces_average():
 
 def test_avv_dimension_delta_applied_before_mean():
     cat = _catalog(
-        MitigationConfig(id="m1", label="M1", applies_to="avv",
-                         reduction=MitigationReduction(dimension_deltas={"A": -2.0})),
+        MitigationConfig(
+            id="m1",
+            label="M1",
+            applies_to="avv",
+            reduction=MitigationReduction(dimension_deltas={"A": -2.0}),
+        ),
     )
     avv_cfg = AvvRiskConfig()
-    dims = [_dim("A", 5), _dim("B", 3)]  # inherent mean=4 → with reduction (A=3,B=3): mean=3
+    dims = [
+        _dim("A", 5),
+        _dim("B", 3),
+    ]  # inherent mean=4 → with reduction (A=3,B=3): mean=3
     out = apply_avv_mitigations(dims, ["m1"], cat, avv_cfg)
     assert out["residual_avg_score"] == 3.0
     # Dimension-level inherent_score preserved
@@ -118,8 +133,12 @@ def test_avv_dimension_delta_applied_before_mean():
 
 def test_avv_floor_prevents_score_below_min():
     cat = _catalog(
-        MitigationConfig(id="m1", label="M1", applies_to="avv",
-                         reduction=MitigationReduction(score_delta=-5.0)),
+        MitigationConfig(
+            id="m1",
+            label="M1",
+            applies_to="avv",
+            reduction=MitigationReduction(score_delta=-5.0),
+        ),
         min_avv_score=1.0,
     )
     avv_cfg = AvvRiskConfig()
@@ -131,13 +150,24 @@ def test_avv_floor_prevents_score_below_min():
 
 def test_avv_multiple_mitigations_compose():
     cat = _catalog(
-        MitigationConfig(id="m1", label="M1", applies_to="avv",
-                         reduction=MitigationReduction(score_delta=-0.5)),
-        MitigationConfig(id="m2", label="M2", applies_to="avv",
-                         reduction=MitigationReduction(dimension_deltas={"A": -1.0})),
+        MitigationConfig(
+            id="m1",
+            label="M1",
+            applies_to="avv",
+            reduction=MitigationReduction(score_delta=-0.5),
+        ),
+        MitigationConfig(
+            id="m2",
+            label="M2",
+            applies_to="avv",
+            reduction=MitigationReduction(dimension_deltas={"A": -1.0}),
+        ),
     )
     avv_cfg = AvvRiskConfig()
-    dims = [_dim("A", 4), _dim("B", 4)]  # inherent mean=4 → A=3,B=4 → mean=3.5 → -0.5 = 3.0
+    dims = [
+        _dim("A", 4),
+        _dim("B", 4),
+    ]  # inherent mean=4 → A=3,B=4 → mean=3.5 → -0.5 = 3.0
     out = apply_avv_mitigations(dims, ["m1", "m2"], cat, avv_cfg)
     assert out["residual_avg_score"] == 3.0
     assert {e["id"] for e in out["applied_effects"]} == {"m1", "m2"}
@@ -146,8 +176,12 @@ def test_avv_multiple_mitigations_compose():
 def test_avv_dsfa_only_mitigation_is_filtered_out():
     """A mitigation with applies_to='dsfa' must not affect the AVV side."""
     cat = _catalog(
-        MitigationConfig(id="dsfa_only", label="DSFA only", applies_to="dsfa",
-                         reduction=MitigationReduction(likelihood_delta=-2)),
+        MitigationConfig(
+            id="dsfa_only",
+            label="DSFA only",
+            applies_to="dsfa",
+            reduction=MitigationReduction(likelihood_delta=-2),
+        ),
     )
     avv_cfg = AvvRiskConfig()
     dims = [_dim("A", 4)]
@@ -158,8 +192,12 @@ def test_avv_dsfa_only_mitigation_is_filtered_out():
 
 def test_avv_unknown_mitigation_id_is_ignored():
     cat = _catalog(
-        MitigationConfig(id="m1", label="M1", applies_to="avv",
-                         reduction=MitigationReduction(score_delta=-1.0)),
+        MitigationConfig(
+            id="m1",
+            label="M1",
+            applies_to="avv",
+            reduction=MitigationReduction(score_delta=-1.0),
+        ),
     )
     avv_cfg = AvvRiskConfig()
     dims = [_dim("A", 3)]
@@ -206,8 +244,12 @@ def test_dsfa_no_mitigations_returns_inherent():
 
 def test_dsfa_likelihood_delta_reduces_matrix_cell():
     cat = _catalog(
-        MitigationConfig(id="m1", label="M1", applies_to="dsfa",
-                         reduction=MitigationReduction(likelihood_delta=-1)),
+        MitigationConfig(
+            id="m1",
+            label="M1",
+            applies_to="dsfa",
+            reduction=MitigationReduction(likelihood_delta=-1),
+        ),
     )
     cfg = DsfaAssessmentConfig()
     # 4_4 = high → after lik -1 → 3_4 = high (default matrix)
@@ -224,16 +266,20 @@ def test_dsfa_likelihood_delta_reduces_matrix_cell():
 
 def test_dsfa_keyword_filter_only_matches_relevant_risks():
     cat = _catalog(
-        MitigationConfig(id="m1", label="M1", applies_to="dsfa",
-                         reduction=MitigationReduction(
-                             severity_delta=-2,
-                             applicable_risk_keywords=["leak"],
-                         )),
+        MitigationConfig(
+            id="m1",
+            label="M1",
+            applies_to="dsfa",
+            reduction=MitigationReduction(
+                severity_delta=-2,
+                applicable_risk_keywords=["leak"],
+            ),
+        ),
     )
     cfg = DsfaAssessmentConfig()
     risks = [
-        _risk("Datenleak möglich", 3, 5, "high"),    # matches keyword
-        _risk("System fällt aus", 3, 5, "high"),     # does NOT match
+        _risk("Datenleak möglich", 3, 5, "high"),  # matches keyword
+        _risk("System fällt aus", 3, 5, "high"),  # does NOT match
     ]
     out = apply_dsfa_mitigations(risks, ["m1"], cat, cfg)
     assert out["residual_risks"][0]["severity_score"] == 3  # 5 - 2
@@ -242,11 +288,15 @@ def test_dsfa_keyword_filter_only_matches_relevant_risks():
 
 def test_dsfa_floor_prevents_below_one():
     cat = _catalog(
-        MitigationConfig(id="m1", label="M1", applies_to="dsfa",
-                         reduction=MitigationReduction(
-                             likelihood_delta=-5,
-                             severity_delta=-5,
-                         )),
+        MitigationConfig(
+            id="m1",
+            label="M1",
+            applies_to="dsfa",
+            reduction=MitigationReduction(
+                likelihood_delta=-5,
+                severity_delta=-5,
+            ),
+        ),
         min_likelihood=1,
         min_severity=1,
     )
@@ -261,11 +311,15 @@ def test_dsfa_floor_prevents_below_one():
 def test_dsfa_dpo_required_propagates_from_residual():
     """DPO consultation must flip OFF when mitigations push residual below high."""
     cat = _catalog(
-        MitigationConfig(id="m1", label="M1", applies_to="dsfa",
-                         reduction=MitigationReduction(
-                             likelihood_delta=-2,
-                             severity_delta=-2,
-                         )),
+        MitigationConfig(
+            id="m1",
+            label="M1",
+            applies_to="dsfa",
+            reduction=MitigationReduction(
+                likelihood_delta=-2,
+                severity_delta=-2,
+            ),
+        ),
     )
     cfg = DsfaAssessmentConfig()  # default: dpo when residual in {high, critical}
     risks = [_risk("R1", 5, 5, "critical")]
@@ -279,8 +333,12 @@ def test_dsfa_dpo_required_propagates_from_residual():
 
 def test_dsfa_inherent_vs_residual_traces_both_per_risk():
     cat = _catalog(
-        MitigationConfig(id="m1", label="M1", applies_to="dsfa",
-                         reduction=MitigationReduction(likelihood_delta=-1)),
+        MitigationConfig(
+            id="m1",
+            label="M1",
+            applies_to="dsfa",
+            reduction=MitigationReduction(likelihood_delta=-1),
+        ),
     )
     cfg = DsfaAssessmentConfig()
     risks = [_risk("R1", 4, 4, "high")]
@@ -308,11 +366,13 @@ def test_riskconfig_defaults_has_empty_catalog_but_enabled():
 
 def test_riskconfig_validates_unique_catalog_ids_via_top_level():
     with pytest.raises(ValueError):
-        RiskConfig.model_validate({
-            "mitigations": {
-                "catalog": [
-                    {"id": "dup", "label": "A"},
-                    {"id": "dup", "label": "B"},
-                ]
+        RiskConfig.model_validate(
+            {
+                "mitigations": {
+                    "catalog": [
+                        {"id": "dup", "label": "A"},
+                        {"id": "dup", "label": "B"},
+                    ]
+                }
             }
-        })
+        )

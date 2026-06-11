@@ -4,6 +4,7 @@ These tests require a live PostgreSQL database (DATABASE_URL env var).
 They test create, read, update, and delete behaviour for AVV contracts
 (Auftragsverarbeitungsverträge, Art. 28 DSGVO).
 """
+
 import pytest
 
 pytestmark = pytest.mark.asyncio
@@ -12,6 +13,7 @@ pytestmark = pytest.mark.asyncio
 # ---------------------------------------------------------------------------
 # Helper
 # ---------------------------------------------------------------------------
+
 
 async def _create_avv(client, **overrides) -> dict:
     payload = {

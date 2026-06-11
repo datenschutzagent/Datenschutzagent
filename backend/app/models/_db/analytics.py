@@ -1,6 +1,7 @@
 """Tagliche Maturity-Snapshots fuer den Compliance-Reife-Trend pro Abteilung."""
+
 import uuid
-from datetime import date, datetime, timezone
+from datetime import UTC, date, datetime
 
 from sqlalchemy import Date, DateTime, Float, Index, String, UniqueConstraint, func
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID
@@ -11,13 +12,16 @@ from app.models._db.base import Base
 
 class ComplianceMaturitySnapshotModel(Base):
     """Ein Snapshot pro Department und Tag. Befuellt durch taeglichen Celery-Beat-Job."""
+
     __tablename__ = "compliance_maturity_snapshots"
     __table_args__ = (
         UniqueConstraint("department", "snapshot_date", name="uq_maturity_dept_date"),
         Index("ix_maturity_snapshot_date", "snapshot_date"),
     )
 
-    id: Mapped[uuid.UUID] = mapped_column(PG_UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    id: Mapped[uuid.UUID] = mapped_column(
+        PG_UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
     department: Mapped[str] = mapped_column(String(200), nullable=False)
     snapshot_date: Mapped[date] = mapped_column(Date, nullable=False)
     vvt_score: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
@@ -31,6 +35,6 @@ class ComplianceMaturitySnapshotModel(Base):
     # need the DB-level default too.
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
-        default=lambda: datetime.now(timezone.utc),
+        default=lambda: datetime.now(UTC),
         server_default=func.now(),
     )

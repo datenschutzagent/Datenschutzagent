@@ -7,6 +7,7 @@ Führt eine strukturierte Risikobewertung durch basierend auf:
   - Subauftragsverarbeiter-Risiko
   - Drittland-Risiko
 """
+
 import logging
 from datetime import UTC, datetime
 from typing import Any
@@ -62,8 +63,12 @@ class _AVVRiskDimension(BaseModel):
 
 
 class _AVVRiskResult(BaseModel):
-    dimensions: list[_AVVRiskDimension] = Field(description="Bewertete Risikodimensionen")
-    overall_risk_level: str = Field(description="Gesamtrisiko: low, medium, high oder critical")
+    dimensions: list[_AVVRiskDimension] = Field(
+        description="Bewertete Risikodimensionen"
+    )
+    overall_risk_level: str = Field(
+        description="Gesamtrisiko: low, medium, high oder critical"
+    )
     main_risks: list[str] = Field(description="Hauptrisiken (max. 3)")
     recommended_measures: list[str] = Field(description="Empfohlene Maßnahmen")
     summary: str = Field(description="Kurze Zusammenfassung der Bewertung")
@@ -75,7 +80,9 @@ class _AVVRiskResult(BaseModel):
     )
 
 
-def _weighted_average(dimensions: list["_AVVRiskDimension"], weights: dict[str, float]) -> float:
+def _weighted_average(
+    dimensions: list["_AVVRiskDimension"], weights: dict[str, float]
+) -> float:
     """Weighted mean of dimension scores; falls back to arithmetic mean if no weights match."""
     if not dimensions:
         return 3.0
@@ -97,7 +104,9 @@ async def assess_avv_risk(contract_id: UUID, db: AsyncSession) -> dict[str, Any]
 
     Returns dict mit score (0-100), risk_level, dimensions, recommendations.
     """
-    result = await db.execute(select(AVVContractModel).where(AVVContractModel.id == contract_id))
+    result = await db.execute(
+        select(AVVContractModel).where(AVVContractModel.id == contract_id)
+    )
     contract = result.scalar_one_or_none()
     if not contract:
         raise ValueError(f"AVV {contract_id} not found")
@@ -105,15 +114,20 @@ async def assess_avv_risk(contract_id: UUID, db: AsyncSession) -> dict[str, Any]
     logger.info("AVV risk assessment started", extra={"contract_id": str(contract_id)})
 
     partner_type_label = (
-        "Auftragsverarbeiter (direkter AV)" if contract.partner_type == "processor"
+        "Auftragsverarbeiter (direkter AV)"
+        if contract.partner_type == "processor"
         else "Unter-Auftragsverarbeiter (Sub-AV, höheres Risiko)"
     )
 
     user_content = _AVV_RISK_USER_TEMPLATE.format(
         partner_name=sanitize_prompt_field(contract.partner_name, max_chars=200),
         partner_type=partner_type_label,
-        subject_matter=sanitize_prompt_field(contract.subject_matter or "Nicht angegeben", max_chars=2000),
-        department=sanitize_prompt_field(contract.department or "Nicht angegeben", max_chars=200),
+        subject_matter=sanitize_prompt_field(
+            contract.subject_matter or "Nicht angegeben", max_chars=2000
+        ),
+        department=sanitize_prompt_field(
+            contract.department or "Nicht angegeben", max_chars=200
+        ),
         notes=sanitize_prompt_field(contract.notes or "Keine Notizen", max_chars=1000),
     )
 
@@ -127,11 +141,14 @@ async def assess_avv_risk(contract_id: UUID, db: AsyncSession) -> dict[str, Any]
     # AVV/processor risk (Art. 28) is a complex legal assessment → optional stronger analysis model.
     agent = create_agent(_AVV_RISK_SYSTEM, analysis=True)
     try:
-        llm_result = await agent.run(user_content, output_type=wrap_output_type(_AVVRiskResult))
+        llm_result = await agent.run(
+            user_content, output_type=wrap_output_type(_AVVRiskResult)
+        )
         data = llm_result.output
     except Exception as exc:
         logger.error(
-            "AVV risk assessment LLM call failed: %s", exc,
+            "AVV risk assessment LLM call failed: %s",
+            exc,
             extra={"contract_id": str(contract_id)},
         )
         llm_failed = True
@@ -143,21 +160,29 @@ async def assess_avv_risk(contract_id: UUID, db: AsyncSession) -> dict[str, Any]
 
     # If the LLM ran but is under-confident, optionally swap in the rule
     # fallback. The "both" strategy logs an event but keeps the LLM result.
-    if not llm_failed and policy.enabled and policy.uses_rule_fallback:
-        if float(data.confidence) < policy.low_threshold:
-            logger.warning(
-                "AVV LLM confidence below threshold — switching to rules fallback",
-                extra={
-                    "contract_id": str(contract_id),
-                    "llm_confidence": float(data.confidence),
-                    "low_threshold": policy.low_threshold,
-                },
-            )
-            data = _avv_fallback_result(contract)
-            source = "hybrid"
+    if (
+        not llm_failed
+        and policy.enabled
+        and policy.uses_rule_fallback
+        and float(data.confidence) < policy.low_threshold
+    ):
+        logger.warning(
+            "AVV LLM confidence below threshold — switching to rules fallback",
+            extra={
+                "contract_id": str(contract_id),
+                "llm_confidence": float(data.confidence),
+                "low_threshold": policy.low_threshold,
+            },
+        )
+        data = _avv_fallback_result(contract)
+        source = "hybrid"
 
     # Inherent Score: gewichteter Mittelwert der Dimensions-Scores (1-5) → 0-100 + level.
-    inherent_avg = _weighted_average(list(data.dimensions), avv_cfg.dimension_weights) if data.dimensions else 3.0
+    inherent_avg = (
+        _weighted_average(list(data.dimensions), avv_cfg.dimension_weights)
+        if data.dimensions
+        else 3.0
+    )
     inherent_pct = avv_cfg.normalize_to_percent(inherent_avg)
     inherent_level = avv_cfg.level_for_score(inherent_avg)
 
@@ -283,14 +308,16 @@ def _avv_fallback_result(contract: AVVContractModel) -> _AVVRiskResult:
     return _AVVRiskResult.model_validate(raw)
 
 
-async def _load_applied_mitigation_ids(contract_id: UUID, db: AsyncSession) -> list[str]:
+async def _load_applied_mitigation_ids(
+    contract_id: UUID, db: AsyncSession
+) -> list[str]:
     """Return the catalog-ids of mitigations currently linked to an AVV contract."""
     result = await db.execute(
         select(AvvMitigationLinkModel.mitigation_id).where(
             AvvMitigationLinkModel.avv_contract_id == contract_id
         )
     )
-    return [row for row in result.scalars().all()]
+    return list(result.scalars().all())
 
 
 # ConfidencePolicyConfig is re-exported for tests that want to construct

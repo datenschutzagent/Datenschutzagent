@@ -3,6 +3,7 @@
 Bundelt SQL-Aggregationen, die zuvor verstreut in den Routen-Dateien lagen, an einem Ort.
 Jede Funktion liefert ein typisiertes Dict, das direkt in eine Pydantic-Response gegossen wird.
 """
+
 from __future__ import annotations
 
 import statistics
@@ -70,7 +71,9 @@ def _avv_bucket(days_until: int | None, status: str) -> str:
     return "180_plus"
 
 
-async def pipeline_stats(db: AsyncSession, department: str | None = None) -> dict[str, Any]:
+async def pipeline_stats(
+    db: AsyncSession, department: str | None = None
+) -> dict[str, Any]:
     """AVV-Ablauf-Pipeline + TOM-Review-Pipeline + DSFA-Coverage fuer high-risk Cases."""
     today = date.today()
 
@@ -79,11 +82,13 @@ async def pipeline_stats(db: AsyncSession, department: str | None = None) -> dic
         dept_filter = " AND department = :dept "
 
     # AVV: alle relevanten Vertrage holen, im Python in Buckets sortieren.
-    avv_q = text(f"""
+    avv_q = text(
+        f"""
         SELECT id, partner_name, department, status, expiry_date, risk_level, risk_score
         FROM avv_contracts
         WHERE 1=1 {dept_filter}
-    """)
+    """
+    )
     params: dict[str, Any] = {}
     if department:
         params["dept"] = department
@@ -102,35 +107,48 @@ async def pipeline_stats(db: AsyncSession, department: str | None = None) -> dic
         bucket_counts[bucket] += 1
         if risk_score is not None:
             bucket_risks[bucket].append(int(risk_score))
-        if status not in ("terminated",) and days_until is not None and -30 <= days_until <= 180:
-            expiring_items.append({
-                "id": str(avv_id),
-                "partner_name": partner,
-                "department": dept,
-                "expiry_date": expiry.isoformat() if expiry else None,
-                "days_until_expiry": days_until,
-                "risk_level": risk_level,
-                "status": status,
-            })
+        if (
+            status not in ("terminated",)
+            and days_until is not None
+            and -30 <= days_until <= 180
+        ):
+            expiring_items.append(
+                {
+                    "id": str(avv_id),
+                    "partner_name": partner,
+                    "department": dept,
+                    "expiry_date": expiry.isoformat() if expiry else None,
+                    "days_until_expiry": days_until,
+                    "risk_level": risk_level,
+                    "status": status,
+                }
+            )
 
-    expiring_items.sort(key=lambda r: r["days_until_expiry"] if r["days_until_expiry"] is not None else 9999)
+    expiring_items.sort(
+        key=lambda r: (
+            r["days_until_expiry"] if r["days_until_expiry"] is not None else 9999
+        )
+    )
     expiring_items = expiring_items[:10]
 
     avv_buckets = []
     for key, label in _AVV_BUCKETS:
         risks = bucket_risks[key]
-        avv_buckets.append({
-            "bucket": key,
-            "label": label,
-            "count": bucket_counts[key],
-            "avg_risk_score": round(sum(risks) / len(risks), 1) if risks else None,
-        })
+        avv_buckets.append(
+            {
+                "bucket": key,
+                "label": label,
+                "count": bucket_counts[key],
+                "avg_risk_score": round(sum(risks) / len(risks), 1) if risks else None,
+            }
+        )
 
     # TOM: Reviews nach Kategorie auswerten.
     tom_dept_filter = ""
     if department:
         tom_dept_filter = " AND :dept = ANY(department_codes) "
-    tom_q = text(f"""
+    tom_q = text(
+        f"""
         SELECT category,
                implementation_status,
                review_date,
@@ -138,7 +156,8 @@ async def pipeline_stats(db: AsyncSession, department: str | None = None) -> dic
                id
         FROM tom_measures
         WHERE implementation_status != 'not_applicable' {tom_dept_filter}
-    """)
+    """
+    )
     tom_rows = (await db.execute(tom_q, params)).fetchall()
 
     by_cat: dict[str, dict[str, int]] = {}
@@ -160,14 +179,16 @@ async def pipeline_stats(db: AsyncSession, department: str | None = None) -> dic
         if days_until < 0:
             by_cat[cat]["overdue"] += 1
             overdue_total += 1
-            overdue_items.append({
-                "id": str(tom_id),
-                "title": title,
-                "category": cat,
-                "review_date": review.isoformat(),
-                "days_overdue": -days_until,
-                "status": status,
-            })
+            overdue_items.append(
+                {
+                    "id": str(tom_id),
+                    "title": title,
+                    "category": cat,
+                    "review_date": review.isoformat(),
+                    "days_overdue": -days_until,
+                    "status": status,
+                }
+            )
         elif days_until <= 30:
             by_cat[cat]["upcoming"] += 1
             upcoming_total += 1
@@ -182,14 +203,16 @@ async def pipeline_stats(db: AsyncSession, department: str | None = None) -> dic
     total_tom_relevant = sum(c["total"] for c in by_cat.values())
     review_governance_pct = (
         ((total_tom_relevant - no_review_total) / total_tom_relevant * 100.0)
-        if total_tom_relevant > 0 else 0.0
+        if total_tom_relevant > 0
+        else 0.0
     )
 
     # DSFA: high-risk Cases, die KEIN finalisiertes Assessment haben.
     case_dept_filter = ""
     if department:
         case_dept_filter = " AND c.department = :dept "
-    dsfa_q = text(f"""
+    dsfa_q = text(
+        f"""
         SELECT c.id, c.title, c.department, c.special_category_data, c.international_transfer,
                d.status AS dsfa_status
         FROM cases c
@@ -197,7 +220,8 @@ async def pipeline_stats(db: AsyncSession, department: str | None = None) -> dic
         WHERE (c.special_category_data = TRUE OR c.international_transfer = TRUE)
           AND c.archived_at IS NULL
           {case_dept_filter}
-    """)
+    """
+    )
     dsfa_rows = (await db.execute(dsfa_q, params)).fetchall()
 
     high_risk_total = len(dsfa_rows)
@@ -212,27 +236,33 @@ async def pipeline_stats(db: AsyncSession, department: str | None = None) -> dic
             with_finalized += 1
         elif dsfa_status == "draft":
             with_draft_only += 1
-            missing_items.append({
-                "case_id": str(case_id),
-                "title": title,
-                "department": dept,
-                "special_category_data": bool(special),
-                "international_transfer": bool(intl),
-                "has_draft": True,
-            })
+            missing_items.append(
+                {
+                    "case_id": str(case_id),
+                    "title": title,
+                    "department": dept,
+                    "special_category_data": bool(special),
+                    "international_transfer": bool(intl),
+                    "has_draft": True,
+                }
+            )
         else:
             without_dsfa += 1
-            missing_items.append({
-                "case_id": str(case_id),
-                "title": title,
-                "department": dept,
-                "special_category_data": bool(special),
-                "international_transfer": bool(intl),
-                "has_draft": False,
-            })
+            missing_items.append(
+                {
+                    "case_id": str(case_id),
+                    "title": title,
+                    "department": dept,
+                    "special_category_data": bool(special),
+                    "international_transfer": bool(intl),
+                    "has_draft": False,
+                }
+            )
 
     missing_items = missing_items[:25]
-    coverage_pct = (with_finalized / high_risk_total * 100.0) if high_risk_total > 0 else 100.0
+    coverage_pct = (
+        (with_finalized / high_risk_total * 100.0) if high_risk_total > 0 else 100.0
+    )
 
     return {
         "generated_at": datetime.now(UTC).isoformat(),
@@ -310,7 +340,9 @@ def _histogram_hours(values: list[float]) -> list[dict]:
     return [{"bucket": b[0], "count": counts[b[0]]} for b in buckets]
 
 
-async def velocity_stats(db: AsyncSession, department: str | None = None) -> dict[str, Any]:
+async def velocity_stats(
+    db: AsyncSession, department: str | None = None
+) -> dict[str, Any]:
     """DSR-MTTR + Breach-Notification-Speed + Findings-Resolution + Workflow-Funnels."""
     params: dict[str, Any] = {}
     dept_filter_dsr = ""
@@ -319,11 +351,13 @@ async def velocity_stats(db: AsyncSession, department: str | None = None) -> dic
         params["dept"] = department
 
     # --- DSR-MTTR ---
-    dsr_q = text(f"""
+    dsr_q = text(
+        f"""
         SELECT (responded_at - received_at) AS days, request_type, received_at
         FROM dsr_requests
         WHERE responded_at IS NOT NULL {dept_filter_dsr}
-    """)
+    """
+    )
     dsr_rows = (await db.execute(dsr_q, params)).fetchall()
     dsr_days = [float(r[0]) for r in dsr_rows if r[0] is not None]
     dsr_total = len(dsr_days)
@@ -347,7 +381,9 @@ async def velocity_stats(db: AsyncSession, department: str | None = None) -> dic
     ]
 
     # Trend: pro Monat der letzten 6 Monate.
-    six_months = (date.today().replace(day=1) - timedelta(days=1)).replace(day=1) - timedelta(days=140)
+    six_months = (date.today().replace(day=1) - timedelta(days=1)).replace(
+        day=1
+    ) - timedelta(days=140)
     months: dict[str, list[float]] = {}
     for row in dsr_rows:
         d, _, received = row
@@ -379,13 +415,15 @@ async def velocity_stats(db: AsyncSession, department: str | None = None) -> dic
     dept_filter_breach = ""
     if department:
         dept_filter_breach = " AND department = :dept "
-    breach_q = text(f"""
+    breach_q = text(
+        f"""
         SELECT EXTRACT(EPOCH FROM (authority_notified_at - discovered_at))/3600.0 AS hours_auth,
                EXTRACT(EPOCH FROM (subjects_notified_at - discovered_at))/3600.0 AS hours_subj,
                discovered_at, risk_level
         FROM data_breaches
         WHERE authority_notified_at IS NOT NULL {dept_filter_breach}
-    """)
+    """
+    )
     breach_rows = (await db.execute(breach_q, params)).fetchall()
     auth_hours = [float(r[0]) for r in breach_rows if r[0] is not None and r[0] >= 0]
     subj_hours = [float(r[1]) for r in breach_rows if r[1] is not None and r[1] >= 0]
@@ -396,7 +434,12 @@ async def velocity_stats(db: AsyncSession, department: str | None = None) -> dic
     breach_months: dict[str, list[float]] = {}
     for row in breach_rows:
         h_auth, _, discovered, _ = row
-        if h_auth is None or h_auth < 0 or discovered is None or discovered.date() < six_months:
+        if (
+            h_auth is None
+            or h_auth < 0
+            or discovered is None
+            or discovered.date() < six_months
+        ):
             continue
         key = f"{discovered.year:04d}-{discovered.month:02d}"
         breach_months.setdefault(key, []).append(float(h_auth))
@@ -414,7 +457,9 @@ async def velocity_stats(db: AsyncSession, department: str | None = None) -> dic
         "sample_size": breach_total,
         "median_hours_to_authority": _percentile(auth_hours, 50),
         "p90_hours_to_authority": _percentile(auth_hours, 90),
-        "sla_72h_compliance_pct": round(breach_sla, 1) if breach_sla is not None else None,
+        "sla_72h_compliance_pct": (
+            round(breach_sla, 1) if breach_sla is not None else None
+        ),
         "median_hours_to_subjects": _percentile(subj_hours, 50),
         "histogram_authority": _histogram_hours(auth_hours),
         "trend": breach_trend,
@@ -424,12 +469,14 @@ async def velocity_stats(db: AsyncSession, department: str | None = None) -> dic
     dept_filter_find = ""
     if department:
         dept_filter_find = " AND c.department = :dept "
-    find_q = text(f"""
+    find_q = text(
+        f"""
         SELECT f.severity, EXTRACT(EPOCH FROM (f.updated_at - f.created_at))/86400.0 AS days
         FROM findings f
         JOIN cases c ON c.id = f.case_id
         WHERE f.status IN ('fixed', 'accepted', 'overruled') {dept_filter_find}
-    """)
+    """
+    )
     find_rows = (await db.execute(find_q, params)).fetchall()
     by_sev: dict[str, list[float]] = {}
     for row in find_rows:
@@ -466,9 +513,12 @@ async def _compute_funnels(db: AsyncSession, department: str | None) -> list[dic
     params: dict[str, Any] = {}
     dept_join_dsr = ""
     if department:
-        dept_join_dsr = " JOIN dsr_requests r ON r.id = a.request_id AND r.department = :dept "
+        dept_join_dsr = (
+            " JOIN dsr_requests r ON r.id = a.request_id AND r.department = :dept "
+        )
         params["dept"] = department
-    dsr_funnel_q = text(f"""
+    dsr_funnel_q = text(
+        f"""
         WITH ordered AS (
             SELECT a.request_id,
                    a.event_type,
@@ -483,14 +533,18 @@ async def _compute_funnels(db: AsyncSession, department: str | None) -> list[dic
                EXTRACT(EPOCH FROM (created_at - prev_at))/3600.0 AS hours
         FROM ordered
         WHERE prev_event IS NOT NULL
-    """)
+    """
+    )
     rows = (await db.execute(dsr_funnel_q, params)).fetchall()
     funnels.append(_summarize_funnel("DSR", rows))
 
     dept_join_breach = ""
     if department:
-        dept_join_breach = " JOIN data_breaches b ON b.id = a.breach_id AND b.department = :dept "
-    breach_funnel_q = text(f"""
+        dept_join_breach = (
+            " JOIN data_breaches b ON b.id = a.breach_id AND b.department = :dept "
+        )
+    breach_funnel_q = text(
+        f"""
         WITH ordered AS (
             SELECT a.breach_id,
                    a.event_type,
@@ -505,7 +559,8 @@ async def _compute_funnels(db: AsyncSession, department: str | None) -> list[dic
                EXTRACT(EPOCH FROM (created_at - prev_at))/3600.0 AS hours
         FROM ordered
         WHERE prev_event IS NOT NULL
-    """)
+    """
+    )
     rows = (await db.execute(breach_funnel_q, params)).fetchall()
     funnels.append(_summarize_funnel("Datenpanne", rows))
     return funnels
@@ -521,12 +576,14 @@ def _summarize_funnel(label: str, rows: list[Any]) -> dict:
         by_transition.setdefault(key, []).append(float(hours))
     steps = []
     for key, vs in sorted(by_transition.items(), key=lambda kv: -len(kv[1])):
-        steps.append({
-            "transition": key,
-            "avg_hours": round(statistics.fmean(vs), 1) if vs else None,
-            "median_hours": _percentile(vs, 50),
-            "sample_size": len(vs),
-        })
+        steps.append(
+            {
+                "transition": key,
+                "avg_hours": round(statistics.fmean(vs), 1) if vs else None,
+                "median_hours": _percentile(vs, 50),
+                "sample_size": len(vs),
+            }
+        )
     return {"entity": label, "steps": steps[:8]}
 
 
@@ -538,7 +595,8 @@ def _summarize_funnel(label: str, rows: list[Any]) -> dict:
 async def compute_maturity_scores(db: AsyncSession) -> list[dict[str, Any]]:
     """Berechnet pro Department alle Sub-Scores + Composite (live, ohne Snapshots)."""
     # Alle Departments einsammeln, die in irgendeinem relevanten Modell vorkommen.
-    depts_q = text("""
+    depts_q = text(
+        """
         SELECT DISTINCT department FROM cases             WHERE department IS NOT NULL AND department != ''
         UNION
         SELECT DISTINCT department FROM avv_contracts     WHERE department IS NOT NULL AND department != ''
@@ -546,11 +604,13 @@ async def compute_maturity_scores(db: AsyncSession) -> list[dict[str, Any]]:
         SELECT DISTINCT department FROM dsr_requests      WHERE department IS NOT NULL AND department != ''
         UNION
         SELECT DISTINCT department FROM data_breaches     WHERE department IS NOT NULL AND department != ''
-    """)
+    """
+    )
     departments = [r[0] for r in (await db.execute(depts_q)).fetchall()]
 
     # 1) VVT-Coverage: Cases mit `has_vvt`-Flag — naehere uns ueber Cases-Status / VVT-Dokumente.
-    vvt_q = text("""
+    vvt_q = text(
+        """
         SELECT c.department,
                COUNT(*)                                           AS total,
                COUNT(*) FILTER (WHERE EXISTS (
@@ -560,7 +620,8 @@ async def compute_maturity_scores(db: AsyncSession) -> list[dict[str, Any]]:
         FROM cases c
         WHERE c.archived_at IS NULL AND c.department IS NOT NULL
         GROUP BY c.department
-    """)
+    """
+    )
     vvt_map: dict[str, float] = {}
     for row in (await db.execute(vvt_q)).fetchall():
         dept, total, with_vvt = row
@@ -569,7 +630,8 @@ async def compute_maturity_scores(db: AsyncSession) -> list[dict[str, Any]]:
         vvt_map[dept] = (with_vvt / total * 100.0) if total > 0 else 100.0
 
     # 2) DSFA-Coverage: high-risk Cases mit finalisierter DSFA.
-    dsfa_q = text("""
+    dsfa_q = text(
+        """
         SELECT c.department,
                COUNT(*) FILTER (WHERE c.special_category_data OR c.international_transfer) AS high_risk_total,
                COUNT(*) FILTER (
@@ -582,7 +644,8 @@ async def compute_maturity_scores(db: AsyncSession) -> list[dict[str, Any]]:
         FROM cases c
         WHERE c.archived_at IS NULL AND c.department IS NOT NULL
         GROUP BY c.department
-    """)
+    """
+    )
     dsfa_map: dict[str, float] = {}
     for row in (await db.execute(dsfa_q)).fetchall():
         dept, hr, with_dsfa = row
@@ -592,7 +655,8 @@ async def compute_maturity_scores(db: AsyncSession) -> list[dict[str, Any]]:
         dsfa_map[dept] = (with_dsfa / hr * 100.0) if hr > 0 else 100.0
 
     # 3) AVV-Status: Anteil aktive Vertraege mit aktueller Risikobewertung (<= 12 Monate).
-    avv_q = text("""
+    avv_q = text(
+        """
         SELECT department,
                COUNT(*) AS total,
                COUNT(*) FILTER (
@@ -603,7 +667,8 @@ async def compute_maturity_scores(db: AsyncSession) -> list[dict[str, Any]]:
         FROM avv_contracts
         WHERE department IS NOT NULL
         GROUP BY department
-    """)
+    """
+    )
     avv_map: dict[str, float] = {}
     for row in (await db.execute(avv_q)).fetchall():
         dept, total, healthy = row
@@ -613,7 +678,8 @@ async def compute_maturity_scores(db: AsyncSession) -> list[dict[str, Any]]:
 
     # 4) TOM-Implementation: Anteil 'implemented' an relevanten TOMs (excl. not_applicable).
     #    Gewichtet ueber department_codes (ARRAY).
-    tom_q = text("""
+    tom_q = text(
+        """
         SELECT department_code,
                COUNT(*)                                                 AS total,
                COUNT(*) FILTER (WHERE implementation_status = 'implemented') AS implemented
@@ -624,7 +690,8 @@ async def compute_maturity_scores(db: AsyncSession) -> list[dict[str, Any]]:
               AND department_codes IS NOT NULL
         ) t
         GROUP BY department_code
-    """)
+    """
+    )
     tom_map: dict[str, float] = {}
     for row in (await db.execute(tom_q)).fetchall():
         dept, total, implemented = row
@@ -637,11 +704,13 @@ async def compute_maturity_scores(db: AsyncSession) -> list[dict[str, Any]]:
     maturity_cfg = get_risk_config().maturity
     # received_at/responded_at are DATE columns: date - date already yields whole days
     # (integer) in Postgres; EXTRACT(EPOCH FROM ...) on that integer is an error.
-    vel_q = text("""
+    vel_q = text(
+        """
         SELECT department, (responded_at - received_at)::float AS days
         FROM dsr_requests
         WHERE responded_at IS NOT NULL AND department IS NOT NULL
-    """)
+    """
+    )
     by_dept: dict[str, list[float]] = {}
     for row in (await db.execute(vel_q)).fetchall():
         dept, d = row
@@ -675,18 +744,23 @@ async def compute_maturity_scores(db: AsyncSession) -> list[dict[str, Any]]:
             + sub["dsfa_score"] * weights.get("dsfa", MATURITY_WEIGHTS["dsfa"])
             + sub["avv_score"] * weights.get("avv", MATURITY_WEIGHTS["avv"])
             + sub["tom_score"] * weights.get("tom", MATURITY_WEIGHTS["tom"])
-            + sub["velocity_score"] * weights.get("velocity", MATURITY_WEIGHTS["velocity"])
+            + sub["velocity_score"]
+            * weights.get("velocity", MATURITY_WEIGHTS["velocity"])
         )
-        rows.append({
-            "department": dept,
-            "sub_scores": sub,
-            "composite_score": round(composite, 1),
-            "delta_3m": None,
-        })
+        rows.append(
+            {
+                "department": dept,
+                "sub_scores": sub,
+                "composite_score": round(composite, 1),
+                "delta_3m": None,
+            }
+        )
     return rows
 
 
-async def maturity_stats(db: AsyncSession, department: str | None = None) -> dict[str, Any]:
+async def maturity_stats(
+    db: AsyncSession, department: str | None = None
+) -> dict[str, Any]:
     """Maturity-Score live + 6-Monats-Trend aus Snapshots."""
     departments = await compute_maturity_scores(db)
     if department:
@@ -699,12 +773,14 @@ async def maturity_stats(db: AsyncSession, department: str | None = None) -> dic
     if department:
         trend_filter = " AND department = :dept "
         trend_params["dept"] = department
-    trend_q = text(f"""
+    trend_q = text(
+        f"""
         SELECT department, snapshot_date, composite_score
         FROM compliance_maturity_snapshots
         WHERE snapshot_date >= :since {trend_filter}
         ORDER BY department ASC, snapshot_date ASC
-    """)
+    """
+    )
     trend_rows = (await db.execute(trend_q, trend_params)).fetchall()
     trend = [
         {
@@ -720,17 +796,20 @@ async def maturity_stats(db: AsyncSession, department: str | None = None) -> dic
     if has_history:
         ninety_days_ago = date.today() - timedelta(days=90)
         # Pro Dept den jeweils naechstgelegenen Snapshot vor 90 Tagen.
-        prev_q = text(f"""
+        prev_q = text(
+            f"""
             SELECT DISTINCT ON (department) department, composite_score, snapshot_date
             FROM compliance_maturity_snapshots
             WHERE snapshot_date <= :cut {trend_filter}
             ORDER BY department, snapshot_date DESC
-        """)
+        """
+        )
         prev_params = {"cut": ninety_days_ago}
         if department:
             prev_params["dept"] = department
         prev_map: dict[str, float] = {
-            r[0]: float(r[1]) for r in (await db.execute(prev_q, prev_params)).fetchall()
+            r[0]: float(r[1])
+            for r in (await db.execute(prev_q, prev_params)).fetchall()
         }
         for d in departments:
             prev = prev_map.get(d["department"])
@@ -761,7 +840,9 @@ async def maturity_stats(db: AsyncSession, department: str | None = None) -> dic
     }
 
 
-async def write_maturity_snapshot(db: AsyncSession, snapshot_date: date | None = None) -> int:
+async def write_maturity_snapshot(
+    db: AsyncSession, snapshot_date: date | None = None
+) -> int:
     """Schreibt heutige Sub-Scores pro Department als Snapshot. Idempotent dank UniqueConstraint."""
     snapshot_date = snapshot_date or date.today()
     rows = await compute_maturity_scores(db)
@@ -769,7 +850,8 @@ async def write_maturity_snapshot(db: AsyncSession, snapshot_date: date | None =
     for r in rows:
         sub = r["sub_scores"]
         await db.execute(
-            text("""
+            text(
+                """
                 INSERT INTO compliance_maturity_snapshots
                     (id, department, snapshot_date, vvt_score, dsfa_score, avv_score,
                      tom_score, velocity_score, composite_score)
@@ -782,7 +864,8 @@ async def write_maturity_snapshot(db: AsyncSession, snapshot_date: date | None =
                     tom_score = EXCLUDED.tom_score,
                     velocity_score = EXCLUDED.velocity_score,
                     composite_score = EXCLUDED.composite_score
-            """),
+            """
+            ),
             {
                 "dept": r["department"],
                 "date": snapshot_date,
@@ -839,32 +922,49 @@ async def compute_risk_velocity(
         dept_filter = " AND department = :dept "
         params["dept"] = department
 
-    score_columns = ", ".join(f"{name}_score" if name != "velocity" else "velocity_score" for name in _RISK_VELOCITY_SUBSCORES)
+    score_columns = ", ".join(
+        f"{name}_score" if name != "velocity" else "velocity_score"
+        for name in _RISK_VELOCITY_SUBSCORES
+    )
 
     # Jüngster Snapshot pro Department (immer im Vergleichsfenster).
-    current_q = text(f"""
+    current_q = text(
+        f"""
         SELECT DISTINCT ON (department) department, snapshot_date,
             composite_score, {score_columns}
         FROM compliance_maturity_snapshots
         WHERE 1=1 {dept_filter}
         ORDER BY department, snapshot_date DESC
-    """)
+    """
+    )
     # Ältester Snapshot pro Department vor/an der cutoff-Linie.
-    previous_q = text(f"""
+    previous_q = text(
+        f"""
         SELECT DISTINCT ON (department) department, snapshot_date,
             composite_score, {score_columns}
         FROM compliance_maturity_snapshots
         WHERE snapshot_date <= :cutoff {dept_filter}
         ORDER BY department, snapshot_date DESC
-    """)
+    """
+    )
 
-    current_rows = (await db.execute(current_q, {k: v for k, v in params.items() if k != "cutoff"})).fetchall()
+    current_rows = (
+        await db.execute(current_q, {k: v for k, v in params.items() if k != "cutoff"})
+    ).fetchall()
     previous_rows = (await db.execute(previous_q, params)).fetchall()
 
     def _row_to_dict(row) -> dict[str, Any]:
         dept, snap_date, composite = row[0], row[1], float(row[2])
-        sub = {name: float(row[3 + idx]) for idx, name in enumerate(_RISK_VELOCITY_SUBSCORES)}
-        return {"department": dept, "snapshot_date": snap_date, "composite_score": composite, "sub_scores": sub}
+        sub = {
+            name: float(row[3 + idx])
+            for idx, name in enumerate(_RISK_VELOCITY_SUBSCORES)
+        }
+        return {
+            "department": dept,
+            "snapshot_date": snap_date,
+            "composite_score": composite,
+            "sub_scores": sub,
+        }
 
     current_map = {r[0]: _row_to_dict(r) for r in current_rows}
     previous_map = {r[0]: _row_to_dict(r) for r in previous_rows}
@@ -875,25 +975,27 @@ async def compute_risk_velocity(
         prev = previous_map.get(dept)
         if prev is None:
             # Kein Vergleichswert vorhanden — Trend "unknown", stable.
-            departments.append({
-                "department": dept,
-                "current_composite": round(cur["composite_score"], 1),
-                "previous_composite": None,
-                "delta": None,
-                "trend": "unknown",
-                "significant": False,
-                "current_snapshot_date": cur["snapshot_date"].isoformat(),
-                "previous_snapshot_date": None,
-                "sub_scores": {
-                    name: {
-                        "current": round(cur["sub_scores"][name], 1),
-                        "previous": None,
-                        "delta": None,
-                        "trend": "unknown",
-                    }
-                    for name in _RISK_VELOCITY_SUBSCORES
-                },
-            })
+            departments.append(
+                {
+                    "department": dept,
+                    "current_composite": round(cur["composite_score"], 1),
+                    "previous_composite": None,
+                    "delta": None,
+                    "trend": "unknown",
+                    "significant": False,
+                    "current_snapshot_date": cur["snapshot_date"].isoformat(),
+                    "previous_snapshot_date": None,
+                    "sub_scores": {
+                        name: {
+                            "current": round(cur["sub_scores"][name], 1),
+                            "previous": None,
+                            "delta": None,
+                            "trend": "unknown",
+                        }
+                        for name in _RISK_VELOCITY_SUBSCORES
+                    },
+                }
+            )
             continue
 
         delta = cur["composite_score"] - prev["composite_score"]
@@ -906,17 +1008,19 @@ async def compute_risk_velocity(
                 "delta": round(sub_delta, 1),
                 "trend": _classify_trend(sub_delta, rv_cfg.significant_change_pct),
             }
-        departments.append({
-            "department": dept,
-            "current_composite": round(cur["composite_score"], 1),
-            "previous_composite": round(prev["composite_score"], 1),
-            "delta": round(delta, 1),
-            "trend": _classify_trend(delta, rv_cfg.significant_change_pct),
-            "significant": abs(delta) >= rv_cfg.significant_change_pct,
-            "current_snapshot_date": cur["snapshot_date"].isoformat(),
-            "previous_snapshot_date": prev["snapshot_date"].isoformat(),
-            "sub_scores": sub_trends,
-        })
+        departments.append(
+            {
+                "department": dept,
+                "current_composite": round(cur["composite_score"], 1),
+                "previous_composite": round(prev["composite_score"], 1),
+                "delta": round(delta, 1),
+                "trend": _classify_trend(delta, rv_cfg.significant_change_pct),
+                "significant": abs(delta) >= rv_cfg.significant_change_pct,
+                "current_snapshot_date": cur["snapshot_date"].isoformat(),
+                "previous_snapshot_date": prev["snapshot_date"].isoformat(),
+                "sub_scores": sub_trends,
+            }
+        )
 
     return {
         "generated_at": datetime.now(UTC).isoformat(),

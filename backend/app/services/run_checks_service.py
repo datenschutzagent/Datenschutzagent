@@ -1,9 +1,11 @@
 """Run playbook checks against case documents; used by API (sync fallback) and Celery task."""
+
 import asyncio
+import contextlib
+import logging
 import time
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
-from typing import Optional
 from uuid import UUID
 
 from sqlalchemy import select
@@ -12,6 +14,7 @@ from sqlalchemy.orm import selectinload
 
 from app.config import settings
 from app.constants import DocumentExtractionStatus, FindingStatus
+from app.core.llm import get_llm_provider_info
 from app.models.db import CaseModel, FindingModel, LegalBaseModel, PlaybookModel
 from app.services.check_runner import (
     run_check,
@@ -19,16 +22,14 @@ from app.services.check_runner import (
     run_cross_document_check,
     run_cross_document_check_rag,
 )
-import logging
+from app.services.weaviate_service import get_relevant_legal_base_chunks
 
 logger = logging.getLogger(__name__)
-from app.services.weaviate_service import get_relevant_legal_base_chunks
-from app.core.llm import get_llm_provider_info
-
 
 # ---------------------------------------------------------------------------
 # Module-level pure helpers
 # ---------------------------------------------------------------------------
+
 
 def _legal_base_applicable(
     base: LegalBaseModel,
@@ -44,9 +45,7 @@ def _legal_base_applicable(
         return False
     if base.case_types and case_case_type not in base.case_types:
         return False
-    if base.internal_only and case_case_type != "Innenrecht":
-        return False
-    return True
+    return not (base.internal_only and case_case_type != "Innenrecht")
 
 
 def _parse_uuid_list(ids: list) -> set[UUID]:
@@ -55,18 +54,24 @@ def _parse_uuid_list(ids: list) -> set[UUID]:
         if isinstance(x, UUID):
             out.add(x)
         elif isinstance(x, str):
-            try:
+            with contextlib.suppress(ValueError, TypeError):
                 out.add(UUID(x))
-            except (ValueError, TypeError):
-                pass
     return out
 
 
 def _instruction_for_check(item: dict, language: str) -> str:
     if language in ("en", "de_en"):
-        instr = item.get("instruction_en") or item.get("instruction") or item.get("requirement")
+        instr = (
+            item.get("instruction_en")
+            or item.get("instruction")
+            or item.get("requirement")
+        )
     else:
-        instr = item.get("instruction") or item.get("requirement") or item.get("instruction_en")
+        instr = (
+            item.get("instruction")
+            or item.get("requirement")
+            or item.get("instruction_en")
+        )
     return instr or ""
 
 
@@ -89,13 +94,16 @@ def _legal_bases_context(
 ) -> str:
     if not legal_base_ids or not instruction:
         return ""
-    chunks = get_relevant_legal_base_chunks(legal_base_ids, instruction, top_k=top_k, include_source=True)
+    chunks = get_relevant_legal_base_chunks(
+        legal_base_ids, instruction, top_k=top_k, include_source=True
+    )
     return "\n\n".join(chunks) if chunks else ""
 
 
 # ---------------------------------------------------------------------------
 # Async DB helpers
 # ---------------------------------------------------------------------------
+
 
 async def _build_existing_findings_set(
     db: AsyncSession,
@@ -121,7 +129,9 @@ async def _load_applicable_legal_bases(
     """Load legal bases referenced by the playbook/checks, filtered by case applicability."""
     if not all_ref_ids:
         return {}
-    lb_result = await db.execute(select(LegalBaseModel).where(LegalBaseModel.id.in_(all_ref_ids)))
+    lb_result = await db.execute(
+        select(LegalBaseModel).where(LegalBaseModel.id.in_(all_ref_ids))
+    )
     return {
         lb.id: lb
         for lb in lb_result.scalars().all()
@@ -133,6 +143,7 @@ async def _load_applicable_legal_bases(
 # Shared mutable state for a single run
 # ---------------------------------------------------------------------------
 
+
 @dataclass
 class _CheckRunState:
     db: AsyncSession
@@ -143,7 +154,7 @@ class _CheckRunState:
     playbook_legal_ids: list[UUID]
     legal_bases_by_id: dict[UUID, LegalBaseModel]
     existing_open: set[tuple]
-    on_check_done: Optional[Callable[[], Awaitable[None]]]
+    on_check_done: Callable[[], Awaitable[None]] | None
     semaphore: asyncio.Semaphore | None
     timeout: float | None
     # mutated during run
@@ -169,7 +180,7 @@ class _CheckRunState:
         self.existing_open.add((check_name, document_id))
         seen: set[str] = set()
         deduped: list[str] = []
-        for item in (evidence or []):
+        for item in evidence or []:
             normalized = item.strip()
             if normalized and normalized not in seen:
                 seen.add(normalized)
@@ -193,6 +204,7 @@ class _CheckRunState:
 # ---------------------------------------------------------------------------
 # Per-check execution helpers
 # ---------------------------------------------------------------------------
+
 
 async def _run_with_limits(
     state: _CheckRunState,
@@ -219,11 +231,15 @@ async def _run_with_limits(
             completed = bool(result)
         except TimeoutError:
             logger.error("run_check timed out after %.0fs: %s", state.timeout, label)
-            state.errors.append({
-                "check": label, "scope": error_scope,
-                "document_id": str(document_id) if document_id else None,
-                "strategy": strategy, "error": f"timed out after {state.timeout}s",
-            })
+            state.errors.append(
+                {
+                    "check": label,
+                    "scope": error_scope,
+                    "document_id": str(document_id) if document_id else None,
+                    "strategy": strategy,
+                    "error": f"timed out after {state.timeout}s",
+                }
+            )
 
     if state.semaphore:
         async with state.semaphore:
@@ -238,32 +254,65 @@ async def _run_with_limits(
             logger.warning("Progress update failed (non-critical): %s", exc)
 
 
-async def _doc_check_full_text(state: _CheckRunState, doc_id: UUID, doc_text: str, item: dict) -> None:
+async def _doc_check_full_text(
+    state: _CheckRunState, doc_id: UUID, doc_text: str, item: dict
+) -> None:
     name = item.get("name") or item.get("check_name") or "Check"
     category = item.get("category") or name
     instruction = _instruction_for_check(item, state.case_language)
     if not instruction:
         logger.warning("run_checks: skipping check '%s' — no instruction", name)
         return
-    lb_ids = _legal_base_ids_for_check(item, state.playbook_legal_ids, state.legal_bases_by_id)
-    legal_ctx = _legal_bases_context(lb_ids, instruction, settings.weaviate_legal_bases_top_k)
+    lb_ids = _legal_base_ids_for_check(
+        item, state.playbook_legal_ids, state.legal_bases_by_id
+    )
+    legal_ctx = _legal_bases_context(
+        lb_ids, instruction, settings.weaviate_legal_bases_top_k
+    )
 
     async def _execute() -> bool:
         logger.info("run_check [full_text] start: '%s' doc=%s", name, doc_id)
         t_chk = time.monotonic()
         try:
-            result = await run_check(doc_text, instruction, language=state.case_language, legal_bases_context=legal_ctx or None, case_id=state.case_id, playbook_revision=state.playbook_revision)
+            result = await run_check(
+                doc_text,
+                instruction,
+                language=state.case_language,
+                legal_bases_context=legal_ctx or None,
+                case_id=state.case_id,
+                playbook_revision=state.playbook_revision,
+            )
         except Exception as e:
-            logger.error("run_check [full_text] error: '%s' doc=%s: %s", name, doc_id, e)
-            state.errors.append({"check": name, "scope": "document", "document_id": str(doc_id), "strategy": "full_text", "error": str(e)})
+            logger.error(
+                "run_check [full_text] error: '%s' doc=%s: %s", name, doc_id, e
+            )
+            state.errors.append(
+                {
+                    "check": name,
+                    "scope": "document",
+                    "document_id": str(doc_id),
+                    "strategy": "full_text",
+                    "error": str(e),
+                }
+            )
             return False
         elapsed_chk = round(time.monotonic() - t_chk, 2)
-        logger.info("run_check [full_text] done: '%s' doc=%s compliant=%s elapsed=%.2fs", name, doc_id, result.is_compliant, elapsed_chk)
+        logger.info(
+            "run_check [full_text] done: '%s' doc=%s compliant=%s elapsed=%.2fs",
+            name,
+            doc_id,
+            result.is_compliant,
+            elapsed_chk,
+        )
         if not result.is_compliant:
             state.add_finding(
-                document_id=doc_id, check_name=name, category=category,
-                severity=result.severity, description=result.description,
-                evidence=result.evidence or [], recommendation=result.recommendation or "",
+                document_id=doc_id,
+                check_name=name,
+                category=category,
+                severity=result.severity,
+                description=result.description,
+                evidence=result.evidence or [],
+                recommendation=result.recommendation or "",
                 source_strategy="full_text",
             )
         return True
@@ -278,46 +327,111 @@ async def _doc_check_rag(state: _CheckRunState, doc_id: UUID, item: dict) -> Non
     if not instruction:
         logger.warning("run_checks: skipping RAG check '%s' — no instruction", name)
         return
-    lb_ids = _legal_base_ids_for_check(item, state.playbook_legal_ids, state.legal_bases_by_id)
-    legal_ctx = _legal_bases_context(lb_ids, instruction, settings.weaviate_legal_bases_top_k)
+    lb_ids = _legal_base_ids_for_check(
+        item, state.playbook_legal_ids, state.legal_bases_by_id
+    )
+    legal_ctx = _legal_bases_context(
+        lb_ids, instruction, settings.weaviate_legal_bases_top_k
+    )
 
     async def _execute() -> bool:
         logger.info("run_check [rag] start: '%s' doc=%s", name, doc_id)
         t_chk = time.monotonic()
         rag_result = None
         try:
-            rag_result = await run_check_rag(doc_id, state.case_id, instruction, language=state.case_language, legal_bases_context=legal_ctx or None, playbook_revision=state.playbook_revision)
+            rag_result = await run_check_rag(
+                doc_id,
+                state.case_id,
+                instruction,
+                language=state.case_language,
+                legal_bases_context=legal_ctx or None,
+                playbook_revision=state.playbook_revision,
+            )
         except Exception as e:
             logger.error("run_check [rag] error: '%s' doc=%s: %s", name, doc_id, e)
-            state.errors.append({"check": name, "scope": "document", "document_id": str(doc_id), "strategy": "rag", "error": str(e)})
+            state.errors.append(
+                {
+                    "check": name,
+                    "scope": "document",
+                    "document_id": str(doc_id),
+                    "strategy": "rag",
+                    "error": str(e),
+                }
+            )
             state.rag_skipped = True
         if rag_result is None:
             state.rag_skipped = True
-            logger.warning("run_check [rag] fallback to full_text: '%s' doc=%s", name, doc_id)
+            logger.warning(
+                "run_check [rag] fallback to full_text: '%s' doc=%s", name, doc_id
+            )
             if not state.rag_weaviate_error_logged:
                 state.rag_weaviate_error_logged = True
-                state.errors.append({"check": name, "scope": "document", "document_id": str(doc_id), "strategy": "rag", "error": "Weaviate/chunks unavailable – falling back to full_text"})
-            doc_text = next((d.content or "" for d in state.case.documents if d.id == doc_id), "")
+                state.errors.append(
+                    {
+                        "check": name,
+                        "scope": "document",
+                        "document_id": str(doc_id),
+                        "strategy": "rag",
+                        "error": "Weaviate/chunks unavailable – falling back to full_text",
+                    }
+                )
+            doc_text = next(
+                (d.content or "" for d in state.case.documents if d.id == doc_id), ""
+            )
             try:
-                fallback = await run_check(doc_text, instruction, language=state.case_language, legal_bases_context=legal_ctx or None, case_id=state.case_id, playbook_revision=state.playbook_revision)
+                fallback = await run_check(
+                    doc_text,
+                    instruction,
+                    language=state.case_language,
+                    legal_bases_context=legal_ctx or None,
+                    case_id=state.case_id,
+                    playbook_revision=state.playbook_revision,
+                )
                 if not fallback.is_compliant:
                     state.add_finding(
-                        document_id=doc_id, check_name=name, category=category,
-                        severity=fallback.severity, description=fallback.description,
-                        evidence=fallback.evidence or [], recommendation=fallback.recommendation or "",
+                        document_id=doc_id,
+                        check_name=name,
+                        category=category,
+                        severity=fallback.severity,
+                        description=fallback.description,
+                        evidence=fallback.evidence or [],
+                        recommendation=fallback.recommendation or "",
                         source_strategy="full_text",
                     )
             except Exception as e2:
-                state.errors.append({"check": name, "scope": "document", "document_id": str(doc_id), "strategy": "rag_fallback_full_text", "error": str(e2)})
+                state.errors.append(
+                    {
+                        "check": name,
+                        "scope": "document",
+                        "document_id": str(doc_id),
+                        "strategy": "rag_fallback_full_text",
+                        "error": str(e2),
+                    }
+                )
                 return False
-            logger.info("run_check [rag→full_text] done: '%s' doc=%s elapsed=%.2fs", name, doc_id, round(time.monotonic() - t_chk, 2))
+            logger.info(
+                "run_check [rag→full_text] done: '%s' doc=%s elapsed=%.2fs",
+                name,
+                doc_id,
+                round(time.monotonic() - t_chk, 2),
+            )
             return True
-        logger.info("run_check [rag] done: '%s' doc=%s compliant=%s elapsed=%.2fs", name, doc_id, rag_result.is_compliant, round(time.monotonic() - t_chk, 2))
+        logger.info(
+            "run_check [rag] done: '%s' doc=%s compliant=%s elapsed=%.2fs",
+            name,
+            doc_id,
+            rag_result.is_compliant,
+            round(time.monotonic() - t_chk, 2),
+        )
         if not rag_result.is_compliant:
             state.add_finding(
-                document_id=doc_id, check_name=name, category=category,
-                severity=rag_result.severity, description=rag_result.description,
-                evidence=rag_result.evidence or [], recommendation=rag_result.recommendation or "",
+                document_id=doc_id,
+                check_name=name,
+                category=category,
+                severity=rag_result.severity,
+                description=rag_result.description,
+                evidence=rag_result.evidence or [],
+                recommendation=rag_result.recommendation or "",
                 source_strategy="rag",
             )
         return True
@@ -325,31 +439,61 @@ async def _doc_check_rag(state: _CheckRunState, doc_id: UUID, item: dict) -> Non
     await _run_with_limits(state, _execute(), name, "document", doc_id, "rag")
 
 
-async def _case_check_full_text(state: _CheckRunState, doc_list: list[tuple], item: dict) -> None:
+async def _case_check_full_text(
+    state: _CheckRunState, doc_list: list[tuple], item: dict
+) -> None:
     name = item.get("name") or item.get("check_name") or "Check"
     category = item.get("category") or name
     instruction = _instruction_for_check(item, state.case_language)
     if not instruction:
         logger.warning("run_checks: skipping case check '%s' — no instruction", name)
         return
-    lb_ids = _legal_base_ids_for_check(item, state.playbook_legal_ids, state.legal_bases_by_id)
-    legal_ctx = _legal_bases_context(lb_ids, instruction, settings.weaviate_legal_bases_top_k)
+    lb_ids = _legal_base_ids_for_check(
+        item, state.playbook_legal_ids, state.legal_bases_by_id
+    )
+    legal_ctx = _legal_bases_context(
+        lb_ids, instruction, settings.weaviate_legal_bases_top_k
+    )
 
     async def _execute() -> bool:
         logger.info("run_check [case/full_text] start: '%s'", name)
         t_chk = time.monotonic()
         try:
-            result = await run_cross_document_check(doc_list, instruction, language=state.case_language, legal_bases_context=legal_ctx or None, case_id=state.case_id, playbook_revision=state.playbook_revision)
+            result = await run_cross_document_check(
+                doc_list,
+                instruction,
+                language=state.case_language,
+                legal_bases_context=legal_ctx or None,
+                case_id=state.case_id,
+                playbook_revision=state.playbook_revision,
+            )
         except Exception as e:
             logger.error("run_check [case/full_text] error: '%s': %s", name, e)
-            state.errors.append({"check": name, "scope": "case", "document_id": None, "strategy": "full_text", "error": str(e)})
+            state.errors.append(
+                {
+                    "check": name,
+                    "scope": "case",
+                    "document_id": None,
+                    "strategy": "full_text",
+                    "error": str(e),
+                }
+            )
             return False
-        logger.info("run_check [case/full_text] done: '%s' compliant=%s elapsed=%.2fs", name, result.is_compliant, round(time.monotonic() - t_chk, 2))
+        logger.info(
+            "run_check [case/full_text] done: '%s' compliant=%s elapsed=%.2fs",
+            name,
+            result.is_compliant,
+            round(time.monotonic() - t_chk, 2),
+        )
         if not result.is_compliant:
             state.add_finding(
-                document_id=None, check_name=name, category=category,
-                severity=result.severity, description=result.description,
-                evidence=result.evidence or [], recommendation=result.recommendation or "",
+                document_id=None,
+                check_name=name,
+                category=category,
+                severity=result.severity,
+                description=result.description,
+                evidence=result.evidence or [],
+                recommendation=result.recommendation or "",
                 source_strategy="full_text",
             )
         return True
@@ -357,52 +501,114 @@ async def _case_check_full_text(state: _CheckRunState, doc_list: list[tuple], it
     await _run_with_limits(state, _execute(), name, "case", None, "full_text")
 
 
-async def _case_check_rag(state: _CheckRunState, doc_list: list[tuple], item: dict) -> None:
+async def _case_check_rag(
+    state: _CheckRunState, doc_list: list[tuple], item: dict
+) -> None:
     name = item.get("name") or item.get("check_name") or "Check"
     category = item.get("category") or name
     instruction = _instruction_for_check(item, state.case_language)
     if not instruction:
-        logger.warning("run_checks: skipping case RAG check '%s' — no instruction", name)
+        logger.warning(
+            "run_checks: skipping case RAG check '%s' — no instruction", name
+        )
         return
-    lb_ids = _legal_base_ids_for_check(item, state.playbook_legal_ids, state.legal_bases_by_id)
-    legal_ctx = _legal_bases_context(lb_ids, instruction, settings.weaviate_legal_bases_top_k)
+    lb_ids = _legal_base_ids_for_check(
+        item, state.playbook_legal_ids, state.legal_bases_by_id
+    )
+    legal_ctx = _legal_bases_context(
+        lb_ids, instruction, settings.weaviate_legal_bases_top_k
+    )
 
     async def _execute() -> bool:
         logger.info("run_check [case/rag] start: '%s'", name)
         t_chk = time.monotonic()
         rag_result = None
         try:
-            rag_result = await run_cross_document_check_rag(state.case_id, instruction, language=state.case_language, legal_bases_context=legal_ctx or None, playbook_revision=state.playbook_revision)
+            rag_result = await run_cross_document_check_rag(
+                state.case_id,
+                instruction,
+                language=state.case_language,
+                legal_bases_context=legal_ctx or None,
+                playbook_revision=state.playbook_revision,
+            )
         except Exception as e:
             logger.error("run_check [case/rag] error: '%s': %s", name, e)
-            state.errors.append({"check": name, "scope": "case", "document_id": None, "strategy": "rag", "error": str(e)})
+            state.errors.append(
+                {
+                    "check": name,
+                    "scope": "case",
+                    "document_id": None,
+                    "strategy": "rag",
+                    "error": str(e),
+                }
+            )
             state.rag_skipped = True
         if rag_result is None:
             state.rag_skipped = True
             logger.warning("run_check [case/rag] fallback to full_text: '%s'", name)
             if not state.rag_weaviate_error_logged:
                 state.rag_weaviate_error_logged = True
-                state.errors.append({"check": name, "scope": "case", "document_id": None, "strategy": "rag", "error": "Weaviate/chunks unavailable – falling back to full_text"})
+                state.errors.append(
+                    {
+                        "check": name,
+                        "scope": "case",
+                        "document_id": None,
+                        "strategy": "rag",
+                        "error": "Weaviate/chunks unavailable – falling back to full_text",
+                    }
+                )
             try:
-                fallback = await run_cross_document_check(doc_list, instruction, language=state.case_language, legal_bases_context=legal_ctx or None, case_id=state.case_id, playbook_revision=state.playbook_revision)
+                fallback = await run_cross_document_check(
+                    doc_list,
+                    instruction,
+                    language=state.case_language,
+                    legal_bases_context=legal_ctx or None,
+                    case_id=state.case_id,
+                    playbook_revision=state.playbook_revision,
+                )
                 if not fallback.is_compliant:
                     state.add_finding(
-                        document_id=None, check_name=name, category=category,
-                        severity=fallback.severity, description=fallback.description,
-                        evidence=fallback.evidence or [], recommendation=fallback.recommendation or "",
+                        document_id=None,
+                        check_name=name,
+                        category=category,
+                        severity=fallback.severity,
+                        description=fallback.description,
+                        evidence=fallback.evidence or [],
+                        recommendation=fallback.recommendation or "",
                         source_strategy="full_text",
                     )
             except Exception as e2:
-                state.errors.append({"check": name, "scope": "case", "document_id": None, "strategy": "rag_fallback_full_text", "error": str(e2)})
+                state.errors.append(
+                    {
+                        "check": name,
+                        "scope": "case",
+                        "document_id": None,
+                        "strategy": "rag_fallback_full_text",
+                        "error": str(e2),
+                    }
+                )
                 return False
-            logger.info("run_check [case/rag→full_text] done: '%s' elapsed=%.2fs", name, round(time.monotonic() - t_chk, 2))
+            logger.info(
+                "run_check [case/rag→full_text] done: '%s' elapsed=%.2fs",
+                name,
+                round(time.monotonic() - t_chk, 2),
+            )
             return True
-        logger.info("run_check [case/rag] done: '%s' compliant=%s elapsed=%.2fs", name, rag_result.is_compliant, round(time.monotonic() - t_chk, 2))
+        logger.info(
+            "run_check [case/rag] done: '%s' compliant=%s elapsed=%.2fs",
+            name,
+            rag_result.is_compliant,
+            round(time.monotonic() - t_chk, 2),
+        )
         if not rag_result.is_compliant:
             state.add_finding(
-                document_id=None, check_name=name, category=category,
-                severity=rag_result.severity, description=rag_result.description,
-                evidence=rag_result.evidence or [], recommendation=rag_result.recommendation or "",
+                document_id=None,
+                check_name=name,
+                category=category,
+                severity=rag_result.severity,
+                description=rag_result.description,
+                evidence=rag_result.evidence or [],
+                recommendation=rag_result.recommendation or "",
                 source_strategy="rag",
             )
         return True
@@ -414,12 +620,13 @@ async def _case_check_rag(state: _CheckRunState, doc_list: list[tuple], item: di
 # Orchestration
 # ---------------------------------------------------------------------------
 
+
 async def run_checks_impl(
     db: AsyncSession,
     case_id: UUID,
     playbook_id: UUID,
     strategies: list[str],
-    on_check_done: Optional[Callable[[], Awaitable[None]]] = None,
+    on_check_done: Callable[[], Awaitable[None]] | None = None,
     skip_resolved: bool = True,
 ) -> tuple[int, list[dict], dict]:
     """
@@ -432,21 +639,44 @@ async def run_checks_impl(
     Returns (findings_added, errors, activity_payload).
     """
     t0 = time.monotonic()
-    logger.info("run_checks_impl: starting", extra={"case_id": str(case_id), "playbook_id": str(playbook_id), "strategies": strategies, "skip_resolved": skip_resolved})
+    logger.info(
+        "run_checks_impl: starting",
+        extra={
+            "case_id": str(case_id),
+            "playbook_id": str(playbook_id),
+            "strategies": strategies,
+            "skip_resolved": skip_resolved,
+        },
+    )
 
-    result = await db.execute(select(CaseModel).where(CaseModel.id == case_id).options(selectinload(CaseModel.documents)))
+    result = await db.execute(
+        select(CaseModel)
+        .where(CaseModel.id == case_id)
+        .options(selectinload(CaseModel.documents))
+    )
     case = result.scalar_one_or_none()
     if not case:
         raise ValueError("Case not found")
 
-    pb_result = await db.execute(select(PlaybookModel).where(PlaybookModel.id == playbook_id))
+    pb_result = await db.execute(
+        select(PlaybookModel).where(PlaybookModel.id == playbook_id)
+    )
     playbook = pb_result.scalar_one_or_none()
     if not playbook:
         raise ValueError("Playbook not found")
 
-    raw_checks = playbook.content.get("checks") if isinstance(playbook.content, dict) else []
+    raw_checks = (
+        playbook.content.get("checks") if isinstance(playbook.content, dict) else []
+    )
     if not raw_checks:
-        logger.warning("run_checks_impl: playbook has no checks defined, returning empty", extra={"case_id": str(case_id), "playbook_id": str(playbook_id), "playbook_name": playbook.name})
+        logger.warning(
+            "run_checks_impl: playbook has no checks defined, returning empty",
+            extra={
+                "case_id": str(case_id),
+                "playbook_id": str(playbook_id),
+                "playbook_name": playbook.name,
+            },
+        )
         return 0, [], {}
 
     document_checks: list[dict] = []
@@ -460,7 +690,16 @@ async def run_checks_impl(
         else:
             document_checks.append(item)
 
-    logger.info("run_checks_impl: checks parsed", extra={"case_id": str(case_id), "playbook_name": playbook.name, "total_raw_checks": len(raw_checks), "document_checks": len(document_checks), "case_checks": len(case_checks)})
+    logger.info(
+        "run_checks_impl: checks parsed",
+        extra={
+            "case_id": str(case_id),
+            "playbook_name": playbook.name,
+            "total_raw_checks": len(raw_checks),
+            "document_checks": len(document_checks),
+            "case_checks": len(case_checks),
+        },
+    )
 
     case_language = getattr(case, "language", None) or "de"
     case_department = getattr(case, "department", None) or ""
@@ -468,7 +707,9 @@ async def run_checks_impl(
 
     # Collect all legal base IDs referenced by the playbook and individual checks
     playbook_content = playbook.content if isinstance(playbook.content, dict) else {}
-    playbook_legal_ids = list(_parse_uuid_list(playbook_content.get("legal_basis_ids") or []))
+    playbook_legal_ids = list(
+        _parse_uuid_list(playbook_content.get("legal_basis_ids") or [])
+    )
     all_ref_ids: set[UUID] = set(playbook_legal_ids)
     for item in raw_checks:
         if isinstance(item, dict):
@@ -498,25 +739,55 @@ async def run_checks_impl(
     )
 
     # Filter to only documents with completed text extraction
-    extractable_docs = [doc for doc in case.documents if doc.extraction_status == DocumentExtractionStatus.DONE]
+    extractable_docs = [
+        doc
+        for doc in case.documents
+        if doc.extraction_status == DocumentExtractionStatus.DONE
+    ]
     skipped_doc_count = len(case.documents) - len(extractable_docs)
     if skipped_doc_count:
-        logger.warning("run_checks: skipping %d document(s) with extraction_status != 'done' for case %s", skipped_doc_count, case_id)
-    logger.info("run_checks_impl: document filtering complete", extra={"case_id": str(case_id), "total_documents": len(case.documents), "extractable_documents": len(extractable_docs), "skipped_documents": skipped_doc_count, "existing_dedup_findings": len(existing_open)})
+        logger.warning(
+            "run_checks: skipping %d document(s) with extraction_status != 'done' for case %s",
+            skipped_doc_count,
+            case_id,
+        )
+    logger.info(
+        "run_checks_impl: document filtering complete",
+        extra={
+            "case_id": str(case_id),
+            "total_documents": len(case.documents),
+            "extractable_documents": len(extractable_docs),
+            "skipped_documents": skipped_doc_count,
+            "existing_dedup_findings": len(existing_open),
+        },
+    )
 
     # Dispatch document-scoped checks
     doc_coros = []
     for doc in extractable_docs:
         for item in document_checks:
             if "full_text" in strategies:
-                doc_coros.append(_doc_check_full_text(state, doc.id, doc.content or "", item))
+                doc_coros.append(
+                    _doc_check_full_text(state, doc.id, doc.content or "", item)
+                )
             if "rag" in strategies:
                 doc_coros.append(_doc_check_rag(state, doc.id, item))
-    logger.info("run_checks_impl: dispatching document checks", extra={"case_id": str(case_id), "doc_coroutine_count": len(doc_coros)})
+    logger.info(
+        "run_checks_impl: dispatching document checks",
+        extra={"case_id": str(case_id), "doc_coroutine_count": len(doc_coros)},
+    )
     if doc_coros:
         t_doc = time.monotonic()
         await asyncio.gather(*doc_coros)
-        logger.info("run_checks_impl: document checks completed", extra={"case_id": str(case_id), "doc_coroutine_count": len(doc_coros), "elapsed_seconds": round(time.monotonic() - t_doc, 2), "findings_so_far": state.findings_added})
+        logger.info(
+            "run_checks_impl: document checks completed",
+            extra={
+                "case_id": str(case_id),
+                "doc_coroutine_count": len(doc_coros),
+                "elapsed_seconds": round(time.monotonic() - t_doc, 2),
+                "findings_so_far": state.findings_added,
+            },
+        )
 
     # Dispatch case-scoped checks
     if case_checks and extractable_docs:
@@ -527,11 +798,22 @@ async def run_checks_impl(
                 case_coros.append(_case_check_full_text(state, doc_list, item))
             if "rag" in strategies:
                 case_coros.append(_case_check_rag(state, doc_list, item))
-        logger.info("run_checks_impl: dispatching case checks", extra={"case_id": str(case_id), "case_coroutine_count": len(case_coros)})
+        logger.info(
+            "run_checks_impl: dispatching case checks",
+            extra={"case_id": str(case_id), "case_coroutine_count": len(case_coros)},
+        )
         if case_coros:
             t_case = time.monotonic()
             await asyncio.gather(*case_coros)
-            logger.info("run_checks_impl: case checks completed", extra={"case_id": str(case_id), "case_coroutine_count": len(case_coros), "elapsed_seconds": round(time.monotonic() - t_case, 2), "findings_so_far": state.findings_added})
+            logger.info(
+                "run_checks_impl: case checks completed",
+                extra={
+                    "case_id": str(case_id),
+                    "case_coroutine_count": len(case_coros),
+                    "elapsed_seconds": round(time.monotonic() - t_case, 2),
+                    "findings_so_far": state.findings_added,
+                },
+            )
 
     await db.flush()
 
@@ -553,10 +835,22 @@ async def run_checks_impl(
     rag_requested = any(s in strategies for s in ("rag",))
     activity_payload["rag_available"] = not state.rag_skipped if rag_requested else None
     if state.rag_skipped:
-        activity_payload["rag_fallback"] = "rag requested but Weaviate/chunks unavailable for some checks"
+        activity_payload["rag_fallback"] = (
+            "rag requested but Weaviate/chunks unavailable for some checks"
+        )
     if state.errors:
         activity_payload["errors"] = state.errors
         activity_payload["skipped_checks_count"] = len(state.errors)
 
-    logger.info("run_checks_impl: finished", extra={"case_id": str(case_id), "playbook_id": str(playbook_id), "findings_added": state.findings_added, "error_count": len(state.errors), "rag_skipped": state.rag_skipped, "elapsed_seconds": round(time.monotonic() - t0, 2)})
+    logger.info(
+        "run_checks_impl: finished",
+        extra={
+            "case_id": str(case_id),
+            "playbook_id": str(playbook_id),
+            "findings_added": state.findings_added,
+            "error_count": len(state.errors),
+            "rag_skipped": state.rag_skipped,
+            "elapsed_seconds": round(time.monotonic() - t0, 2),
+        },
+    )
     return state.findings_added, state.errors, activity_payload

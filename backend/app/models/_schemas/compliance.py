@@ -1,4 +1,5 @@
 """Compliance-related schemas: DSR, DataBreach, AVV, TOM, CaseTemplate."""
+
 from datetime import date, datetime
 from typing import Any
 from uuid import UUID
@@ -6,17 +7,17 @@ from uuid import UUID
 from pydantic import BaseModel, Field, field_validator
 
 from .common import (
-    DSRRequestTypeEnum,
-    DSRStatusEnum,
-    DataBreachTypeEnum,
-    DataBreachStatusEnum,
-    RiskLevelEnum,
     AVVPartnerTypeEnum,
     AVVStatusEnum,
+    CaseLanguageEnum,
+    DataBreachStatusEnum,
+    DataBreachTypeEnum,
+    DocumentFormatEnum,
+    DSRRequestTypeEnum,
+    DSRStatusEnum,
+    RiskLevelEnum,
     TOMCategoryEnum,
     TOMStatusEnum,
-    DocumentFormatEnum,
-    CaseLanguageEnum,
 )
 
 
@@ -377,6 +378,7 @@ class MitigationCatalogResponse(BaseModel):
 
 class MitigationLinkRequest(BaseModel):
     """Body for POST /cases/{id}/mitigations or /avv/{id}/mitigations."""
+
     mitigation_id: str = Field(..., min_length=1, max_length=80)
     tom_id: UUID | None = None
     evidence_doc_id: UUID | None = None
@@ -412,12 +414,14 @@ class AvvMitigationLinkResponse(BaseModel):
 
 class RiskDeltaSide(BaseModel):
     """One snapshot (inherent or residual) of a risk-bearing object."""
+
     risk_score: int | None = None
     risk_level: str | None = None
 
 
 class RiskDeltaResponse(BaseModel):
     """Before/after view returned by /cases/{id}/risk-delta and /avv/{id}/risk-delta."""
+
     target_type: str  # 'avv' | 'dsfa'
     target_id: UUID
     inherent: RiskDeltaSide

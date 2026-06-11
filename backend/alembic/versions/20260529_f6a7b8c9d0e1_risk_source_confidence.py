@@ -13,10 +13,10 @@ Revision ID: f6a7b8c9d0e1
 Revises: e5f6a7b8c9d0
 Create Date: 2026-05-29 00:30:00.000000
 """
+
 from __future__ import annotations
 
 from alembic import op
-
 
 revision: str = "f6a7b8c9d0e1"
 down_revision: str | None = "e5f6a7b8c9d0"
@@ -25,16 +25,22 @@ depends_on: str | tuple[str, ...] | None = None
 
 
 def upgrade() -> None:
-    op.execute("""
+    op.execute(
+        """
         ALTER TABLE IF EXISTS avv_contracts
         ADD COLUMN IF NOT EXISTS risk_source VARCHAR(20)
-    """)
-    op.execute("""
+    """
+    )
+    op.execute(
+        """
         ALTER TABLE IF EXISTS avv_contracts
         ADD COLUMN IF NOT EXISTS risk_confidence DOUBLE PRECISION
-    """)
+    """
+    )
 
 
 def downgrade() -> None:
-    op.execute("ALTER TABLE IF EXISTS avv_contracts DROP COLUMN IF EXISTS risk_confidence")
+    op.execute(
+        "ALTER TABLE IF EXISTS avv_contracts DROP COLUMN IF EXISTS risk_confidence"
+    )
     op.execute("ALTER TABLE IF EXISTS avv_contracts DROP COLUMN IF EXISTS risk_source")

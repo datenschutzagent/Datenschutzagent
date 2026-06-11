@@ -1,17 +1,21 @@
 """Pure unit tests for notification service helper logic."""
-import pytest
-from datetime import date, datetime, timedelta, timezone
+
+from datetime import UTC, date, datetime, timedelta
 
 
 def test_cooldown_check():
     """20h cooldown: entity notified < 20h ago should be skipped."""
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     last_notified = now - timedelta(hours=10)
     cooldown_hours = 20
-    assert (now - last_notified).total_seconds() / 3600 < cooldown_hours  # still in cooldown
+    assert (
+        now - last_notified
+    ).total_seconds() / 3600 < cooldown_hours  # still in cooldown
 
     last_notified_old = now - timedelta(hours=25)
-    assert (now - last_notified_old).total_seconds() / 3600 >= cooldown_hours  # cooldown expired
+    assert (
+        now - last_notified_old
+    ).total_seconds() / 3600 >= cooldown_hours  # cooldown expired
 
 
 def test_case_deadline_window():
@@ -29,7 +33,7 @@ def test_case_deadline_window():
 
 def test_breach_72h_deadline():
     """Data breach notification deadline is 72h from discovery."""
-    discovered = datetime(2026, 4, 14, 10, 0, 0, tzinfo=timezone.utc)
+    discovered = datetime(2026, 4, 14, 10, 0, 0, tzinfo=UTC)
     deadline = discovered + timedelta(hours=72)
     now = discovered + timedelta(hours=50)
     assert deadline > now  # still time left

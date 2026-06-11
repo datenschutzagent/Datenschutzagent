@@ -6,6 +6,7 @@ and the per-fragment fields are merged (filled beats missing; conflicting values
 ``inconsistent``). Extracted values are additionally grounded against the source text so
 fabricated entries are either self-corrected (ModelRetry) or flagged for review.
 """
+
 from __future__ import annotations
 
 import difflib
@@ -22,14 +23,16 @@ from app.core.llm import create_agent, gather_all, llm_retry_call
 from app.core.prompt_security import sanitize_prompt_field
 from app.core.tokens import effective_context_chars
 from app.services.document_processor import detect_language
-from app.services.org_profile_loader import DEFAULT_VVT_FIELD_NAMES, get_vvt_field_names
+from app.services.org_profile_loader import DEFAULT_VVT_FIELD_NAMES
 from app.services.prompt_template_service import get_active_template, render
 from app.services.weaviate_service import build_context_windows, truncate_sentence_aware
 
 logger = logging.getLogger(__name__)
 
 
-def _normalize_field_name(name: str, canonical_fields: list[str], cutoff: float = 0.8) -> str:
+def _normalize_field_name(
+    name: str, canonical_fields: list[str], cutoff: float = 0.8
+) -> str:
     """Return the closest canonical field name for `name` using fuzzy matching.
 
     Falls back to the original name if no close match is found (cutoff ≥ 0.8 by default).
@@ -51,6 +54,7 @@ def _coerce_canonical_value(v: str | list[str] | None) -> str | None:
         return ", ".join(str(x).strip() for x in v if x) if v else None
     return v if isinstance(v, str) else str(v)
 
+
 # Backwards-compatible alias — use get_vvt_field_names(settings) for configurable access
 CANONICAL_VVT_FIELD_NAMES = DEFAULT_VVT_FIELD_NAMES
 
@@ -60,24 +64,35 @@ _CanonicalValue = Annotated[str | None, BeforeValidator(_coerce_canonical_value)
 
 class _VVTExtractionField(BaseModel):
     """Single field as extracted by LLM (internal)."""
-    field_name: str = Field(description="Exact name of the VVT field from the canonical list.")
+
+    field_name: str = Field(
+        description="Exact name of the VVT field from the canonical list."
+    )
     status: Literal["filled", "missing", "inconsistent"] = Field(
         description="One of: filled, missing, inconsistent"
     )
-    canonical_value: _CanonicalValue = Field(default=None, description="Extracted or normalized value if present.")
-    evidence: str | None = Field(default=None, description="Where in the document this was found (e.g. sheet, row, column).")
-    finding: str | None = Field(default=None, description="If inconsistent or problematic, short explanation.")
+    canonical_value: _CanonicalValue = Field(
+        default=None, description="Extracted or normalized value if present."
+    )
+    evidence: str | None = Field(
+        default=None,
+        description="Where in the document this was found (e.g. sheet, row, column).",
+    )
+    finding: str | None = Field(
+        default=None, description="If inconsistent or problematic, short explanation."
+    )
 
 
 class _VVTExtractionResult(BaseModel):
     """Full extraction result from LLM (internal)."""
+
     source_template: str = Field(
         default="",
-        description="Detected template variant, e.g. 'Variante A', 'Variante B (Psychologie)', 'Unbekannt'."
+        description="Detected template variant, e.g. 'Variante A', 'Variante B (Psychologie)', 'Unbekannt'.",
     )
     fields: list[_VVTExtractionField] = Field(
         default_factory=list,
-        description="One entry per canonical VVT field with status and value."
+        description="One entry per canonical VVT field with status and value.",
     )
 
 
@@ -130,7 +145,9 @@ _VVT_FRAGMENT_SUFFIX = (
 
 # Reviewer-facing note appended to ``finding`` when a filled value cannot be located in the
 # source text (possible hallucination that survived the self-correction retries).
-UNVERIFIED_VALUE_NOTE = "Wert konnte nicht im Dokumenttext verifiziert werden (bitte prüfen)."
+UNVERIFIED_VALUE_NOTE = (
+    "Wert konnte nicht im Dokumenttext verifiziert werden (bitte prüfen)."
+)
 
 _VALUE_PART_SPLIT = re.compile(r"[;,]")
 
@@ -163,16 +180,23 @@ def _make_vvt_grounding_validator(source_text: str):
     ungrounded values are handled more gently in :func:`_apply_vvt_grounding` (reviewer note),
     because a normalized value may legitimately differ from the document wording.
     """
+
     def _validate(ctx, output: _VVTExtractionResult) -> _VVTExtractionResult:
         if not settings.evidence_grounding_enabled:
             return output
         if ctx.retry >= settings.llm_output_retries:
             return output  # never hard-fail on the final allowed attempt
-        filled = [f for f in output.fields if f.status == "filled" and (f.canonical_value or "").strip()]
+        filled = [
+            f
+            for f in output.fields
+            if f.status == "filled" and (f.canonical_value or "").strip()
+        ]
         if len(filled) < 2:
             return output
         threshold = settings.evidence_grounding_threshold
-        if not any(_value_grounded(f.canonical_value, source_text, threshold) for f in filled):
+        if not any(
+            _value_grounded(f.canonical_value, source_text, threshold) for f in filled
+        ):
             raise ModelRetry(
                 "None of the extracted 'filled' values appear in the provided document text. "
                 "Extract values from the document only — never invent content. Use status "
@@ -183,13 +207,19 @@ def _make_vvt_grounding_validator(source_text: str):
     return _validate
 
 
-def _apply_vvt_grounding(result: _VVTExtractionResult, source_text: str) -> _VVTExtractionResult:
+def _apply_vvt_grounding(
+    result: _VVTExtractionResult, source_text: str
+) -> _VVTExtractionResult:
     """Annotate filled fields whose value cannot be located in the source (possible hallucination).
 
     The value is kept (it may be a legitimate normalization), but the reviewer-facing ``finding``
     gets a verification note so the field is not silently trusted.
     """
-    if not settings.evidence_grounding_enabled or not source_text or not source_text.strip():
+    if (
+        not settings.evidence_grounding_enabled
+        or not source_text
+        or not source_text.strip()
+    ):
         return result
     threshold = settings.evidence_grounding_threshold
     for f in result.fields:
@@ -197,7 +227,11 @@ def _apply_vvt_grounding(result: _VVTExtractionResult, source_text: str) -> _VVT
             continue
         if _value_grounded(f.canonical_value, source_text, threshold):
             continue
-        f.finding = f"{f.finding} | {UNVERIFIED_VALUE_NOTE}" if (f.finding or "").strip() else UNVERIFIED_VALUE_NOTE
+        f.finding = (
+            f"{f.finding} | {UNVERIFIED_VALUE_NOTE}"
+            if (f.finding or "").strip()
+            else UNVERIFIED_VALUE_NOTE
+        )
         logger.warning(
             "VVT grounding: value for field '%s' not found in source text — flagged for review",
             f.field_name,
@@ -244,13 +278,17 @@ def _merge_two(a: _VVTExtractionField, b: _VVTExtractionField) -> _VVTExtraction
         return _VVTExtractionField(
             field_name=a.field_name,
             status="inconsistent",
-            canonical_value=primary.canonical_value or a.canonical_value or b.canonical_value,
+            canonical_value=primary.canonical_value
+            or a.canonical_value
+            or b.canonical_value,
             evidence=_join_unique(a.evidence, b.evidence),
             finding=_join_unique(a.finding, b.finding),
         )
     if a.status == "filled" and b.status == "filled":
         if _values_equivalent(a.canonical_value, b.canonical_value):
-            richer = a if len(a.canonical_value or "") >= len(b.canonical_value or "") else b
+            richer = (
+                a if len(a.canonical_value or "") >= len(b.canonical_value or "") else b
+            )
             return _VVTExtractionField(
                 field_name=a.field_name,
                 status="filled",
@@ -336,7 +374,9 @@ async def _extract_fragment(
             # document_text is already limited by construction (window / sentence-aware
             # truncation); the small headroom keeps the appended truncation marker intact.
             "field_list": field_list,
-            "document_text": sanitize_prompt_field(document_text, max_chars=vvt_limit + 200),
+            "document_text": sanitize_prompt_field(
+                document_text, max_chars=vvt_limit + 200
+            ),
         },
     )
     result = await llm_retry_call(agent, user_content, output_type=_VVTExtractionResult)
@@ -382,22 +422,32 @@ async def normalize_vvt(
         windows = build_context_windows(raw, vvt_limit, max_chunks)
         logger.info(
             "VVT map-reduce: %d chars → %d fragment(s) (limit %d chars each)",
-            len(raw), len(windows), vvt_limit,
+            len(raw),
+            len(windows),
+            vvt_limit,
         )
         frag_system = system + _VVT_FRAGMENT_SUFFIX
         # Fragments run concurrently; gather preserves window order, which _merge_extractions
         # relies on (first concrete source_template wins). The global LLM semaphore caps load.
         results = await gather_all(
-            _extract_fragment(frag_system, window, field_list, canonical_fields, user_tpl, vvt_limit)
+            _extract_fragment(
+                frag_system, window, field_list, canonical_fields, user_tpl, vvt_limit
+            )
             for window in windows
         )
         data = _merge_extractions(results) if results else _VVTExtractionResult()
     else:
         truncated, was_truncated = truncate_sentence_aware(raw, vvt_limit)
         if was_truncated:
-            logger.info("VVT text truncated (sentence-aware): %d → ~%d chars", len(raw), vvt_limit)
+            logger.info(
+                "VVT text truncated (sentence-aware): %d → ~%d chars",
+                len(raw),
+                vvt_limit,
+            )
             truncated = truncated + f"\n\n[... truncated, {len(raw)} chars total ...]"
-        data = await _extract_fragment(system, truncated, field_list, canonical_fields, user_tpl, vvt_limit)
+        data = await _extract_fragment(
+            system, truncated, field_list, canonical_fields, user_tpl, vvt_limit
+        )
 
     # Ensure we have one entry per canonical field; fill missing with "missing"
     seen = {f.field_name for f in data.fields}

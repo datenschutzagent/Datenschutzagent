@@ -1,6 +1,7 @@
 """DSB Summary Report: build report data, persist, and render as Markdown."""
+
 import logging
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from uuid import UUID
 
 from fastapi import HTTPException
@@ -10,14 +11,14 @@ from sqlalchemy.orm import selectinload
 
 from app.constants import FindingStatus
 from app.models.db import ActivityLogModel, CaseModel, DSBReportModel
-
-logger = logging.getLogger(__name__)
 from app.models.schemas import (
     DSBReportResponse,
     DSBReportRisk,
     DSBReportSummary,
 )
 from app.services.vvt_service import normalize_vvt
+
+logger = logging.getLogger(__name__)
 
 
 async def get_last_run_checks_at(case_id: UUID, db: AsyncSession) -> datetime | None:
@@ -35,7 +36,9 @@ async def get_last_run_checks_at(case_id: UUID, db: AsyncSession) -> datetime | 
     return row.created_at if row else None
 
 
-async def save_report(case_id: UUID, report: DSBReportResponse, db: AsyncSession) -> None:
+async def save_report(
+    case_id: UUID, report: DSBReportResponse, db: AsyncSession
+) -> None:
     """Persist report for the case; overwrites existing. Stores basis for staleness checks."""
     last_run_at = await get_last_run_checks_at(case_id, db)
     payload = report.model_dump(mode="json")
@@ -64,9 +67,17 @@ def _payload_to_report(payload: dict) -> DSBReportResponse:
         for r in payload.get("risks") or []
     ]
     return DSBReportResponse(
-        case_id=UUID(payload["case_id"]) if isinstance(payload.get("case_id"), str) else payload["case_id"],
+        case_id=(
+            UUID(payload["case_id"])
+            if isinstance(payload.get("case_id"), str)
+            else payload["case_id"]
+        ),
         case_title=payload.get("case_title", ""),
-        generated_at=datetime.fromisoformat(payload["generated_at"].replace("Z", "+00:00")) if isinstance(payload.get("generated_at"), str) else payload["generated_at"],
+        generated_at=(
+            datetime.fromisoformat(payload["generated_at"].replace("Z", "+00:00"))
+            if isinstance(payload.get("generated_at"), str)
+            else payload["generated_at"]
+        ),
         playbook_version=payload.get("playbook_version", ""),
         status=payload.get("status", ""),
         summary=DSBReportSummary(
@@ -89,7 +100,9 @@ def _payload_to_report(payload: dict) -> DSBReportResponse:
 
 async def get_latest_report(case_id: UUID, db: AsyncSession) -> DSBReportModel | None:
     """Load the latest stored report row for the case, or None."""
-    result = await db.execute(select(DSBReportModel).where(DSBReportModel.case_id == case_id))
+    result = await db.execute(
+        select(DSBReportModel).where(DSBReportModel.case_id == case_id)
+    )
     return result.scalar_one_or_none()
 
 
@@ -138,7 +151,6 @@ async def build_dsb_report(case_id: UUID, db: AsyncSession) -> DSBReportResponse
     critical = sum(1 for f in findings if f.severity == "critical")
     high = sum(1 for f in findings if f.severity == "high")
     vvt_completeness = 0
-    source_template = ""
 
     vvt_docs = [d for d in case.documents if d.type == "vvt"]
     if vvt_docs:
@@ -148,23 +160,38 @@ async def build_dsb_report(case_id: UUID, db: AsyncSession) -> DSBReportResponse
             extraction = await normalize_vvt(raw_text, language=case_lang)
             total_fields = len(extraction.fields)
             filled = sum(1 for f in extraction.fields if f.status == "filled")
-            vvt_completeness = round((filled / total_fields) * 100) if total_fields else 0
-            source_template = extraction.source_template or ""
+            vvt_completeness = (
+                round((filled / total_fields) * 100) if total_fields else 0
+            )
         except Exception:
             pass
 
     risks = [
         DSBReportRisk(
             title=f.check_name,
-            severity=f.severity if f.severity in ("critical", "high", "medium", "low", "info") else "medium",
+            severity=(
+                f.severity
+                if f.severity in ("critical", "high", "medium", "low", "info")
+                else "medium"
+            ),
             description=f.description or "",
         )
         for f in findings
     ]
-    recommendations = list({f.recommendation for f in findings if f.recommendation and f.recommendation.strip()})
+    recommendations = list(
+        {
+            f.recommendation
+            for f in findings
+            if f.recommendation and f.recommendation.strip()
+        }
+    )
     open_questions = []
     for f in findings:
-        if f.status == FindingStatus.OPEN and f.recommendation and f.recommendation.strip():
+        if (
+            f.status == FindingStatus.OPEN
+            and f.recommendation
+            and f.recommendation.strip()
+        ):
             open_questions.append(f.recommendation)
 
     next_steps = [
@@ -195,7 +222,7 @@ async def build_dsb_report(case_id: UUID, db: AsyncSession) -> DSBReportResponse
     report = DSBReportResponse(
         case_id=case.id,
         case_title=case.title,
-        generated_at=datetime.now(timezone.utc),
+        generated_at=datetime.now(UTC),
         playbook_version=case.playbook_version or "",
         status=case.status,
         summary=summary,
@@ -270,7 +297,11 @@ def render_report_markdown(report: DSBReportResponse) -> str:
         lines.append("")
     lines.append("---")
     lines.append("")
-    lines.append("## Nächste Schritte (Vorschläge)" if report.next_steps_is_suggested else "## Nächste Schritte")
+    lines.append(
+        "## Nächste Schritte (Vorschläge)"
+        if report.next_steps_is_suggested
+        else "## Nächste Schritte"
+    )
     lines.append("")
     for step in report.next_steps:
         lines.append(f"- {step}")

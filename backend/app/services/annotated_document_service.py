@@ -1,11 +1,10 @@
 """Generate annotated DOCX and PDF documents: original content plus findings as comments section."""
+
 from __future__ import annotations
 
 import io
 import logging
 from uuid import UUID
-
-logger = logging.getLogger(__name__)
 
 import fitz  # PyMuPDF
 from docx import Document
@@ -13,20 +12,25 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.models.db import CaseModel, DocumentModel, FindingModel
+from app.models.db import CaseModel, FindingModel
 
+logger = logging.getLogger(__name__)
 
 # Max characters of document content to include in the generated DOCX (avoid huge files)
 MAX_CONTENT_CHARS = 100_000
 
 
-async def list_annotatable_documents(case_id: UUID, db: AsyncSession) -> list[tuple[UUID, str, int]]:
+async def list_annotatable_documents(
+    case_id: UUID, db: AsyncSession
+) -> list[tuple[UUID, str, int]]:
     """
     Return list of (document_id, document_name, finding_count) for documents in this case
     that have at least one finding.
     """
     result = await db.execute(
-        select(CaseModel).where(CaseModel.id == case_id).options(selectinload(CaseModel.documents))
+        select(CaseModel)
+        .where(CaseModel.id == case_id)
+        .options(selectinload(CaseModel.documents))
     )
     case = result.scalar_one_or_none()
     if not case:
@@ -108,7 +112,11 @@ async def build_annotated_docx(
     filename = f"Annotiert-{safe_name}"
     logger.info(
         "Annotated DOCX generated",
-        extra={"case_id": str(case_id), "document_id": str(document_id), "findings_count": len(findings)},
+        extra={
+            "case_id": str(case_id),
+            "document_id": str(document_id),
+            "findings_count": len(findings),
+        },
     )
     return buf.getvalue(), filename
 
@@ -209,6 +217,10 @@ async def build_annotated_pdf(
     filename = f"Annotiert-{safe_name}"
     logger.info(
         "Annotated PDF generated",
-        extra={"case_id": str(case_id), "document_id": str(document_id), "findings_count": len(findings)},
+        extra={
+            "case_id": str(case_id),
+            "document_id": str(document_id),
+            "findings_count": len(findings),
+        },
     )
     return buf.getvalue(), filename

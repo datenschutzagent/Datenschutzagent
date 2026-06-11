@@ -1,5 +1,4 @@
 """API route tests. Require DATABASE_URL (e.g. postgres) for app lifespan."""
-import os
 
 import pytest
 

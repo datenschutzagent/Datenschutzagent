@@ -3,6 +3,7 @@
 Concrete backends implement StorageBackend. Call get_storage() to obtain
 the backend selected by STORAGE_BACKEND env var.
 """
+
 import io
 import logging
 import mimetypes
@@ -22,6 +23,7 @@ logger = logging.getLogger(__name__)
 # Backend Protocol
 # ---------------------------------------------------------------------------
 
+
 class StorageBackend(Protocol):
     def save(self, rel_path: str, content: bytes, filename: str) -> str: ...
     def get(self, storage_path: str) -> bytes: ...
@@ -32,12 +34,15 @@ class StorageBackend(Protocol):
 # Local filesystem backend
 # ---------------------------------------------------------------------------
 
+
 class _LocalBackend:
     def _resolve(self, storage_path: str) -> Path:
         root = Path(settings.storage_local_path).resolve()
         path = (root / storage_path).resolve()
         if not path.is_relative_to(root):
-            logger.warning("Path traversal attempt denied", extra={"storage_path": storage_path})
+            logger.warning(
+                "Path traversal attempt denied", extra={"storage_path": storage_path}
+            )
             raise ValueError(f"Path traversal denied: {storage_path}")
         return path
 
@@ -63,6 +68,7 @@ class _LocalBackend:
 # MinIO / S3 backend
 # ---------------------------------------------------------------------------
 
+
 class _MinioBackend:
     _client: Minio | None = None
 
@@ -70,7 +76,9 @@ class _MinioBackend:
         if self._client is None:
             if not settings.s3_endpoint_url:
                 raise ValueError("S3_ENDPOINT_URL is not set")
-            endpoint = settings.s3_endpoint_url.replace("http://", "").replace("https://", "")
+            endpoint = settings.s3_endpoint_url.replace("http://", "").replace(
+                "https://", ""
+            )
             secure = settings.s3_endpoint_url.startswith("https://")
             self._client = Minio(
                 endpoint,
@@ -98,7 +106,10 @@ class _MinioBackend:
                 content_type=content_type or "application/octet-stream",
             )
         except Exception as exc:
-            logger.error("Storage write failed (MinIO)", extra={"object_name": rel_path, "error": str(exc)})
+            logger.error(
+                "Storage write failed (MinIO)",
+                extra={"object_name": rel_path, "error": str(exc)},
+            )
             raise
         return rel_path
 
@@ -113,7 +124,7 @@ class _MinioBackend:
                 response.release_conn()
         except S3Error as e:
             if e.code == "NoSuchKey":
-                raise FileNotFoundError(storage_path)
+                raise FileNotFoundError(storage_path) from e
             raise
 
     def delete(self, storage_path: str) -> None:
@@ -148,7 +159,10 @@ def get_storage() -> StorageBackend:
 # Path builders
 # ---------------------------------------------------------------------------
 
-def _document_rel_path(case_id: uuid.UUID, document_id: uuid.UUID, filename: str) -> str:
+
+def _document_rel_path(
+    case_id: uuid.UUID, document_id: uuid.UUID, filename: str
+) -> str:
     ext = Path(filename).suffix or ""
     return f"cases/{case_id}/{document_id}{ext}"
 
@@ -162,7 +176,10 @@ def _tom_rel_path(tom_id: uuid.UUID, attachment_id: uuid.UUID, filename: str) ->
 # Public Interface — document storage
 # ---------------------------------------------------------------------------
 
-def save_file(case_id: uuid.UUID, document_id: uuid.UUID, filename: str, content: bytes) -> str:
+
+def save_file(
+    case_id: uuid.UUID, document_id: uuid.UUID, filename: str, content: bytes
+) -> str:
     """Save document using configured backend. Returns storage_path for DB."""
     rel_path = _document_rel_path(case_id, document_id, filename)
     return get_storage().save(rel_path, content, filename)
@@ -182,7 +199,10 @@ def delete_file(storage_path: str) -> None:
 # Public Interface — TOM attachment storage
 # ---------------------------------------------------------------------------
 
-def save_tom_file(tom_id: uuid.UUID, attachment_id: uuid.UUID, filename: str, content: bytes) -> str:
+
+def save_tom_file(
+    tom_id: uuid.UUID, attachment_id: uuid.UUID, filename: str, content: bytes
+) -> str:
     """Save TOM attachment using configured backend. Returns storage_path for DB."""
     rel_path = _tom_rel_path(tom_id, attachment_id, filename)
     return get_storage().save(rel_path, content, filename)

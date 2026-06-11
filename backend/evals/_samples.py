@@ -4,6 +4,7 @@ Documents are generated programmatically (no binary fixtures in the repo) so the
 transparent and diffable. Each sample declares the tokens that must survive extraction and,
 for tabular formats, a column-header signature that must be preserved.
 """
+
 from __future__ import annotations
 
 import io
@@ -16,7 +17,7 @@ class ExtractionSample:
     key: str
     filename: str
     builder: Callable[[], bytes]
-    expected_tokens: list[str]   # must all appear in the extracted text
+    expected_tokens: list[str]  # must all appear in the extracted text
     column_header: str | None = None  # e.g. "| A | B | C |" for tabular formats
     min_chars: int = 1
 
@@ -74,9 +75,15 @@ def _avv_docx_bytes() -> bytes:
 
     doc = docx.Document()
     doc.add_paragraph("Auftragsverarbeitungsvertrag gemäß Art. 28 DSGVO")
-    doc.add_paragraph("Der Auftragsverarbeiter verarbeitet personenbezogene Daten weisungsgebunden.")
+    doc.add_paragraph(
+        "Der Auftragsverarbeiter verarbeitet personenbezogene Daten weisungsgebunden."
+    )
     table = doc.add_table(rows=3, cols=2)
-    cells = [["Gegenstand", "Lohnbuchhaltung"], ["Subunternehmer", "Keine"], ["Drittland", "Nein"]]
+    cells = [
+        ["Gegenstand", "Lohnbuchhaltung"],
+        ["Subunternehmer", "Keine"],
+        ["Drittland", "Nein"],
+    ]
     for r_idx, row in enumerate(cells):
         for c_idx, val in enumerate(row):
             table.rows[r_idx].cells[c_idx].text = val
@@ -95,8 +102,14 @@ def _tom_pptx_bytes() -> bytes:
 
     slide1 = prs.slides.add_slide(blank)
     rows, cols = 3, 2
-    table = slide1.shapes.add_table(rows, cols, Inches(1), Inches(1), Inches(8), Inches(3)).table
-    cells = [["Maßnahme", "Status"], ["Verschlüsselung", "umgesetzt"], ["Zugriffskontrolle", "geplant"]]
+    table = slide1.shapes.add_table(
+        rows, cols, Inches(1), Inches(1), Inches(8), Inches(3)
+    ).table
+    cells = [
+        ["Maßnahme", "Status"],
+        ["Verschlüsselung", "umgesetzt"],
+        ["Zugriffskontrolle", "geplant"],
+    ]
     for r, row in enumerate(cells):
         for c, val in enumerate(row):
             table.cell(r, c).text = val
@@ -104,7 +117,9 @@ def _tom_pptx_bytes() -> bytes:
     slide2 = prs.slides.add_slide(blank)
     box = slide2.shapes.add_textbox(Inches(1), Inches(1), Inches(8), Inches(2))
     box.text_frame.text = "Löschkonzept: Daten werden nach 6 Monaten geloescht."
-    slide2.notes_slide.notes_text_frame.text = "Hinweis: AVV mit Hosting-Anbieter liegt vor."
+    slide2.notes_slide.notes_text_frame.text = (
+        "Hinweis: AVV mit Hosting-Anbieter liegt vor."
+    )
 
     buf = io.BytesIO()
     prs.save(buf)
@@ -155,7 +170,12 @@ SAMPLES: dict[str, ExtractionSample] = {
         key="vvt_xlsx",
         filename="vvt.xlsx",
         builder=_vvt_xlsx_bytes,
-        expected_tokens=["Lohnabrechnung", "Art. 6 Abs. 1 lit. c DSGVO", "10 Jahre", "Bewerbermanagement"],
+        expected_tokens=[
+            "Lohnabrechnung",
+            "Art. 6 Abs. 1 lit. c DSGVO",
+            "10 Jahre",
+            "Bewerbermanagement",
+        ],
         column_header="| Zeile | A | B | C | D |",
         min_chars=60,
     ),
@@ -163,7 +183,13 @@ SAMPLES: dict[str, ExtractionSample] = {
         key="avv_docx",
         filename="avv.docx",
         builder=_avv_docx_bytes,
-        expected_tokens=["Art. 28 DSGVO", "Gegenstand", "Lohnbuchhaltung", "Drittland", "Nein"],
+        expected_tokens=[
+            "Art. 28 DSGVO",
+            "Gegenstand",
+            "Lohnbuchhaltung",
+            "Drittland",
+            "Nein",
+        ],
         column_header="| Gegenstand | Lohnbuchhaltung |",
         min_chars=80,
     ),
@@ -186,7 +212,12 @@ SAMPLES: dict[str, ExtractionSample] = {
         key="vvt_csv",
         filename="vvt.csv",
         builder=_vvt_csv_bytes,
-        expected_tokens=["Lohnabrechnung", "Art. 6 Abs. 1 lit. c DSGVO", "10 Jahre", "Bewerbermanagement"],
+        expected_tokens=[
+            "Lohnabrechnung",
+            "Art. 6 Abs. 1 lit. c DSGVO",
+            "10 Jahre",
+            "Bewerbermanagement",
+        ],
         column_header="| Zeile | A | B | C |",
         min_chars=60,
     ),
@@ -195,7 +226,11 @@ SAMPLES: dict[str, ExtractionSample] = {
         filename="hinweis.docx",
         builder=_header_footer_docx_bytes,
         # Controller (header) and version/file reference (footer) must survive extraction.
-        expected_tokens=["Verantwortlicher: Muster GmbH", "Az. DS-2026-042", "Lohnabrechnung"],
+        expected_tokens=[
+            "Verantwortlicher: Muster GmbH",
+            "Az. DS-2026-042",
+            "Lohnabrechnung",
+        ],
         min_chars=40,
     ),
 }

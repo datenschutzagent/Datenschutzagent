@@ -31,3 +31,9 @@ Die vollständige Dokumentation (Schnellstart, Benutzerhandbuch, Administration,
 - **Tests:** Frontend: `npm run test`. Backend: im Verzeichnis `backend` mit `DATABASE_URL`: `pytest tests/ -v`.
 
 Alle weiteren Themen (Migrationen, OIDC, RBAC, CLI, Konfiguration) siehe [Dokumentation](#dokumentation).
+
+## Lizenz
+
+Lizenziert unter der **GNU Affero General Public License v3.0** (AGPL-3.0) — siehe
+[`LICENSE`](LICENSE). Die AGPL verlangt insbesondere, dass auch bei Bereitstellung
+über ein Netzwerk (SaaS) der Quellcode der eingesetzten Version verfügbar gemacht wird.

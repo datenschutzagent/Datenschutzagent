@@ -1,31 +1,49 @@
 # Datenbank-Migrationen
 
-Die Tabellen der Anwendung werden beim Backend-Start per **`Base.metadata.create_all`** angelegt. Zusätzliche **Schema-Änderungen** (neue Spalten, Tabellen) liegen als SQL-Skripte unter **`backend/migrations/`**. Diese Skripte werden **nicht** automatisch ausgeführt; sie müssen bei bestehenden Datenbanken **einmalig manuell** angewendet werden.
+Schema-Änderungen werden über **[Alembic](https://alembic.sqlalchemy.org/)**
+verwaltet — das ist die **einzige Quelle der Wahrheit** für das Datenbankschema.
+Die Migrationen liegen unter **`backend/alembic/versions/`**.
+
+Beim Start des Backend-Containers werden ausstehende Migrationen **automatisch**
+angewendet (`alembic upgrade head` im Entrypoint, siehe `backend/entrypoint.sh`).
 
 ## Vorgehen
 
-Bei einer bestehenden Datenbank (z. B. nach einem Update) die Migrations-Skripte in Reihenfolge ausführen. Beispiele:
+**Migrationen anwenden** (bei bestehender Datenbank, z. B. nach einem Update):
 
-**Einzelne Migration (z. B. extraction_method):**
 ```bash
-docker compose exec -T postgres psql -U postgres -d datenschutzagent < backend/migrations/001_add_document_extraction_method.sql
+# Im Container
+docker compose exec backend alembic upgrade head
+
+# Oder lokal (im Verzeichnis backend/, mit gesetzter DATABASE_URL)
+cd backend && alembic upgrade head
 ```
 
-**Alle Migrationen nacheinander:**
+**Neue Migration erstellen:**
+
 ```bash
-for f in backend/migrations/*.sql; do docker compose exec -T postgres psql -U postgres -d datenschutzagent < "$f"; done
+cd backend
+alembic revision -m "beschreibung_der_aenderung"
+# Die generierte Datei unter alembic/versions/ ausfüllen (upgrade/downgrade),
+# dann anwenden:
+alembic upgrade head
 ```
 
-Lokal (ohne Docker) mit eigenem `psql` und passender `DATABASE_URL` die Skripte gegen die gleiche Datenbank ausführen.
+**Status / Historie:**
 
-## Wichtige Migrations (Auswahl)
+```bash
+alembic current      # aktuell angewendete Revision
+alembic history      # alle Revisionen
+alembic downgrade -1 # eine Revision zurück (Vorsicht in Produktion)
+```
 
-- `001_add_document_extraction_method.sql` – Document um Feld extraction_method (text/ocr) für OCR-Kennzeichnung.
-- `002_add_finding_source_strategy.sql` – Finding um source_strategy (full_text/rag).
-- `003_add_users.sql` – User-Tabelle.
-- `004_add_oidc_sub.sql` – OIDC-Subjekt (oidc_sub) für User.
-- `005_add_user_role.sql` – Rolle (viewer/editor/admin) für RBAC.
-- `006_add_document_comments.sql` – Dokument-Kommentare.
-- `007_prompt_templates.sql` – Prompt-Templates (falls verwendet).
+## Baseline und Alt-Skripte
 
-Vor dem Ausführen einer Migration ggf. prüfen, ob die Änderung für Ihre DB-Version bereits angewendet wurde (z. B. Spalte/ Tabelle existiert bereits), um Doppelausführungen zu vermeiden.
+Die erste Alembic-Migration (`…_baseline.py`) bildet den Schemastand zum
+Einführungszeitpunkt von Alembic ab. Sie konsolidiert die früheren, manuell
+angewendeten **rohen SQL-Skripte**.
+
+Diese historischen SQL-Skripte (`001_…` bis `021_…`) liegen jetzt unter
+**`backend/migrations/legacy/`** und sind **inaktiv** — sie werden nicht mehr
+ausgeführt und dienen nur der Nachvollziehbarkeit. Bitte keine neuen rohen
+SQL-Dateien anlegen; verwenden Sie stattdessen `alembic revision`.

@@ -5,13 +5,15 @@ ROPA-Dokument um (CSV oder DOCX). Der Service ist als pure-as-possible
 Wrapper konzipiert: der DB-Lookup für Case + VVT-Doc liegt im Endpoint,
 das Rendering hier.
 """
+
 from __future__ import annotations
 
 import csv
 import io
 import logging
+from collections.abc import Iterable
 from datetime import UTC, datetime
-from typing import Any, Iterable
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -33,7 +35,9 @@ _ART30_SECTIONS: list[tuple[str, str]] = [
 ]
 
 
-def _vvt_field_to_value(fields: Iterable[dict[str, Any]], wanted_aliases: Iterable[str]) -> str:
+def _vvt_field_to_value(
+    fields: Iterable[dict[str, Any]], wanted_aliases: Iterable[str]
+) -> str:
     """Resolve the first non-empty canonical_value from a list of VVT field aliases.
 
     Field-name matching is case-insensitive, substring-tolerant — the VVT
@@ -79,14 +83,18 @@ def _project_art30_rows(
         # are often known organisationally before any VVT document exists.
         if not value:
             value = _case_fallback(key, case_summary)
-        rows.append({
-            "key": key,
-            "label": label,
-            "value": value or "— (im VVT-Dokument nicht erfasst)",
-            "source": "vvt" if value and value != _case_fallback(key, case_summary) else (
-                "case" if value else "missing"
-            ),
-        })
+        rows.append(
+            {
+                "key": key,
+                "label": label,
+                "value": value or "— (im VVT-Dokument nicht erfasst)",
+                "source": (
+                    "vvt"
+                    if value and value != _case_fallback(key, case_summary)
+                    else ("case" if value else "missing")
+                ),
+            }
+        )
     return rows
 
 
@@ -140,7 +148,9 @@ def build_ropa_docx(
     rows = _project_art30_rows(case_summary, vvt_fields)
     doc = Document()
     org = case_summary.get("org_name") or "Datenschutzagent"
-    title = doc.add_heading(f"Verzeichnis von Verarbeitungstätigkeiten – {org}", level=0)
+    title = doc.add_heading(
+        f"Verzeichnis von Verarbeitungstätigkeiten – {org}", level=0
+    )
     for run in title.runs:
         run.font.size = Pt(16)
 

@@ -3,6 +3,7 @@
 Centralises magic strings used across models, services, and routes so that
 changes only need to be made in one place.
 """
+
 from enum import StrEnum
 
 

@@ -1,4 +1,5 @@
 """Admin and user-related schemas."""
+
 from datetime import datetime
 from typing import Any
 from uuid import UUID
@@ -10,6 +11,7 @@ from .common import UserRoleEnum, UserThemeEnum, UserUILanguageEnum
 
 class UserPreferences(BaseModel):
     """User UI preferences (theme, language, placeholder for notifications)."""
+
     theme: UserThemeEnum | None = None
     language: UserUILanguageEnum | None = None
     notifications: dict[str, Any] | None = None  # placeholder for later

@@ -6,8 +6,8 @@ Tested behaviour:
 - Cascade delete: deleting a case removes its policies
 - Global list endpoint returns all stored policies (read-only overview)
 """
-import pytest
 
+import pytest
 
 pytestmark = pytest.mark.asyncio
 
@@ -160,5 +160,7 @@ async def test_cascade_delete_on_case(client, mock_llm):
 
 
 async def test_list_for_unknown_case_returns_404(client):
-    resp = await client.get("/api/v1/cases/00000000-0000-0000-0000-000000000000/privacy-policies")
+    resp = await client.get(
+        "/api/v1/cases/00000000-0000-0000-0000-000000000000/privacy-policies"
+    )
     assert resp.status_code == 404

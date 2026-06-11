@@ -11,6 +11,7 @@ Routes:
   - DELETE /avv/{id}/mitigations/{mid}     unlink
   - GET    /avv/{id}/risk-delta            inherent vs residual (AVV)
 """
+
 from __future__ import annotations
 
 import logging
@@ -68,7 +69,11 @@ def _catalog_entry_to_schema(m: MitigationConfig) -> MitigationCatalogEntry:
 # ---------------------------------------------------------------------------
 
 
-@router.get("/mitigations/catalog", response_model=MitigationCatalogResponse, summary="Mitigation-Katalog auflisten")
+@router.get(
+    "/mitigations/catalog",
+    response_model=MitigationCatalogResponse,
+    summary="Mitigation-Katalog auflisten",
+)
 async def get_mitigation_catalog(_user=require_roles("viewer", "editor", "admin")):
     cfg = get_risk_config().mitigations
     return MitigationCatalogResponse(
@@ -97,12 +102,16 @@ async def list_case_mitigations(
 ):
     await _require_case(case_id, db)
     rows = (
-        await db.execute(
-            select(CaseMitigationLinkModel)
-            .where(CaseMitigationLinkModel.case_id == case_id)
-            .order_by(CaseMitigationLinkModel.applied_at.asc())
+        (
+            await db.execute(
+                select(CaseMitigationLinkModel)
+                .where(CaseMitigationLinkModel.case_id == case_id)
+                .order_by(CaseMitigationLinkModel.applied_at.asc())
+            )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     catalog = get_risk_config().mitigations
     out: list[CaseMitigationLinkResponse] = []
     for link in rows:
@@ -132,9 +141,15 @@ async def link_case_mitigation(
     catalog = get_risk_config().mitigations
     entry = catalog.by_id(body.mitigation_id)
     if entry is None:
-        raise HTTPException(status_code=404, detail=f"Mitigation '{body.mitigation_id}' nicht im Katalog")
+        raise HTTPException(
+            status_code=404,
+            detail=f"Mitigation '{body.mitigation_id}' nicht im Katalog",
+        )
     if entry.applies_to not in ("dsfa", "both"):
-        raise HTTPException(status_code=422, detail=f"Mitigation '{entry.id}' ist nicht auf DSFA anwendbar")
+        raise HTTPException(
+            status_code=422,
+            detail=f"Mitigation '{entry.id}' ist nicht auf DSFA anwendbar",
+        )
 
     existing = (
         await db.execute(
@@ -145,7 +160,9 @@ async def link_case_mitigation(
         )
     ).scalar_one_or_none()
     if existing is not None:
-        raise HTTPException(status_code=409, detail="Diese Mitigation ist bereits verknüpft")
+        raise HTTPException(
+            status_code=409, detail="Diese Mitigation ist bereits verknüpft"
+        )
 
     link = CaseMitigationLinkModel(
         case_id=case_id,
@@ -205,6 +222,7 @@ async def get_case_risk_delta(
     a hint instead of an empty card.
     """
     from app.models.db import DSFAAssessmentModel
+
     await _require_case(case_id, db)
     dsfa = (
         await db.execute(
@@ -222,7 +240,8 @@ async def get_case_risk_delta(
         target_id=case_id,
         inherent=RiskDeltaSide(
             risk_score=None,
-            risk_level=payload.get("inherent_residual_risk") or payload.get("residual_risk"),
+            risk_level=payload.get("inherent_residual_risk")
+            or payload.get("residual_risk"),
         ),
         residual=RiskDeltaSide(
             risk_score=None,
@@ -251,12 +270,16 @@ async def list_avv_mitigations(
 ):
     await _require_avv(contract_id, db)
     rows = (
-        await db.execute(
-            select(AvvMitigationLinkModel)
-            .where(AvvMitigationLinkModel.avv_contract_id == contract_id)
-            .order_by(AvvMitigationLinkModel.applied_at.asc())
+        (
+            await db.execute(
+                select(AvvMitigationLinkModel)
+                .where(AvvMitigationLinkModel.avv_contract_id == contract_id)
+                .order_by(AvvMitigationLinkModel.applied_at.asc())
+            )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     catalog = get_risk_config().mitigations
     out: list[AvvMitigationLinkResponse] = []
     for link in rows:
@@ -286,9 +309,15 @@ async def link_avv_mitigation(
     catalog = get_risk_config().mitigations
     entry = catalog.by_id(body.mitigation_id)
     if entry is None:
-        raise HTTPException(status_code=404, detail=f"Mitigation '{body.mitigation_id}' nicht im Katalog")
+        raise HTTPException(
+            status_code=404,
+            detail=f"Mitigation '{body.mitigation_id}' nicht im Katalog",
+        )
     if entry.applies_to not in ("avv", "both"):
-        raise HTTPException(status_code=422, detail=f"Mitigation '{entry.id}' ist nicht auf AVV anwendbar")
+        raise HTTPException(
+            status_code=422,
+            detail=f"Mitigation '{entry.id}' ist nicht auf AVV anwendbar",
+        )
 
     existing = (
         await db.execute(
@@ -299,7 +328,9 @@ async def link_avv_mitigation(
         )
     ).scalar_one_or_none()
     if existing is not None:
-        raise HTTPException(status_code=409, detail="Diese Mitigation ist bereits verknüpft")
+        raise HTTPException(
+            status_code=409, detail="Diese Mitigation ist bereits verknüpft"
+        )
 
     link = AvvMitigationLinkModel(
         avv_contract_id=contract_id,

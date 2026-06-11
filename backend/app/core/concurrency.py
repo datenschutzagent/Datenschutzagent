@@ -16,6 +16,7 @@ processes. We use BLAKE2b (stdlib, cryptographic) truncated to 8 bytes for
 distribution; Python's built-in ``hash()`` cannot be used because it
 randomises across processes.
 """
+
 from __future__ import annotations
 
 import hashlib
@@ -56,14 +57,16 @@ async def try_acquire_run_checks_lock(
     Never blocks — uses ``pg_try_advisory_xact_lock``.
     """
     key = _stable_key("run_checks", str(case_id), str(playbook_id))
-    result = await db.execute(
-        text("SELECT pg_try_advisory_xact_lock(:k)"), {"k": key}
-    )
+    result = await db.execute(text("SELECT pg_try_advisory_xact_lock(:k)"), {"k": key})
     acquired = bool(result.scalar())
     if not acquired:
         logger.info(
             "run_checks advisory lock not acquired — concurrent run detected",
-            extra={"case_id": str(case_id), "playbook_id": str(playbook_id), "lock_key": key},
+            extra={
+                "case_id": str(case_id),
+                "playbook_id": str(playbook_id),
+                "lock_key": key,
+            },
         )
     return acquired
 
@@ -71,9 +74,7 @@ async def try_acquire_run_checks_lock(
 async def try_acquire_dsfa_lock(db: AsyncSession, case_id: UUID) -> bool:
     """Try to acquire the DSFA-generation lock for a case."""
     key = _stable_key("dsfa_generate", str(case_id))
-    result = await db.execute(
-        text("SELECT pg_try_advisory_xact_lock(:k)"), {"k": key}
-    )
+    result = await db.execute(text("SELECT pg_try_advisory_xact_lock(:k)"), {"k": key})
     acquired = bool(result.scalar())
     if not acquired:
         logger.info(

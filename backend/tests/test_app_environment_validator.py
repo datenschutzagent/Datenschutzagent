@@ -3,6 +3,7 @@
 ``production`` must enforce the full production profile (OIDC, HTTPS-CORS,
 webhook encryption key). Development and test keep the lenient behaviour.
 """
+
 from __future__ import annotations
 
 import pytest
@@ -14,6 +15,7 @@ _DB = "postgresql+asyncpg://u:p@h:5432/d"
 
 def _fernet_key() -> str:
     from cryptography.fernet import Fernet
+
     return Fernet.generate_key().decode()
 
 

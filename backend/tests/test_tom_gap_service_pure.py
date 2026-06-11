@@ -1,4 +1,5 @@
 """Pure tests for the TOM-gap analyser (no DB, no ORM dependency)."""
+
 from __future__ import annotations
 
 from types import SimpleNamespace
@@ -82,10 +83,14 @@ def test_keyword_filter_blocks_generic_tom_in_same_category():
     """A baseline with keywords_title=['at rest'] must NOT accept an
     in-transit-only encryption TOM."""
     out = analyse_gaps(
-        _baseline(TomBaselineRequirement(
-            id="enc_rest", label="At-rest", category="encryption",
-            keywords_title=["at rest", "ruhend"],
-        )),
+        _baseline(
+            TomBaselineRequirement(
+                id="enc_rest",
+                label="At-rest",
+                category="encryption",
+                keywords_title=["at rest", "ruhend"],
+            )
+        ),
         [_tom("TLS for ingress", "encryption")],  # no keyword match
     )
     assert out["summary"]["missing"] == 1
@@ -93,10 +98,14 @@ def test_keyword_filter_blocks_generic_tom_in_same_category():
 
 def test_keyword_filter_accepts_when_any_keyword_matches_case_insensitively():
     out = analyse_gaps(
-        _baseline(TomBaselineRequirement(
-            id="enc_rest", label="At-rest", category="encryption",
-            keywords_title=["at rest", "ruhend"],
-        )),
+        _baseline(
+            TomBaselineRequirement(
+                id="enc_rest",
+                label="At-rest",
+                category="encryption",
+                keywords_title=["at rest", "ruhend"],
+            )
+        ),
         [_tom("Verschlüsselung Ruhender Daten", "encryption")],  # case-insensitive
     )
     assert out["summary"]["met"] == 1
@@ -110,9 +119,15 @@ def test_keyword_filter_accepts_when_any_keyword_matches_case_insensitively():
 def test_missing_by_severity_aggregates_correctly():
     out = analyse_gaps(
         _baseline(
-            TomBaselineRequirement(id="a", label="A", category="encryption", severity="critical"),
-            TomBaselineRequirement(id="b", label="B", category="encryption", severity="critical"),
-            TomBaselineRequirement(id="c", label="C", category="encryption", severity="medium"),
+            TomBaselineRequirement(
+                id="a", label="A", category="encryption", severity="critical"
+            ),
+            TomBaselineRequirement(
+                id="b", label="B", category="encryption", severity="critical"
+            ),
+            TomBaselineRequirement(
+                id="c", label="C", category="encryption", severity="medium"
+            ),
         ),
         [],  # nothing implemented
     )
@@ -122,9 +137,15 @@ def test_missing_by_severity_aggregates_correctly():
 def test_gaps_sorted_before_met_then_by_severity_desc():
     out = analyse_gaps(
         _baseline(
-            TomBaselineRequirement(id="z_low", label="Low gap", category="other", severity="low"),
-            TomBaselineRequirement(id="a_crit", label="Crit gap", category="other", severity="critical"),
-            TomBaselineRequirement(id="m_met", label="Met", category="testing", severity="high"),
+            TomBaselineRequirement(
+                id="z_low", label="Low gap", category="other", severity="low"
+            ),
+            TomBaselineRequirement(
+                id="a_crit", label="Crit gap", category="other", severity="critical"
+            ),
+            TomBaselineRequirement(
+                id="m_met", label="Met", category="testing", severity="high"
+            ),
         ),
         [_tom("Pentest 2025", "testing")],
     )
@@ -151,12 +172,16 @@ def test_coverage_pct_50_when_half_met():
 
 def test_invalid_severity_rejected_at_load():
     with pytest.raises(ValueError):
-        TomBaselineRequirement(id="x", label="X", category="encryption", severity="bogus")
+        TomBaselineRequirement(
+            id="x", label="X", category="encryption", severity="bogus"
+        )
 
 
 def test_duplicate_ids_rejected():
     with pytest.raises(ValueError):
-        TomBaselineConfig(requirements=[
-            TomBaselineRequirement(id="dup", label="A", category="encryption"),
-            TomBaselineRequirement(id="dup", label="B", category="testing"),
-        ])
+        TomBaselineConfig(
+            requirements=[
+                TomBaselineRequirement(id="dup", label="A", category="encryption"),
+                TomBaselineRequirement(id="dup", label="B", category="testing"),
+            ]
+        )

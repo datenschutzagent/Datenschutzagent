@@ -3,14 +3,12 @@
 Tests _normalize_check_scope(), _yaml_to_model_data(), and _load_playbook_yaml()
 with no database required. Uses pytest's tmp_path fixture for file I/O tests.
 """
-import yaml
 
 from app.services.playbook_import import (
     _load_playbook_yaml,
     _normalize_check_scope,
     _yaml_to_model_data,
 )
-
 
 # ---------------------------------------------------------------------------
 # _normalize_check_scope
@@ -53,7 +51,12 @@ def test_scope_scope_takes_precedence_over_type():
 
 
 def test_normalize_preserves_other_fields():
-    item = {"scope": "case", "name": "My Check", "instruction": "Do something", "priority": 5}
+    item = {
+        "scope": "case",
+        "name": "My Check",
+        "instruction": "Do something",
+        "priority": 5,
+    }
     result = _normalize_check_scope(item)
     assert result["name"] == "My Check"
     assert result["instruction"] == "Do something"
@@ -121,6 +124,7 @@ def test_yaml_to_model_data_normalizes_check_scopes():
 
 def test_yaml_to_model_data_legal_basis_ids_converted_to_strings():
     import uuid as _uuid
+
     uid = _uuid.uuid4()
     data = {
         "name": "PB",
@@ -159,7 +163,13 @@ def test_yaml_to_model_data_match_cfg_preserved():
 
 
 def test_yaml_to_model_data_department_and_case_type():
-    data = {"name": "PB", "version": "1.0", "checks": [], "department": "IT", "case_type": "Software"}
+    data = {
+        "name": "PB",
+        "version": "1.0",
+        "checks": [],
+        "department": "IT",
+        "case_type": "Software",
+    }
     result = _yaml_to_model_data(data)
     assert result is not None
     assert result["department"] == "IT"

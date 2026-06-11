@@ -1,4 +1,5 @@
 """Async database session and engine."""
+
 import logging
 from collections.abc import AsyncGenerator
 
@@ -17,7 +18,9 @@ logger = logging.getLogger(__name__)
 if settings.app_environment == "test":
     from sqlalchemy.pool import NullPool
 
-    engine = create_async_engine(settings.database_url, echo=settings.debug, poolclass=NullPool)
+    engine = create_async_engine(
+        settings.database_url, echo=settings.debug, poolclass=NullPool
+    )
 else:
     engine = create_async_engine(
         settings.database_url,

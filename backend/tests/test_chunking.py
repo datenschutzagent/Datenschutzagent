@@ -2,6 +2,7 @@
 
 No Weaviate, LLM or DB needed — pure text logic.
 """
+
 from app.services.weaviate_service import chunk_text
 
 _TABLE = """--- Sheet: VVT ---
@@ -39,7 +40,12 @@ def test_table_rows_are_never_split_mid_row():
 def test_all_table_data_survives_chunking():
     chunks = chunk_text(_TABLE, chunk_size=120, overlap=0)
     joined = "\n".join(chunks)
-    for token in ("Lohnabrechnung", "Bewerbermanagement", "Vertragsdaten", "Newsletter"):
+    for token in (
+        "Lohnabrechnung",
+        "Bewerbermanagement",
+        "Vertragsdaten",
+        "Newsletter",
+    ):
         assert token in joined
 
 

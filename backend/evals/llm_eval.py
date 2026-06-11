@@ -6,6 +6,7 @@ also measures whether the model reaches the *right* verdict and severity on labe
 and whether its self-assessed confidence is calibrated (Brier-style) — the signals that tell us
 whether a model/prompt change actually improves answer quality, not just format.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -126,7 +127,9 @@ class CheckConfidenceCalibration(Evaluator):
 
 
 def build_dataset() -> Dataset:
-    cases = [Case(name=c["name"], inputs=c["name"], expected_output=None) for c in _CASES]
+    cases = [
+        Case(name=c["name"], inputs=c["name"], expected_output=None) for c in _CASES
+    ]
     return Dataset(
         name="llm_check_quality",
         cases=cases,

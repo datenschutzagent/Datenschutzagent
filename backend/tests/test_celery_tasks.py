@@ -5,17 +5,15 @@ without requiring a running Celery broker, Redis, or real DB.
 All external dependencies (DB session, file storage, text extraction)
 are patched via unittest.mock.
 """
-import uuid
-from unittest.mock import MagicMock, patch, call
 
-import pytest
+import uuid
+from unittest.mock import MagicMock, patch
 
 from app.celery_app import (
     _count_checks_total,
     _set_extraction_failed,
     extract_document_text,
 )
-
 
 # ---------------------------------------------------------------------------
 # _count_checks_total (pure function)
@@ -27,7 +25,10 @@ def test_count_checks_total_empty_playbook():
 
 
 def test_count_checks_total_no_checks_key():
-    assert _count_checks_total({"name": "Playbook"}, doc_count=2, strategies=["full_text"]) == 0
+    assert (
+        _count_checks_total({"name": "Playbook"}, doc_count=2, strategies=["full_text"])
+        == 0
+    )
 
 
 def test_count_checks_total_document_scoped_single_strategy():
@@ -60,7 +61,9 @@ def test_count_checks_total_mixed_checks_two_strategies():
         ]
     }
     # (1 doc-check × 2 docs + 1 case-check) × 2 strategies = (2+1) × 2 = 6
-    assert _count_checks_total(content, doc_count=2, strategies=["full_text", "rag"]) == 6
+    assert (
+        _count_checks_total(content, doc_count=2, strategies=["full_text", "rag"]) == 6
+    )
 
 
 def test_count_checks_total_zero_docs_defaults_to_one():
@@ -219,8 +222,6 @@ def test_extract_document_text_sets_processing_then_done():
     doc_id = uuid.uuid4()
     doc = _FakeDoc(doc_id)
     status_history: list[str] = []
-
-    original_commit = None
 
     def track_commit():
         status_history.append(doc.extraction_status)

@@ -8,6 +8,7 @@ Covers:
   - Auto-fill: when only scale_type is set, matrix + labels are auto-generated.
   - Boolean rules: unknown factor ids are rejected at load time.
 """
+
 from __future__ import annotations
 
 import pytest
@@ -21,13 +22,32 @@ from app.services.risk_config_loader import (
     _default_dsfa_matrix_for_size,
 )
 
-
 _LEGACY_5X5 = {
-    "1_1": "low", "1_2": "low", "1_3": "low", "1_4": "medium", "1_5": "medium",
-    "2_1": "low", "2_2": "low", "2_3": "medium", "2_4": "medium", "2_5": "high",
-    "3_1": "low", "3_2": "medium", "3_3": "medium", "3_4": "high", "3_5": "high",
-    "4_1": "medium", "4_2": "medium", "4_3": "high", "4_4": "high", "4_5": "critical",
-    "5_1": "medium", "5_2": "high", "5_3": "high", "5_4": "critical", "5_5": "critical",
+    "1_1": "low",
+    "1_2": "low",
+    "1_3": "low",
+    "1_4": "medium",
+    "1_5": "medium",
+    "2_1": "low",
+    "2_2": "low",
+    "2_3": "medium",
+    "2_4": "medium",
+    "2_5": "high",
+    "3_1": "low",
+    "3_2": "medium",
+    "3_3": "medium",
+    "3_4": "high",
+    "3_5": "high",
+    "4_1": "medium",
+    "4_2": "medium",
+    "4_3": "high",
+    "4_4": "high",
+    "4_5": "critical",
+    "5_1": "medium",
+    "5_2": "high",
+    "5_3": "high",
+    "5_4": "critical",
+    "5_5": "critical",
 }
 
 
@@ -158,7 +178,10 @@ def test_rule_with_known_factor_ids_accepted():
         factors=[_factor("a"), _factor("b")],
         rules=[
             DsfaScreeningRule(
-                id="r1", label="R1", expression="a AND b", action="require_dsfa",
+                id="r1",
+                label="R1",
+                expression="a AND b",
+                action="require_dsfa",
             )
         ],
     )
@@ -171,7 +194,10 @@ def test_rule_with_unknown_factor_id_rejected():
             factors=[_factor("a")],
             rules=[
                 DsfaScreeningRule(
-                    id="r1", label="R1", expression="a AND nonexistent", action="require_dsfa",
+                    id="r1",
+                    label="R1",
+                    expression="a AND nonexistent",
+                    action="require_dsfa",
                 )
             ],
         )
@@ -205,23 +231,25 @@ def test_duplicate_rule_ids_rejected():
 
 
 def test_riskconfig_loads_with_3x3_and_rules():
-    cfg = RiskConfig.model_validate({
-        "dsfa_assessment": {"scale_type": "1-3"},
-        "dsfa_screening": {
-            "factors": [
-                {"id": "profiling", "label": "P"},
-                {"id": "special_categories", "label": "S"},
-            ],
-            "rules": [
-                {
-                    "id": "edsa_combo",
-                    "label": "EDSA-Combo",
-                    "expression": "profiling AND special_categories",
-                    "action": "require_dsfa",
-                }
-            ],
-        },
-    })
+    cfg = RiskConfig.model_validate(
+        {
+            "dsfa_assessment": {"scale_type": "1-3"},
+            "dsfa_screening": {
+                "factors": [
+                    {"id": "profiling", "label": "P"},
+                    {"id": "special_categories", "label": "S"},
+                ],
+                "rules": [
+                    {
+                        "id": "edsa_combo",
+                        "label": "EDSA-Combo",
+                        "expression": "profiling AND special_categories",
+                        "action": "require_dsfa",
+                    }
+                ],
+            },
+        }
+    )
     assert cfg.dsfa_assessment.size == 3
     assert len(cfg.dsfa_screening.rules) == 1
     # Risk-level for 1_1 / 3_3 from auto-generated 3×3 default.

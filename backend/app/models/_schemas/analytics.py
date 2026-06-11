@@ -1,6 +1,6 @@
 """Pydantic-Schemas fuer Cross-Module-Analytics (Pipeline, Velocity, Maturity)."""
-from pydantic import BaseModel, ConfigDict
 
+from pydantic import BaseModel, ConfigDict
 
 # ---------------------------------------------------------------------------
 # Pipeline (AVV / TOM / DSFA Lifecycle)
