@@ -30,11 +30,14 @@ jobs:
         run: pip-audit -r backend/requirements.txt
 
       - name: Bandit – Python SAST
-        # Medium+ severity; skip B101 (assert in tests), B110 (try-except-pass — reviewed)
+        # Medium+ severity; skip B101 (assert in tests), B110 (try-except-pass — reviewed),
+        # B608 (string-built SQL — reviewed 2026-06: all raw queries interpolate only
+        # hardcoded filter fragments and bind values via :params; SQL injection coverage
+        # remains via the Semgrep job, p/owasp-top-ten).
         run: |
           bandit -r backend/app/ \
             --severity-level medium \
-            --skip B101,B110 \
+            --skip B101,B110,B608 \
             --format json \
             --output bandit-report.json
 
