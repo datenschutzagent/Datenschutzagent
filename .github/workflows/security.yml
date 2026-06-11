@@ -110,7 +110,7 @@ jobs:
         # gate diagnosable directly from the job log.
         # ignore-unfixed: unfixed base-image CVEs are not actionable and made the gate
         # permanently red — remaining failures always mean an available fix exists.
-        uses: aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1 # 0.35.0
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # 0.36.0
         with:
           image-ref: 'datenschutzagent-backend:scan'
           format: 'table'
@@ -120,7 +120,7 @@ jobs:
 
       - name: Trivy – SARIF upload (non-gating)
         if: always()
-        uses: aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1 # 0.35.0
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # 0.36.0
         with:
           image-ref: 'datenschutzagent-backend:scan'
           format: 'sarif'
