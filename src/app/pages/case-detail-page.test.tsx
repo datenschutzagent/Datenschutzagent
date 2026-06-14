@@ -1,39 +1,62 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
+import { QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter, Route, Routes } from "react-router";
+import { makeTestQueryClient } from "../test-utils";
 
 // ---------------------------------------------------------------------------
 // Mocks
 // ---------------------------------------------------------------------------
 
+vi.mock("../lib/queries/caseDetailQueries", () => ({
+  useCase: vi.fn(),
+  useRunChecksStatus: vi.fn(() => ({ data: undefined })),
+  useFindingComments: vi.fn(() => ({ data: [] })),
+  useUpdateFindingStatus: vi.fn(() => ({ mutate: vi.fn(), isPending: false })),
+  useCreateFindingComment: vi.fn(() => ({ mutate: vi.fn(), isPending: false })),
+  useArchiveCase: vi.fn(() => ({ mutate: vi.fn(), isPending: false })),
+  useUnarchiveCase: vi.fn(() => ({ mutate: vi.fn(), isPending: false })),
+  caseDetailKeys: {
+    all: (id: string) => ["case", id],
+    detail: (id: string) => ["case", id, "detail"],
+    runChecksStatus: (id: string) => ["case", id, "run-checks-status"],
+    riskScore: (id: string) => ["case", id, "risk-score"],
+    similarCases: (id: string) => ["case", id, "similar"],
+    findingComments: (id: string) => ["finding", id, "comments"],
+  },
+}));
+
+// Mock the context so CaseDetailProvider does not make real API calls
+vi.mock("../contexts/CaseDetailContext", () => ({
+  CaseDetailProvider: ({ children }: { children: React.ReactNode }) => <>{children}</>,
+  useCaseDetail: vi.fn(() => ({
+    runChecksOpen: false,
+    setRunChecksOpen: vi.fn(),
+    playbooks: [],
+    selectedPlaybookId: "",
+    setSelectedPlaybookId: vi.fn(),
+    runChecksStrategy: "full_text" as const,
+    setRunChecksStrategy: vi.fn(),
+    runChecksLoading: false,
+    runChecksStatus: "idle" as const,
+    runChecksError: null,
+    setRunChecksError: vi.fn(),
+    runChecksProgress: { done: 0, total: 0 },
+    coveragePreview: null,
+    similarCases: [],
+    riskScore: null,
+    handleRunChecks: vi.fn(),
+  })),
+}));
+
 vi.mock("../lib/api", () => ({
-  getCase: vi.fn(),
-  getPlaybooks: vi.fn(() => Promise.resolve([])),
-  getPlaybooksForSelection: vi.fn(() => Promise.resolve([])),
-  runChecks: vi.fn(),
-  getRunChecksStatus: vi.fn(() =>
-    Promise.resolve({
-      status: "never_run",
-      job_id: null,
-      playbook_name: null,
-      findings_count: null,
-      error: null,
-      last_run: null,
-      documents_changed_since_last_run: false,
-      checks_total: 0,
-      checks_done: 0,
-    })
-  ),
-  updateFindingStatus: vi.fn(),
-  getFindingComments: vi.fn(() => Promise.resolve([])),
-  createFindingComment: vi.fn(),
-  getPlaybookCoveragePreview: vi.fn(() => Promise.resolve(null)),
-  getSimilarCases: vi.fn(() => Promise.resolve([])),
-  getCaseRiskScore: vi.fn(() => Promise.resolve(null)),
-  archiveCase: vi.fn(),
-  unarchiveCase: vi.fn(),
   canEdit: vi.fn(() => false),
   isAdmin: vi.fn(() => false),
+  getAuditTrailExportBlob: vi.fn(),
+  downloadAuditPackage: vi.fn(),
+  downloadBlob: vi.fn(),
+  downloadAuditTrail: vi.fn(),
+  downloadRopaExport: vi.fn(),
 }));
 
 vi.mock("../contexts/AuthContext", () => ({
@@ -85,10 +108,10 @@ vi.mock("../components/case-detail/CaseFindingsTab", () => ({
   CaseFindingsTab: () => <div data-testid="findings-tab" />,
 }));
 
-import { getCase } from "../lib/api";
+import { useCase } from "../lib/queries/caseDetailQueries";
 import { CaseDetailPage } from "./case-detail-page";
 
-const mockGetCase = vi.mocked(getCase);
+const mockUseCase = vi.mocked(useCase);
 
 const makeFakeCase = (overrides: Record<string, unknown> = {}) => ({
   id: "case-42",
@@ -111,12 +134,15 @@ const makeFakeCase = (overrides: Record<string, unknown> = {}) => ({
 });
 
 function renderPage(caseId = "case-42") {
+  const client = makeTestQueryClient();
   return render(
-    <MemoryRouter initialEntries={[`/cases/${caseId}`]}>
-      <Routes>
-        <Route path="/cases/:caseId" element={<CaseDetailPage />} />
-      </Routes>
-    </MemoryRouter>
+    <QueryClientProvider client={client}>
+      <MemoryRouter initialEntries={[`/cases/${caseId}`]}>
+        <Routes>
+          <Route path="/cases/:caseId" element={<CaseDetailPage />} />
+        </Routes>
+      </MemoryRouter>
+    </QueryClientProvider>
   );
 }
 
@@ -130,15 +156,14 @@ describe("CaseDetailPage", () => {
   });
 
   it("shows loading spinner before case data arrives", () => {
-    mockGetCase.mockReturnValue(new Promise(() => {}));
+    mockUseCase.mockReturnValue({ data: undefined, isLoading: true, error: null } as never);
     renderPage();
-    // Should render loading indicator
     const loaders = document.querySelectorAll("[class*='animate-spin']");
     expect(loaders.length).toBeGreaterThan(0);
   });
 
   it("renders case title after loading", async () => {
-    mockGetCase.mockResolvedValue(makeFakeCase() as never);
+    mockUseCase.mockReturnValue({ data: makeFakeCase(), isLoading: false, error: null } as never);
     renderPage();
     await waitFor(() => {
       expect(screen.getAllByText("DSGVO-Prüfung Testfall").length).toBeGreaterThan(0);
@@ -146,7 +171,11 @@ describe("CaseDetailPage", () => {
   });
 
   it("renders department in breadcrumb/header area", async () => {
-    mockGetCase.mockResolvedValue(makeFakeCase({ department: "Rechtsabteilung" }) as never);
+    mockUseCase.mockReturnValue({
+      data: makeFakeCase({ department: "Rechtsabteilung" }),
+      isLoading: false,
+      error: null,
+    } as never);
     renderPage();
     await waitFor(() => {
       expect(screen.getByText("Rechtsabteilung")).toBeTruthy();
@@ -154,7 +183,7 @@ describe("CaseDetailPage", () => {
   });
 
   it("renders tab navigation", async () => {
-    mockGetCase.mockResolvedValue(makeFakeCase() as never);
+    mockUseCase.mockReturnValue({ data: makeFakeCase(), isLoading: false, error: null } as never);
     renderPage();
     await waitFor(() => {
       expect(screen.getByText("Überblick")).toBeTruthy();
@@ -163,24 +192,28 @@ describe("CaseDetailPage", () => {
     });
   });
 
-  it("shows error message when getCase rejects", async () => {
-    mockGetCase.mockRejectedValue(new Error("Vorgang nicht gefunden"));
+  it("shows error message when useCase returns an error", async () => {
+    mockUseCase.mockReturnValue({
+      data: undefined,
+      isLoading: false,
+      error: new Error("Vorgang nicht gefunden"),
+    } as never);
     renderPage();
     await waitFor(() => {
       expect(screen.getByText(/Vorgang nicht gefunden/i)).toBeTruthy();
     });
   });
 
-  it("calls getCase with the correct ID from URL params", async () => {
-    mockGetCase.mockResolvedValue(makeFakeCase({ id: "case-99" }) as never);
+  it("calls useCase with the correct ID from URL params", async () => {
+    mockUseCase.mockReturnValue({ data: makeFakeCase({ id: "case-99" }), isLoading: false, error: null } as never);
     renderPage("case-99");
     await waitFor(() => {
-      expect(mockGetCase).toHaveBeenCalledWith("case-99");
+      expect(mockUseCase).toHaveBeenCalledWith("case-99");
     });
   });
 
   it("renders overview tab content by default", async () => {
-    mockGetCase.mockResolvedValue(makeFakeCase() as never);
+    mockUseCase.mockReturnValue({ data: makeFakeCase(), isLoading: false, error: null } as never);
     renderPage();
     await waitFor(() => {
       expect(screen.getByTestId("overview-tab")).toBeTruthy();

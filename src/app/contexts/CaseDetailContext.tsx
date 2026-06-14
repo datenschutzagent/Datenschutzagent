@@ -1,12 +1,11 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { useParams } from "react-router";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   getPlaybooks,
   getPlaybooksForSelection,
   getPlaybookCoveragePreview,
-  getSimilarCases,
-  getCaseRiskScore,
   runChecks,
   type ApiCase,
   type ApiPlaybook,
@@ -16,6 +15,7 @@ import {
   type RunChecksStrategy,
 } from "../lib/api";
 import { useRunningChecks } from "./RunningChecksContext";
+import { caseDetailKeys, useCaseRiskScore, useSimilarCases } from "../lib/queries/caseDetailQueries";
 
 interface CaseDetailContextValue {
   runChecksOpen: boolean;
@@ -33,7 +33,7 @@ interface CaseDetailContextValue {
   coveragePreview: PlaybookCoverage | null;
   similarCases: CaseSimilarityResult[];
   riskScore: CaseRiskScore | null;
-  handleRunChecks: () => Promise<void>;
+  handleRunChecks: () => void;
 }
 
 const CaseDetailContext = createContext<CaseDetailContextValue | null>(null);
@@ -46,23 +46,19 @@ export function useCaseDetail(): CaseDetailContextValue {
 
 interface CaseDetailProviderProps {
   caseData: ApiCase | null;
-  onReloadCase: () => void;
   children: ReactNode;
 }
 
-export function CaseDetailProvider({ caseData, onReloadCase, children }: CaseDetailProviderProps) {
+export function CaseDetailProvider({ caseData, children }: CaseDetailProviderProps) {
   const { caseId } = useParams<{ caseId: string }>();
   const { registerJob, getJob } = useRunningChecks();
+  const queryClient = useQueryClient();
 
   const [runChecksOpen, setRunChecksOpen] = useState(false);
   const [playbooks, setPlaybooks] = useState<ApiPlaybook[]>([]);
   const [selectedPlaybookId, setSelectedPlaybookId] = useState("");
   const [runChecksStrategy, setRunChecksStrategy] = useState<"full_text" | "rag" | "both">("full_text");
-  const [runChecksLoading, setRunChecksLoading] = useState(false);
-  const [runChecksError, setRunChecksError] = useState<string | null>(null);
-  const [coveragePreview, setCoveragePreview] = useState<PlaybookCoverage | null>(null);
-  const [similarCases, setSimilarCases] = useState<CaseSimilarityResult[]>([]);
-  const [riskScore, setRiskScore] = useState<CaseRiskScore | null>(null);
+  const [runChecksJobError, setRunChecksJobError] = useState<string | null>(null);
 
   const currentJob = caseId ? getJob(caseId) : undefined;
   const runChecksStatus: "idle" | "running" | "completed" | "failed" =
@@ -75,29 +71,15 @@ export function CaseDetailProvider({ caseData, onReloadCase, children }: CaseDet
     ? { done: currentJob.checksDone, total: currentJob.checksTotal }
     : { done: 0, total: 0 };
 
-  const loadRiskScore = useCallback(() => {
-    if (!caseId) return;
-    getCaseRiskScore(caseId).then(setRiskScore).catch(() => {});
-  }, [caseId]);
+  const { data: riskScore = null } = useCaseRiskScore(caseId ?? "");
+  const { data: similarCases = [] } = useSimilarCases(caseId ?? "");
 
-  useEffect(() => {
-    loadRiskScore();
-  }, [loadRiskScore]);
-
-  useEffect(() => {
-    if (!caseId) return;
-    getSimilarCases(caseId).then(setSimilarCases).catch(() => {});
-  }, [caseId]);
-
-  useEffect(() => {
-    if (!selectedPlaybookId || !caseId) {
-      setCoveragePreview(null);
-      return;
-    }
-    getPlaybookCoveragePreview(selectedPlaybookId, caseId)
-      .then(setCoveragePreview)
-      .catch(() => setCoveragePreview(null));
-  }, [selectedPlaybookId, caseId]);
+  const { data: coveragePreview = null } = useQuery<PlaybookCoverage | null>({
+    queryKey: ["playbook-coverage", selectedPlaybookId, caseId],
+    queryFn: () => getPlaybookCoveragePreview(selectedPlaybookId, caseId!),
+    enabled: !!selectedPlaybookId && !!caseId,
+    staleTime: 30_000,
+  });
 
   useEffect(() => {
     if (!runChecksOpen || !caseData) return;
@@ -129,6 +111,30 @@ export function CaseDetailProvider({ caseData, onReloadCase, children }: CaseDet
     };
   }, [runChecksOpen, caseData]);
 
+  const runChecksMutation = useMutation({
+    mutationFn: ({
+      caseId: id,
+      playbookId,
+      strategies,
+    }: {
+      caseId: string;
+      playbookId: string;
+      strategies: RunChecksStrategy[];
+    }) => runChecks(id, playbookId, strategies),
+    onSuccess: (result, variables) => {
+      if ("accepted" in result && result.accepted) {
+        const selectedPb = playbooks.find((p) => p.id === variables.playbookId);
+        registerJob(variables.caseId, result.jobId, caseData?.title ?? "", selectedPb?.name);
+      } else {
+        void queryClient.invalidateQueries({ queryKey: caseDetailKeys.detail(variables.caseId) });
+        void queryClient.invalidateQueries({ queryKey: caseDetailKeys.riskScore(variables.caseId) });
+        void queryClient.invalidateQueries({ queryKey: caseDetailKeys.runChecksStatus(variables.caseId) });
+        setRunChecksOpen(false);
+        setSelectedPlaybookId("");
+      }
+    },
+  });
+
   const prevJobStatusRef = useRef<string | undefined>(undefined);
   useEffect(() => {
     const currentStatus = currentJob?.status;
@@ -136,38 +142,38 @@ export function CaseDetailProvider({ caseData, onReloadCase, children }: CaseDet
     prevJobStatusRef.current = currentStatus;
 
     if (prevStatus === "running" && currentStatus === "completed") {
-      onReloadCase();
-      loadRiskScore();
+      if (caseId) {
+        void queryClient.invalidateQueries({ queryKey: caseDetailKeys.detail(caseId) });
+        void queryClient.invalidateQueries({ queryKey: caseDetailKeys.riskScore(caseId) });
+        void queryClient.invalidateQueries({ queryKey: caseDetailKeys.runChecksStatus(caseId) });
+      }
       setRunChecksOpen(false);
       setSelectedPlaybookId("");
     } else if (prevStatus === "running" && currentStatus === "failed") {
-      setRunChecksError("Checks fehlgeschlagen.");
+      setRunChecksJobError("Checks fehlgeschlagen.");
     }
-  }, [currentJob?.status, loadRiskScore, onReloadCase]);
+  }, [currentJob?.status, caseId, queryClient]);
 
-  const handleRunChecks = useCallback(async () => {
+  const handleRunChecks = useCallback(() => {
     if (!caseId || !selectedPlaybookId) return;
-    setRunChecksLoading(true);
-    setRunChecksError(null);
-    try {
-      const strategies: RunChecksStrategy[] =
-        runChecksStrategy === "both" ? ["full_text", "rag"] : [runChecksStrategy];
-      const result = await runChecks(caseId, selectedPlaybookId, strategies);
-      if ("accepted" in result && result.accepted) {
-        const selectedPb = playbooks.find((p) => p.id === selectedPlaybookId);
-        registerJob(caseId, result.jobId, caseData?.title ?? "", selectedPb?.name);
-      } else {
-        onReloadCase();
-        loadRiskScore();
-        setRunChecksOpen(false);
-        setSelectedPlaybookId("");
-      }
-    } catch (e) {
-      setRunChecksError(e instanceof Error ? e.message : "Checks fehlgeschlagen.");
-    } finally {
-      setRunChecksLoading(false);
-    }
-  }, [caseId, selectedPlaybookId, runChecksStrategy, playbooks, caseData, registerJob, onReloadCase, loadRiskScore]);
+    setRunChecksJobError(null);
+    const strategies: RunChecksStrategy[] =
+      runChecksStrategy === "both" ? ["full_text", "rag"] : [runChecksStrategy];
+    runChecksMutation.mutate({ caseId, playbookId: selectedPlaybookId, strategies });
+  }, [caseId, selectedPlaybookId, runChecksStrategy, runChecksMutation]);
+
+  const runChecksError =
+    runChecksJobError ??
+    (runChecksMutation.isError
+      ? runChecksMutation.error instanceof Error
+        ? runChecksMutation.error.message
+        : "Checks fehlgeschlagen."
+      : null);
+
+  const setRunChecksError = (err: string | null) => {
+    setRunChecksJobError(err);
+    if (!err) runChecksMutation.reset();
+  };
 
   return (
     <CaseDetailContext.Provider
@@ -179,12 +185,12 @@ export function CaseDetailProvider({ caseData, onReloadCase, children }: CaseDet
         setSelectedPlaybookId,
         runChecksStrategy,
         setRunChecksStrategy,
-        runChecksLoading,
+        runChecksLoading: runChecksMutation.isPending,
         runChecksStatus,
         runChecksError,
         setRunChecksError,
         runChecksProgress,
-        coveragePreview,
+        coveragePreview: coveragePreview ?? null,
         similarCases,
         riskScore,
         handleRunChecks,

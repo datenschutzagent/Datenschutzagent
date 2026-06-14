@@ -8,13 +8,13 @@ import { CircleAlert, CheckCircle2, Shield, XCircle, ShieldAlert, AlertTriangle,
 import { findingStatusLabels, severityColors, severityLabels } from "../../lib/mock-data";
 import type { FindingSeverity } from "../../lib/mock-data";
 import {
-  bulkUpdateFindingStatus,
   downloadFindingsExport,
   downloadBlob,
   type ApiCase,
   type ApiFinding,
   type FindingStatus,
 } from "../../lib/api";
+import { useBulkUpdateFindingStatus } from "../../lib/queries/caseDetailQueries";
 import { toast } from "sonner";
 
 function SeverityIcon({ severity }: { severity: FindingSeverity }) {
@@ -30,16 +30,15 @@ function SeverityIcon({ severity }: { severity: FindingSeverity }) {
 export interface CaseFindingsTabProps {
   caseData: ApiCase;
   onSelectFinding: (finding: ApiFinding) => void;
-  onFindingsChanged?: () => void;
 }
 
-export function CaseFindingsTab({ caseData, onSelectFinding, onFindingsChanged }: CaseFindingsTabProps) {
+export function CaseFindingsTab({ caseData, onSelectFinding }: CaseFindingsTabProps) {
   const [severityFilter, setSeverityFilter] = useState<string>("all");
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [bulkStatus, setBulkStatus] = useState<FindingStatus>("accepted");
-  const [bulkLoading, setBulkLoading] = useState(false);
   const [exportLoading, setExportLoading] = useState(false);
+  const bulkMutation = useBulkUpdateFindingStatus(caseData.id);
 
   const filtered = useMemo(() => {
     return caseData.findings.filter((f) => {
@@ -72,19 +71,18 @@ export function CaseFindingsTab({ caseData, onSelectFinding, onFindingsChanged }
     });
   };
 
-  const handleBulkUpdate = async () => {
+  const handleBulkUpdate = () => {
     if (selectedIds.size === 0) return;
-    setBulkLoading(true);
-    try {
-      const result = await bulkUpdateFindingStatus(Array.from(selectedIds), bulkStatus);
-      toast.success(`${result.updated} Findings aktualisiert`);
-      setSelectedIds(new Set());
-      onFindingsChanged?.();
-    } catch {
-      toast.error("Fehler beim Aktualisieren der Findings");
-    } finally {
-      setBulkLoading(false);
-    }
+    bulkMutation.mutate(
+      { ids: Array.from(selectedIds), status: bulkStatus },
+      {
+        onSuccess: (result) => {
+          toast.success(`${result.updated} Findings aktualisiert`);
+          setSelectedIds(new Set());
+        },
+        onError: () => toast.error("Fehler beim Aktualisieren der Findings"),
+      },
+    );
   };
 
   const handleExport = async (format: "csv" | "docx" = "csv") => {
@@ -171,8 +169,8 @@ export function CaseFindingsTab({ caseData, onSelectFinding, onFindingsChanged }
                 <SelectItem value="open">Auf offen setzen</SelectItem>
               </SelectContent>
             </Select>
-            <Button size="sm" onClick={handleBulkUpdate} disabled={bulkLoading}>
-              {bulkLoading ? <Loader2 className="size-4 animate-spin mr-1" /> : null}
+            <Button size="sm" onClick={handleBulkUpdate} disabled={bulkMutation.isPending}>
+              {bulkMutation.isPending ? <Loader2 className="size-4 animate-spin mr-1" /> : null}
               Anwenden
             </Button>
             <Button size="sm" variant="ghost" onClick={() => setSelectedIds(new Set())}>

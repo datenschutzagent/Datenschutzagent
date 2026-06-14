@@ -9,13 +9,6 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } f
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "../components/ui/alert-dialog";
 import { statusLabels, statusColors, findingStatusLabels, severityColors, severityLabels } from "../lib/mock-data";
 import {
-  getCase,
-  getRunChecksStatus,
-  updateFindingStatus,
-  getFindingComments,
-  createFindingComment,
-  archiveCase,
-  unarchiveCase,
   canEdit,
   getAuditTrailExportBlob,
   downloadAuditPackage,
@@ -24,8 +17,17 @@ import {
   downloadRopaExport,
   type ApiCase,
   type ApiFinding,
-  type ApiFindingComment,
 } from "../lib/api";
+import {
+  useCase,
+  useRunChecksStatus,
+  useFindingComments,
+  useUpdateFindingStatus,
+  useCreateFindingComment,
+  useArchiveCase,
+  useUnarchiveCase,
+  caseDetailKeys,
+} from "../lib/queries/caseDetailQueries";
 import { CaseDsfaTab } from "../components/case-detail/CaseDsfaTab";
 import { DsfaScreeningCard } from "../components/case-detail/DsfaScreeningCard";
 import { useAuthOptional } from "../contexts/AuthContext";
@@ -49,6 +51,7 @@ import { CasePrivacyPolicyTab } from "../components/case-detail/CasePrivacyPolic
 import { Download, MessageSquare, Loader2, CircleAlert } from "lucide-react";
 import { toast } from "sonner";
 import { useState, useEffect, useMemo } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { useAppConfig } from "../contexts/AppConfigContext";
 import { useRunningChecks } from "../contexts/RunningChecksContext";
 import { CaseDetailProvider, useCaseDetail } from "../contexts/CaseDetailContext";
@@ -65,83 +68,23 @@ export function CaseDetailPage() {
     [appConfig.processing_context_options],
   );
 
-  const [caseData, setCaseData] = useState<ApiCase | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [selectedFinding, setSelectedFinding] = useState<ApiFinding | null>(null);
-  const [isUploadDialogOpen, setIsUploadDialogOpen] = useState(false);
-  const [findingStatusLoading, setFindingStatusLoading] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState(() => searchParams.get("tab") || "overview");
-  const [documentsChangedSinceLastRun, setDocumentsChangedSinceLastRun] = useState(false);
-  const [findingComments, setFindingComments] = useState<ApiFindingComment[]>([]);
-  const [commentText, setCommentText] = useState("");
-  const [commentLoading, setCommentLoading] = useState(false);
+  const [isUploadDialogOpen, setIsUploadDialogOpen] = useState(false);
+
+  const { data: caseData, isLoading, error } = useCase(caseId ?? "");
+  const { data: runChecksStatusData } = useRunChecksStatus(caseId ?? "");
+  const documentsChangedSinceLastRun = runChecksStatusData?.documents_changed_since_last_run ?? false;
 
   const { registerJob } = useRunningChecks();
 
-  const loadCase = () => {
-    if (!caseId) return;
-    setLoading(true);
-    setError(null);
-    getCase(caseId)
-      .then(setCaseData)
-      .catch((e) => setError(e instanceof Error ? e.message : "Fehler"))
-      .finally(() => setLoading(false));
-  };
-
   useEffect(() => {
-    loadCase();
-  }, [caseId]);
-
-  useEffect(() => {
-    if (!caseId) return;
-    getRunChecksStatus(caseId)
-      .then((s) => {
-        setDocumentsChangedSinceLastRun(s.documents_changed_since_last_run ?? false);
-        if (s.status === "running" && s.job_id && caseData) {
-          registerJob(caseId, s.job_id, caseData.title, s.playbook_name ?? undefined);
-        }
-      })
-      .catch(() => {});
-  }, [caseId, caseData?.title]);
-
-  const handleSelectFinding = (finding: ApiFinding) => {
-    setSelectedFinding(finding);
-    setFindingComments([]);
-    setCommentText("");
-    getFindingComments(finding.id).then(setFindingComments).catch(() => {});
-  };
-
-  const handleAddComment = async () => {
-    if (!selectedFinding || !commentText.trim()) return;
-    setCommentLoading(true);
-    try {
-      const c = await createFindingComment(selectedFinding.id, commentText.trim());
-      setFindingComments((prev) => [...prev, c]);
-      setCommentText("");
-    } catch {
-      toast.error("Kommentar konnte nicht gespeichert werden");
-    } finally {
-      setCommentLoading(false);
+    if (!caseId || !runChecksStatusData || !caseData) return;
+    if (runChecksStatusData.status === "running" && runChecksStatusData.job_id) {
+      registerJob(caseId, runChecksStatusData.job_id, caseData.title, runChecksStatusData.playbook_name ?? undefined);
     }
-  };
+  }, [caseId, runChecksStatusData, caseData, registerJob]);
 
-  const handleFindingStatus = async (findingId: string, status: "accepted" | "overruled" | "fixed") => {
-    setFindingStatusLoading(findingId);
-    try {
-      await updateFindingStatus(findingId, status);
-      loadCase();
-      setSelectedFinding(null);
-      const statusLabel = status === "accepted" ? "akzeptiert" : status === "overruled" ? "überfahren" : "behoben";
-      toast.success(`Finding als ${statusLabel} markiert`);
-    } catch {
-      toast.error("Fehler beim Aktualisieren des Finding-Status");
-    } finally {
-      setFindingStatusLoading(null);
-    }
-  };
-
-  if (loading && !caseData) {
+  if (isLoading && !caseData) {
     return (
       <AppLayout>
         <div className="flex items-center justify-center py-24">
@@ -162,7 +105,9 @@ export function CaseDetailPage() {
           <Card className="max-w-md">
             <CardContent className="pt-6 text-center">
               <CircleAlert className="size-12 text-slate-300 dark:text-slate-500 mx-auto mb-4" />
-              <p className="text-slate-600 dark:text-slate-400">{error || "Vorgang nicht gefunden"}</p>
+              <p className="text-slate-600 dark:text-slate-400">
+                {error instanceof Error ? error.message : "Vorgang nicht gefunden"}
+              </p>
               <Button className="mt-4" onClick={() => navigate("/")}>
                 Zurück zur Übersicht
               </Button>
@@ -179,10 +124,9 @@ export function CaseDetailPage() {
 
   return (
     <AppLayout>
-      <CaseDetailProvider caseData={caseData} onReloadCase={loadCase}>
+      <CaseDetailProvider caseData={caseData}>
         <CaseDetailPageContent
           caseData={caseData}
-          setCaseData={setCaseData}
           activeTab={activeTab}
           setActiveTab={setActiveTab}
           isUploadDialogOpen={isUploadDialogOpen}
@@ -191,21 +135,10 @@ export function CaseDetailPage() {
           criticalFindings={criticalFindings}
           highFindings={highFindings}
           openFindings={openFindings}
-          selectedFinding={selectedFinding}
-          setSelectedFinding={setSelectedFinding}
-          findingComments={findingComments}
-          commentText={commentText}
-          setCommentText={setCommentText}
-          commentLoading={commentLoading}
-          findingStatusLoading={findingStatusLoading}
           userCanEdit={userCanEdit}
           isViewer={auth?.user?.role === "viewer"}
           processingContextLabels={processingContextLabels}
           caseId={caseId ?? ""}
-          onLoadCase={loadCase}
-          onSelectFinding={handleSelectFinding}
-          onAddComment={handleAddComment}
-          onFindingStatus={handleFindingStatus}
         />
       </CaseDetailProvider>
     </AppLayout>
@@ -214,7 +147,6 @@ export function CaseDetailPage() {
 
 interface CaseDetailPageContentProps {
   caseData: ApiCase;
-  setCaseData: (data: ApiCase) => void;
   activeTab: string;
   setActiveTab: (tab: string) => void;
   isUploadDialogOpen: boolean;
@@ -223,26 +155,14 @@ interface CaseDetailPageContentProps {
   criticalFindings: ApiFinding[];
   highFindings: ApiFinding[];
   openFindings: ApiFinding[];
-  selectedFinding: ApiFinding | null;
-  setSelectedFinding: (f: ApiFinding | null) => void;
-  findingComments: ApiFindingComment[];
-  commentText: string;
-  setCommentText: (t: string) => void;
-  commentLoading: boolean;
-  findingStatusLoading: string | null;
   userCanEdit: boolean;
   isViewer: boolean;
   processingContextLabels: Record<string, string>;
   caseId: string;
-  onLoadCase: () => void;
-  onSelectFinding: (finding: ApiFinding) => void;
-  onAddComment: () => Promise<void>;
-  onFindingStatus: (findingId: string, status: "accepted" | "overruled" | "fixed") => Promise<void>;
 }
 
 function CaseDetailPageContent({
   caseData,
-  setCaseData,
   activeTab,
   setActiveTab,
   isUploadDialogOpen,
@@ -251,23 +171,54 @@ function CaseDetailPageContent({
   criticalFindings,
   highFindings,
   openFindings,
-  selectedFinding,
-  setSelectedFinding,
-  findingComments,
-  commentText,
-  setCommentText,
-  commentLoading,
-  findingStatusLoading,
   userCanEdit,
   isViewer,
   processingContextLabels,
   caseId,
-  onLoadCase,
-  onSelectFinding,
-  onAddComment,
-  onFindingStatus,
 }: CaseDetailPageContentProps) {
   const { setRunChecksOpen } = useCaseDetail();
+  const queryClient = useQueryClient();
+
+  const [selectedFinding, setSelectedFinding] = useState<ApiFinding | null>(null);
+  const [commentText, setCommentText] = useState("");
+
+  const archiveMutation = useArchiveCase(caseId);
+  const unarchiveMutation = useUnarchiveCase(caseId);
+  const updateStatusMutation = useUpdateFindingStatus(caseId);
+  const createCommentMutation = useCreateFindingComment(selectedFinding?.id ?? "");
+  const { data: findingComments = [] } = useFindingComments(selectedFinding?.id ?? null);
+
+  const handleFindingStatus = (status: "accepted" | "overruled" | "fixed") => {
+    if (!selectedFinding) return;
+    updateStatusMutation.mutate(
+      { findingId: selectedFinding.id, status },
+      {
+        onSuccess: () => {
+          setSelectedFinding(null);
+          const label = status === "accepted" ? "akzeptiert" : status === "overruled" ? "überfahren" : "behoben";
+          toast.success(`Finding als ${label} markiert`);
+        },
+        onError: () => toast.error("Fehler beim Aktualisieren des Finding-Status"),
+      },
+    );
+  };
+
+  const handleAddComment = () => {
+    if (!selectedFinding || !commentText.trim()) return;
+    createCommentMutation.mutate(commentText.trim(), {
+      onSuccess: () => setCommentText(""),
+      onError: () => toast.error("Kommentar konnte nicht gespeichert werden"),
+    });
+  };
+
+  const handleReloadCase = () => {
+    void queryClient.invalidateQueries({ queryKey: caseDetailKeys.detail(caseId) });
+    void queryClient.invalidateQueries({ queryKey: caseDetailKeys.runChecksStatus(caseId) });
+  };
+
+  const handleCaseUpdated = (updated: ApiCase) => {
+    queryClient.setQueryData(caseDetailKeys.detail(caseId), updated);
+  };
 
   return (
     <>
@@ -367,6 +318,7 @@ function CaseDetailPageContent({
                   <Button
                     variant="outline"
                     className="gap-2 text-amber-700 border-amber-300 hover:bg-amber-50 dark:text-amber-400 dark:border-amber-700 dark:hover:bg-amber-900/30"
+                    disabled={archiveMutation.isPending}
                   >
                     Archivieren
                   </Button>
@@ -381,15 +333,11 @@ function CaseDetailPageContent({
                   <AlertDialogFooter>
                     <AlertDialogCancel>Abbrechen</AlertDialogCancel>
                     <AlertDialogAction
-                      onClick={async () => {
-                        if (!caseId) return;
-                        try {
-                          const updated = await archiveCase(caseId);
-                          setCaseData(updated);
-                          toast.success("Vorgang archiviert");
-                        } catch (e) {
-                          toast.error(e instanceof Error ? e.message : "Fehler beim Archivieren");
-                        }
+                      onClick={() => {
+                        archiveMutation.mutate(undefined, {
+                          onSuccess: () => toast.success("Vorgang archiviert"),
+                          onError: (e) => toast.error(e instanceof Error ? e.message : "Fehler beim Archivieren"),
+                        });
                       }}
                     >
                       Archivieren
@@ -402,15 +350,12 @@ function CaseDetailPageContent({
               <Button
                 variant="outline"
                 className="gap-2"
-                onClick={async () => {
-                  if (!caseId) return;
-                  try {
-                    const updated = await unarchiveCase(caseId);
-                    setCaseData(updated);
-                    toast.success("Vorgang wiederhergestellt");
-                  } catch (e) {
-                    toast.error(e instanceof Error ? e.message : "Fehler beim Wiederherstellen");
-                  }
+                disabled={unarchiveMutation.isPending}
+                onClick={() => {
+                  unarchiveMutation.mutate(undefined, {
+                    onSuccess: () => toast.success("Vorgang wiederhergestellt"),
+                    onError: (e) => toast.error(e instanceof Error ? e.message : "Fehler beim Wiederherstellen"),
+                  });
                 }}
               >
                 Wiederherstellen
@@ -457,9 +402,9 @@ function CaseDetailPageContent({
               caseData={caseData}
               criticalFindings={criticalFindings}
               highFindings={highFindings}
-              onSelectFinding={onSelectFinding}
+              onSelectFinding={setSelectedFinding}
               canEdit={userCanEdit}
-              onCaseUpdated={setCaseData}
+              onCaseUpdated={handleCaseUpdated}
             />
           </ErrorBoundary>
         </TabsContent>
@@ -471,7 +416,7 @@ function CaseDetailPageContent({
               caseData={caseData}
               isUploadDialogOpen={isUploadDialogOpen}
               setIsUploadDialogOpen={setIsUploadDialogOpen}
-              onUploadComplete={onLoadCase}
+              onUploadComplete={handleReloadCase}
               canEdit={userCanEdit}
             />
           </ErrorBoundary>
@@ -492,7 +437,7 @@ function CaseDetailPageContent({
                 </AlertDescription>
               </Alert>
             )}
-            <CaseFindingsTab caseData={caseData} onSelectFinding={onSelectFinding} onFindingsChanged={onLoadCase} />
+            <CaseFindingsTab caseData={caseData} onSelectFinding={setSelectedFinding} />
           </ErrorBoundary>
         </TabsContent>
 
@@ -690,12 +635,16 @@ function CaseDetailPageContent({
                       onKeyDown={(e) => {
                         if (e.key === "Enter" && !e.shiftKey) {
                           e.preventDefault();
-                          void onAddComment();
+                          handleAddComment();
                         }
                       }}
                     />
-                    <Button size="sm" onClick={() => void onAddComment()} disabled={commentLoading || !commentText.trim()}>
-                      {commentLoading ? <Loader2 className="size-3 animate-spin" /> : "Senden"}
+                    <Button
+                      size="sm"
+                      onClick={handleAddComment}
+                      disabled={createCommentMutation.isPending || !commentText.trim()}
+                    >
+                      {createCommentMutation.isPending ? <Loader2 className="size-3 animate-spin" /> : "Senden"}
                     </Button>
                   </div>
                 )}
@@ -706,25 +655,25 @@ function CaseDetailPageContent({
                   <Button
                     variant="outline"
                     className="flex-1"
-                    disabled={findingStatusLoading === selectedFinding?.id}
-                    onClick={() => selectedFinding && void onFindingStatus(selectedFinding.id, "accepted")}
+                    disabled={updateStatusMutation.isPending}
+                    onClick={() => handleFindingStatus("accepted")}
                   >
                     Als akzeptiert markieren
                   </Button>
                   <Button
                     variant="outline"
                     className="flex-1"
-                    disabled={findingStatusLoading === selectedFinding?.id}
-                    onClick={() => selectedFinding && void onFindingStatus(selectedFinding.id, "overruled")}
+                    disabled={updateStatusMutation.isPending}
+                    onClick={() => handleFindingStatus("overruled")}
                   >
                     Als überfahren markieren
                   </Button>
                   <Button
                     className="flex-1"
-                    disabled={findingStatusLoading === selectedFinding?.id}
-                    onClick={() => selectedFinding && void onFindingStatus(selectedFinding.id, "fixed")}
+                    disabled={updateStatusMutation.isPending}
+                    onClick={() => handleFindingStatus("fixed")}
                   >
-                    {findingStatusLoading === selectedFinding?.id ? <Loader2 className="size-4 animate-spin" /> : "Als behoben markieren"}
+                    {updateStatusMutation.isPending ? <Loader2 className="size-4 animate-spin" /> : "Als behoben markieren"}
                   </Button>
                 </div>
               )}
