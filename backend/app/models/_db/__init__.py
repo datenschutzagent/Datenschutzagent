@@ -1,6 +1,7 @@
 """Domain-specific ORM model modules. Import order matters for SQLAlchemy mapper registration."""
 
 from app.models._db.analytics import ComplianceMaturitySnapshotModel
+from app.models._db.audit import APIAuditLogModel
 from app.models._db.avv import AVVContractModel, AvvMitigationLinkModel
 from app.models._db.base import Base
 from app.models._db.breach import DataBreachActivityLogModel, DataBreachModel
@@ -34,6 +35,7 @@ from app.models._db.webhook import WebhookConfigModel, WebhookDeliveryLogModel
 __all__ = [
     "Base",
     "ActivityLogModel",
+    "APIAuditLogModel",
     "AVVContractModel",
     "AvvMitigationLinkModel",
     "CaseMitigationLinkModel",

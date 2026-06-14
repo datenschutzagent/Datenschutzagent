@@ -71,6 +71,7 @@ from app.config import settings  # noqa: E402
 from app.core.rate_limit import limiter  # noqa: E402
 from app.core.request_id import RequestIDMiddleware, get_request_id  # noqa: E402
 from app.database import async_session_factory, init_db  # noqa: E402
+from app.models._db.audit import APIAuditLogModel  # noqa: E402
 from app.models.db import UserModel  # noqa: E402
 from app.services.playbook_import import import_playbooks_from_yaml  # noqa: E402
 
@@ -433,6 +434,49 @@ async def track_request_metrics(request: Request, call_next) -> Response:
         path=path,
         status_code=str(response.status_code),
     ).observe(_time.monotonic() - start)
+    return response
+
+
+_audit_logger = logging.getLogger("app.audit")
+_MUTATING_METHODS = frozenset({"POST", "PUT", "PATCH", "DELETE"})
+_AUDIT_SKIP_PATHS = frozenset(
+    {"/health", "/metrics", "/docs", "/openapi.json", "/redoc"}
+)
+
+
+@app.middleware("http")
+async def audit_api_mutations(request: Request, call_next) -> Response:
+    """Persist a lean audit record for every mutating API call (POST/PUT/PATCH/DELETE).
+
+    Runs fire-and-forget: a DB failure only logs a warning, the response is
+    always returned unchanged.  No request body or PII is stored.
+    """
+    response = await call_next(request)
+    if request.method not in _MUTATING_METHODS:
+        return response
+    if request.url.path in _AUDIT_SKIP_PATHS:
+        return response
+    # Collapse UUIDs in path segments to {id} – same approach as track_request_metrics
+    path = request.url.path
+    for segment in path.split("/"):
+        if len(segment) == 36 and segment.count("-") == 4:
+            path = path.replace(segment, "{id}", 1)
+    user = getattr(getattr(request, "state", None), "current_user", None)
+    user_id = getattr(user, "id", None)
+    try:
+        async with async_session_factory() as session:
+            session.add(
+                APIAuditLogModel(
+                    user_id=user_id,
+                    endpoint=path,
+                    method=request.method,
+                    status_code=response.status_code,
+                    request_id=get_request_id(),
+                )
+            )
+            await session.commit()
+    except Exception:
+        _audit_logger.exception("api_audit_log write failed")
     return response
 
 
