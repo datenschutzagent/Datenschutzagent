@@ -7,7 +7,9 @@
   "scripts": {
     "build": "vite build",
     "dev": "vite",
-    "generate:api": "openapi-typescript http://localhost:8002/openapi.json -o src/app/lib/api/schema.ts",
+    "export:schema": "cd backend && python export_schema.py > ../openapi.json",
+    "generate:api": "openapi-typescript openapi.json -o src/app/lib/api/schema.ts",
+    "update:api": "npm run export:schema && npm run generate:api",
     "lint": "eslint src",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",

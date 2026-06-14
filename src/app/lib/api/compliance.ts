@@ -12,8 +12,11 @@ import {
   parseErrorResponse,
   request,
 } from "./core";
+import type { components } from "./schema";
 import { mapCase } from "./cases";
 import type { ApiCase } from "./cases";
+
+type CaseResponseRaw = components["schemas"]["CaseResponse"];
 
 // ---------------------------------------------------------------------------
 // Datenpannen-Management (Art. 33/34 DSGVO)
@@ -519,7 +522,7 @@ export async function deleteCaseTemplate(id: string): Promise<void> {
 }
 
 export async function applyCaseTemplate(body: CaseTemplateApply): Promise<ApiCase> {
-  return mapCase(await request<Record<string, unknown>>("POST", "/case-templates/apply", { body })) as ApiCase;
+  return mapCase(await request<CaseResponseRaw>("POST", "/case-templates/apply", { body }));
 }
 
 // ---------------------------------------------------------------------------
