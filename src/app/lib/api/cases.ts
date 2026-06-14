@@ -4,6 +4,8 @@
  * similarity, audit export, and DSFA screening.
  */
 
+import type { components } from "./schema";
+
 import {
   API_BASE,
   API_PREFIX,
@@ -14,6 +16,12 @@ import {
   parseErrorResponse,
   request,
 } from "./core";
+
+// Raw backend response types (snake_case) — derived from the generated OpenAPI schema.
+// TypeScript flags this file when the backend schema changes and the mappers no longer match.
+type CaseResponseRaw = components["schemas"]["CaseResponse"];
+type FindingResponseRaw = components["schemas"]["FindingResponse"];
+type DocumentResponseRaw = components["schemas"]["DocumentResponse"];
 
 // --- Shared types (referenced by documents.ts, findings.ts, compliance.ts) ---
 
@@ -173,30 +181,25 @@ export interface ApiDSBReport {
 // Private mappers
 // ---------------------------------------------------------------------------
 
-function mapDocument(d: Record<string, unknown>): Record<string, unknown> {
+function mapDocument(d: DocumentResponseRaw): ApiDocument {
   const base = deepSnakeToCamel(d) as Record<string, unknown>;
-  const sizeBytes = d.size_bytes as number | undefined;
-  base.size = sizeBytes != null ? formatBytes(sizeBytes) : "";
-  return base;
+  base["size"] = d.size_bytes != null ? formatBytes(d.size_bytes) : "";
+  return base as unknown as ApiDocument;
 }
 
-function mapFinding(d: Record<string, unknown>): Record<string, unknown> {
-  return deepSnakeToCamel(d) as Record<string, unknown>;
+function mapFinding(d: FindingResponseRaw): ApiFinding {
+  return deepSnakeToCamel(d) as unknown as ApiFinding;
 }
 
-export function mapCase(d: Record<string, unknown>): Record<string, unknown> {
+export function mapCase(d: CaseResponseRaw): ApiCase {
   const base = deepSnakeToCamel(d) as Record<string, unknown>;
-  base.specialCategoryData = Boolean(d.special_category_data);
-  base.internationalTransfer = Boolean(d.international_transfer);
-  base.autoRunChecks = Boolean(d.auto_run_checks);
-  base.playbookVersion = (d.playbook_version as string) ?? "";
-  if (Array.isArray(d.documents)) {
-    base.documents = (d.documents as Record<string, unknown>[]).map(mapDocument);
-  }
-  if (Array.isArray(d.findings)) {
-    base.findings = (d.findings as Record<string, unknown>[]).map(mapFinding);
-  }
-  return base;
+  base["specialCategoryData"] = Boolean(d.special_category_data);
+  base["internationalTransfer"] = Boolean(d.international_transfer);
+  base["autoRunChecks"] = Boolean(d.auto_run_checks);
+  base["playbookVersion"] = d.playbook_version ?? "";
+  base["documents"] = d.documents.map(mapDocument);
+  base["findings"] = d.findings.map(mapFinding);
+  return base as unknown as ApiCase;
 }
 
 // ---------------------------------------------------------------------------
@@ -247,9 +250,9 @@ export async function getCases(skip = 0, limit = 100, filter?: CasesFilter, incl
   if (filter?.has_open_findings !== undefined) params.set("has_open_findings", String(filter.has_open_findings));
   if (filter?.deadline_overdue !== undefined) params.set("deadline_overdue", String(filter.deadline_overdue));
   if (includeArchived) params.set("include_archived", "true");
-  const data = await request<{ items?: Record<string, unknown>[]; total?: number } | Record<string, unknown>[]>("GET", `/cases?${params.toString()}`);
-  const list: Record<string, unknown>[] = Array.isArray(data) ? data : ((data as { items?: Record<string, unknown>[] }).items ?? []);
-  return list.map((c) => mapCase(c) as ApiCase);
+  const data = await request<{ items?: CaseResponseRaw[]; total?: number } | CaseResponseRaw[]>("GET", `/cases?${params.toString()}`);
+  const list: CaseResponseRaw[] = Array.isArray(data) ? data : ((data as { items?: CaseResponseRaw[] }).items ?? []);
+  return list.map(mapCase);
 }
 
 export async function bulkUpdateCases(body: { case_ids: string[]; status?: string; archive?: boolean }): Promise<{ updated: number }> {
@@ -269,28 +272,28 @@ export function getCasesExportUrl(filter?: CasesFilter, includeArchived = false,
 }
 
 export async function getCase(id: string): Promise<ApiCase> {
-  const c = await request<Record<string, unknown>>("GET", `/cases/${id}`);
-  return mapCase(c) as ApiCase;
+  const c = await request<CaseResponseRaw>("GET", `/cases/${id}`);
+  return mapCase(c);
 }
 
 export async function createCase(body: CaseCreateInput): Promise<ApiCase> {
-  const c = await request<Record<string, unknown>>("POST", "/cases", { body });
-  return mapCase(c) as ApiCase;
+  const c = await request<CaseResponseRaw>("POST", "/cases", { body });
+  return mapCase(c);
 }
 
 export async function archiveCase(id: string): Promise<ApiCase> {
-  const c = await request<Record<string, unknown>>("POST", `/cases/${id}/archive`);
-  return mapCase(c) as ApiCase;
+  const c = await request<CaseResponseRaw>("POST", `/cases/${id}/archive`);
+  return mapCase(c);
 }
 
 export async function unarchiveCase(id: string): Promise<ApiCase> {
-  const c = await request<Record<string, unknown>>("POST", `/cases/${id}/unarchive`);
-  return mapCase(c) as ApiCase;
+  const c = await request<CaseResponseRaw>("POST", `/cases/${id}/unarchive`);
+  return mapCase(c);
 }
 
 export async function updateCase(id: string, body: CaseUpdateInput): Promise<ApiCase> {
-  const c = await request<Record<string, unknown>>("PATCH", `/cases/${id}`, { body });
-  return mapCase(c) as ApiCase;
+  const c = await request<CaseResponseRaw>("PATCH", `/cases/${id}`, { body });
+  return mapCase(c);
 }
 
 export async function deleteCase(id: string): Promise<void> {
@@ -378,7 +381,7 @@ export async function runChecks(
       status: "running",
     };
   }
-  return mapCase(data) as ApiCase;
+  return mapCase(data as unknown as CaseResponseRaw);
 }
 
 export async function getRunChecksStatus(caseId: string): Promise<RunChecksStatusResponse> {

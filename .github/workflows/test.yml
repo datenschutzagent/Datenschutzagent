@@ -17,6 +17,10 @@ jobs:
           cache: "npm"
       - run: npm ci
       - run: npm run test
+      - name: Check API type drift
+        run: |
+          npm run generate:api
+          git diff --exit-code src/app/lib/api/schema.ts
 
   backend:
     runs-on: ubuntu-latest
@@ -46,6 +50,11 @@ jobs:
           cache: "pip"
           cache-dependency-path: backend/requirements.txt
       - run: pip install -r requirements.txt
+        working-directory: backend
+      - name: Check OpenAPI schema drift
+        run: |
+          python export_schema.py 2>/dev/null > /tmp/openapi_current.json
+          diff ../openapi.json /tmp/openapi_current.json
         working-directory: backend
       # Lint & format gates — same tools/versions as .pre-commit-config.yaml, enforced in CI.
       - name: Ruff lint
