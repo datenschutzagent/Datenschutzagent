@@ -10,16 +10,10 @@ import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, 
 import { statusLabels, statusColors, findingStatusLabels, severityColors, severityLabels } from "../lib/mock-data";
 import {
   getCase,
-  getPlaybooks,
-  getPlaybooksForSelection,
-  runChecks,
   getRunChecksStatus,
   updateFindingStatus,
   getFindingComments,
   createFindingComment,
-  getPlaybookCoveragePreview,
-  getSimilarCases,
-  getCaseRiskScore,
   archiveCase,
   unarchiveCase,
   canEdit,
@@ -31,11 +25,6 @@ import {
   type ApiCase,
   type ApiFinding,
   type ApiFindingComment,
-  type ApiPlaybook,
-  type PlaybookCoverage,
-  type CaseSimilarityResult,
-  type CaseRiskScore,
-  type RunChecksStrategy,
 } from "../lib/api";
 import { CaseDsfaTab } from "../components/case-detail/CaseDsfaTab";
 import { DsfaScreeningCard } from "../components/case-detail/DsfaScreeningCard";
@@ -57,11 +46,12 @@ import { CaseOverviewTab } from "../components/case-detail/CaseOverviewTab";
 import { CaseDocumentsTab } from "../components/case-detail/CaseDocumentsTab";
 import { CaseFindingsTab } from "../components/case-detail/CaseFindingsTab";
 import { CasePrivacyPolicyTab } from "../components/case-detail/CasePrivacyPolicyTab";
-import { ArrowLeft, Download, MessageSquare, Loader2, CircleAlert } from "lucide-react";
+import { Download, MessageSquare, Loader2, CircleAlert } from "lucide-react";
 import { toast } from "sonner";
-import { useState, useEffect, useMemo, useRef } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useAppConfig } from "../contexts/AppConfigContext";
 import { useRunningChecks } from "../contexts/RunningChecksContext";
+import { CaseDetailProvider, useCaseDetail } from "../contexts/CaseDetailContext";
 
 export function CaseDetailPage() {
   const { caseId } = useParams();
@@ -74,40 +64,20 @@ export function CaseDetailPage() {
     () => Object.fromEntries(appConfig.processing_context_options.map((o) => [o.value, o.label])),
     [appConfig.processing_context_options],
   );
+
   const [caseData, setCaseData] = useState<ApiCase | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [selectedFinding, setSelectedFinding] = useState<ApiFinding | null>(null);
   const [isUploadDialogOpen, setIsUploadDialogOpen] = useState(false);
-  const [runChecksOpen, setRunChecksOpen] = useState(false);
-  const [playbooks, setPlaybooks] = useState<ApiPlaybook[]>([]);
-  const [selectedPlaybookId, setSelectedPlaybookId] = useState<string>("");
-  const [runChecksStrategy, setRunChecksStrategy] = useState<"full_text" | "rag" | "both">("full_text");
-  const [runChecksLoading, setRunChecksLoading] = useState(false);
-  const [runChecksError, setRunChecksError] = useState<string | null>(null);
-  // -- Running checks state from global context (replaces local polling) --
-  const { registerJob, getJob } = useRunningChecks();
-  const currentJob = caseId ? getJob(caseId) : undefined;
-  const runChecksStatus: "idle" | "running" | "completed" | "failed" =
-    currentJob?.status === "running" ? "running"
-    : currentJob?.status === "failed" ? "failed"
-    : "idle";
-  const runChecksProgress = currentJob
-    ? { done: currentJob.checksDone, total: currentJob.checksTotal }
-    : { done: 0, total: 0 };
   const [findingStatusLoading, setFindingStatusLoading] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState(() => searchParams.get("tab") || "overview");
   const [documentsChangedSinceLastRun, setDocumentsChangedSinceLastRun] = useState(false);
-  // Finding comment state
   const [findingComments, setFindingComments] = useState<ApiFindingComment[]>([]);
   const [commentText, setCommentText] = useState("");
   const [commentLoading, setCommentLoading] = useState(false);
-  // Playbook coverage preview
-  const [coveragePreview, setCoveragePreview] = useState<PlaybookCoverage | null>(null);
-  // Similar cases
-  const [similarCases, setSimilarCases] = useState<CaseSimilarityResult[]>([]);
-  // Risk score
-  const [riskScore, setRiskScore] = useState<CaseRiskScore | null>(null);
+
+  const { registerJob } = useRunningChecks();
 
   const loadCase = () => {
     if (!caseId) return;
@@ -123,116 +93,17 @@ export function CaseDetailPage() {
     loadCase();
   }, [caseId]);
 
-  // Load coverage preview when a playbook is selected in the run-checks dialog
-  useEffect(() => {
-    if (!selectedPlaybookId || !caseId) {
-      setCoveragePreview(null);
-      return;
-    }
-    getPlaybookCoveragePreview(selectedPlaybookId, caseId)
-      .then(setCoveragePreview)
-      .catch(() => setCoveragePreview(null));
-  }, [selectedPlaybookId, caseId]);
-
-  useEffect(() => {
-    if (!runChecksOpen || !caseData) return;
-    let cancelled = false;
-    (async () => {
-      try {
-        const rows = await getPlaybooksForSelection({
-          department: caseData.department,
-          processing_context: caseData.processingContext?.trim() || undefined,
-          case_type: caseData.caseType,
-          strict_case_type: true,
-        });
-        const list = rows.map((r) => r.playbook);
-        if (cancelled) return;
-        if (list.length > 0) {
-          setPlaybooks(list);
-        } else {
-          const all = await getPlaybooks();
-          if (!cancelled) setPlaybooks(all);
-        }
-      } catch {
-        if (!cancelled) {
-          getPlaybooks().then(setPlaybooks).catch(() => setPlaybooks([]));
-        }
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [runChecksOpen, caseData]);
-
-  const handleRunChecks = async () => {
-    if (!caseId || !selectedPlaybookId) return;
-    setRunChecksLoading(true);
-    setRunChecksError(null);
-    try {
-      const strategies: RunChecksStrategy[] =
-        runChecksStrategy === "both" ? ["full_text", "rag"] : [runChecksStrategy];
-      const result = await runChecks(caseId, selectedPlaybookId, strategies);
-      if ("accepted" in result && result.accepted) {
-        const selectedPb = playbooks.find((p) => p.id === selectedPlaybookId);
-        registerJob(caseId, result.jobId, caseData?.title ?? "", selectedPb?.name);
-      } else {
-        setCaseData(result as ApiCase);
-        loadRiskScore();
-        setRunChecksOpen(false);
-        setSelectedPlaybookId("");
-      }
-    } catch (e) {
-      setRunChecksError(e instanceof Error ? e.message : "Checks fehlgeschlagen.");
-    } finally {
-      setRunChecksLoading(false);
-    }
-  };
-
-  // Load documents_changed_since_last_run flag on mount + recover running jobs
   useEffect(() => {
     if (!caseId) return;
     getRunChecksStatus(caseId)
       .then((s) => {
         setDocumentsChangedSinceLastRun(s.documents_changed_since_last_run ?? false);
-        // If a job is already running (e.g. auto-run or page refresh), register it globally
         if (s.status === "running" && s.job_id && caseData) {
           registerJob(caseId, s.job_id, caseData.title, s.playbook_name ?? undefined);
         }
       })
       .catch(() => {});
   }, [caseId, caseData?.title]);
-
-  // Load similar cases on mount (background, best-effort)
-  useEffect(() => {
-    if (!caseId) return;
-    getSimilarCases(caseId).then(setSimilarCases).catch(() => {});
-  }, [caseId]);
-
-  // Load risk score on mount and after run-checks
-  const loadRiskScore = () => {
-    if (!caseId) return;
-    getCaseRiskScore(caseId).then(setRiskScore).catch(() => {});
-  };
-  useEffect(() => {
-    loadRiskScore();
-  }, [caseId]);
-
-  // React to check completion/failure from the global context (reload case data, close dialog)
-  const prevJobStatusRef = useRef<string | undefined>(undefined);
-  useEffect(() => {
-    const currentStatus = currentJob?.status;
-    const prevStatus = prevJobStatusRef.current;
-    prevJobStatusRef.current = currentStatus;
-
-    if (prevStatus === "running" && currentStatus === "completed") {
-      loadCase();
-      loadRiskScore();
-      setRunChecksOpen(false);
-      setSelectedPlaybookId("");
-    } else if (prevStatus === "running" && currentStatus === "failed") {
-      setRunChecksError("Checks fehlgeschlagen.");
-    }
-  }, [currentJob?.status]);
 
   const handleSelectFinding = (finding: ApiFinding) => {
     setSelectedFinding(finding);
@@ -263,7 +134,7 @@ export function CaseDetailPage() {
       setSelectedFinding(null);
       const statusLabel = status === "accepted" ? "akzeptiert" : status === "overruled" ? "überfahren" : "behoben";
       toast.success(`Finding als ${statusLabel} markiert`);
-    } catch (e) {
+    } catch {
       toast.error("Fehler beim Aktualisieren des Finding-Status");
     } finally {
       setFindingStatusLoading(null);
@@ -308,6 +179,98 @@ export function CaseDetailPage() {
 
   return (
     <AppLayout>
+      <CaseDetailProvider caseData={caseData} onReloadCase={loadCase}>
+        <CaseDetailPageContent
+          caseData={caseData}
+          setCaseData={setCaseData}
+          activeTab={activeTab}
+          setActiveTab={setActiveTab}
+          isUploadDialogOpen={isUploadDialogOpen}
+          setIsUploadDialogOpen={setIsUploadDialogOpen}
+          documentsChangedSinceLastRun={documentsChangedSinceLastRun}
+          criticalFindings={criticalFindings}
+          highFindings={highFindings}
+          openFindings={openFindings}
+          selectedFinding={selectedFinding}
+          setSelectedFinding={setSelectedFinding}
+          findingComments={findingComments}
+          commentText={commentText}
+          setCommentText={setCommentText}
+          commentLoading={commentLoading}
+          findingStatusLoading={findingStatusLoading}
+          userCanEdit={userCanEdit}
+          isViewer={auth?.user?.role === "viewer"}
+          processingContextLabels={processingContextLabels}
+          caseId={caseId ?? ""}
+          onLoadCase={loadCase}
+          onSelectFinding={handleSelectFinding}
+          onAddComment={handleAddComment}
+          onFindingStatus={handleFindingStatus}
+        />
+      </CaseDetailProvider>
+    </AppLayout>
+  );
+}
+
+interface CaseDetailPageContentProps {
+  caseData: ApiCase;
+  setCaseData: (data: ApiCase) => void;
+  activeTab: string;
+  setActiveTab: (tab: string) => void;
+  isUploadDialogOpen: boolean;
+  setIsUploadDialogOpen: (open: boolean) => void;
+  documentsChangedSinceLastRun: boolean;
+  criticalFindings: ApiFinding[];
+  highFindings: ApiFinding[];
+  openFindings: ApiFinding[];
+  selectedFinding: ApiFinding | null;
+  setSelectedFinding: (f: ApiFinding | null) => void;
+  findingComments: ApiFindingComment[];
+  commentText: string;
+  setCommentText: (t: string) => void;
+  commentLoading: boolean;
+  findingStatusLoading: string | null;
+  userCanEdit: boolean;
+  isViewer: boolean;
+  processingContextLabels: Record<string, string>;
+  caseId: string;
+  onLoadCase: () => void;
+  onSelectFinding: (finding: ApiFinding) => void;
+  onAddComment: () => Promise<void>;
+  onFindingStatus: (findingId: string, status: "accepted" | "overruled" | "fixed") => Promise<void>;
+}
+
+function CaseDetailPageContent({
+  caseData,
+  setCaseData,
+  activeTab,
+  setActiveTab,
+  isUploadDialogOpen,
+  setIsUploadDialogOpen,
+  documentsChangedSinceLastRun,
+  criticalFindings,
+  highFindings,
+  openFindings,
+  selectedFinding,
+  setSelectedFinding,
+  findingComments,
+  commentText,
+  setCommentText,
+  commentLoading,
+  findingStatusLoading,
+  userCanEdit,
+  isViewer,
+  processingContextLabels,
+  caseId,
+  onLoadCase,
+  onSelectFinding,
+  onAddComment,
+  onFindingStatus,
+}: CaseDetailPageContentProps) {
+  const { setRunChecksOpen } = useCaseDetail();
+
+  return (
+    <>
       <Breadcrumb className="mb-4">
         <BreadcrumbList>
           <BreadcrumbItem>
@@ -322,359 +285,343 @@ export function CaseDetailPage() {
         </BreadcrumbList>
       </Breadcrumb>
 
-        {/* Archived banner */}
-        {caseData.archivedAt && (
-          <Alert className="mb-4 border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-900/30">
-            <AlertDescription className="text-amber-800 dark:text-amber-200">
-              Dieser Vorgang ist archiviert (seit {new Date(caseData.archivedAt).toLocaleDateString("de-DE")}) und schreibgeschützt.
-            </AlertDescription>
-          </Alert>
-        )}
+      {/* Archived banner */}
+      {caseData.archivedAt && (
+        <Alert className="mb-4 border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-900/30">
+          <AlertDescription className="text-amber-800 dark:text-amber-200">
+            Dieser Vorgang ist archiviert (seit {new Date(caseData.archivedAt).toLocaleDateString("de-DE")}) und schreibgeschützt.
+          </AlertDescription>
+        </Alert>
+      )}
 
-        {/* Viewer hint */}
-        {auth?.user && auth.user.role === "viewer" && (
-          <Alert className="mb-4 border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-900/30">
-            <AlertDescription className="text-amber-800 dark:text-amber-200">
-              Sie haben nur Leserechte. Bearbeiten, Löschen und das Ausführen von Checks sind nicht möglich.
-            </AlertDescription>
-          </Alert>
-        )}
+      {/* Viewer hint */}
+      {isViewer && (
+        <Alert className="mb-4 border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-900/30">
+          <AlertDescription className="text-amber-800 dark:text-amber-200">
+            Sie haben nur Leserechte. Bearbeiten, Löschen und das Ausführen von Checks sind nicht möglich.
+          </AlertDescription>
+        </Alert>
+      )}
 
-        {/* Case Header */}
-        <div className="mb-6">
-          <div className="flex items-start justify-between mb-4">
-            <div>
-              <div className="flex items-center gap-3 mb-2">
-                <h2 className="text-2xl font-semibold text-slate-900 dark:text-slate-100">{caseData.title}</h2>
-                <Badge className={statusColors[caseData.status]}>
-                  {statusLabels[caseData.status]}
-                </Badge>
-              </div>
-              <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-slate-600 dark:text-slate-400">
-                <span>{caseData.department}</span>
-                <span>•</span>
-                <span>{caseData.caseType}</span>
-                {caseData.processingContext ? (
-                  <>
-                    <span>•</span>
-                    <span>
-                      Kontext:{" "}
-                      {processingContextLabels[caseData.processingContext] ??
-                        caseData.processingContext}
-                    </span>
-                  </>
-                ) : null}
-                {(caseData.specialCategoryData || caseData.internationalTransfer) && (
-                  <>
-                    <span>•</span>
-                    <span>
-                      {[
-                        caseData.specialCategoryData ? "Art. 9" : null,
-                        caseData.internationalTransfer ? "Drittland" : null,
-                      ]
-                        .filter(Boolean)
-                        .join(", ")}
-                    </span>
-                  </>
-                )}
-                <span>•</span>
-                <span>Erstellt: {new Date(caseData.createdAt).toLocaleDateString("de-DE")}</span>
-              </div>
+      {/* Case Header */}
+      <div className="mb-6">
+        <div className="flex items-start justify-between mb-4">
+          <div>
+            <div className="flex items-center gap-3 mb-2">
+              <h2 className="text-2xl font-semibold text-slate-900 dark:text-slate-100">{caseData.title}</h2>
+              <Badge className={statusColors[caseData.status]}>
+                {statusLabels[caseData.status]}
+              </Badge>
             </div>
-            <div className="flex gap-2">
-              <Button
-                variant="outline"
-                className="gap-2"
-                onClick={() => setActiveTab("report")}
-              >
-                <Download className="size-4" />
-                DSB-Report
-              </Button>
-              <Button
-                variant="outline"
-                className="gap-2"
-                onClick={() => setActiveTab("annotated")}
-              >
-                <MessageSquare className="size-4" />
-                Kommentierte Dokumente
-              </Button>
-              {userCanEdit && !caseData.archivedAt && (
-                <AlertDialog>
-                  <AlertDialogTrigger asChild>
-                    <Button
-                      variant="outline"
-                      className="gap-2 text-amber-700 border-amber-300 hover:bg-amber-50 dark:text-amber-400 dark:border-amber-700 dark:hover:bg-amber-900/30"
-                    >
-                      Archivieren
-                    </Button>
-                  </AlertDialogTrigger>
-                  <AlertDialogContent>
-                    <AlertDialogHeader>
-                      <AlertDialogTitle>Vorgang archivieren?</AlertDialogTitle>
-                      <AlertDialogDescription>
-                        Archivierte Vorgänge sind schreibgeschützt. Die Archivierung kann später rückgängig gemacht werden.
-                      </AlertDialogDescription>
-                    </AlertDialogHeader>
-                    <AlertDialogFooter>
-                      <AlertDialogCancel>Abbrechen</AlertDialogCancel>
-                      <AlertDialogAction
-                        onClick={async () => {
-                          if (!caseId) return;
-                          try {
-                            const updated = await archiveCase(caseId);
-                            setCaseData(updated);
-                            toast.success("Vorgang archiviert");
-                          } catch (e) {
-                            toast.error(e instanceof Error ? e.message : "Fehler beim Archivieren");
-                          }
-                        }}
-                      >
-                        Archivieren
-                      </AlertDialogAction>
-                    </AlertDialogFooter>
-                  </AlertDialogContent>
-                </AlertDialog>
+            <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-slate-600 dark:text-slate-400">
+              <span>{caseData.department}</span>
+              <span>•</span>
+              <span>{caseData.caseType}</span>
+              {caseData.processingContext ? (
+                <>
+                  <span>•</span>
+                  <span>
+                    Kontext:{" "}
+                    {processingContextLabels[caseData.processingContext] ??
+                      caseData.processingContext}
+                  </span>
+                </>
+              ) : null}
+              {(caseData.specialCategoryData || caseData.internationalTransfer) && (
+                <>
+                  <span>•</span>
+                  <span>
+                    {[
+                      caseData.specialCategoryData ? "Art. 9" : null,
+                      caseData.internationalTransfer ? "Drittland" : null,
+                    ]
+                      .filter(Boolean)
+                      .join(", ")}
+                  </span>
+                </>
               )}
-              {userCanEdit && caseData.archivedAt && (
-                <Button
-                  variant="outline"
-                  className="gap-2"
-                  onClick={async () => {
-                    if (!caseId) return;
-                    try {
-                      const updated = await unarchiveCase(caseId);
-                      setCaseData(updated);
-                      toast.success("Vorgang wiederhergestellt");
-                    } catch (e) {
-                      toast.error(e instanceof Error ? e.message : "Fehler beim Wiederherstellen");
-                    }
-                  }}
-                >
-                  Wiederherstellen
-                </Button>
-              )}
+              <span>•</span>
+              <span>Erstellt: {new Date(caseData.createdAt).toLocaleDateString("de-DE")}</span>
             </div>
           </div>
-
-          {/* Alert for Critical Issues */}
-          {criticalFindings.length > 0 && (
-            <Alert className="border-red-200 dark:border-red-800 bg-red-50 dark:bg-red-900/30">
-              <CircleAlert className="size-4 text-red-600 dark:text-red-400" />
-              <AlertDescription className="text-red-800 dark:text-red-200">
-                <strong>{criticalFindings.length} kritische</strong> und <strong>{highFindings.length} hohe</strong> Findings 
-                müssen vor Entscheidungsvorlage bearbeitet werden.
-              </AlertDescription>
-            </Alert>
-          )}
+          <div className="flex gap-2">
+            <Button
+              variant="outline"
+              className="gap-2"
+              onClick={() => setActiveTab("report")}
+            >
+              <Download className="size-4" />
+              DSB-Report
+            </Button>
+            <Button
+              variant="outline"
+              className="gap-2"
+              onClick={() => setActiveTab("annotated")}
+            >
+              <MessageSquare className="size-4" />
+              Kommentierte Dokumente
+            </Button>
+            {userCanEdit && !caseData.archivedAt && (
+              <AlertDialog>
+                <AlertDialogTrigger asChild>
+                  <Button
+                    variant="outline"
+                    className="gap-2 text-amber-700 border-amber-300 hover:bg-amber-50 dark:text-amber-400 dark:border-amber-700 dark:hover:bg-amber-900/30"
+                  >
+                    Archivieren
+                  </Button>
+                </AlertDialogTrigger>
+                <AlertDialogContent>
+                  <AlertDialogHeader>
+                    <AlertDialogTitle>Vorgang archivieren?</AlertDialogTitle>
+                    <AlertDialogDescription>
+                      Archivierte Vorgänge sind schreibgeschützt. Die Archivierung kann später rückgängig gemacht werden.
+                    </AlertDialogDescription>
+                  </AlertDialogHeader>
+                  <AlertDialogFooter>
+                    <AlertDialogCancel>Abbrechen</AlertDialogCancel>
+                    <AlertDialogAction
+                      onClick={async () => {
+                        if (!caseId) return;
+                        try {
+                          const updated = await archiveCase(caseId);
+                          setCaseData(updated);
+                          toast.success("Vorgang archiviert");
+                        } catch (e) {
+                          toast.error(e instanceof Error ? e.message : "Fehler beim Archivieren");
+                        }
+                      }}
+                    >
+                      Archivieren
+                    </AlertDialogAction>
+                  </AlertDialogFooter>
+                </AlertDialogContent>
+              </AlertDialog>
+            )}
+            {userCanEdit && caseData.archivedAt && (
+              <Button
+                variant="outline"
+                className="gap-2"
+                onClick={async () => {
+                  if (!caseId) return;
+                  try {
+                    const updated = await unarchiveCase(caseId);
+                    setCaseData(updated);
+                    toast.success("Vorgang wiederhergestellt");
+                  } catch (e) {
+                    toast.error(e instanceof Error ? e.message : "Fehler beim Wiederherstellen");
+                  }
+                }}
+              >
+                Wiederherstellen
+              </Button>
+            )}
+          </div>
         </div>
 
-        {/* Tabs */}
-        <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
-          <TabsList>
-            <TabsTrigger value="overview">Überblick</TabsTrigger>
-            <TabsTrigger value="documents">Dokumente ({caseData.documents.length})</TabsTrigger>
-            <TabsTrigger value="findings">
-              Findings ({caseData.findings.length})
-              {openFindings.length > 0 && (
-                <Badge className="ml-2 bg-red-600 dark:bg-red-700 text-white">{openFindings.length}</Badge>
-              )}
-            </TabsTrigger>
-            <TabsTrigger value="audit">Audit Trail</TabsTrigger>
-            <TabsTrigger value="vvt">VVT Normalisierung</TabsTrigger>
-            <TabsTrigger value="dsfa">DSFA</TabsTrigger>
-            <TabsTrigger value="report">DSB-Report</TabsTrigger>
-            <TabsTrigger value="privacy-policy">Datenschutzerklärung</TabsTrigger>
-            <TabsTrigger value="annotated">Annotierte Dokumente</TabsTrigger>
-          </TabsList>
+        {/* Alert for Critical Issues */}
+        {criticalFindings.length > 0 && (
+          <Alert className="border-red-200 dark:border-red-800 bg-red-50 dark:bg-red-900/30">
+            <CircleAlert className="size-4 text-red-600 dark:text-red-400" />
+            <AlertDescription className="text-red-800 dark:text-red-200">
+              <strong>{criticalFindings.length} kritische</strong> und <strong>{highFindings.length} hohe</strong> Findings
+              müssen vor Entscheidungsvorlage bearbeitet werden.
+            </AlertDescription>
+          </Alert>
+        )}
+      </div>
 
-          {/* Overview Tab */}
-          <TabsContent value="overview" className="space-y-6">
-            <ErrorBoundary>
-              <CaseOverviewTab
-                caseData={caseData}
-                criticalFindings={criticalFindings}
-                highFindings={highFindings}
-                runChecksOpen={runChecksOpen}
-                setRunChecksOpen={setRunChecksOpen}
-                playbooks={playbooks}
-                selectedPlaybookId={selectedPlaybookId}
-                setSelectedPlaybookId={setSelectedPlaybookId}
-                runChecksStrategy={runChecksStrategy}
-                setRunChecksStrategy={setRunChecksStrategy}
-                onRunChecks={handleRunChecks}
-                runChecksLoading={runChecksLoading}
-                runChecksStatus={runChecksStatus}
-                runChecksError={runChecksError}
-                setRunChecksError={setRunChecksError}
-                runChecksProgress={runChecksProgress}
-                onSelectFinding={handleSelectFinding}
-                canEdit={userCanEdit}
-                coveragePreview={coveragePreview}
-                similarCases={similarCases}
-                riskScore={riskScore}
-                onCaseUpdated={(updated) => setCaseData(updated)}
-              />
-            </ErrorBoundary>
-          </TabsContent>
+      {/* Tabs */}
+      <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
+        <TabsList>
+          <TabsTrigger value="overview">Überblick</TabsTrigger>
+          <TabsTrigger value="documents">Dokumente ({caseData.documents.length})</TabsTrigger>
+          <TabsTrigger value="findings">
+            Findings ({caseData.findings.length})
+            {openFindings.length > 0 && (
+              <Badge className="ml-2 bg-red-600 dark:bg-red-700 text-white">{openFindings.length}</Badge>
+            )}
+          </TabsTrigger>
+          <TabsTrigger value="audit">Audit Trail</TabsTrigger>
+          <TabsTrigger value="vvt">VVT Normalisierung</TabsTrigger>
+          <TabsTrigger value="dsfa">DSFA</TabsTrigger>
+          <TabsTrigger value="report">DSB-Report</TabsTrigger>
+          <TabsTrigger value="privacy-policy">Datenschutzerklärung</TabsTrigger>
+          <TabsTrigger value="annotated">Annotierte Dokumente</TabsTrigger>
+        </TabsList>
 
-          {/* Documents Tab */}
-          <TabsContent value="documents" className="space-y-6">
-            <ErrorBoundary>
-              <CaseDocumentsTab
-                caseData={caseData}
-                isUploadDialogOpen={isUploadDialogOpen}
-                setIsUploadDialogOpen={setIsUploadDialogOpen}
-                onUploadComplete={loadCase}
-                canEdit={userCanEdit}
-              />
-            </ErrorBoundary>
-          </TabsContent>
+        {/* Overview Tab */}
+        <TabsContent value="overview" className="space-y-6">
+          <ErrorBoundary>
+            <CaseOverviewTab
+              caseData={caseData}
+              criticalFindings={criticalFindings}
+              highFindings={highFindings}
+              onSelectFinding={onSelectFinding}
+              canEdit={userCanEdit}
+              onCaseUpdated={setCaseData}
+            />
+          </ErrorBoundary>
+        </TabsContent>
 
-          {/* Findings Tab */}
-          <TabsContent value="findings" className="space-y-6">
-            <ErrorBoundary>
-              {documentsChangedSinceLastRun && (
-                <Alert className="border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-900/30">
-                  <AlertDescription className="text-amber-800 dark:text-amber-200 flex items-center justify-between gap-4">
-                    <span>Dokumente wurden seit der letzten Prüfung aktualisiert. Die Findings könnten veraltet sein.</span>
-                    {userCanEdit && (
-                      <Button size="sm" variant="outline" onClick={() => setRunChecksOpen(true)}>
-                        Jetzt prüfen
-                      </Button>
-                    )}
-                  </AlertDescription>
-                </Alert>
-              )}
-              <CaseFindingsTab caseData={caseData} onSelectFinding={handleSelectFinding} onFindingsChanged={loadCase} />
-            </ErrorBoundary>
-          </TabsContent>
+        {/* Documents Tab */}
+        <TabsContent value="documents" className="space-y-6">
+          <ErrorBoundary>
+            <CaseDocumentsTab
+              caseData={caseData}
+              isUploadDialogOpen={isUploadDialogOpen}
+              setIsUploadDialogOpen={setIsUploadDialogOpen}
+              onUploadComplete={onLoadCase}
+              canEdit={userCanEdit}
+            />
+          </ErrorBoundary>
+        </TabsContent>
 
-          {/* Audit Trail Tab */}
-          <TabsContent value="audit" className="space-y-6">
-            <ErrorBoundary>
-              <Card>
-                <CardHeader className="flex flex-row items-start justify-between gap-4">
-                  <div>
-                    <CardTitle>Audit Trail</CardTitle>
-                    <CardDescription>Nachvollziehbare Historie aller Änderungen</CardDescription>
-                  </div>
-                  <div className="flex gap-2">
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onClick={async () => {
-                        try {
-                          const blob = await getAuditTrailExportBlob(caseData.id);
-                          downloadBlob(blob, `audit-trail-${caseData.id}.csv`);
-                          toast.success("Audit Trail exportiert.");
-                        } catch {
-                          toast.error("Export fehlgeschlagen.");
-                        }
-                      }}
-                    >
-                      <Download className="size-4 mr-1" /> CSV exportieren
+        {/* Findings Tab */}
+        <TabsContent value="findings" className="space-y-6">
+          <ErrorBoundary>
+            {documentsChangedSinceLastRun && (
+              <Alert className="border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-900/30">
+                <AlertDescription className="text-amber-800 dark:text-amber-200 flex items-center justify-between gap-4">
+                  <span>Dokumente wurden seit der letzten Prüfung aktualisiert. Die Findings könnten veraltet sein.</span>
+                  {userCanEdit && (
+                    <Button size="sm" variant="outline" onClick={() => setRunChecksOpen(true)}>
+                      Jetzt prüfen
                     </Button>
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      title="Vollständiges Audit-Paket als ZIP (Befunde, Dokumente, Activity-Log, SHA-256-Manifest)"
-                      onClick={async () => {
-                        try {
-                          const blob = await downloadAuditPackage(caseData.id);
-                          downloadBlob(blob, `audit-paket-${caseData.id.slice(0, 8)}.zip`);
-                          toast.success("Audit-Paket exportiert.");
-                        } catch {
-                          toast.error("Audit-Export fehlgeschlagen.");
+                  )}
+                </AlertDescription>
+              </Alert>
+            )}
+            <CaseFindingsTab caseData={caseData} onSelectFinding={onSelectFinding} onFindingsChanged={onLoadCase} />
+          </ErrorBoundary>
+        </TabsContent>
+
+        {/* Audit Trail Tab */}
+        <TabsContent value="audit" className="space-y-6">
+          <ErrorBoundary>
+            <Card>
+              <CardHeader className="flex flex-row items-start justify-between gap-4">
+                <div>
+                  <CardTitle>Audit Trail</CardTitle>
+                  <CardDescription>Nachvollziehbare Historie aller Änderungen</CardDescription>
+                </div>
+                <div className="flex gap-2">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={async () => {
+                      try {
+                        const blob = await getAuditTrailExportBlob(caseData.id);
+                        downloadBlob(blob, `audit-trail-${caseData.id}.csv`);
+                        toast.success("Audit Trail exportiert.");
+                      } catch {
+                        toast.error("Export fehlgeschlagen.");
+                      }
+                    }}
+                  >
+                    <Download className="size-4 mr-1" /> CSV exportieren
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    title="Vollständiges Audit-Paket als ZIP (Befunde, Dokumente, Activity-Log, SHA-256-Manifest)"
+                    onClick={async () => {
+                      try {
+                        const blob = await downloadAuditPackage(caseData.id);
+                        downloadBlob(blob, `audit-paket-${caseData.id.slice(0, 8)}.zip`);
+                        toast.success("Audit-Paket exportiert.");
+                      } catch {
+                        toast.error("Audit-Export fehlgeschlagen.");
+                      }
+                    }}
+                  >
+                    <Download className="size-4 mr-1" /> Audit-Paket (ZIP)
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    title="Signierter Audit-Trail (HMAC-SHA256)."
+                    onClick={async () => {
+                      try {
+                        const { filename, signature } = await downloadAuditTrail(caseData.id, "csv");
+                        if (signature) {
+                          toast.success(
+                            `${filename} exportiert. Signatur: ${signature.slice(0, 16)}…${signature.slice(-8)}`,
+                            { duration: 10000 },
+                          );
+                        } else {
+                          toast.success(`${filename} exportiert.`);
                         }
-                      }}
-                    >
-                      <Download className="size-4 mr-1" /> Audit-Paket (ZIP)
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      title="Signierter Audit-Trail (HMAC-SHA256). Die Signatur wird beim Download angezeigt — bewahren Sie sie getrennt vom File auf, um Manipulation später nachweisen zu können."
-                      onClick={async () => {
-                        try {
-                          const { filename, signature } = await downloadAuditTrail(caseData.id, "csv");
-                          if (signature) {
-                            toast.success(
-                              `${filename} exportiert. Signatur: ${signature.slice(0, 16)}…${signature.slice(-8)}`,
-                              { duration: 10000 },
-                            );
-                          } else {
-                            toast.success(`${filename} exportiert.`);
-                          }
-                        } catch {
-                          toast.error("Signierter Audit-Export fehlgeschlagen.");
-                        }
-                      }}
-                    >
-                      <Download className="size-4 mr-1" /> Signiert (CSV)
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      title="ROPA gemäß Art. 30 DSGVO als DOCX für die Vorlage bei der Aufsichtsbehörde"
-                      onClick={async () => {
-                        try {
-                          await downloadRopaExport(caseData.id, "docx");
-                          toast.success("ROPA exportiert.");
-                        } catch (err) {
-                          const msg = err instanceof Error ? err.message : String(err);
-                          toast.error(`ROPA-Export fehlgeschlagen: ${msg}`);
-                        }
-                      }}
-                    >
-                      <Download className="size-4 mr-1" /> ROPA (DOCX)
-                    </Button>
-                  </div>
-                </CardHeader>
-                <CardContent>
-                  <ActivityTimeline caseId={caseData.id} />
-                </CardContent>
-              </Card>
-            </ErrorBoundary>
-          </TabsContent>
+                      } catch {
+                        toast.error("Signierter Audit-Export fehlgeschlagen.");
+                      }
+                    }}
+                  >
+                    <Download className="size-4 mr-1" /> Signiert (CSV)
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    title="ROPA gemäß Art. 30 DSGVO als DOCX"
+                    onClick={async () => {
+                      try {
+                        await downloadRopaExport(caseData.id, "docx");
+                        toast.success("ROPA exportiert.");
+                      } catch (err) {
+                        const msg = err instanceof Error ? err.message : String(err);
+                        toast.error(`ROPA-Export fehlgeschlagen: ${msg}`);
+                      }
+                    }}
+                  >
+                    <Download className="size-4 mr-1" /> ROPA (DOCX)
+                  </Button>
+                </div>
+              </CardHeader>
+              <CardContent>
+                <ActivityTimeline caseId={caseData.id} />
+              </CardContent>
+            </Card>
+          </ErrorBoundary>
+        </TabsContent>
 
-          {/* VVT Normalization Tab */}
-          <TabsContent value="vvt">
-            <ErrorBoundary>
-              <VVTNormalizationView caseId={caseData.id} active={activeTab === "vvt"} />
-            </ErrorBoundary>
-          </TabsContent>
+        {/* VVT Normalization Tab */}
+        <TabsContent value="vvt">
+          <ErrorBoundary>
+            <VVTNormalizationView caseId={caseData.id} active={activeTab === "vvt"} />
+          </ErrorBoundary>
+        </TabsContent>
 
-          {/* DSFA Tab */}
-          <TabsContent value="dsfa">
-            <ErrorBoundary>
-              <CaseDsfaTab caseData={caseData} canEdit={userCanEdit} />
-            </ErrorBoundary>
-          </TabsContent>
+        {/* DSFA Tab */}
+        <TabsContent value="dsfa">
+          <ErrorBoundary>
+            <CaseDsfaTab caseData={caseData} canEdit={userCanEdit} />
+          </ErrorBoundary>
+        </TabsContent>
 
-          {/* DSB Report Tab */}
-          <TabsContent value="report">
-            <ErrorBoundary>
-              <DSBReportView caseId={caseData.id} />
-            </ErrorBoundary>
-            <ErrorBoundary>
-              <DsfaScreeningCard caseId={caseData.id} className="mt-6" />
-            </ErrorBoundary>
-          </TabsContent>
+        {/* DSB Report Tab */}
+        <TabsContent value="report">
+          <ErrorBoundary>
+            <DSBReportView caseId={caseData.id} />
+          </ErrorBoundary>
+          <ErrorBoundary>
+            <DsfaScreeningCard caseId={caseData.id} className="mt-6" />
+          </ErrorBoundary>
+        </TabsContent>
 
-          {/* Privacy Policy Tab */}
-          <TabsContent value="privacy-policy">
-            <ErrorBoundary>
-              <CasePrivacyPolicyTab caseData={caseData} canEdit={userCanEdit} />
-            </ErrorBoundary>
-          </TabsContent>
+        {/* Privacy Policy Tab */}
+        <TabsContent value="privacy-policy">
+          <ErrorBoundary>
+            <CasePrivacyPolicyTab caseData={caseData} canEdit={userCanEdit} />
+          </ErrorBoundary>
+        </TabsContent>
 
-          {/* Annotated Documents Tab */}
-          <TabsContent value="annotated">
-            <ErrorBoundary>
-              <AnnotatedDocumentsView caseId={caseData.id} />
-            </ErrorBoundary>
-          </TabsContent>
-        </Tabs>
+        {/* Annotated Documents Tab */}
+        <TabsContent value="annotated">
+          <ErrorBoundary>
+            <AnnotatedDocumentsView caseId={caseData.id} />
+          </ErrorBoundary>
+        </TabsContent>
+      </Tabs>
 
       {/* Finding Detail Dialog */}
       <Dialog open={!!selectedFinding} onOpenChange={() => setSelectedFinding(null)}>
@@ -740,9 +687,14 @@ export function CaseDetailPage() {
                       placeholder="Kommentar hinzufügen…"
                       value={commentText}
                       onChange={(e) => setCommentText(e.target.value)}
-                      onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleAddComment(); } }}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" && !e.shiftKey) {
+                          e.preventDefault();
+                          void onAddComment();
+                        }
+                      }}
                     />
-                    <Button size="sm" onClick={handleAddComment} disabled={commentLoading || !commentText.trim()}>
+                    <Button size="sm" onClick={() => void onAddComment()} disabled={commentLoading || !commentText.trim()}>
                       {commentLoading ? <Loader2 className="size-3 animate-spin" /> : "Senden"}
                     </Button>
                   </div>
@@ -755,7 +707,7 @@ export function CaseDetailPage() {
                     variant="outline"
                     className="flex-1"
                     disabled={findingStatusLoading === selectedFinding?.id}
-                    onClick={() => selectedFinding && handleFindingStatus(selectedFinding.id, "accepted")}
+                    onClick={() => selectedFinding && void onFindingStatus(selectedFinding.id, "accepted")}
                   >
                     Als akzeptiert markieren
                   </Button>
@@ -763,14 +715,14 @@ export function CaseDetailPage() {
                     variant="outline"
                     className="flex-1"
                     disabled={findingStatusLoading === selectedFinding?.id}
-                    onClick={() => selectedFinding && handleFindingStatus(selectedFinding.id, "overruled")}
+                    onClick={() => selectedFinding && void onFindingStatus(selectedFinding.id, "overruled")}
                   >
                     Als überfahren markieren
                   </Button>
                   <Button
                     className="flex-1"
                     disabled={findingStatusLoading === selectedFinding?.id}
-                    onClick={() => selectedFinding && handleFindingStatus(selectedFinding.id, "fixed")}
+                    onClick={() => selectedFinding && void onFindingStatus(selectedFinding.id, "fixed")}
                   >
                     {findingStatusLoading === selectedFinding?.id ? <Loader2 className="size-4 animate-spin" /> : "Als behoben markieren"}
                   </Button>
@@ -780,7 +732,6 @@ export function CaseDetailPage() {
           )}
         </DialogContent>
       </Dialog>
-    </AppLayout>
+    </>
   );
 }
-

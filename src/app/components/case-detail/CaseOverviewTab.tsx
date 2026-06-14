@@ -2,12 +2,13 @@ import { useMemo, useState, useCallback } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../ui/card";
 import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "../ui/dialog";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "../ui/dialog";
 import { LineChart, Line, Tooltip, ResponsiveContainer } from "recharts";
 import { severityColors, priorityLabels, priorityColors } from "../../lib/mock-data";
-import type { ApiCase, ApiFinding, ApiPlaybook, CaseSimilarityResult, CaseRiskScore, PlaybookCoverage, RunChecksStrategy } from "../../lib/api";
+import type { ApiCase, ApiFinding } from "../../lib/api";
 import { updateCase } from "../../lib/api";
 import { useAppConfig } from "../../contexts/AppConfigContext";
+import { useCaseDetail } from "../../contexts/CaseDetailContext";
 import { CircleAlert, Download, FileCheck, Loader2, Shield, Zap } from "lucide-react";
 import { toast } from "sonner";
 
@@ -15,25 +16,8 @@ export interface CaseOverviewTabProps {
   caseData: ApiCase;
   criticalFindings: ApiFinding[];
   highFindings: ApiFinding[];
-  runChecksOpen: boolean;
-  setRunChecksOpen: (open: boolean) => void;
-  playbooks: ApiPlaybook[];
-  selectedPlaybookId: string;
-  setSelectedPlaybookId: (id: string) => void;
-  runChecksStrategy: "full_text" | "rag" | "both";
-  setRunChecksStrategy: (s: "full_text" | "rag" | "both") => void;
-  onRunChecks: () => void;
-  runChecksLoading: boolean;
-  runChecksStatus: "idle" | "running" | "completed" | "failed";
-  runChecksError: string | null;
-  setRunChecksError: (err: string | null) => void;
-  runChecksProgress?: { done: number; total: number };
   onSelectFinding: (finding: ApiFinding) => void;
-  /** When false (e.g. viewer role), hide/disable write actions like Run Checks. */
   canEdit?: boolean;
-  coveragePreview?: PlaybookCoverage | null;
-  similarCases?: CaseSimilarityResult[];
-  riskScore?: CaseRiskScore | null;
   onCaseUpdated?: (caseData: ApiCase) => void;
 }
 
@@ -41,24 +25,8 @@ export function CaseOverviewTab({
   caseData,
   criticalFindings,
   highFindings,
-  runChecksOpen,
-  setRunChecksOpen,
-  playbooks,
-  selectedPlaybookId,
-  setSelectedPlaybookId,
-  runChecksStrategy,
-  setRunChecksStrategy,
-  onRunChecks,
-  runChecksLoading,
-  runChecksStatus,
-  runChecksError,
-  setRunChecksError,
-  runChecksProgress = { done: 0, total: 0 },
   onSelectFinding,
   canEdit = true,
-  coveragePreview,
-  similarCases = [],
-  riskScore,
   onCaseUpdated,
 }: CaseOverviewTabProps) {
   const appConfig = useAppConfig();
@@ -66,6 +34,26 @@ export function CaseOverviewTab({
     () => Object.fromEntries(appConfig.processing_context_options.map((o) => [o.value, o.label])),
     [appConfig.processing_context_options],
   );
+
+  const {
+    runChecksOpen,
+    setRunChecksOpen,
+    playbooks,
+    selectedPlaybookId,
+    setSelectedPlaybookId,
+    runChecksStrategy,
+    setRunChecksStrategy,
+    runChecksLoading,
+    runChecksStatus,
+    runChecksError,
+    setRunChecksError,
+    runChecksProgress,
+    coveragePreview,
+    similarCases,
+    riskScore,
+    handleRunChecks,
+  } = useCaseDetail();
+
   const [deadlineValue, setDeadlineValue] = useState(caseData.deadline ?? "");
   const [deadlineSaving, setDeadlineSaving] = useState(false);
   const [autoRunChecks, setAutoRunChecks] = useState(caseData.autoRunChecks ?? false);
@@ -92,7 +80,7 @@ export function CaseOverviewTab({
       onCaseUpdated?.(updated);
       toast.success(checked ? "Auto-Checks aktiviert" : "Auto-Checks deaktiviert");
     } catch {
-      setAutoRunChecks(!checked); // revert on error
+      setAutoRunChecks(!checked);
       toast.error("Einstellung konnte nicht gespeichert werden");
     } finally {
       setAutoRunSaving(false);
@@ -241,116 +229,118 @@ export function CaseOverviewTab({
           </CardHeader>
           <CardContent className="space-y-2">
             {canEdit && (
-            <Dialog open={runChecksOpen} onOpenChange={setRunChecksOpen}>
-              <DialogTrigger asChild>
-                <Button variant="outline" className="w-full justify-start gap-2">
+              <Dialog open={runChecksOpen} onOpenChange={setRunChecksOpen}>
+                <Button
+                  variant="outline"
+                  className="w-full justify-start gap-2"
+                  onClick={() => setRunChecksOpen(true)}
+                >
                   <Shield className="size-4" />
                   Playbook-Checks ausführen
                 </Button>
-              </DialogTrigger>
-              <DialogContent>
-                <DialogHeader>
-                  <DialogTitle>Playbook-Checks ausführen</DialogTitle>
-                  <DialogDescription>
-                    Wählen Sie ein Playbook. Die Checks werden gegen alle Dokumente des Vorgangs ausgeführt.
-                  </DialogDescription>
-                </DialogHeader>
-                <div className="space-y-2">
-                  <label className="text-sm font-medium">Playbook</label>
-                  <select
-                    className="w-full border border-input rounded-md px-3 py-2 bg-input-background"
-                    value={selectedPlaybookId}
-                    onChange={(e) => setSelectedPlaybookId(e.target.value)}
-                  >
-                    <option value="">— Auswählen —</option>
-                    {playbooks.map((pb) => (
-                      <option key={pb.id} value={pb.id}>{pb.name} (v{pb.version})</option>
-                    ))}
-                  </select>
-                </div>
-                <div className="space-y-2">
-                  <label className="text-sm font-medium">Prüfvariante</label>
-                  <select
-                    className="w-full border border-input rounded-md px-3 py-2 bg-input-background"
-                    value={runChecksStrategy}
-                    onChange={(e) => setRunChecksStrategy(e.target.value as "full_text" | "rag" | "both")}
-                  >
-                    <option value="full_text">Volltext (gesamtes Dokument)</option>
-                    <option value="rag">RAG (relevante Chunks aus Weaviate)</option>
-                    <option value="both">Beide (Vergleich Volltext + RAG)</option>
-                  </select>
-                  <p className="text-xs text-slate-500 dark:text-slate-400">
-                    RAG nutzt die Vektordatenbank; „Beide“ führt Volltext- und RAG-Checks parallel aus.
-                  </p>
-                </div>
-                {/* Coverage preview */}
-                {coveragePreview && coveragePreview.total_checks > 0 && (
-                  <div className="rounded-md border p-3 text-sm space-y-1">
-                    <p className="font-medium text-slate-700 dark:text-slate-300">
-                      Coverage: {coveragePreview.applicable_count} / {coveragePreview.total_checks} Checks anwendbar
-                    </p>
-                    {coveragePreview.missing_document_types.length > 0 && (
-                      <p className="text-amber-700 dark:text-amber-400 text-xs">
-                        Fehlende Dokumenttypen: {coveragePreview.missing_document_types.join(", ")}
-                      </p>
-                    )}
-                    <div className="max-h-32 overflow-y-auto space-y-0.5 mt-1">
-                      {coveragePreview.checks.map((c, i) => (
-                        <div key={i} className="flex items-center gap-1.5 text-xs">
-                          <span className={c.applicable ? "text-green-600 dark:text-green-400" : "text-slate-400 dark:text-slate-500"}>
-                            {c.applicable ? "✓" : "–"}
-                          </span>
-                          <span className={c.applicable ? "" : "text-slate-400 dark:text-slate-500"}>{c.name}</span>
-                        </div>
+                <DialogContent>
+                  <DialogHeader>
+                    <DialogTitle>Playbook-Checks ausführen</DialogTitle>
+                    <DialogDescription>
+                      Wählen Sie ein Playbook. Die Checks werden gegen alle Dokumente des Vorgangs ausgeführt.
+                    </DialogDescription>
+                  </DialogHeader>
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium">Playbook</label>
+                    <select
+                      className="w-full border border-input rounded-md px-3 py-2 bg-input-background"
+                      value={selectedPlaybookId}
+                      onChange={(e) => setSelectedPlaybookId(e.target.value)}
+                    >
+                      <option value="">— Auswählen —</option>
+                      {playbooks.map((pb) => (
+                        <option key={pb.id} value={pb.id}>{pb.name} (v{pb.version})</option>
                       ))}
-                    </div>
+                    </select>
                   </div>
-                )}
-                {(runChecksStatus === "running" || runChecksError) && (
-                  <div className="rounded-md border p-3 text-sm">
-                    {runChecksStatus === "running" && (
-                      <div className="space-y-2 text-slate-600 dark:text-slate-400">
-                        <div className="flex items-center gap-2">
-                          <Loader2 className="size-4 animate-spin shrink-0" />
-                          <span>
-                            Playbook-Checks werden ausgeführt…
-                            {runChecksProgress.total > 0 && (
-                              <span className="ml-1 font-medium">
-                                {runChecksProgress.done} / {runChecksProgress.total}
-                              </span>
-                            )}
-                          </span>
-                        </div>
-                        {runChecksProgress.total > 0 && (
-                          <div className="w-full bg-slate-200 dark:bg-slate-700 rounded-full h-2 overflow-hidden">
-                            <div
-                              className="bg-primary h-2 rounded-full transition-all duration-500"
-                              style={{ width: `${Math.min(100, Math.round((runChecksProgress.done / runChecksProgress.total) * 100))}%` }}
-                            />
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium">Prüfvariante</label>
+                    <select
+                      className="w-full border border-input rounded-md px-3 py-2 bg-input-background"
+                      value={runChecksStrategy}
+                      onChange={(e) => setRunChecksStrategy(e.target.value as "full_text" | "rag" | "both")}
+                    >
+                      <option value="full_text">Volltext (gesamtes Dokument)</option>
+                      <option value="rag">RAG (relevante Chunks aus Weaviate)</option>
+                      <option value="both">Beide (Vergleich Volltext + RAG)</option>
+                    </select>
+                    <p className="text-xs text-slate-500 dark:text-slate-400">
+                      RAG nutzt die Vektordatenbank; „Beide" führt Volltext- und RAG-Checks parallel aus.
+                    </p>
+                  </div>
+                  {/* Coverage preview */}
+                  {coveragePreview && coveragePreview.total_checks > 0 && (
+                    <div className="rounded-md border p-3 text-sm space-y-1">
+                      <p className="font-medium text-slate-700 dark:text-slate-300">
+                        Coverage: {coveragePreview.applicable_count} / {coveragePreview.total_checks} Checks anwendbar
+                      </p>
+                      {coveragePreview.missing_document_types.length > 0 && (
+                        <p className="text-amber-700 dark:text-amber-400 text-xs">
+                          Fehlende Dokumenttypen: {coveragePreview.missing_document_types.join(", ")}
+                        </p>
+                      )}
+                      <div className="max-h-32 overflow-y-auto space-y-0.5 mt-1">
+                        {coveragePreview.checks.map((c, i) => (
+                          <div key={i} className="flex items-center gap-1.5 text-xs">
+                            <span className={c.applicable ? "text-green-600 dark:text-green-400" : "text-slate-400 dark:text-slate-500"}>
+                              {c.applicable ? "✓" : "–"}
+                            </span>
+                            <span className={c.applicable ? "" : "text-slate-400 dark:text-slate-500"}>{c.name}</span>
                           </div>
-                        )}
+                        ))}
                       </div>
-                    )}
-                    {runChecksError && (
-                      <div className="text-amber-700 dark:text-amber-400">
-                        <p className="font-medium">Playbook-Checks fehlgeschlagen</p>
-                        <p className="mt-1">{runChecksError}</p>
-                        <Button variant="outline" size="sm" className="mt-2" onClick={() => setRunChecksError(null)}>
-                          Schließen
-                        </Button>
-                      </div>
-                    )}
+                    </div>
+                  )}
+                  {(runChecksStatus === "running" || runChecksError) && (
+                    <div className="rounded-md border p-3 text-sm">
+                      {runChecksStatus === "running" && (
+                        <div className="space-y-2 text-slate-600 dark:text-slate-400">
+                          <div className="flex items-center gap-2">
+                            <Loader2 className="size-4 animate-spin shrink-0" />
+                            <span>
+                              Playbook-Checks werden ausgeführt…
+                              {runChecksProgress.total > 0 && (
+                                <span className="ml-1 font-medium">
+                                  {runChecksProgress.done} / {runChecksProgress.total}
+                                </span>
+                              )}
+                            </span>
+                          </div>
+                          {runChecksProgress.total > 0 && (
+                            <div className="w-full bg-slate-200 dark:bg-slate-700 rounded-full h-2 overflow-hidden">
+                              <div
+                                className="bg-primary h-2 rounded-full transition-all duration-500"
+                                style={{ width: `${Math.min(100, Math.round((runChecksProgress.done / runChecksProgress.total) * 100))}%` }}
+                              />
+                            </div>
+                          )}
+                        </div>
+                      )}
+                      {runChecksError && (
+                        <div className="text-amber-700 dark:text-amber-400">
+                          <p className="font-medium">Playbook-Checks fehlgeschlagen</p>
+                          <p className="mt-1">{runChecksError}</p>
+                          <Button variant="outline" size="sm" className="mt-2" onClick={() => setRunChecksError(null)}>
+                            Schließen
+                          </Button>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                  <div className="flex justify-end gap-2">
+                    <Button variant="outline" onClick={() => { setRunChecksOpen(false); setRunChecksError(null); }}>Abbrechen</Button>
+                    <Button onClick={() => void handleRunChecks()} disabled={!selectedPlaybookId || runChecksLoading || runChecksStatus === "running"}>
+                      {runChecksLoading ? <Loader2 className="size-4 animate-spin" /> : null}
+                      Checks starten
+                    </Button>
                   </div>
-                )}
-                <div className="flex justify-end gap-2">
-                  <Button variant="outline" onClick={() => { setRunChecksOpen(false); setRunChecksError(null); }}>Abbrechen</Button>
-                  <Button onClick={onRunChecks} disabled={!selectedPlaybookId || runChecksLoading || runChecksStatus === "running"}>
-                    {runChecksLoading ? <Loader2 className="size-4 animate-spin" /> : null}
-                    Checks starten
-                  </Button>
-                </div>
-              </DialogContent>
-            </Dialog>
+                </DialogContent>
+              </Dialog>
             )}
             <Button variant="outline" className="w-full justify-start gap-2">
               <FileCheck className="size-4" />
@@ -371,7 +361,7 @@ export function CaseOverviewTab({
                   aria-checked={autoRunChecks}
                   aria-label="Automatische Checks nach Dokument-Upload aktivieren"
                   disabled={autoRunSaving}
-                  onClick={() => handleAutoRunChecksToggle(!autoRunChecks)}
+                  onClick={() => void handleAutoRunChecksToggle(!autoRunChecks)}
                   className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 ${autoRunChecks ? "bg-primary" : "bg-input"}`}
                 >
                   <span
