@@ -174,7 +174,7 @@ async def test_maturity_dept_filter(client):
 async def test_maturity_snapshot_writes_rows(client):
     """Manueller Aufruf des Snapshot-Helpers schreibt eine Zeile pro Department."""
     from app.database import async_session_factory
-    from app.services.analytics_service import write_maturity_snapshot
+    from app.services.maturity_service import write_maturity_snapshot
 
     async with async_session_factory() as session:
         count = await write_maturity_snapshot(session)

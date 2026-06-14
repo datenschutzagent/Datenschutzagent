@@ -895,7 +895,7 @@ def maturity_snapshot_task(self) -> dict:
 
 
 async def _maturity_snapshot_async() -> dict:
-    from app.services.analytics_service import write_maturity_snapshot
+    from app.services.maturity_service import write_maturity_snapshot
 
     session_factory = _get_async_session_factory()
     async with session_factory() as session:

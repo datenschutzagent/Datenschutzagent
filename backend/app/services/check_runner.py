@@ -1,4 +1,3 @@
-import hashlib
 import logging
 import time
 from uuid import UUID
@@ -8,7 +7,8 @@ from pydantic_ai import ModelRetry
 
 from app.config import settings
 from app.core.grounding import grounding_ratio, partition_grounded
-from app.core.llm import create_agent, gather_all, get_active_model_name, llm_retry_call
+from app.core.llm import create_agent, gather_all, llm_retry_call
+from app.core.llm_cache import _cache_get, _cache_key, _cache_set
 from app.core.prompt_security import (
     SYSTEM_PROMPT_SAFETY_PREAMBLE,
     sanitize_prompt_field,
@@ -31,51 +31,6 @@ logger = logging.getLogger(__name__)
 def _log_extra() -> dict:
     """Return a dict with the current request_id for structured log records."""
     return {"request_id": get_request_id()}
-
-
-# ---------------------------------------------------------------------------
-# LLM response cache (optional Redis-backed)
-# ---------------------------------------------------------------------------
-
-_org_profile_hash_cached: str | None = None
-
-
-def _org_profile_hash() -> str:
-    """Stable hash over the organisation context that influences prompt semantics.
-
-    Included so that two deployments with the same prompt/document text but
-    different org profiles cannot share a cache entry. Memoized for the process
-    lifetime because these settings are immutable after startup.
-    """
-    global _org_profile_hash_cached
-    if _org_profile_hash_cached is None:
-        raw = f"{settings.org_profile}\x00{settings.org_name}"
-        _org_profile_hash_cached = hashlib.sha256(raw.encode("utf-8")).hexdigest()[:16]
-    return _org_profile_hash_cached
-
-
-def _cache_key(
-    system_prompt: str,
-    user_content: str,
-    case_id: UUID | None,
-    playbook_revision: str = "",
-) -> str:
-    """SHA-256 hash of org+case+model+playbook_revision+system+user prompt as a Redis key.
-
-    Scoping the key by ``org_profile`` and ``case_id`` prevents cross-case or
-    cross-tenant cache reuse, which could otherwise leak or poison results when
-    two contexts produce the same prompt bytes. The model identifier (provider +
-    active model + structured-output mode) is included so that a model upgrade
-    (e.g. llama3.2 → llama3.3) or an output-mode switch automatically invalidates
-    existing cache entries. ``playbook_revision`` (format "<playbook_id>:<version>")
-    ensures a cache miss whenever the playbook content changes, so stale LLM
-    responses are never returned after an update.
-    """
-    model_id = f"{settings.llm_provider}:{get_active_model_name()}:{settings.llm_structured_output_mode}"
-    case_part = str(case_id) if case_id is not None else "-"
-    raw = f"{_org_profile_hash()}\x00{case_part}\x00{model_id}\x00{playbook_revision}\x00{system_prompt}\x00{user_content}"
-    digest = hashlib.sha256(raw.encode("utf-8")).hexdigest()
-    return f"llm_cache:{digest}"
 
 
 class CheckResult(BaseModel):
@@ -212,59 +167,6 @@ def _apply_grounding(result: CheckResult, source_text: str) -> CheckResult:
             get_request_id(),
         )
     return result
-
-
-# Modul-weiter Redis-Client-Singleton: wird einmalig pro Prozess erstellt und
-# wiederverwendet, statt pro Cache-Aufruf eine neue Verbindung aufzubauen.
-# Analog zum _async_session_factory-Muster in celery_app.py.
-_redis_client = None
-
-
-def _get_redis_client():
-    """Gibt den Modul-Singleton-Redis-Client zurück (lazy init, thread-safe via GIL)."""
-    global _redis_client
-    if _redis_client is None:
-        try:
-            import redis.asyncio as aioredis  # type: ignore
-
-            _redis_client = aioredis.from_url(
-                settings.celery_broker_url,
-                decode_responses=True,
-                max_connections=10,
-            )
-        except Exception as exc:
-            logger.debug("Redis client init failed (cache disabled): %s", exc)
-    return _redis_client
-
-
-async def _cache_get(key: str) -> CheckResult | None:
-    """Return a cached CheckResult or None if cache is disabled / miss."""
-    if not settings.llm_cache_enabled:
-        return None
-    try:
-        r = _get_redis_client()
-        if r is None:
-            return None
-        raw = await r.get(key)
-        if raw is None:
-            return None
-        return CheckResult.model_validate_json(raw)
-    except Exception as exc:
-        logger.warning("LLM cache GET failed: %s", exc, extra={"cache_key": key})
-        return None
-
-
-async def _cache_set(key: str, result: CheckResult) -> None:
-    """Store a CheckResult in Redis with the configured TTL."""
-    if not settings.llm_cache_enabled:
-        return
-    try:
-        r = _get_redis_client()
-        if r is None:
-            return
-        await r.setex(key, settings.llm_cache_ttl, result.model_dump_json())
-    except Exception as exc:
-        logger.warning("LLM cache SET failed: %s", exc, extra={"cache_key": key})
 
 
 def _context_chars_per_doc() -> int:
@@ -441,7 +343,7 @@ async def _llm_check_call(
     higher-stakes checks); otherwise a single deterministic sample is used.
     """
     cache_key = _cache_key(system, user_content, case_id, playbook_revision)
-    cached = await _cache_get(cache_key)
+    cached = await _cache_get(cache_key, CheckResult)
     if cached is not None:
         logger.info(
             "LLM cache hit for check '%s'  [request_id=%s]",

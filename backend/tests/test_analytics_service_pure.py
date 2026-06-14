@@ -3,9 +3,9 @@
 Brauchen keine DB, sind also auch in CI ohne Postgres lauffaehig.
 """
 
-from app.services.analytics_service import (
-    MATURITY_WEIGHTS,
-    _avv_bucket,
+from app.services.maturity_service import MATURITY_WEIGHTS
+from app.services.pipeline_service import _avv_bucket
+from app.services.velocity_service import (
     _histogram_days,
     _histogram_hours,
     _percentile,

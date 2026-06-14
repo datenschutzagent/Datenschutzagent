@@ -10,6 +10,7 @@ import pytest
 from pydantic_ai import ModelRetry
 
 from app.config import settings
+from app.core.llm_cache import _cache_key
 from app.services.check_runner import (
     CONTEXT_CHARS_PER_DOC,
     CheckResult,
@@ -17,7 +18,6 @@ from app.services.check_runner import (
     _aggregate_self_consistency,
     _apply_grounding,
     _build_context_windows,
-    _cache_key,
     _language_hint,
     _legal_bases_section,
     _make_grounding_validator,
@@ -308,24 +308,24 @@ def test_cache_key_accepts_none_case():
 
 def test_cache_key_includes_org_profile_scope():
     """Changing org_profile must invalidate the cache (multi-tenant isolation)."""
-    from app.services import check_runner
+    from app.core import llm_cache
 
     case = uuid4()
-    check_runner._org_profile_hash_cached = None
+    llm_cache._org_profile_hash_cached = None
     from app.config import settings
 
     original = settings.org_profile
     try:
         settings.org_profile = "tenant-a"
-        check_runner._org_profile_hash_cached = None
+        llm_cache._org_profile_hash_cached = None
         key_a = _cache_key("sys", "user", case)
         settings.org_profile = "tenant-b"
-        check_runner._org_profile_hash_cached = None
+        llm_cache._org_profile_hash_cached = None
         key_b = _cache_key("sys", "user", case)
         assert key_a != key_b
     finally:
         settings.org_profile = original
-        check_runner._org_profile_hash_cached = None
+        llm_cache._org_profile_hash_cached = None
 
 
 # ---------------------------------------------------------------------------
