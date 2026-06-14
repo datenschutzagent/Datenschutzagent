@@ -13,9 +13,9 @@ from app.constants import CaseStatus
 from app.models._db.base import Base
 
 if TYPE_CHECKING:
-    from app.models._db.compliance import PrivacyPolicyModel
     from app.models._db.document import DocumentModel
     from app.models._db.finding import FindingModel
+    from app.models._db.privacy_policy import PrivacyPolicyModel
 
 
 class CaseModel(Base):
