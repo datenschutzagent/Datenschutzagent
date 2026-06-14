@@ -13,12 +13,9 @@ from app.models.schemas import (
     PipelineStatsResponse,
     VelocityStatsResponse,
 )
-from app.services.analytics_service import (
-    compute_risk_velocity,
-    maturity_stats,
-    pipeline_stats,
-    velocity_stats,
-)
+from app.services.maturity_service import compute_risk_velocity, maturity_stats
+from app.services.pipeline_service import pipeline_stats
+from app.services.velocity_service import velocity_stats
 
 router = APIRouter()
 
@@ -47,8 +44,7 @@ async def get_org_risk_dashboard(
         dept_filter_cases = " AND department = :dept "
 
     result = await db.execute(
-        text(
-            f"""
+        text(f"""
         WITH dept_findings AS (
             SELECT c.department,
                    SUM(CASE WHEN f.severity = 'critical' THEN 1 ELSE 0 END) AS critical_open,
@@ -132,8 +128,7 @@ async def get_org_risk_dashboard(
         SELECT 'trend', month,
                critical, high, medium, low, info, 0, 0, 0
         FROM org_trend
-    """
-        ),
+    """),
         params,
     )
     rows = result.fetchall()

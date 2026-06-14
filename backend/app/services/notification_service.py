@@ -622,7 +622,7 @@ async def scan_and_notify_maturity_decline(
         logger.info("Maturity-decline notifications skipped: SMTP not enabled")
         return {"sent": 0, "skipped_no_smtp": True}
 
-    from app.services.analytics_service import compute_risk_velocity
+    from app.services.maturity_service import compute_risk_velocity
     from app.services.risk_config_loader import get_risk_config
 
     cfg = get_risk_config().risk_velocity
