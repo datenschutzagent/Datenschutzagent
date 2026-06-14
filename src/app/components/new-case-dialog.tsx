@@ -22,6 +22,7 @@ import {
 } from "../lib/api";
 import { useAppConfig } from "../contexts/AppConfigContext";
 import { documentTypeLabels, type DocumentType } from "../lib/mock-data";
+import { useMultiStepForm } from "../hooks/useMultiStepForm";
 
 interface NewCaseDialogProps {
   open: boolean;
@@ -52,7 +53,10 @@ export function NewCaseDialog({ open, onOpenChange, onSuccess }: NewCaseDialogPr
         : FALLBACK_PROCESSING_CONTEXT_OPTIONS,
     [appConfig.processing_context_options],
   );
-  const [step, setStep] = useState<1 | 2 | 3>(1);
+
+  const { step, formData, setFormData, nextStep, prevStep, reset, canProceedToStep2, canSubmit } =
+    useMultiStepForm();
+
   const [departmentsFromApi, setDepartmentsFromApi] = useState<ApiDepartment[]>([]);
   const [playbooks, setPlaybooks] = useState<ApiPlaybook[]>([]);
   const [playbooksForStep2, setPlaybooksForStep2] = useState<ApiPlaybook[]>([]);
@@ -63,17 +67,6 @@ export function NewCaseDialog({ open, onOpenChange, onSuccess }: NewCaseDialogPr
   const [pendingFiles, setPendingFiles] = useState<File[]>([]);
   const [pendingDocumentType, setPendingDocumentType] = useState<DocumentType>("other");
   const [selectedPlaybookId, setSelectedPlaybookId] = useState("");
-  const [formData, setFormData] = useState({
-    title: "",
-    department: "",
-    caseType: "",
-    language: "de" as "de" | "en" | "de_en",
-    description: "",
-    assignee: "DSB Team",
-    processingContext: PROCESSING_CONTEXT_NONE,
-    specialCategoryData: false,
-    internationalTransfer: false,
-  });
 
   useEffect(() => {
     if (!open) return;
@@ -99,13 +92,16 @@ export function NewCaseDialog({ open, onOpenChange, onSuccess }: NewCaseDialogPr
     toast.success(`Vorlage „${t.name}" angewendet`);
   }
 
-  const selectPlaybook = useCallback((playbook: ApiPlaybook) => {
-    setSelectedPlaybookId(playbook.id);
-    setFormData((f) => ({
-      ...f,
-      caseType: playbook.caseType ?? playbook.name,
-    }));
-  }, []);
+  const selectPlaybook = useCallback(
+    (playbook: ApiPlaybook) => {
+      setSelectedPlaybookId(playbook.id);
+      setFormData((f) => ({
+        ...f,
+        caseType: playbook.caseType ?? playbook.name,
+      }));
+    },
+    [setFormData],
+  );
 
   useEffect(() => {
     if (!open || step !== 2 || !formData.department) {
@@ -157,12 +153,12 @@ export function NewCaseDialog({ open, onOpenChange, onSuccess }: NewCaseDialogPr
     const only = playbooksForStep2[0];
     if (selectedPlaybookId === only.id) return;
     selectPlaybook(only);
-  }, [step, playbooksForStep2, selectedPlaybookId, selectPlaybook]);
+  }, [step, playbooksForStep2, selectedPlaybookId, selectPlaybook, setFormData]);
 
   const departments: string[] =
     departmentsFromApi.length > 0
       ? departmentsFromApi.map((d) => d.value)
-      : Array.from(new Set(playbooks.map((pb) => pb.department).filter(Boolean))) as string[];
+      : (Array.from(new Set(playbooks.map((pb) => pb.department).filter(Boolean))) as string[]);
   const selectedPlaybooks = step === 2 ? playbooksForStep2 : [];
 
   const handleSubmit = async () => {
@@ -187,21 +183,10 @@ export function NewCaseDialog({ open, onOpenChange, onSuccess }: NewCaseDialogPr
         await uploadDocumentsBulk(newCase.id, pendingFiles, pendingDocumentType, formData.assignee || "");
       }
       onOpenChange(false);
-      setStep(1);
+      reset();
       setPendingFiles([]);
       setPendingDocumentType("other");
       setSelectedPlaybookId("");
-      setFormData({
-        title: "",
-        department: "",
-        caseType: "",
-        language: "de",
-        description: "",
-        assignee: "DSB Team",
-        processingContext: PROCESSING_CONTEXT_NONE,
-        specialCategoryData: false,
-        internationalTransfer: false,
-      });
       toast.success("Vorgang erfolgreich angelegt");
       onSuccess?.(newCase);
     } catch (e) {
@@ -225,9 +210,6 @@ export function NewCaseDialog({ open, onOpenChange, onSuccess }: NewCaseDialogPr
   const removePendingFile = (index: number) => {
     setPendingFiles((prev) => prev.filter((_, i) => i !== index));
   };
-
-  const canProceedToStep2 = formData.title && formData.department;
-  const canSubmit = formData.title && formData.department && selectedPlaybookId;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -390,7 +372,12 @@ export function NewCaseDialog({ open, onOpenChange, onSuccess }: NewCaseDialogPr
             {/* Language */}
             <div className="space-y-2">
               <Label htmlFor="language">Sprache</Label>
-              <Select value={formData.language} onValueChange={(value) => setFormData({ ...formData, language: value })}>
+              <Select
+                value={formData.language}
+                onValueChange={(value) =>
+                  setFormData({ ...formData, language: value as "de" | "en" | "de_en" })
+                }
+              >
                 <SelectTrigger id="language">
                   <SelectValue />
                 </SelectTrigger>
@@ -536,21 +523,21 @@ export function NewCaseDialog({ open, onOpenChange, onSuccess }: NewCaseDialogPr
         )}
         <DialogFooter className="flex-col-reverse gap-2 sm:flex-row sm:gap-0">
           {step >= 2 && (
-            <Button variant="outline" onClick={() => setStep((s) => (s - 1) as 1 | 2 | 3)}>
+            <Button variant="outline" onClick={prevStep}>
               Zurück
             </Button>
           )}
           {step === 1 && (
-            <Button onClick={() => setStep(2)} disabled={!canProceedToStep2}>
+            <Button onClick={nextStep} disabled={!canProceedToStep2}>
               Weiter
             </Button>
           )}
           {step === 2 && (
             <>
-              <Button variant="outline" onClick={handleSubmit} disabled={!canSubmit || loading}>
+              <Button variant="outline" onClick={handleSubmit} disabled={!canSubmit(selectedPlaybookId) || loading}>
                 {loading ? "Wird angelegt…" : "Ohne Dokumente anlegen"}
               </Button>
-              <Button onClick={() => setStep(3)} disabled={!canSubmit}>
+              <Button onClick={nextStep} disabled={!canSubmit(selectedPlaybookId)}>
                 Weiter
               </Button>
             </>
