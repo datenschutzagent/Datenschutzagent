@@ -56,7 +56,7 @@ services:
       AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED: "false"
       AUTHENTICATION_APIKEY_ENABLED: "true"
       AUTHENTICATION_APIKEY_ALLOWED_KEYS: "${WEAVIATE_API_KEY:?WEAVIATE_API_KEY must be set in .env}"
-      AUTHENTICATION_APIKEY_USERS: "datenschutzagent"
+      AUTHENTICATION_APIKEY_USERS: "${WEAVIATE_APIKEY_USER:-datenschutzagent}"
       PERSISTENCE_DATA_PATH: "${WEAVIATE_PERSISTENCE_DATA_PATH:-/var/lib/weaviate}"
       QUERY_DEFAULTS_LIMIT: "${WEAVIATE_QUERY_DEFAULTS_LIMIT:-25}"
       CLUSTER_HOSTNAME: "${WEAVIATE_CLUSTER_HOSTNAME:-node1}"
@@ -106,7 +106,7 @@ services:
       timeout: 5s
       retries: 5
       start_period: 20s
-    restart: on-failure
+    restart: on-failure:5
 
   celery_worker:
     build:
@@ -126,7 +126,13 @@ services:
     volumes:
       - backend_storage:/app/storage
     command: celery -A app.celery_app worker -l info -Q extraction,celery
-    restart: on-failure
+    healthcheck:
+      test: ["CMD", "celery", "-A", "app.celery_app", "inspect", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    restart: on-failure:5
 
   frontend:
     build:
