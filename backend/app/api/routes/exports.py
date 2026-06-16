@@ -20,7 +20,6 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import Response
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import selectinload
 
 from app.config import settings
 from app.core.auth import require_roles
@@ -28,6 +27,7 @@ from app.database import get_db
 from app.models.db import CaseModel, TOMModel
 from app.services.audit_export_service import export_full_trail
 from app.services.org_profile_loader import get_vvt_field_names
+from app.services.query_helpers import case_relations
 from app.services.risk_config_loader import get_risk_config
 from app.services.ropa_export_service import build_ropa_csv, build_ropa_docx
 from app.services.tom_gap_service import analyse_gaps
@@ -151,7 +151,7 @@ async def export_case_ropa(
         await db.execute(
             select(CaseModel)
             .where(CaseModel.id == case_id)
-            .options(selectinload(CaseModel.documents))
+            .options(*case_relations(findings=False))
         )
     ).scalar_one_or_none()
     if case is None:

@@ -10,7 +10,6 @@ from uuid import UUID
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import selectinload
 
 from app.config import settings
 from app.constants import DocumentExtractionStatus, FindingStatus
@@ -22,6 +21,7 @@ from app.services.check_runner import (
     run_cross_document_check,
     run_cross_document_check_rag,
 )
+from app.services.query_helpers import case_relations
 from app.services.weaviate_service import get_relevant_legal_base_chunks
 
 logger = logging.getLogger(__name__)
@@ -652,7 +652,7 @@ async def run_checks_impl(
     result = await db.execute(
         select(CaseModel)
         .where(CaseModel.id == case_id)
-        .options(selectinload(CaseModel.documents))
+        .options(*case_relations(findings=False))
     )
     case = result.scalar_one_or_none()
     if not case:

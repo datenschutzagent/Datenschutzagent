@@ -11,7 +11,6 @@ from fastapi import APIRouter, Depends, Query
 from fastapi.responses import Response
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import selectinload
 
 from app.database import get_db
 from app.models.db import CaseModel, DSBReportModel
@@ -20,6 +19,7 @@ from app.models.schemas import (
     VVTOverviewStatsGroup,
     VVTOverviewStatsResponse,
 )
+from app.services.query_helpers import case_relations
 
 logger = logging.getLogger(__name__)
 
@@ -84,7 +84,7 @@ async def get_vvt_overview(
     """List cases with VVT metadata (has_vvt_document, vvt_completeness from DSB report). No LLM."""
     q = (
         select(CaseModel)
-        .options(selectinload(CaseModel.documents))
+        .options(*case_relations(findings=False))
         .order_by(CaseModel.updated_at.desc())
     )
     if department is not None:
@@ -122,7 +122,7 @@ async def get_vvt_overview_stats(db: AsyncSession = Depends(get_db)):
     """Aggregate stats: totals and by department / case_type."""
     result = await db.execute(
         select(CaseModel)
-        .options(selectinload(CaseModel.documents))
+        .options(*case_relations(findings=False))
         .order_by(CaseModel.updated_at.desc())
     )
     cases = result.scalars().all()
@@ -206,7 +206,7 @@ async def get_vvt_overview_export(
 
     q = (
         select(CaseModel)
-        .options(selectinload(CaseModel.documents))
+        .options(*case_relations(findings=False))
         .order_by(CaseModel.updated_at.desc())
     )
     if department is not None:

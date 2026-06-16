@@ -7,7 +7,6 @@ from uuid import UUID
 from fastapi import HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import selectinload
 
 from app.constants import FindingStatus
 from app.models.db import ActivityLogModel, CaseModel, DSBReportModel
@@ -16,6 +15,7 @@ from app.models.schemas import (
     DSBReportRisk,
     DSBReportSummary,
 )
+from app.services.query_helpers import case_relations
 from app.services.vvt_service import normalize_vvt
 
 logger = logging.getLogger(__name__)
@@ -134,12 +134,7 @@ async def build_dsb_report(case_id: UUID, db: AsyncSession) -> DSBReportResponse
     """
     logger.info("DSB report generation started", extra={"case_id": str(case_id)})
     result = await db.execute(
-        select(CaseModel)
-        .where(CaseModel.id == case_id)
-        .options(
-            selectinload(CaseModel.documents),
-            selectinload(CaseModel.findings),
-        )
+        select(CaseModel).where(CaseModel.id == case_id).options(*case_relations())
     )
     case = result.scalar_one_or_none()
     if not case:

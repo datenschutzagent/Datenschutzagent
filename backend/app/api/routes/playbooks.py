@@ -3,7 +3,6 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import selectinload
 
 from app.config import settings
 from app.core.auth import require_roles
@@ -25,6 +24,7 @@ from app.models.schemas import (
     PlaybookUpdate,
 )
 from app.services.playbook_matching import rank_playbooks_for_selection
+from app.services.query_helpers import case_relations
 
 router = APIRouter()
 
@@ -271,7 +271,7 @@ async def get_playbook_coverage_preview(
     case_result = await db.execute(
         select(CaseModel)
         .where(CaseModel.id == case_id)
-        .options(selectinload(CaseModel.documents))
+        .options(*case_relations(findings=False))
     )
     case = case_result.scalar_one_or_none()
     if not case:

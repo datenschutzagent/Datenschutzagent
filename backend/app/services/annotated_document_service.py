@@ -10,9 +10,9 @@ import fitz  # PyMuPDF
 from docx import Document
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import selectinload
 
 from app.models.db import CaseModel, FindingModel
+from app.services.query_helpers import case_relations
 
 logger = logging.getLogger(__name__)
 
@@ -30,7 +30,7 @@ async def list_annotatable_documents(
     result = await db.execute(
         select(CaseModel)
         .where(CaseModel.id == case_id)
-        .options(selectinload(CaseModel.documents))
+        .options(*case_relations(findings=False))
     )
     case = result.scalar_one_or_none()
     if not case:
@@ -60,9 +60,7 @@ async def build_annotated_docx(
     Returns (docx_bytes, suggested_filename).
     """
     result = await db.execute(
-        select(CaseModel)
-        .where(CaseModel.id == case_id)
-        .options(selectinload(CaseModel.documents), selectinload(CaseModel.findings))
+        select(CaseModel).where(CaseModel.id == case_id).options(*case_relations())
     )
     case = result.scalar_one_or_none()
     if not case:
@@ -150,9 +148,7 @@ async def build_annotated_pdf(
     Returns (pdf_bytes, suggested_filename).
     """
     result = await db.execute(
-        select(CaseModel)
-        .where(CaseModel.id == case_id)
-        .options(selectinload(CaseModel.documents), selectinload(CaseModel.findings))
+        select(CaseModel).where(CaseModel.id == case_id).options(*case_relations())
     )
     case = result.scalar_one_or_none()
     if not case:

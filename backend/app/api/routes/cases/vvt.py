@@ -12,7 +12,6 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import Response
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import selectinload
 
 from app.config import settings
 from app.database import get_db
@@ -22,6 +21,7 @@ from app.models.schemas import (
     VVTNormalizationResponse,
 )
 from app.services.org_profile_loader import get_vvt_field_names
+from app.services.query_helpers import case_relations
 from app.services.vvt_service import normalize_vvt
 
 logger = logging.getLogger(__name__)
@@ -72,7 +72,7 @@ async def get_vvt_normalization_export(
     result = await db.execute(
         select(CaseModel)
         .where(CaseModel.id == case_id)
-        .options(selectinload(CaseModel.documents))
+        .options(*case_relations(findings=False))
     )
     case = result.scalar_one_or_none()
     if not case:
@@ -165,7 +165,7 @@ async def get_vvt_normalization(
     result = await db.execute(
         select(CaseModel)
         .where(CaseModel.id == case_id)
-        .options(selectinload(CaseModel.documents))
+        .options(*case_relations(findings=False))
     )
     case = result.scalar_one_or_none()
     if not case:
