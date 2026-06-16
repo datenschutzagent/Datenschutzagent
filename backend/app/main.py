@@ -126,6 +126,11 @@ async def lifespan(app: FastAPI):
                     id=DEFAULT_USER_ID,
                     display_name=settings.default_user_display_name,
                     email=None,
+                    # Honour RBAC_DEFAULT_ROLE so OIDC-disabled single-user
+                    # deployments are usable out of the box (the column default
+                    # is viewer, which cannot create/edit anything). Mirrors the
+                    # test seeding in tests/conftest.py.
+                    role=settings.rbac_default_role,
                     preferences={"theme": "system", "language": "de"},
                 )
                 session.add(default_user)
