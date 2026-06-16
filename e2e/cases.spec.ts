@@ -10,14 +10,14 @@ test.describe("Cases", () => {
     await page.goto("/");
   });
 
-  test("landing page loads and shows the cases list", async ({ page }) => {
+  test("landing page loads and shows the cases list @smoke", async ({ page }) => {
     // The app should render the main navigation or case list
     await expect(page).toHaveTitle(/Datenschutz/i);
     // Page should not crash (no error boundary text visible)
     await expect(page.getByText(/Etwas ist schiefgelaufen/i)).not.toBeVisible();
   });
 
-  test("opens New Case dialog and validates required fields", async ({ page }) => {
+  test("opens New Case dialog and validates required fields @smoke", async ({ page }) => {
     // Find and click the New Case button (German: "Neuer Vorgang" or similar)
     const newCaseButton = page
       .getByRole("button", { name: /Neuer Vorgang|New Case/i })

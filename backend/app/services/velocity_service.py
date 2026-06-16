@@ -85,7 +85,8 @@ async def _compute_funnels(db: AsyncSession, department: str | None) -> list[dic
             " JOIN dsr_requests r ON r.id = a.request_id AND r.department = :dept "
         )
         params["dept"] = department
-    dsr_funnel_q = text(f"""
+    dsr_funnel_q = text(
+        f"""
         WITH ordered AS (
             SELECT a.request_id,
                    a.event_type,
@@ -100,7 +101,8 @@ async def _compute_funnels(db: AsyncSession, department: str | None) -> list[dic
                EXTRACT(EPOCH FROM (created_at - prev_at))/3600.0 AS hours
         FROM ordered
         WHERE prev_event IS NOT NULL
-    """)
+    """
+    )
     rows = (await db.execute(dsr_funnel_q, params)).fetchall()
     funnels.append(_summarize_funnel("DSR", rows))
 
@@ -109,7 +111,8 @@ async def _compute_funnels(db: AsyncSession, department: str | None) -> list[dic
         dept_join_breach = (
             " JOIN data_breaches b ON b.id = a.breach_id AND b.department = :dept "
         )
-    breach_funnel_q = text(f"""
+    breach_funnel_q = text(
+        f"""
         WITH ordered AS (
             SELECT a.breach_id,
                    a.event_type,
@@ -124,7 +127,8 @@ async def _compute_funnels(db: AsyncSession, department: str | None) -> list[dic
                EXTRACT(EPOCH FROM (created_at - prev_at))/3600.0 AS hours
         FROM ordered
         WHERE prev_event IS NOT NULL
-    """)
+    """
+    )
     rows = (await db.execute(breach_funnel_q, params)).fetchall()
     funnels.append(_summarize_funnel("Datenpanne", rows))
     return funnels
@@ -140,11 +144,13 @@ async def velocity_stats(
         dept_filter_dsr = " AND department = :dept "
         params["dept"] = department
 
-    dsr_q = text(f"""
+    dsr_q = text(
+        f"""
         SELECT (responded_at - received_at) AS days, request_type, received_at
         FROM dsr_requests
         WHERE responded_at IS NOT NULL {dept_filter_dsr}
-    """)
+    """
+    )
     dsr_rows = (await db.execute(dsr_q, params)).fetchall()
     dsr_days = [float(r[0]) for r in dsr_rows if r[0] is not None]
     dsr_total = len(dsr_days)
@@ -200,13 +206,15 @@ async def velocity_stats(
     dept_filter_breach = ""
     if department:
         dept_filter_breach = " AND department = :dept "
-    breach_q = text(f"""
+    breach_q = text(
+        f"""
         SELECT EXTRACT(EPOCH FROM (authority_notified_at - discovered_at))/3600.0 AS hours_auth,
                EXTRACT(EPOCH FROM (subjects_notified_at - discovered_at))/3600.0 AS hours_subj,
                discovered_at, risk_level
         FROM data_breaches
         WHERE authority_notified_at IS NOT NULL {dept_filter_breach}
-    """)
+    """
+    )
     breach_rows = (await db.execute(breach_q, params)).fetchall()
     auth_hours = [float(r[0]) for r in breach_rows if r[0] is not None and r[0] >= 0]
     subj_hours = [float(r[1]) for r in breach_rows if r[1] is not None and r[1] >= 0]
@@ -251,12 +259,14 @@ async def velocity_stats(
     dept_filter_find = ""
     if department:
         dept_filter_find = " AND c.department = :dept "
-    find_q = text(f"""
+    find_q = text(
+        f"""
         SELECT f.severity, EXTRACT(EPOCH FROM (f.updated_at - f.created_at))/86400.0 AS days
         FROM findings f
         JOIN cases c ON c.id = f.case_id
         WHERE f.status IN ('fixed', 'accepted', 'overruled') {dept_filter_find}
-    """)
+    """
+    )
     find_rows = (await db.execute(find_q, params)).fetchall()
     by_sev: dict[str, list[float]] = {}
     for row in find_rows:

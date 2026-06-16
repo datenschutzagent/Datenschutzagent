@@ -261,13 +261,13 @@ def test_reload_clears_cache():
 
 
 # ---------------------------------------------------------------------------
-# Velocity helper (analytics_service)
+# Velocity helper (maturity_service)
 # ---------------------------------------------------------------------------
 
 
 def test_velocity_score_matches_legacy_formula():
     """Default 14d->100, 60d->0 must reproduce the legacy (60-d)/46*100 mapping."""
-    from app.services.analytics_service import _velocity_score
+    from app.services.maturity_service import _velocity_score
 
     assert _velocity_score(14.0, 14, 60) == pytest.approx(100.0)
     assert _velocity_score(60.0, 14, 60) == pytest.approx(0.0)
@@ -276,7 +276,7 @@ def test_velocity_score_matches_legacy_formula():
 
 
 def test_velocity_score_clamps_to_range():
-    from app.services.analytics_service import _velocity_score
+    from app.services.maturity_service import _velocity_score
 
     assert _velocity_score(0.0, 14, 60) == 100.0  # well below optimal
     assert _velocity_score(120.0, 14, 60) == 0.0  # well above worst
@@ -284,7 +284,7 @@ def test_velocity_score_clamps_to_range():
 
 def test_velocity_score_handles_degenerate_span():
     """worst == optimal would divide by zero — must clamp safely."""
-    from app.services.analytics_service import _velocity_score
+    from app.services.maturity_service import _velocity_score
 
     assert _velocity_score(5.0, 10, 10) == 100.0  # under threshold
     assert _velocity_score(15.0, 10, 10) == 0.0  # over threshold
@@ -475,8 +475,8 @@ def test_risk_velocity_classify_trend():
 
 
 def test_classify_trend_helper_matches_config():
-    """Standalone helper in analytics_service uses the same logic."""
-    from app.services.analytics_service import _classify_trend
+    """Standalone helper in maturity_service uses the same logic."""
+    from app.services.maturity_service import _classify_trend
 
     assert _classify_trend(5.0, 10.0) == "stable"
     assert _classify_trend(10.0, 10.0) == "up"

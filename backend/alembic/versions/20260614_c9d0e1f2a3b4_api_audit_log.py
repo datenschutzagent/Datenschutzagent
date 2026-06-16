@@ -29,7 +29,8 @@ depends_on: str | tuple[str, ...] | None = None
 
 
 def upgrade() -> None:
-    op.execute("""
+    op.execute(
+        """
         CREATE TABLE IF NOT EXISTS api_audit_log (
             id          UUID        NOT NULL DEFAULT gen_random_uuid() PRIMARY KEY,
             user_id     UUID,
@@ -39,7 +40,8 @@ def upgrade() -> None:
             request_id  VARCHAR(36)  NOT NULL DEFAULT '-',
             timestamp   TIMESTAMPTZ  NOT NULL DEFAULT NOW()
         )
-        """)
+        """
+    )
     op.execute(
         "CREATE INDEX IF NOT EXISTS ix_api_audit_log_user_id_timestamp "
         "ON api_audit_log (user_id, timestamp)"

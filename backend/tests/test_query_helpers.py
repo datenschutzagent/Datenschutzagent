@@ -75,7 +75,7 @@ async def _create_case_with_children(n_docs: int, n_findings: int) -> uuid.UUID:
                 DocumentModel(
                     case_id=case_id,
                     name=f"doc-{i}",
-                    type="policy",
+                    type="other",
                     format="pdf",
                     size_bytes=10,
                     storage_path=f"test/{case_id}/{i}",
