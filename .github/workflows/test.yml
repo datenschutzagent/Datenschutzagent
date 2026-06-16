@@ -96,6 +96,9 @@ jobs:
           WEAVIATE_API_KEY=ci_weaviate
           MINIO_ROOT_USER=ciminio
           MINIO_ROOT_PASSWORD=ciminiopw123
+          # Default user needs edit rights so the "Neuer Vorgang" button renders
+          # (canEdit → editor/admin); without this the role defaults to viewer.
+          RBAC_DEFAULT_ROLE=admin
           OLLAMA_ENABLED=false
           CELERY_ENABLED=false
           WEAVIATE_INDEXING_ENABLED=false
