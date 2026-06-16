@@ -13,7 +13,6 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import JSONResponse, Response, StreamingResponse
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import selectinload
 
 from app.celery_app import build_dsb_report_task
 from app.config import settings
@@ -52,6 +51,7 @@ from app.services.dsb_report_service import (
     render_report_markdown,
     save_report,
 )
+from app.services.query_helpers import case_relations
 from app.services.risk_config_loader import get_risk_config
 from app.services.weaviate_service import delete_chunks_by_case_id
 
@@ -214,12 +214,7 @@ async def list_cases(
     sort_expr = nulls_last(sort_expr) if order == "desc" else nulls_first(sort_expr)
 
     result = await db.execute(
-        base_q.options(
-            selectinload(CaseModel.documents), selectinload(CaseModel.findings)
-        )
-        .order_by(sort_expr)
-        .offset(skip)
-        .limit(limit)
+        base_q.options(*case_relations()).order_by(sort_expr).offset(skip).limit(limit)
     )
     cases = result.scalars().all()
     return CaseListResponse(
@@ -253,7 +248,7 @@ async def bulk_update_cases(
     result = await db.execute(
         select(CaseModel)
         .where(CaseModel.id.in_(case_id_uuids))
-        .options(selectinload(CaseModel.documents), selectinload(CaseModel.findings))
+        .options(*case_relations())
     )
     cases = result.scalars().all()
 
@@ -310,7 +305,7 @@ async def export_cases(
 
     from sqlalchemy import exists as sql_exists
 
-    base_q = select(CaseModel).options(selectinload(CaseModel.findings))
+    base_q = select(CaseModel).options(*case_relations(documents=False))
     if q:
         like = f"%{q}%"
         from sqlalchemy import or_
@@ -402,9 +397,7 @@ async def get_case(
 ):
     """Get a single case by ID."""
     result = await db.execute(
-        select(CaseModel)
-        .where(CaseModel.id == case_id)
-        .options(selectinload(CaseModel.documents), selectinload(CaseModel.findings))
+        select(CaseModel).where(CaseModel.id == case_id).options(*case_relations())
     )
     case = result.scalar_one_or_none()
     if not case:
@@ -500,9 +493,7 @@ async def create_case(
     await db.flush()
     # Re-fetch with relationships loaded to avoid lazy load in async context (MissingGreenlet)
     result = await db.execute(
-        select(CaseModel)
-        .where(CaseModel.id == case.id)
-        .options(selectinload(CaseModel.documents), selectinload(CaseModel.findings))
+        select(CaseModel).where(CaseModel.id == case.id).options(*case_relations())
     )
     case = result.scalar_one()
     return CaseResponse.model_validate(case)
@@ -588,9 +579,7 @@ async def update_case(
                 logger.warning("Webhook fire_event failed (non-critical): %s", exc)
     # Re-fetch with relationships loaded to avoid lazy load in async context (MissingGreenlet)
     result = await db.execute(
-        select(CaseModel)
-        .where(CaseModel.id == case_id)
-        .options(selectinload(CaseModel.documents), selectinload(CaseModel.findings))
+        select(CaseModel).where(CaseModel.id == case_id).options(*case_relations())
     )
     case = result.scalar_one()
     return CaseResponse.model_validate(case)
@@ -707,9 +696,7 @@ async def clone_case(
 
     # Re-fetch mit Relationships
     new_result = await db.execute(
-        select(CaseModel)
-        .where(CaseModel.id == new_case.id)
-        .options(selectinload(CaseModel.documents), selectinload(CaseModel.findings))
+        select(CaseModel).where(CaseModel.id == new_case.id).options(*case_relations())
     )
     new_case = new_result.scalar_one()
     logger.info(
@@ -729,9 +716,7 @@ async def archive_case(
 ):
     """Archive a case. Archived cases are read-only and hidden from the default list view."""
     result = await db.execute(
-        select(CaseModel)
-        .where(CaseModel.id == case_id)
-        .options(selectinload(CaseModel.documents), selectinload(CaseModel.findings))
+        select(CaseModel).where(CaseModel.id == case_id).options(*case_relations())
     )
     case = result.scalar_one_or_none()
     if not case:
@@ -754,9 +739,7 @@ async def unarchive_case(
 ):
     """Unarchive a previously archived case."""
     result = await db.execute(
-        select(CaseModel)
-        .where(CaseModel.id == case_id)
-        .options(selectinload(CaseModel.documents), selectinload(CaseModel.findings))
+        select(CaseModel).where(CaseModel.id == case_id).options(*case_relations())
     )
     case = result.scalar_one_or_none()
     if not case:
@@ -791,7 +774,7 @@ async def get_dsb_report(
     result = await db.execute(
         select(CaseModel)
         .where(CaseModel.id == case_id)
-        .options(selectinload(CaseModel.documents))
+        .options(*case_relations(findings=False))
     )
     case = result.scalar_one_or_none()
     current_doc_count = len(case.documents) if case else 0
@@ -1010,7 +993,7 @@ async def get_similar_cases(
     result = await db.execute(
         select(CaseModel)
         .where(CaseModel.id == case_id)
-        .options(selectinload(CaseModel.findings))
+        .options(*case_relations(documents=False))
     )
     case = result.scalar_one_or_none()
     if not case:
@@ -1030,7 +1013,7 @@ async def get_similar_cases(
             CaseModel.case_type == case.case_type,
             CaseModel.id != case_id,
         )
-        .options(selectinload(CaseModel.findings))
+        .options(*case_relations(documents=False))
         .limit(50)
     )
     candidates = candidates_result.scalars().all()

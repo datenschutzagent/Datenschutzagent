@@ -11,7 +11,6 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import Response
 from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import selectinload
 
 from app.constants import FindingSeverity, FindingStatus
 from app.core.auth import require_roles
@@ -42,6 +41,7 @@ from app.models.schemas import (
     ResolutionVelocityItem,
     TopFailingCheck,
 )
+from app.services.query_helpers import finding_relations
 
 router = APIRouter()
 
@@ -267,7 +267,7 @@ async def list_findings(
     total = total_result.scalar_one()
 
     result = await db.execute(
-        query.offset(offset).limit(limit).options(selectinload(FindingModel.case))
+        query.offset(offset).limit(limit).options(*finding_relations())
     )
     findings = result.scalars().all()
 

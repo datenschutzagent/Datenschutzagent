@@ -9,7 +9,6 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import selectinload
 
 from app.celery_app import run_playbook_checks
 from app.config import settings
@@ -29,6 +28,7 @@ from app.models.schemas import (
     ActivityResponse,
     RunChecksRequest,
 )
+from app.services.query_helpers import case_relations
 from app.services.run_checks_service import run_checks_impl
 
 logger = logging.getLogger(__name__)
@@ -209,7 +209,7 @@ async def run_checks(
     result = await db.execute(
         select(CaseModel)
         .where(CaseModel.id == case_id)
-        .options(selectinload(CaseModel.documents))
+        .options(*case_relations(findings=False))
     )
     case = result.scalar_one_or_none()
     if not case:
@@ -310,9 +310,7 @@ async def run_checks(
     db.add(activity)
     await db.flush()
     result2 = await db.execute(
-        select(CaseModel)
-        .where(CaseModel.id == case_id)
-        .options(selectinload(CaseModel.documents), selectinload(CaseModel.findings))
+        select(CaseModel).where(CaseModel.id == case_id).options(*case_relations())
     )
     case = result2.scalar_one()
     return CaseResponse.model_validate(case)
