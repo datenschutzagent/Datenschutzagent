@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import pytest
 
-from app.services.risk_config_loader import (
+from app.services.risk_config_models import (
     DsfaAssessmentConfig,
     DsfaScreeningConfig,
     DsfaScreeningFactor,

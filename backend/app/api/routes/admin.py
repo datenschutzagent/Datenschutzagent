@@ -453,7 +453,7 @@ async def preview_admin_risk_config(
 
     # Sample 6: Velocity-Score (Median 25 Tage)
     def _vel(cfg):
-        from app.services.analytics_service import _velocity_score
+        from app.services.maturity_service import _velocity_score
 
         return round(
             _velocity_score(

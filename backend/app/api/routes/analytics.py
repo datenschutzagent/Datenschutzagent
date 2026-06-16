@@ -44,7 +44,8 @@ async def get_org_risk_dashboard(
         dept_filter_cases = " AND department = :dept "
 
     result = await db.execute(
-        text(f"""
+        text(
+            f"""
         WITH dept_findings AS (
             SELECT c.department,
                    SUM(CASE WHEN f.severity = 'critical' THEN 1 ELSE 0 END) AS critical_open,
@@ -128,7 +129,8 @@ async def get_org_risk_dashboard(
         SELECT 'trend', month,
                critical, high, medium, low, info, 0, 0, 0
         FROM org_trend
-    """),
+    """
+        ),
         params,
     )
     rows = result.fetchall()

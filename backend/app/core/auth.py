@@ -355,15 +355,29 @@ async def get_current_user(
     if settings.auth_session_cookie_enabled:
         user = await get_current_user_cookie(request=request, db=db)
         if user is not None:
-            request.state.current_user = user
+            _stash_current_user(request, user)
             return user
     if settings.oidc_enabled:
         user = await get_current_user_oidc(credentials=credentials, db=db)
-        request.state.current_user = user
+        _stash_current_user(request, user)
         return user
     user = await get_current_user_fallback(db=db)
-    request.state.current_user = user
+    _stash_current_user(request, user)
     return user
+
+
+def _stash_current_user(request: Request, user: UserModel) -> None:
+    """Stash the resolved user and its id on ``request.state`` while the DB
+    session is still open.
+
+    Post-response middleware (the API audit log, the per-user rate-limit
+    keyfunc) runs after the request-scoped session has closed. Reading an ORM
+    attribute on the ``UserModel`` there raises ``DetachedInstanceError`` once
+    ``expire_on_commit`` has expired its attributes, so we capture the plain
+    ``current_user_id`` (a UUID) up front for those consumers to use.
+    """
+    request.state.current_user = user
+    request.state.current_user_id = user.id
 
 
 def require_roles(*allowed_roles: str):

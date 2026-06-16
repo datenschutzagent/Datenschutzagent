@@ -461,8 +461,9 @@ async def audit_api_mutations(request: Request, call_next) -> Response:
     for segment in path.split("/"):
         if len(segment) == 36 and segment.count("-") == 4:
             path = path.replace(segment, "{id}", 1)
-    user = getattr(getattr(request, "state", None), "current_user", None)
-    user_id = getattr(user, "id", None)
+    # Read the plain id stashed at auth time (core/auth.py): the request session
+    # is closed by now, so touching the UserModel would raise DetachedInstanceError.
+    user_id = getattr(getattr(request, "state", None), "current_user_id", None)
     try:
         async with async_session_factory() as session:
             session.add(

@@ -15,6 +15,14 @@ os.environ.setdefault("CELERY_ENABLED", "false")
 # Mark environment as test so the production-profile validator stays lenient.
 os.environ.setdefault("APP_ENVIRONMENT", "test")
 
+# Disable rate limiting in tests: the whole suite shares the single default user,
+# so per-user buckets (e.g. 30/min on case creation) would trip across unrelated
+# tests that each legitimately create a handful of cases. The key function itself
+# stays covered by test_rate_limit_keyfunc.py.
+from app.core.rate_limit import limiter  # noqa: E402
+
+limiter.enabled = False
+
 
 @pytest.fixture
 def anyio_backend():

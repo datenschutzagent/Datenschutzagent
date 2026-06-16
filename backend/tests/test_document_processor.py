@@ -5,6 +5,8 @@ import io
 import pytest
 
 import app.services.document_processor as dp
+import app.services.ocr_service as ocr
+import app.services.pdf_extractor as pdf
 from app.services.document_processor import (
     EXTRACTION_METHOD_TEXT,
     ExtractionResult,
@@ -252,13 +254,11 @@ class TestPdfPageAnchors:
         assert "Muster GmbH" in result.text
 
     def test_ocr_merged_pages_keep_anchors(self, monkeypatch):
-        import app.services.document_processor as dp
-
-        monkeypatch.setattr(dp.settings, "ollama_ocr_enabled", True, raising=False)
-        monkeypatch.setattr(dp.settings, "ocr_per_page", True, raising=False)
+        monkeypatch.setattr(pdf.settings, "ollama_ocr_enabled", True, raising=False)
+        monkeypatch.setattr(pdf.settings, "ocr_per_page", True, raising=False)
         ocr_text = "OCR-Inhalt der gescannten Seite zwei mit ausreichend vielen Zeichen fuer die Schwelle."
         monkeypatch.setattr(
-            dp, "_ocr_pages", lambda content, targets: dict.fromkeys(targets, ocr_text)
+            pdf, "_ocr_pages", lambda content, targets: dict.fromkeys(targets, ocr_text)
         )
 
         # Page 1 digital, page 2 blank (sparse → OCR).
@@ -268,17 +268,13 @@ class TestPdfPageAnchors:
         assert result.text.index("[Seite 2]") < result.text.index("OCR-Inhalt")
 
     def test_assemble_pages_skips_empty_but_keeps_real_page_numbers(self):
-        import app.services.document_processor as dp
-
-        text = dp._assemble_pages(["Erste Seite", "", "Dritte Seite"], 3)
+        text = pdf._assemble_pages(["Erste Seite", "", "Dritte Seite"], 3)
         assert "[Seite 1]" in text
         assert "[Seite 2]" not in text  # empty page emits no anchor
         assert "[Seite 3]" in text  # numbering reflects the real page index
 
     def test_assemble_pages_single_page_unanchored(self):
-        import app.services.document_processor as dp
-
-        assert dp._assemble_pages(["Inhalt"], 1) == "Inhalt"
+        assert pdf._assemble_pages(["Inhalt"], 1) == "Inhalt"
 
 
 class TestLegacyDoc:
@@ -311,27 +307,27 @@ class TestOcrRetry:
 
     def _patch_render_and_sleep(self, monkeypatch):
         monkeypatch.setattr(
-            dp, "_pdf_page_to_png_bytes", lambda content, i, dpi=150: b"x"
+            ocr, "_pdf_page_to_png_bytes", lambda content, i, dpi=150: b"x"
         )
-        monkeypatch.setattr(dp.time, "sleep", lambda _s: None)
+        monkeypatch.setattr(ocr.time, "sleep", lambda _s: None)
 
     def test_retries_until_attempts_exhausted_then_empty(self, monkeypatch):
         self._patch_render_and_sleep(monkeypatch)
-        monkeypatch.setattr(dp.settings, "ocr_retry_attempts", 3, raising=False)
+        monkeypatch.setattr(ocr.settings, "ocr_retry_attempts", 3, raising=False)
         calls = {"n": 0}
 
         def _always_fail(*a, **k):
             calls["n"] += 1
             raise RuntimeError("boom")
 
-        monkeypatch.setattr(dp.httpx, "post", _always_fail)
-        result = dp._ocr_pages(b"fakepdf", [0])
+        monkeypatch.setattr(ocr.httpx, "post", _always_fail)
+        result = ocr._ocr_pages(b"fakepdf", [0])
         assert result == {0: ""}
         assert calls["n"] == 3  # one attempt per configured retry
 
     def test_succeeds_after_a_transient_failure(self, monkeypatch):
         self._patch_render_and_sleep(monkeypatch)
-        monkeypatch.setattr(dp.settings, "ocr_retry_attempts", 2, raising=False)
+        monkeypatch.setattr(ocr.settings, "ocr_retry_attempts", 2, raising=False)
         calls = {"n": 0}
 
         def _fail_then_ok(*a, **k):
@@ -340,22 +336,22 @@ class TestOcrRetry:
                 raise RuntimeError("transient")
             return _FakeResp("Seiteninhalt erkannt")
 
-        monkeypatch.setattr(dp.httpx, "post", _fail_then_ok)
-        result = dp._ocr_pages(b"fakepdf", [0])
+        monkeypatch.setattr(ocr.httpx, "post", _fail_then_ok)
+        result = ocr._ocr_pages(b"fakepdf", [0])
         assert result == {0: "Seiteninhalt erkannt"}
         assert calls["n"] == 2
 
     def test_empty_response_is_retried(self, monkeypatch):
         self._patch_render_and_sleep(monkeypatch)
-        monkeypatch.setattr(dp.settings, "ocr_retry_attempts", 2, raising=False)
+        monkeypatch.setattr(ocr.settings, "ocr_retry_attempts", 2, raising=False)
         calls = {"n": 0}
 
         def _empty_then_ok(*a, **k):
             calls["n"] += 1
             return _FakeResp("" if calls["n"] == 1 else "Treffer")
 
-        monkeypatch.setattr(dp.httpx, "post", _empty_then_ok)
-        result = dp._ocr_pages(b"fakepdf", [0])
+        monkeypatch.setattr(ocr.httpx, "post", _empty_then_ok)
+        result = ocr._ocr_pages(b"fakepdf", [0])
         assert result == {0: "Treffer"}
         assert calls["n"] == 2
 
@@ -364,12 +360,12 @@ class TestOcrEndpointResolution:
     """OCR runs against the OpenAI-compatible chat-completions API of a configurable backend."""
 
     def test_default_is_ollama_v1(self, monkeypatch):
-        monkeypatch.setattr(dp.settings, "ocr_base_url", "", raising=False)
-        monkeypatch.setattr(dp.settings, "llm_provider", "ollama", raising=False)
+        monkeypatch.setattr(ocr.settings, "ocr_base_url", "", raising=False)
+        monkeypatch.setattr(ocr.settings, "llm_provider", "ollama", raising=False)
         monkeypatch.setattr(
-            dp.settings, "ollama_base_url", "http://localhost:11434", raising=False
+            ocr.settings, "ollama_base_url", "http://localhost:11434", raising=False
         )
-        url, headers = dp._ocr_chat_endpoint()
+        url, headers = ocr._ocr_chat_endpoint()
         assert url == "http://localhost:11434/v1/chat/completions"
         assert headers == {}
 
@@ -377,50 +373,50 @@ class TestOcrEndpointResolution:
         from pydantic import SecretStr
 
         monkeypatch.setattr(
-            dp.settings, "ocr_base_url", "http://vision:8000/v1/", raising=False
+            ocr.settings, "ocr_base_url", "http://vision:8000/v1/", raising=False
         )
         monkeypatch.setattr(
-            dp.settings, "ocr_api_key", SecretStr("s3cret"), raising=False
+            ocr.settings, "ocr_api_key", SecretStr("s3cret"), raising=False
         )
-        url, headers = dp._ocr_chat_endpoint()
+        url, headers = ocr._ocr_chat_endpoint()
         assert url == "http://vision:8000/v1/chat/completions"
         assert headers == {"Authorization": "Bearer s3cret"}
 
     def test_openai_compatible_provider_is_used_when_no_override(self, monkeypatch):
         from pydantic import SecretStr
 
-        monkeypatch.setattr(dp.settings, "ocr_base_url", "", raising=False)
-        monkeypatch.setattr(dp.settings, "ocr_api_key", SecretStr(""), raising=False)
+        monkeypatch.setattr(ocr.settings, "ocr_base_url", "", raising=False)
+        monkeypatch.setattr(ocr.settings, "ocr_api_key", SecretStr(""), raising=False)
         monkeypatch.setattr(
-            dp.settings, "llm_provider", "openai_compatible", raising=False
+            ocr.settings, "llm_provider", "openai_compatible", raising=False
         )
         monkeypatch.setattr(
-            dp.settings, "llm_base_url", "http://vllm:8000", raising=False
+            ocr.settings, "llm_base_url", "http://vllm:8000", raising=False
         )
         monkeypatch.setattr(
-            dp.settings, "llm_api_key", SecretStr("vllm-key"), raising=False
+            ocr.settings, "llm_api_key", SecretStr("vllm-key"), raising=False
         )
-        url, headers = dp._ocr_chat_endpoint()
+        url, headers = ocr._ocr_chat_endpoint()
         assert url == "http://vllm:8000/v1/chat/completions"
         assert headers == {"Authorization": "Bearer vllm-key"}
 
     def test_ocr_model_falls_back_to_legacy_setting(self, monkeypatch):
-        monkeypatch.setattr(dp.settings, "ocr_model", "", raising=False)
+        monkeypatch.setattr(ocr.settings, "ocr_model", "", raising=False)
         monkeypatch.setattr(
-            dp.settings, "ollama_ocr_model", "qwen2.5-vl", raising=False
+            ocr.settings, "ollama_ocr_model", "qwen2.5-vl", raising=False
         )
-        assert dp._ocr_model_name() == "qwen2.5-vl"
+        assert ocr._ocr_model_name() == "qwen2.5-vl"
         monkeypatch.setattr(
-            dp.settings, "ocr_model", "Qwen/Qwen2.5-VL-7B-Instruct", raising=False
+            ocr.settings, "ocr_model", "Qwen/Qwen2.5-VL-7B-Instruct", raising=False
         )
-        assert dp._ocr_model_name() == "Qwen/Qwen2.5-VL-7B-Instruct"
+        assert ocr._ocr_model_name() == "Qwen/Qwen2.5-VL-7B-Instruct"
 
     def test_payload_uses_openai_multimodal_format(self, monkeypatch):
         monkeypatch.setattr(
-            dp, "_pdf_page_to_png_bytes", lambda content, i, dpi=150: b"img"
+            ocr, "_pdf_page_to_png_bytes", lambda content, i, dpi=150: b"img"
         )
-        monkeypatch.setattr(dp.time, "sleep", lambda _s: None)
-        monkeypatch.setattr(dp.settings, "ocr_retry_attempts", 1, raising=False)
+        monkeypatch.setattr(ocr.time, "sleep", lambda _s: None)
+        monkeypatch.setattr(ocr.settings, "ocr_retry_attempts", 1, raising=False)
         captured = {}
 
         def _capture(url, json=None, headers=None, timeout=None):
@@ -428,8 +424,8 @@ class TestOcrEndpointResolution:
             captured["payload"] = json
             return _FakeResp("Erkannter Inhalt der gescannten Seite")
 
-        monkeypatch.setattr(dp.httpx, "post", _capture)
-        result = dp._ocr_pages(b"fakepdf", [0])
+        monkeypatch.setattr(ocr.httpx, "post", _capture)
+        result = ocr._ocr_pages(b"fakepdf", [0])
         assert result == {0: "Erkannter Inhalt der gescannten Seite"}
         msg = captured["payload"]["messages"][0]
         parts = msg["content"]
@@ -461,13 +457,13 @@ class TestImageUpload:
 
     def test_png_routes_through_pdf_path_without_crashing(self, monkeypatch):
         # OCR disabled → empty text, but conversion + routing must succeed (no exception).
-        monkeypatch.setattr(dp.settings, "ollama_ocr_enabled", False, raising=False)
+        monkeypatch.setattr(pdf.settings, "ollama_ocr_enabled", False, raising=False)
         result = extract_text("scan.png", _make_png_bytes())
         assert isinstance(result, ExtractionResult)
         assert isinstance(result.text, str)
 
     def test_unknown_image_bytes_do_not_raise(self, monkeypatch):
-        monkeypatch.setattr(dp.settings, "ollama_ocr_enabled", False, raising=False)
+        monkeypatch.setattr(pdf.settings, "ollama_ocr_enabled", False, raising=False)
         result = extract_text("scan.png", b"not a real image")
         assert isinstance(result, ExtractionResult)
 
@@ -520,7 +516,7 @@ class TestImageHeavyPages:
         import fitz
 
         with fitz.open(stream=_make_image_heavy_pdf_bytes(), filetype="pdf") as doc:
-            assert dp._image_heavy_pages(doc) == {0}
+            assert pdf._image_heavy_pages(doc) == {0}
 
     def test_text_page_not_flagged(self):
         import fitz
@@ -533,14 +529,16 @@ class TestImageHeavyPages:
         data = doc.tobytes()
         doc.close()
         with fitz.open(stream=data, filetype="pdf") as reopened:
-            assert dp._image_heavy_pages(reopened) == set()
+            assert pdf._image_heavy_pages(reopened) == set()
 
     def test_disabled_via_threshold(self, monkeypatch):
         import fitz
 
-        monkeypatch.setattr(dp.settings, "ocr_image_area_threshold", 1.0, raising=False)
+        monkeypatch.setattr(
+            pdf.settings, "ocr_image_area_threshold", 1.0, raising=False
+        )
         with fitz.open(stream=_make_image_heavy_pdf_bytes(), filetype="pdf") as doc:
-            assert dp._image_heavy_pages(doc) == set()
+            assert pdf._image_heavy_pages(doc) == set()
 
 
 class TestDetectLanguage:

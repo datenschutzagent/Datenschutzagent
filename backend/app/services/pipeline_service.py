@@ -44,11 +44,13 @@ async def pipeline_stats(
     if department:
         dept_filter = " AND department = :dept "
 
-    avv_q = text(f"""
+    avv_q = text(
+        f"""
         SELECT id, partner_name, department, status, expiry_date, risk_level, risk_score
         FROM avv_contracts
         WHERE 1=1 {dept_filter}
-    """)
+    """
+    )
     params: dict[str, Any] = {}
     if department:
         params["dept"] = department
@@ -106,7 +108,8 @@ async def pipeline_stats(
     tom_dept_filter = ""
     if department:
         tom_dept_filter = " AND :dept = ANY(department_codes) "
-    tom_q = text(f"""
+    tom_q = text(
+        f"""
         SELECT category,
                implementation_status,
                review_date,
@@ -114,7 +117,8 @@ async def pipeline_stats(
                id
         FROM tom_measures
         WHERE implementation_status != 'not_applicable' {tom_dept_filter}
-    """)
+    """
+    )
     tom_rows = (await db.execute(tom_q, params)).fetchall()
 
     by_cat: dict[str, dict[str, int]] = {}
@@ -167,7 +171,8 @@ async def pipeline_stats(
     case_dept_filter = ""
     if department:
         case_dept_filter = " AND c.department = :dept "
-    dsfa_q = text(f"""
+    dsfa_q = text(
+        f"""
         SELECT c.id, c.title, c.department, c.special_category_data, c.international_transfer,
                d.status AS dsfa_status
         FROM cases c
@@ -175,7 +180,8 @@ async def pipeline_stats(
         WHERE (c.special_category_data = TRUE OR c.international_transfer = TRUE)
           AND c.archived_at IS NULL
           {case_dept_filter}
-    """)
+    """
+    )
     dsfa_rows = (await db.execute(dsfa_q, params)).fetchall()
 
     high_risk_total = len(dsfa_rows)

@@ -48,7 +48,8 @@ def _classify_trend(delta_pct: float, threshold_pct: float) -> str:
 
 async def compute_maturity_scores(db: AsyncSession) -> list[dict[str, Any]]:
     """Berechnet pro Department alle Sub-Scores + Composite (live, ohne Snapshots)."""
-    depts_q = text("""
+    depts_q = text(
+        """
         SELECT DISTINCT department FROM cases             WHERE department IS NOT NULL AND department != ''
         UNION
         SELECT DISTINCT department FROM avv_contracts     WHERE department IS NOT NULL AND department != ''
@@ -56,10 +57,12 @@ async def compute_maturity_scores(db: AsyncSession) -> list[dict[str, Any]]:
         SELECT DISTINCT department FROM dsr_requests      WHERE department IS NOT NULL AND department != ''
         UNION
         SELECT DISTINCT department FROM data_breaches     WHERE department IS NOT NULL AND department != ''
-    """)
+    """
+    )
     departments = [r[0] for r in (await db.execute(depts_q)).fetchall()]
 
-    vvt_q = text("""
+    vvt_q = text(
+        """
         SELECT c.department,
                COUNT(*)                                           AS total,
                COUNT(*) FILTER (WHERE EXISTS (
@@ -69,7 +72,8 @@ async def compute_maturity_scores(db: AsyncSession) -> list[dict[str, Any]]:
         FROM cases c
         WHERE c.archived_at IS NULL AND c.department IS NOT NULL
         GROUP BY c.department
-    """)
+    """
+    )
     vvt_map: dict[str, float] = {}
     for row in (await db.execute(vvt_q)).fetchall():
         dept, total, with_vvt = row
@@ -77,7 +81,8 @@ async def compute_maturity_scores(db: AsyncSession) -> list[dict[str, Any]]:
         with_vvt = int(with_vvt or 0)
         vvt_map[dept] = (with_vvt / total * 100.0) if total > 0 else 100.0
 
-    dsfa_q = text("""
+    dsfa_q = text(
+        """
         SELECT c.department,
                COUNT(*) FILTER (WHERE c.special_category_data OR c.international_transfer) AS high_risk_total,
                COUNT(*) FILTER (
@@ -90,7 +95,8 @@ async def compute_maturity_scores(db: AsyncSession) -> list[dict[str, Any]]:
         FROM cases c
         WHERE c.archived_at IS NULL AND c.department IS NOT NULL
         GROUP BY c.department
-    """)
+    """
+    )
     dsfa_map: dict[str, float] = {}
     for row in (await db.execute(dsfa_q)).fetchall():
         dept, hr, with_dsfa = row
@@ -98,7 +104,8 @@ async def compute_maturity_scores(db: AsyncSession) -> list[dict[str, Any]]:
         with_dsfa = int(with_dsfa or 0)
         dsfa_map[dept] = (with_dsfa / hr * 100.0) if hr > 0 else 100.0
 
-    avv_q = text("""
+    avv_q = text(
+        """
         SELECT department,
                COUNT(*) AS total,
                COUNT(*) FILTER (
@@ -109,7 +116,8 @@ async def compute_maturity_scores(db: AsyncSession) -> list[dict[str, Any]]:
         FROM avv_contracts
         WHERE department IS NOT NULL
         GROUP BY department
-    """)
+    """
+    )
     avv_map: dict[str, float] = {}
     for row in (await db.execute(avv_q)).fetchall():
         dept, total, healthy = row
@@ -117,7 +125,8 @@ async def compute_maturity_scores(db: AsyncSession) -> list[dict[str, Any]]:
         healthy = int(healthy or 0)
         avv_map[dept] = (healthy / total * 100.0) if total > 0 else 100.0
 
-    tom_q = text("""
+    tom_q = text(
+        """
         SELECT department_code,
                COUNT(*)                                                 AS total,
                COUNT(*) FILTER (WHERE implementation_status = 'implemented') AS implemented
@@ -128,7 +137,8 @@ async def compute_maturity_scores(db: AsyncSession) -> list[dict[str, Any]]:
               AND department_codes IS NOT NULL
         ) t
         GROUP BY department_code
-    """)
+    """
+    )
     tom_map: dict[str, float] = {}
     for row in (await db.execute(tom_q)).fetchall():
         dept, total, implemented = row
@@ -137,11 +147,13 @@ async def compute_maturity_scores(db: AsyncSession) -> list[dict[str, Any]]:
         tom_map[dept] = (implemented / total * 100.0) if total > 0 else 100.0
 
     maturity_cfg = get_risk_config().maturity
-    vel_q = text("""
+    vel_q = text(
+        """
         SELECT department, (responded_at - received_at)::float AS days
         FROM dsr_requests
         WHERE responded_at IS NOT NULL AND department IS NOT NULL
-    """)
+    """
+    )
     by_dept: dict[str, list[float]] = {}
     for row in (await db.execute(vel_q)).fetchall():
         dept, d = row
@@ -203,12 +215,14 @@ async def maturity_stats(
     if department:
         trend_filter = " AND department = :dept "
         trend_params["dept"] = department
-    trend_q = text(f"""
+    trend_q = text(
+        f"""
         SELECT department, snapshot_date, composite_score
         FROM compliance_maturity_snapshots
         WHERE snapshot_date >= :since {trend_filter}
         ORDER BY department ASC, snapshot_date ASC
-    """)
+    """
+    )
     trend_rows = (await db.execute(trend_q, trend_params)).fetchall()
     trend = [
         {
@@ -222,12 +236,14 @@ async def maturity_stats(
 
     if has_history:
         ninety_days_ago = date.today() - timedelta(days=90)
-        prev_q = text(f"""
+        prev_q = text(
+            f"""
             SELECT DISTINCT ON (department) department, composite_score, snapshot_date
             FROM compliance_maturity_snapshots
             WHERE snapshot_date <= :cut {trend_filter}
             ORDER BY department, snapshot_date DESC
-        """)
+        """
+        )
         prev_params = {"cut": ninety_days_ago}
         if department:
             prev_params["dept"] = department
@@ -274,7 +290,8 @@ async def write_maturity_snapshot(
     for r in rows:
         sub = r["sub_scores"]
         await db.execute(
-            text("""
+            text(
+                """
                 INSERT INTO compliance_maturity_snapshots
                     (id, department, snapshot_date, vvt_score, dsfa_score, avv_score,
                      tom_score, velocity_score, composite_score)
@@ -287,7 +304,8 @@ async def write_maturity_snapshot(
                     tom_score = EXCLUDED.tom_score,
                     velocity_score = EXCLUDED.velocity_score,
                     composite_score = EXCLUDED.composite_score
-            """),
+            """
+            ),
             {
                 "dept": r["department"],
                 "date": snapshot_date,
@@ -328,20 +346,24 @@ async def compute_risk_velocity(
         for name in _RISK_VELOCITY_SUBSCORES
     )
 
-    current_q = text(f"""
+    current_q = text(
+        f"""
         SELECT DISTINCT ON (department) department, snapshot_date,
             composite_score, {score_columns}
         FROM compliance_maturity_snapshots
         WHERE 1=1 {dept_filter}
         ORDER BY department, snapshot_date DESC
-    """)
-    previous_q = text(f"""
+    """
+    )
+    previous_q = text(
+        f"""
         SELECT DISTINCT ON (department) department, snapshot_date,
             composite_score, {score_columns}
         FROM compliance_maturity_snapshots
         WHERE snapshot_date <= :cutoff {dept_filter}
         ORDER BY department, snapshot_date DESC
-    """)
+    """
+    )
 
     current_rows = (
         await db.execute(current_q, {k: v for k, v in params.items() if k != "cutoff"})
