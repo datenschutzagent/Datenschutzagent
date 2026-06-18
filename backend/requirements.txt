@@ -49,7 +49,7 @@ cryptography>=44.0.0
 slowapi>=0.1.9
 
 # Observability: Prometheus metrics + OpenTelemetry tracing
-prometheus-client>=0.21.0
+prometheus-client>=0.25.0
 opentelemetry-sdk>=1.28.0
 opentelemetry-instrumentation-fastapi>=0.49b0
 opentelemetry-instrumentation-sqlalchemy>=0.49b0
