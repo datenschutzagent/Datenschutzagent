@@ -3,9 +3,9 @@ fastapi>=0.116.0
 uvicorn[standard]>=0.32.1
 
 # Database
-sqlalchemy==2.0.36
-asyncpg==0.30.0
-alembic==1.14.0
+sqlalchemy==2.0.51
+asyncpg==0.31.0
+alembic==1.18.4
 
 # Pydantic (pydantic-ai 1.99.0 requires pydantic>=2.12)
 pydantic>=2.12.0,<3.0.0
@@ -29,8 +29,8 @@ openpyxl>=3.1.5
 python-pptx>=1.0.2
 
 # AI / LLM
-pydantic-ai==1.99.0  # 1.77.0 affected by CVE-2026-46678
-pydantic-evals==1.99.0  # extraction/check quality evaluation harness
+pydantic-ai==1.107.0  # 1.77.0 affected by CVE-2026-46678
+pydantic-evals==1.107.0  # extraction/check quality evaluation harness
 openai>=1.61.0
 ollama>=0.4.1
 anthropic>=0.40.0
