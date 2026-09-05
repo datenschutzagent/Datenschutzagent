@@ -6,9 +6,16 @@ on:
   pull_request:
     branches: [main, master]
 
+# Superseded runs on the same branch/PR are cancelled so a push burst does not queue
+# up stale jobs.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   frontend:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
       - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
@@ -16,6 +23,12 @@ jobs:
           node-version: "20"
           cache: "npm"
       - run: npm ci
+      # Type and lint gates. Warnings count as failures so the warning budget stays at
+      # zero (Qualitätsplan, Phase 0 G1).
+      - name: Typecheck
+        run: npm run typecheck
+      - name: Lint
+        run: npm run lint -- --max-warnings=0
       - run: npm run test
       - name: Check API type drift
         run: |
@@ -24,6 +37,7 @@ jobs:
 
   backend:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     services:
       postgres:
         image: postgres:16-alpine
@@ -63,11 +77,40 @@ jobs:
       - name: Black format check
         run: pip install black==25.1.0 && black --check .
         working-directory: backend
-      - name: Tests (with coverage)
-        # Coverage gate: CI fails below the threshold. Aktuell ~58 % (Issue #83);
-        # bewusst knapp darunter als Regressionsschutz, schrittweise Richtung 75 % anheben.
-        run: python -m pytest tests/ -v --cov=app --cov-report=term-missing --cov-fail-under=55
+      # Migration gate: Alembic is the only schema source. `alembic check` fails when the
+      # ORM metadata and the migrated schema drift apart (a model change without a
+      # migration); the downgrade/upgrade roundtrip proves the latest revision is
+      # reversible. Runs against a separate database so the test suite below still
+      # starts from an empty schema.
+      - name: Alembic migrations (upgrade, check, downgrade roundtrip)
+        env:
+          DATABASE_URL: postgresql+asyncpg://postgres:postgres@localhost:5432/datenschutzagent_migrations
+          PGPASSWORD: postgres
+        run: |
+          python - <<'EOF'
+          import psycopg2
+          conn = psycopg2.connect("postgresql://postgres:postgres@localhost:5432/postgres")
+          conn.autocommit = True
+          conn.cursor().execute("CREATE DATABASE datenschutzagent_migrations")
+          EOF
+          alembic upgrade head
+          alembic check
+          alembic downgrade -1
+          alembic upgrade head
+          alembic check
         working-directory: backend
+      - name: Tests (with coverage)
+        # Coverage gate — ratchet: raise to the measured value after every merge that
+        # increases it, never lower it (see CONTRIBUTING.md). Measured 60 % on 2026-09-05.
+        run: python -m pytest tests/ -v --cov=app --cov-report=term-missing --cov-report=xml --cov-fail-under=58
+        working-directory: backend
+      - name: Upload coverage report
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: backend-coverage
+          path: backend/coverage.xml
+          retention-days: 14
       # Quality gate: offline extraction/grounding evals (no LLM provider needed). Exits non-zero
       # when any evaluator's mean score falls below its threshold (see evals/run.py).
       - run: python -m evals.run
@@ -76,6 +119,7 @@ jobs:
   e2e:
     # Playwright smoke tests against the full Docker stack (issue #83).
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
       - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0

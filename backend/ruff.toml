@@ -14,6 +14,7 @@ select = [
     "SIM", # flake8-simplify
     "C4",  # flake8-comprehensions
     "RET", # flake8-return
+    "C90", # mccabe complexity (max-complexity below)
 ]
 ignore = [
     "E501",   # line too long (Black handles this)
@@ -23,7 +24,19 @@ ignore = [
     # (e.g. celery tasks that must not crash the worker, connection health checks).
 ]
 
+[lint.mccabe]
+# Functions above this are hard to test and review. The four existing offenders are
+# listed per file below and are scheduled for decomposition (Qualitätsplan, Phase 2 R7);
+# new code must stay within the limit.
+max-complexity = 15
+
 [lint.per-file-ignores]
+# C901 debt (to be removed with Phase 2 R7): generate_dsfa (16), scan_and_notify_deadlines (36),
+# pipeline_stats (18), run_checks_impl (24).
+"app/services/dsfa_service.py" = ["BLE001", "C901"]
+"app/services/notification_service.py" = ["BLE001", "C901"]
+"app/services/pipeline_service.py" = ["C901"]
+"app/services/run_checks_service.py" = ["BLE001", "C901"]
 # Tests: assert/hardcoded passwords are fine; pytest.raises(Exception) is acceptable
 # for "must not succeed" assertions where the exact type is not the point.
 "tests/*" = ["S101", "S105", "B017"]
@@ -60,14 +73,11 @@ ignore = [
 "app/services/data_breach_service.py" = ["BLE001"]
 "app/services/document_processor.py" = ["BLE001"]
 "app/services/dsb_report_service.py" = ["BLE001"]
-"app/services/dsfa_service.py" = ["BLE001"]
-"app/services/notification_service.py" = ["BLE001"]
 "app/services/ocr_service.py" = ["BLE001"]
 "app/services/org_profile_loader.py" = ["BLE001"]
 "app/services/pdf_extractor.py" = ["BLE001"]
 "app/services/playbook_import.py" = ["BLE001"]
 "app/services/risk_config_loader.py" = ["BLE001"]
-"app/services/run_checks_service.py" = ["BLE001"]
 "app/services/weaviate_service.py" = ["BLE001"]
 "app/services/webhook_service.py" = ["BLE001"]
 # Eval runner intentionally catches broad failures from optional LLM-backed evals.

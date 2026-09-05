@@ -33,11 +33,13 @@ def anyio_backend():
 def _seed_database():
     """Create tables and the default user once per test session.
 
-    The httpx ASGITransport client does not run the app lifespan, so the table creation
-    (init_db) and default-user seeding that production startup performs never happen in
-    tests — every DB-bound API test would 404 on the current-user lookup. Runs in its own
-    event loop; the engine is disposed afterwards because asyncpg connections are bound to
-    the loop they were created on.
+    Tests build the schema with ``create_all`` (init_db) instead of Alembic for speed;
+    CI additionally runs ``alembic upgrade head && alembic check`` so both stay in sync.
+    The httpx ASGITransport client does not run the app lifespan, so the default-user
+    seeding that production startup performs never happens in tests — every DB-bound API
+    test would 404 on the current-user lookup. Runs in its own event loop; the engine is
+    disposed afterwards because asyncpg connections are bound to the loop they were
+    created on.
     """
     if not (os.environ.get("DATABASE_URL") or "").strip():
         yield  # pure tests without a database

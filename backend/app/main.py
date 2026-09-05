@@ -70,7 +70,7 @@ from app.api.routes import auth as auth_routes  # noqa: E402
 from app.config import settings  # noqa: E402
 from app.core.rate_limit import limiter  # noqa: E402
 from app.core.request_id import RequestIDMiddleware, get_request_id  # noqa: E402
-from app.database import async_session_factory, init_db  # noqa: E402
+from app.database import async_session_factory  # noqa: E402
 from app.models._db.audit import APIAuditLogModel  # noqa: E402
 from app.models.db import UserModel  # noqa: E402
 from app.services.playbook_import import import_playbooks_from_yaml  # noqa: E402
@@ -103,7 +103,9 @@ async def lifespan(app: FastAPI):
             "SECURITY: DEBUG mode is active. API documentation (/docs, /redoc) is publicly "
             "accessible. Disable DEBUG for production deployments."
         )
-    await init_db()
+    # Schema is owned by Alembic (entrypoint.sh runs `alembic upgrade head`); no
+    # create_all here so a model change without migration surfaces as drift in CI
+    # (`alembic check`) instead of silently creating tables in production.
     seed_dir = (
         Path(settings.playbooks_seed_dir) if settings.playbooks_seed_dir else None
     )

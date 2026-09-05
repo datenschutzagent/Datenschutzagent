@@ -4,7 +4,7 @@ import uuid
 from datetime import UTC, datetime
 from typing import Any
 
-from sqlalchemy import Boolean, DateTime, String
+from sqlalchemy import Boolean, DateTime, Index, String, text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from sqlalchemy.orm import Mapped, mapped_column
@@ -17,6 +17,17 @@ class UserModel(Base):
     """User profile and preferences (current user via OIDC token or CURRENT_USER_ID or default)."""
 
     __tablename__ = "users"
+    __table_args__ = (
+        # Mirrors the migrated schema: the baseline migration adds a *partial* unique
+        # index on top of the column-level UNIQUE constraint. Declared here so
+        # `alembic check` sees no drift between metadata and the database.
+        Index(
+            "ix_users_oidc_sub",
+            "oidc_sub",
+            unique=True,
+            postgresql_where=text("oidc_sub IS NOT NULL"),
+        ),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(
         PG_UUID(as_uuid=True), primary_key=True, default=uuid.uuid4

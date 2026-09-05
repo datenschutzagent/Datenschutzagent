@@ -1,12 +1,8 @@
 # Trivy vulnerability exceptions
-# Each entry requires an expiry date and justification.
-# Review before expiry and remove once upstream provides a fix.
-
-# GHSA-36hh-v3qg-5jq4: Out-of-bounds Read in pyo3 PyList::nth/nth_back
-# Location: temporalio/bridge/Cargo.lock (embedded Rust extension in temporalio wheel)
-# Fixed in: pyo3 >= 0.29.0
-# Upstream: temporalio 1.28.0 is the latest release and still ships pyo3 0.25.1.
-#           No newer release available as of 2026-06-14.
-# Tracking: https://github.com/datenschutzagent/Datenschutzagent/issues/89
-# Expires:  2026-09-14 — re-check if temporalio has released a version with pyo3 >= 0.29.0
-GHSA-36hh-v3qg-5jq4
+# Each entry requires an expiry date and justification in the form
+#   # Expires: YYYY-MM-DD — <why>
+# followed by the advisory id on its own line. CI (security.yml, "Trivy – expired
+# exceptions") fails once an expiry date has passed, so every exception gets re-reviewed.
+#
+# (GHSA-36hh-v3qg-5jq4 / pyo3 in temporalio was removed 2026-09-05: temporalio 1.32.0
+#  ships pyo3 0.29.0, which contains the fix.)

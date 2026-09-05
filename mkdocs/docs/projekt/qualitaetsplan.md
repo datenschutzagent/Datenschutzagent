@@ -4,6 +4,33 @@ Stand: September 2026, Commit `84ba891`. Grundlage: vier unabhängige Reviews
 (Backend-Architektur, Frontend, Tests/CI/Betrieb, Security/DSGVO) plus Messungen
 mit den echten Werkzeugen (`pytest --cov`, `tsc`, `eslint`, `ruff`, `black`, `vitest`).
 Jeder Befund ist mit Datei und Zeile belegt; nichts hier ist geschätzt.
+Zeilenangaben beziehen sich auf den Analyse-Commit; nach Phase 0 haben sich einige
+verschoben.
+
+## 0. Umsetzungsstand
+
+| Phase | Status | Ergebnis |
+| :--- | :--- | :--- |
+| 0 – Bugs + Gates | **erledigt** (2026-09-05) | B1–B9 behoben, je mit Regressionstest (724 Tests, Coverage 59,9 %). G1–G7 aktiv. Frontend: `tsc` 0 Fehler, ESLint 0/0. Der neue `alembic check` fand sofort einen Drift (partieller Index `ix_users_oidc_sub` fehlte im Modell). |
+| 1 – Security/DSGVO | offen | – |
+| 2 – Backend-Robustheit | offen | – |
+| 3 – Frontend | offen | F1 (Typfehler) wurde für G1 vorgezogen und ist erledigt. |
+| 4 – Tests/Evals | offen | – |
+| 5 – Betrieb/Doku | offen | – |
+
+Entscheidung zu 4.1 (Mandantentrennung): **Single-Org**, siehe Abschnitt 4.
+
+Korrekturen gegenüber der Erstanalyse, beim Umsetzen festgestellt:
+
+- **Bandit gatete bereits.** Bandit beendet sich auch mit `--format json` mit Exit 1,
+  sobald ein Finding vorliegt (lokal verifiziert). Nur Semgrep (kein `--error`) und
+  detect-secrets (keine Baseline) waren wirkungslos. Zielwert "Security-Scanner gatend"
+  war also 4 von 6, nicht 3 von 6.
+- **`temporalio` ist eine transitive Abhängigkeit** (installiert, nicht in
+  `requirements.txt`). Die Trivy-Ausnahme war trotzdem obsolet: temporalio 1.32.0
+  bringt pyo3 0.29.0 mit dem Fix. Eintrag entfernt, Ablauf-Check in CI.
+- **B9 (neu):** `POST /cases` akzeptierte `deadline` im Schema, persistierte es aber
+  nicht (`crud.py`, `CaseModel(...)` ohne `deadline=`). Beim Test zu B3 aufgefallen.
 
 ---
 
@@ -61,6 +88,7 @@ genau deshalb unbemerkt geblieben sind.
 | B6 | **LLM-Timeout gilt nicht für OpenAI/Anthropic.** Config-Doku behauptet "alle Provider", der `httpx`-Client mit Timeout wird nur an Ollama übergeben. | `backend/app/core/llm.py:342,361` vs. `config.py:243-248` | `http_client` an beide Provider durchreichen; Test mit gemocktem Provider, der den Timeout prüft. |
 | B7 | **VVT-Normalisierung bricht bei harmlosem Fachtext ab.** Dokumenttext läuft durch `sanitize_prompt_field()` statt `wrap_untrusted_content()`; bei `prompt_injection_block=true` (Default) löst z. B. "act as a" eine `PromptInjectionError` aus. | `backend/app/services/vvt_service.py:377` vs. korrekt in `check_runner.py:449` | Auf `wrap_untrusted_content` umstellen; Regressionstest mit Blocklist-Wort im Dokumenttext. |
 | B8 | **Toter Ausdruck** – Statuszähler wird berechnet und verworfen. | `backend/app/api/routes/findings.py:365` | In die Zusammenfassungstabelle aufnehmen oder entfernen. |
+| B9 | **`deadline` geht beim Anlegen verloren.** `CaseCreate.deadline` ist im Schema, `create_case` übergibt es nicht ans Modell. | `backend/app/api/routes/cases/crud.py` (`create_case`) | `deadline=body.deadline`; Test, der die Frist nach dem Anlegen zurückliest. |
 
 #### 3.2 CI-Gates
 
@@ -68,11 +96,11 @@ genau deshalb unbemerkt geblieben sind.
 | :--- | :--- | :--- |
 | G1 | `npm run typecheck` und `npm run lint -- --max-warnings=0` als Steps im `frontend`-Job. Vorher die 81 TS- und 8 ESLint-Fehler beheben (siehe Phase 3, F1). | `.github/workflows/test.yml:9-22` führt nur `npm run test` aus. `CONTRIBUTING.md:49-50` und `CHANGELOG.md:37-40` nennen das als bekannt offen. |
 | G2 | `alembic upgrade head && alembic check` gegen den Postgres-Service in CI; danach `init_db()`/`create_all` aus dem Produktions-Lifespan entfernen (nur noch in Tests). Heute existieren zwei Schemaquellen: Entrypoint fährt Alembic, Lifespan ruft zusätzlich `create_all` → neue Tabellen entstehen ohne Migration, Drift bleibt unsichtbar. | `backend/entrypoint.sh:7`, `backend/app/main.py:106`, `backend/app/database.py:56-63`; widerspricht `CONTRIBUTING.md:61`. |
-| G3 | Bandit und Semgrep gatend machen (`--error`, Severity ≥ HIGH), `.secrets.baseline` erzeugen und einchecken. Heute schreiben beide nur JSON-Artefakte; der detect-secrets-Step läuft mangels Baseline immer in den `else`-Zweig mit Exit 0, und `pre-commit run --all-files` schlägt am fehlenden Baseline-File fehl. | `.github/workflows/security.yml:38-49,78-91,180-188`; `.pre-commit-config.yaml:43-47` |
+| G3 | Semgrep gatend machen (`--error`, zunächst Severity ERROR), `.secrets.baseline` erzeugen und einchecken. Semgrep schrieb nur ein JSON-Artefakt; der detect-secrets-Step lief mangels Baseline immer in den `else`-Zweig mit Exit 0, und `pre-commit run --all-files` schlug am fehlenden Baseline-File fehl. (Bandit gatete bereits, siehe Abschnitt 0.) | `.github/workflows/security.yml:78-91,180-188`; `.pre-commit-config.yaml:43-47` |
 | G4 | `timeout-minutes` (20/20/30) und `concurrency` mit `cancel-in-progress` in beiden Workflows. | keine Treffer in `test.yml`/`security.yml` |
 | G5 | Coverage-Gate von 55 auf 58 anheben, `--cov-report=xml` als Artefakt; Ratchet-Regel in `CONTRIBUTING.md` festhalten. | `test.yml:65-67` |
 | G6 | Ruff `C901` mit `max-complexity=15` aktivieren. Trifft heute genau 4 Funktionen (`scan_and_notify_deadlines` 36, `run_checks_impl` 24, `pipeline_stats` 18, `generate_dsfa` 16); per-file-ignore für diese vier bis zur Zerlegung in Phase 2. | `backend/ruff.toml:7-18` |
-| G7 | `.trivyignore`-Eintrag für `temporalio` entfernen: das Paket steht nicht in `requirements.txt`, die Ausnahme läuft am 14.09.2026 ab. Kleiner CI-Step, der abgelaufene `Expires:`-Zeilen rot macht. | `.trivyignore:6-13` |
+| G7 | `.trivyignore`-Eintrag für `temporalio` entfernen: die referenzierte Schwachstelle ist in der installierten Version (1.32.0, pyo3 0.29.0) behoben; die Ausnahme wäre am 14.09.2026 abgelaufen. Kleiner CI-Step, der abgelaufene `Expires:`-Zeilen rot macht. | `.trivyignore:6-13` |
 
 ### Phase 1 – Sicherheit und Datenschutz (2–3 Wochen)
 
@@ -157,8 +185,20 @@ inklusive besonderer Kategorien (`documents.py:244-304`, `crud.py:393`,
 für *eine* Organisation betrieben wird, ist das vertretbar. Sobald Fachbereiche selbst
 Zugang bekommen oder mehrere Organisationen eine Instanz teilen, ist es ein IDOR-Problem
 quer durch alle Routen. Die Nachrüstung ist ein eigenes Projekt (Modell, Migration,
-zentraler Query-Helper, alle Routen, Tests). **Entscheidung nötig: Zielbild
-Single-Org oder Multi-Org?**
+zentraler Query-Helper, alle Routen, Tests).
+
+**Entscheidung (2026-09-05): Single-Org.** Eine Instanz bedient genau eine
+Organisation, betrieben von deren DSB-Team. Konsequenzen:
+
+- Kein Org-/Tenant-Scoping im Datenmodell; RBAC (`viewer`/`editor`/`admin`) bleibt die
+  einzige Autorisierungsebene. Das ist bewusst akzeptiert und wird als ADR festgehalten
+  (Phase 5, O7).
+- Wer eine Instanz mehreren Organisationen zugänglich macht, verstößt gegen das
+  Betriebsmodell; die Doku (Administration) muss das ausdrücklich sagen.
+- Die Sicherheitsmaßnahmen der Phase 1 (S1–S10) bleiben unverändert nötig; sie sind
+  unabhängig von der Mandantenfrage.
+- Falls Fachbereiche später eigenen Zugang bekommen sollen, ist das ein neues Projekt
+  mit eigener Analyse, nicht eine Erweiterung dieses Plans.
 
 **4.2 Löschkonzept.** Retention archiviert nur (`case.archived_at = now`), löscht aber
 weder Dokumente, Storage-Blobs, Weaviate-Chunks, Findings noch LLM-Cache
@@ -181,20 +221,21 @@ offen. Option: Bind an Loopback erzwingen oder Pre-Shared-Token.
 
 ## 5. Zielwerte und Messung
 
-| Metrik | Ist | Ziel nach Phase 0 | Ziel nach Phase 4 | Messung |
+| Metrik | Ist (Analyse) | Nach Phase 0 (gemessen) | Ziel nach Phase 4 | Messung |
 | :--- | :--- | :--- | :--- | :--- |
-| `tsc --noEmit` Fehler | 81 | 0, CI-Gate | 0 | CI |
-| ESLint Errors / Warnings | 8 / 36 | 0 / 0, CI-Gate | 0 / 0 | CI |
-| Backend-Coverage | 58 % | Gate 58 % | Gate ≥ 70 % (Ratchet) | `pytest --cov` |
-| Frontend-Coverage | nicht messbar | messbar, Gate auf Ist | Gate ≥ 60 % | `vitest --coverage` |
+| `tsc --noEmit` Fehler | 81 | **0, CI-Gate** | 0 | CI |
+| ESLint Errors / Warnings | 8 / 36 | **0 / 0, CI-Gate** | 0 / 0 | CI |
+| Backend-Coverage | 58 % | **59,9 %, Gate 58 %** | Gate ≥ 70 % (Ratchet) | `pytest --cov` |
+| Frontend-Coverage | nicht messbar | nicht messbar (T3) | Gate ≥ 60 % | `vitest --coverage` |
 | Route-Module ohne Test | 6 | 6 | 0 | Skript in CI |
 | Services ohne Test | 8 | 8 | 0 | Skript in CI |
 | E2E in CI (harte Assertions) | 2 | 2 | ≥ 6 smoke, Rest nightly | Playwright-Report |
-| Ruff C901 > 15 | 4 (nicht geprüft) | 4 (per-file-ignore) | 0 | CI |
-| mypy-Fehler | nicht geprüft | Baseline | 0 in `core/`, `services/` | CI |
-| Security-Scanner gatend | 3 von 6 | 6 von 6 | 6 von 6 | CI |
+| Ruff C901 > 15 | 4 (nicht geprüft) | **4 (per-file-ignore), Gate aktiv** | 0 | CI |
+| mypy-Fehler | nicht geprüft | nicht geprüft (R5) | 0 in `core/`, `services/` | CI |
+| Security-Scanner gatend | 4 von 6 | **6 von 6** | 6 von 6 | CI |
+| Migrations-Drift-Check | keiner | **aktiv, 1 Drift behoben** | aktiv | CI |
 | LLM-Eval-Trend | nicht gemessen | – | nightly, Artefakt | Nightly-Job |
-| Verifizierte Bugs B1–B8 | 8 offen | 0 | 0 | Regressionstests |
+| Verifizierte Bugs | 8 offen (B1–B8) | **0 offen (B1–B9)** | 0 | Regressionstests |
 
 Die Zielwerte 85 % FE / 90 % BE aus `system-inspection.md` werden bewusst **nicht**
 übernommen: Bei ~11 000 Backend-Statements liegen die letzten 20 % in Infrastruktur-Glue
@@ -222,7 +263,7 @@ vollständiger Abdeckung der Routen und Domänenlogik ist das bessere Ziel.
 
 | Phase | Dauer | Parallelisierbar | Ergebnis |
 | :--- | :--- | :--- | :--- |
-| 0 – Bugs + Gates | 1 Woche | B1–B8 und G1–G7 unabhängig | 8 Bugs weg, 7 Gates aktiv, Frontend erstmals typsicher in CI |
+| 0 – Bugs + Gates | 1 Woche (**erledigt**) | B1–B9 und G1–G7 unabhängig | 9 Bugs weg, 7 Gates aktiv, Frontend erstmals typsicher in CI |
 | 1 – Security/DSGVO | 2–3 Wochen | S1–S3 sofort, S4–S10 je ein PR | Rate-Limit wirksam, Upload gehärtet, Audit-Log belastbar |
 | 2 – Backend-Robustheit | 3–4 Wochen | R1–R4 zuerst, R5 parallel | Keine Loop-Blockaden, Celery-Fehler sichtbar, LLM-Kosten begrenzt, Typchecker aktiv |
 | 3 – Frontend | 3–4 Wochen | F1–F2 zuerst (Voraussetzung für G1), dann F3–F8 | Mock-Daten weg, Fehler sichtbar, a11y-Basis, Bundle kleiner |

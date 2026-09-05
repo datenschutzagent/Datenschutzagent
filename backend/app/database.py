@@ -54,8 +54,11 @@ async def get_db() -> AsyncGenerator[AsyncSession, None]:
 
 
 async def init_db() -> None:
-    """Create all tables that don't exist yet. Schema migrations are handled
-    by Alembic (entrypoint.sh runs ``alembic upgrade head`` before uvicorn starts).
+    """Create all tables via ``Base.metadata.create_all`` — **tests only**.
+
+    The application never calls this: the schema is owned by Alembic
+    (``entrypoint.sh`` runs ``alembic upgrade head`` before uvicorn starts) and CI
+    runs ``alembic check`` so metadata and migrations cannot drift apart.
     """
     logger.info("Initializing database: creating missing tables via create_all")
     async with engine.begin() as conn:

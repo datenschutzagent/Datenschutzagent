@@ -40,14 +40,18 @@ python -m evals.run     # Offline-Qualitäts-Gate (Extraktion/Grounding)
 **Frontend** (Projektwurzel):
 
 ```bash
-npm run lint            # ESLint
-npm run typecheck       # tsc --noEmit (Typprüfung)
-npm run test            # Vitest
-npm run test:e2e        # Playwright E2E (benötigt laufenden Stack)
+npm run lint -- --max-warnings=0   # ESLint (Warnungen zählen als Fehler, wie in CI)
+npm run typecheck                  # tsc --noEmit (Typprüfung)
+npm run test                       # Vitest
+npm run test:e2e                   # Playwright E2E (benötigt laufenden Stack)
 ```
 
-> Hinweis: Die Frontend-Typprüfung (`npm run typecheck`) wird derzeit auf einen
-> sauberen Stand gebracht; siehe `CHANGELOG.md` / offene Aufgaben.
+### Coverage-Ratchet
+
+Das Backend-Coverage-Gate (`--cov-fail-under` in `.github/workflows/test.yml`) wird
+nach jedem Merge, der die Abdeckung erhöht, auf den gemessenen Wert (abgerundet)
+angehoben und **nie gesenkt**. Wer Tests hinzufügt, hebt die Schwelle im selben PR an.
+Ziel laut [Qualitätsplan](mkdocs/docs/projekt/qualitaetsplan.md): 70 %.
 
 ## Branch- & Commit-Konventionen
 
@@ -58,13 +62,20 @@ npm run test:e2e        # Playwright E2E (benötigt laufenden Stack)
 
 ## Datenbank-Migrationen
 
-Schema-Änderungen erfolgen über **Alembic** (einzige Quelle der Wahrheit):
+Schema-Änderungen erfolgen über **Alembic** (einzige Quelle der Wahrheit). Die
+Anwendung legt beim Start **keine** Tabellen mehr per `create_all` an; wer das Backend
+außerhalb von Docker startet, muss vorher migrieren:
 
 ```bash
 cd backend
-alembic revision -m "beschreibung"   # neue Migration
 alembic upgrade head                 # anwenden (läuft auch im Container-Entrypoint)
+alembic revision -m "beschreibung"   # neue Migration nach einer Modelländerung
+alembic check                        # Drift zwischen ORM-Modellen und Migrationen
 ```
+
+CI führt `alembic upgrade head && alembic check` sowie einen
+Downgrade/Upgrade-Roundtrip der letzten Revision aus. Eine Modelländerung ohne
+passende Migration lässt den Backend-Job rot werden.
 
 Historische rohe SQL-Skripte unter `backend/migrations/legacy/` sind **nicht**
 mehr aktiv (vor dem Alembic-Baseline); bitte keine neuen dort anlegen.
