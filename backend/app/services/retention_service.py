@@ -39,7 +39,7 @@ async def scan_cases_for_retention(
     Returns list of cases that were (or would be, if dry_run=True) archived.
     """
     base = _retention_base_sql()
-    stmt = text(
+    stmt = text(  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text
         f"""
         SELECT id, title, department, retention_months, created_at, completed_at,
                {base} AS retention_base
@@ -130,7 +130,7 @@ async def scan_cases_due_for_retention_warning(db: AsyncSession) -> list[dict]:
     """
     grace = max(0, int(settings.retention_grace_days))
     base = _retention_base_sql()
-    stmt = text(
+    stmt = text(  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text
         f"""
         SELECT id, title, department, retention_months, created_at, completed_at,
                {base} AS retention_base,

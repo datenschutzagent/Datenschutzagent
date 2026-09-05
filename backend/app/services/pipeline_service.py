@@ -39,7 +39,7 @@ async def _avv_pipeline(
 ) -> dict[str, Any]:
     """Expiry buckets (with average risk score) and the ten contracts expiring next."""
     dept_filter = " AND department = :dept " if "dept" in params else ""
-    avv_q = text(
+    avv_q = text(  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text
         f"""
         SELECT id, partner_name, department, status, expiry_date, risk_level, risk_score
         FROM avv_contracts
@@ -100,7 +100,7 @@ async def _tom_pipeline(
 ) -> dict[str, Any]:
     """Review-date governance per TOM category plus the ten most overdue measures."""
     dept_filter = " AND :dept = ANY(department_codes) " if "dept" in params else ""
-    tom_q = text(
+    tom_q = text(  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text
         f"""
         SELECT category,
                implementation_status,
@@ -163,7 +163,7 @@ async def _tom_pipeline(
 async def _dsfa_coverage(db: AsyncSession, params: dict[str, Any]) -> dict[str, Any]:
     """DSFA status of high-risk cases (Art. 9 data or international transfer)."""
     dept_filter = " AND c.department = :dept " if "dept" in params else ""
-    dsfa_q = text(
+    dsfa_q = text(  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text
         f"""
         SELECT c.id, c.title, c.department, c.special_category_data, c.international_transfer,
                d.status AS dsfa_status

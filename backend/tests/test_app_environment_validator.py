@@ -238,7 +238,12 @@ def test_development_acknowledged_external_llm_does_not_warn(caplog):
 )
 @pytest.mark.parametrize(
     "bad",
-    ["file:///etc/passwd", "gopher://x", "http://", "https://user:pw@idp.example.com"],
+    [
+        "file:///etc/passwd",
+        "gopher://x",
+        "http://",
+        "https://user:pw@idp.example.com",
+    ],  # pragma: allowlist secret
 )
 def test_outbound_urls_reject_unsafe_shapes(field, bad):
     with pytest.raises(ValueError, match=field.upper()):

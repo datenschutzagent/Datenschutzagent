@@ -643,7 +643,7 @@ class Settings(BaseSettings):
         These are admin-configured, so private/loopback ranges are legitimate (Ollama on
         the LAN, Weaviate in the Docker network) and deliberately allowed. What is
         rejected are the SSRF-style shapes: exotic schemes (file://, gopher://), URLs
-        without a host, and userinfo (``https://user:pw@host``) that would leak into
+        without a host, and userinfo (``https://user:pw@host``) that would leak into  # pragma: allowlist secret
         logs and error messages.
         """
         if v is None:
