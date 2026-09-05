@@ -5,9 +5,19 @@ import contextlib
 import logging
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
+from fastapi import (
+    APIRouter,
+    Depends,
+    File,
+    Form,
+    HTTPException,
+    Query,
+    Request,
+    UploadFile,
+)
 from fastapi.responses import StreamingResponse
 from sqlalchemy import func, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.celery_app import extract_document_text
@@ -145,6 +155,9 @@ def _verify_magic_bytes(content: bytes, expected_format: str, filename: str) -> 
         )
 
 
+_VERSION_RETRY_ATTEMPTS = 3
+
+
 async def _next_version_for_type(
     db: AsyncSession,
     case_id: UUID,
@@ -199,23 +212,49 @@ async def _process_one_upload(
         extraction_method = ext_result.extraction_method
         extraction_status = DocumentExtractionStatus.DONE
         extraction_error = None
-    version = await _next_version_for_type(db, case_id, document_type)
-    doc = DocumentModel(
-        case_id=case_id,
-        name=filename,
-        type=document_type,
-        version=version,
-        format=file_format,
-        size_bytes=size_bytes,
-        uploaded_by=uploaded_by or "unknown",
-        storage_path="",
-        content=text_content,
-        extraction_method=extraction_method,
-        extraction_status=extraction_status,
-        extraction_error=extraction_error,
-    )
-    db.add(doc)
-    await db.flush()
+    doc: DocumentModel | None = None
+    # (case_id, type, version) is UNIQUE (uq_documents_case_type_version). Two parallel
+    # uploads of the same type can compute the same next version; the loser's INSERT
+    # fails inside the savepoint and is retried with a fresh version number instead of
+    # producing duplicate versions or a 500.
+    for attempt in range(_VERSION_RETRY_ATTEMPTS):
+        version = await _next_version_for_type(db, case_id, document_type)
+        candidate = DocumentModel(
+            case_id=case_id,
+            name=filename,
+            type=document_type,
+            version=version,
+            format=file_format,
+            size_bytes=size_bytes,
+            uploaded_by=uploaded_by or "unknown",
+            storage_path="",
+            content=text_content,
+            extraction_method=extraction_method,
+            extraction_status=extraction_status,
+            extraction_error=extraction_error,
+        )
+        try:
+            async with db.begin_nested():
+                db.add(candidate)
+                await db.flush()
+        except IntegrityError:
+            logger.info(
+                "Document version collision, retrying",
+                extra={
+                    "case_id": str(case_id),
+                    "document_type": document_type,
+                    "version": version,
+                    "attempt": attempt + 1,
+                },
+            )
+            continue
+        doc = candidate
+        break
+    if doc is None:
+        raise HTTPException(
+            status_code=409,
+            detail="Versionsnummer konnte nicht vergeben werden (parallele Uploads); bitte erneut versuchen.",
+        )
     storage_path = await asyncio.to_thread(
         save_file, case_id, doc.id, filename, content
     )
@@ -229,6 +268,8 @@ async def _process_one_upload(
 async def list_documents(
     case_id: UUID | None = None,
     document_type: str | None = None,
+    skip: int = Query(default=0, ge=0),
+    limit: int = Query(default=500, ge=1, le=1000),
     db: AsyncSession = Depends(get_db),
     _user=require_roles("viewer", "editor", "admin"),
 ):
@@ -238,7 +279,11 @@ async def list_documents(
         q = q.where(DocumentModel.case_id == case_id)
     if document_type is not None:
         q = q.where(DocumentModel.type == document_type)
-    q = q.order_by(DocumentModel.type.asc(), DocumentModel.version.asc())
+    q = (
+        q.order_by(DocumentModel.type.asc(), DocumentModel.version.asc())
+        .offset(skip)
+        .limit(limit)
+    )
     result = await db.execute(q)
     docs = result.scalars().all()
     return [DocumentResponse.model_validate(d) for d in docs]
@@ -473,20 +518,33 @@ async def upload_documents_bulk(
     doc_ids: list[UUID] = []
     errors: list[str] = []
     for f in files:
+        # One savepoint per file: a failure (validation, parser crash, storage error)
+        # rolls back only that file's rows, the other files of the batch stay intact
+        # and are committed at the end of the request.
         try:
-            doc = await _process_one_upload(
-                case_id=case_id,
-                file=f,
-                document_type=document_type,
-                uploaded_by=uploaded_by,
-                db=db,
-                async_extraction=use_async,
-            )
+            async with db.begin_nested():
+                doc = await _process_one_upload(
+                    case_id=case_id,
+                    file=f,
+                    document_type=document_type,
+                    uploaded_by=uploaded_by,
+                    db=db,
+                    async_extraction=use_async,
+                )
             created.append(DocumentResponse.model_validate(doc))
             if use_async:
                 doc_ids.append(doc.id)
         except HTTPException as e:
             errors.append(f"{f.filename or 'file'}: {e.detail}")
+        # per-file error boundary of the bulk endpoint
+        except Exception:  # noqa: BLE001
+            logger.exception(
+                "Bulk upload: file failed",
+                extra={"upload_filename": f.filename or "file"},
+            )
+            errors.append(
+                f"{f.filename or 'file'}: Verarbeitung fehlgeschlagen (Details im Server-Log)"
+            )
     if errors:
         logger.warning(
             "Bulk upload partial or full failure",

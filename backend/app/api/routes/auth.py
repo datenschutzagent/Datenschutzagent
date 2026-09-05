@@ -44,7 +44,8 @@ async def get_auth_config(request: Request):
         out["authorization_endpoint"] = discovery.get("authorization_endpoint") or ""
         out["token_endpoint"] = discovery.get("token_endpoint") or ""
         out["end_session_endpoint"] = discovery.get("end_session_endpoint") or ""
-    except Exception as exc:
+    # OIDC discovery is best-effort; frontend falls back to manual config
+    except Exception as exc:  # noqa: BLE001
         logger.warning("OIDC discovery failed for %s: %s", out["oidc_issuer_url"], exc)
         out["authorization_endpoint"] = ""
         out["token_endpoint"] = ""
@@ -86,7 +87,7 @@ async def _oidc_token_endpoint() -> str:
     try:
         discovery = await _oidc_discovery(issuer, timeout=5.0)
         token_endpoint = discovery.get("token_endpoint")
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001 – discovery failure is mapped to 503
         logger.warning("OIDC discovery failed during token exchange: %s", exc)
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,

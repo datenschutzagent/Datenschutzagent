@@ -257,7 +257,8 @@ async def assess_avv_risk(
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except DatenschutzAgentError:
         raise  # mapped to 503/400 by the domain error handler
-    except Exception as exc:
+    # route error boundary → 500 without details
+    except Exception as exc:  # noqa: BLE001
         logger.exception("AVV risk assessment failed for %s", contract_id)
         raise HTTPException(
             status_code=500,

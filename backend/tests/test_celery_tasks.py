@@ -388,7 +388,8 @@ def test_periodic_recheck_dispatches_after_commit():
     playbooks_result.scalars.return_value.all.return_value = [playbook]
 
     session = MagicMock()
-    session.execute = AsyncMock(side_effect=[cases_result, playbooks_result])
+    # Playbooks are loaded once before the case loop (no per-case query).
+    session.execute = AsyncMock(side_effect=[playbooks_result, cases_result])
     session.flush = AsyncMock()
     committed: list[bool] = []
 
@@ -418,4 +419,5 @@ def test_periodic_recheck_dispatches_after_commit():
 
     assert result == {"queued": 1}
     assert dispatched_after_commit == [True]
+    assert session.execute.await_count == 2  # playbooks + cases, not N+1
     assert case.last_rechecked_at > old

@@ -80,6 +80,23 @@ passende Migration lässt den Backend-Job rot werden.
 Historische rohe SQL-Skripte unter `backend/migrations/legacy/` sind **nicht**
 mehr aktiv (vor dem Alembic-Baseline); bitte keine neuen dort anlegen.
 
+## Transaktionsgrenzen (Backend)
+
+`get_db()` committet am Ende jeder erfolgreichen Anfrage und rollt bei Exceptions
+zurück. Daraus folgt:
+
+- **Routen und Services rufen `db.commit()` nicht selbst auf** – `flush()` reicht, um IDs
+  und Defaults zu erhalten.
+- **Einzige Ausnahme:** unmittelbar *vor* einem externen Seiteneffekt, der die Daten
+  bereits sehen muss (Celery-`delay()`, Weaviate-Indexierung, Webhook). Der Commit steht
+  dann direkt vor dem Aufruf, mit Kommentar, warum.
+- Mehrere Objekte in einer Anfrage (z. B. Bulk-Upload) laufen je Objekt in einem
+  Savepoint (`async with db.begin_nested()`), damit ein fehlerhaftes Objekt die anderen
+  nicht mitreißt.
+- `except Exception` ist nur an dokumentierten Fehlergrenzen erlaubt und trägt dort
+  ein `# noqa: BLE001` mit Begründung; Ruff erzwingt das (keine per-file-Ausnahmen mehr
+  für Routen).
+
 ## Sicherheit
 
 Sicherheitslücken bitte vertraulich melden – siehe `SECURITY.md`.

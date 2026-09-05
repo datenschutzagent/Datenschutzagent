@@ -314,8 +314,19 @@ async def export_cases(
     _user=require_roles("viewer", "editor", "admin"),
 ):
     """Export cases list as CSV. Applies same filters as GET /cases."""
+    # Open-findings count as a correlated subquery: no findings relation is loaded for
+    # up to 5000 cases just to count in Python.
+    open_findings_count = (
+        select(func.count(FindingModel.id))
+        .where(
+            FindingModel.case_id == CaseModel.id,
+            FindingModel.status == FindingStatus.OPEN,
+        )
+        .correlate(CaseModel)
+        .scalar_subquery()
+    )
     base_q = _apply_case_filters(
-        select(CaseModel).options(*case_relations(documents=False)),
+        select(CaseModel, open_findings_count),
         q=q,
         status=status,
         department=department,
@@ -327,7 +338,7 @@ async def export_cases(
     )
 
     result = await db.execute(base_q.order_by(CaseModel.updated_at.desc()).limit(5000))
-    cases = result.scalars().all()
+    rows = result.all()
 
     buf = io.StringIO()
     writer = csv.writer(buf)
@@ -347,8 +358,7 @@ async def export_cases(
             "Archiviert",
         ]
     )
-    for c in cases:
-        open_findings = sum(1 for f in c.findings if f.status == FindingStatus.OPEN)
+    for c, open_findings in rows:
         writer.writerow(
             [
                 str(c.id),
@@ -368,7 +378,7 @@ async def export_cases(
 
     date_str = datetime.now(UTC).strftime("%Y-%m-%d")
     body_content = "\ufeff" + buf.getvalue()
-    logger.info("Cases exported as CSV", extra={"row_count": len(cases)})
+    logger.info("Cases exported as CSV", extra={"row_count": len(rows)})
     return Response(
         content=body_content.encode("utf-8"),
         media_type="text/csv; charset=utf-8",
@@ -396,6 +406,13 @@ async def get_case(
 @router.get("/{case_id}/activities", response_model=list[ActivityResponse])
 async def get_case_activities(
     case_id: UUID,
+    skip: int = Query(default=0, ge=0),
+    limit: int = Query(
+        default=200,
+        ge=1,
+        le=1000,
+        description="Maximale Anzahl Einträge (neueste zuerst); Standard 200",
+    ),
     db: AsyncSession = Depends(get_db),
 ):
     """Get activity log for the case (run_checks, finding_status_updated, etc.), sorted by time descending."""
@@ -406,6 +423,8 @@ async def get_case_activities(
         select(ActivityLogModel)
         .where(ActivityLogModel.case_id == case_id)
         .order_by(ActivityLogModel.created_at.desc())
+        .offset(skip)
+        .limit(limit)
     )
     activities = activities_result.scalars().all()
     return [ActivityResponse.model_validate(a) for a in activities]
@@ -564,7 +583,8 @@ async def update_case(
                     },
                     db,
                 )
-            except Exception as exc:
+            # webhook delivery must never fail the request
+            except Exception as exc:  # noqa: BLE001
                 logger.warning("Webhook fire_event failed (non-critical): %s", exc)
     # Re-fetch with relationships loaded to avoid lazy load in async context (MissingGreenlet)
     result = await db.execute(
@@ -610,7 +630,8 @@ async def export_audit_package(
         zip_bytes, filename = await build_audit_export(case_id, db)
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
-    except Exception as exc:
+    # route error boundary → 500 without details
+    except Exception as exc:  # noqa: BLE001
         logger.exception("Audit export failed for case %s", case_id)
         raise HTTPException(
             status_code=500, detail="Export fehlgeschlagen (Details im Server-Log)."

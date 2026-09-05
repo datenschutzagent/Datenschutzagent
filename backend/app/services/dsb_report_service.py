@@ -158,8 +158,14 @@ async def build_dsb_report(case_id: UUID, db: AsyncSession) -> DSBReportResponse
             vvt_completeness = (
                 round((filled / total_fields) * 100) if total_fields else 0
             )
-        except Exception:
-            pass
+        except Exception as exc:
+            # The report degrades to "VVT completeness unknown" instead of failing, but
+            # the cause must be visible – an LLM outage here used to be silent.
+            logger.warning(
+                "DSB report: VVT normalization failed, completeness left at 0: %s",
+                exc,
+                extra={"case_id": str(case_id)},
+            )
 
     risks = [
         DSBReportRisk(

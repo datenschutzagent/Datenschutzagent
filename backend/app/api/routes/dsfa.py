@@ -209,7 +209,8 @@ async def _run_dsfa_inline(job_id: UUID, db: AsyncSession) -> None:
             await save_dsfa(job.case_id, payload, session)
             job.status = JobStatus.COMPLETED
             await session.commit()
-        except Exception as exc:
+        # inline fallback job must record any failure
+        except Exception as exc:  # noqa: BLE001
             job.status = JobStatus.FAILED
             job.error = str(exc)[:490]
             await session.commit()

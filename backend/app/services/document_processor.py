@@ -481,11 +481,14 @@ def _decode_text_bytes(content: bytes) -> str:
         best = from_bytes(content).best()
         if best is not None:
             return str(best)
-    except Exception:
-        pass
+    except Exception as exc:
+        logger.debug("charset detection failed, falling back to cp1252: %s", exc)
     try:
         return content.decode("cp1252")
-    except Exception:
+    except UnicodeDecodeError:
+        logger.warning(
+            "Text file could not be decoded as UTF-8/cp1252; returning empty"
+        )
         return ""
 
 

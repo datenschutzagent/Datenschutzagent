@@ -881,6 +881,20 @@ async def _periodic_recheck_async() -> dict:
 
     async with session_factory() as session:
         now = datetime.now(UTC)
+        # Active playbooks are the same for every case → load once, not per case (N+1).
+        active_playbooks = (
+            (
+                await session.execute(
+                    select(PlaybookModel).where(PlaybookModel.is_active.is_(True))
+                )
+            )
+            .scalars()
+            .all()
+        )
+        if not active_playbooks:
+            logger.info("periodic_recheck: no active playbooks, nothing to queue")
+            return {"queued": 0}
+        recheck_strategies = _parse_recheck_strategies()
         # Vorgänge mit konfiguriertem Recheck-Intervall laden
         result = await session.execute(
             select(CaseModel).where(
@@ -902,13 +916,6 @@ async def _periodic_recheck_async() -> dict:
                 continue
 
             # Bestes aktives Playbook finden
-            playbooks = await session.execute(
-                select(PlaybookModel).where(PlaybookModel.is_active.is_(True))
-            )
-            active_playbooks = playbooks.scalars().all()
-            if not active_playbooks:
-                continue
-
             ranked = rank_playbooks_for_selection(
                 active_playbooks,
                 department=case.department or "",
@@ -919,7 +926,6 @@ async def _periodic_recheck_async() -> dict:
             )
             best_playbook = ranked[0][0] if ranked else active_playbooks[0]
 
-            recheck_strategies = _parse_recheck_strategies()
             job_id = uuid.uuid4()
             job = RunChecksJobModel(
                 id=job_id,

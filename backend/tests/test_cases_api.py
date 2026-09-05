@@ -180,6 +180,9 @@ async def test_export_has_open_findings_matches_list_filter(client):
 
     assert with_finding["id"] in listed_ids
     assert with_finding["id"] in exported_ids
+    # "Offene Befunde" column is computed in SQL (correlated subquery), not in Python.
+    row = next(r for r in csv_text.splitlines()[1:] if r.startswith(with_finding["id"]))
+    assert row.split(",")[10] == "1"
     for excluded in (doc_only["id"], fixed_only["id"]):
         assert excluded not in listed_ids
         assert excluded not in exported_ids

@@ -45,6 +45,35 @@ Das Format orientiert sich an [Keep a Changelog](https://keepachangelog.com/de/1
   (production: Startabbruch, sonst Warnung). Jeder Start loggt die Übermittlung;
   der Admin-Bereich zeigt Provider und Freigabestatus unter „System“.
 
+### Changed (Phase 2 – Backend-Robustheit)
+- **Event-Loop bleibt frei:** OIDC-Discovery/Token-Exchange über `httpx.AsyncClient`,
+  SMTP-Versand, Storage-IO, Textextraktion und Weaviate-Abfragen laufen in
+  Worker-Threads; der Legal-Basis-Kontext wird pro Prüflauf einmal je Check
+  geladen statt je Check × Dokument.
+- **Celery-Fehlerpolitik:** Tasks liefern kein `{"ok": false}` mehr als SUCCESS.
+  Transiente Fehler (Storage/Netz/DB/LLM-Provider) werden mit Backoff
+  30/120/300 s bis zu 3× wiederholt, alles andere markiert den Job FAILED und
+  wird als Celery-FAILURE gezählt.
+- **Fehlerantworten:** LLM-Ausfälle → 503 (`LLM_UNAVAILABLE`,
+  `LLM_RETRY_EXHAUSTED`, `LLM_BUDGET_EXCEEDED`), Prompt-Injection → 400
+  (`PROMPT_REJECTED`); unerwartete Fehler → 500 ohne interne Details, mit
+  `request_id` zum Nachschlagen im Log.
+- **LLM-Kosten:** nur transiente Provider-Fehler werden wiederholt, der
+  Circuit-Breaker zählt jeden Fehlversuch, `RUN_CHECKS_MAX_LLM_CALLS`
+  (Standard 1000) deckelt die Provider-Aufrufe je Prüflauf; das Activity-Log
+  enthält `llm_calls` und `llm_budget_exhausted`.
+- **Datenzugriff:** Beat-Recheck lädt Playbooks einmal statt je Vorgang; der
+  CSV-Export zählt offene Befunde in SQL; `GET /documents` und
+  `GET /cases/{id}/activities` sind paginiert (`skip`/`limit`);
+  `documents(case_id, type, version)` ist UNIQUE (Migration `e1f2a3b4c5d6`,
+  Altbestand mit Duplikaten wird umnummeriert), der Upload wiederholt bei
+  Versionskollision statt 500.
+- **Bulk-Upload** isoliert jede Datei in einem Savepoint; ein Parser- oder
+  Storage-Fehler einer Datei lässt die übrigen intakt.
+- Kein stilles `except: pass` mehr (Metrik-Gauges, Charset-Erkennung,
+  VVT-Vollständigkeit im DSB-Report loggen ihre Ursache); Ruff BLE001 gilt
+  jetzt auch für alle Routen (Fehlergrenzen tragen inline `noqa` mit Grund).
+
 ### Added
 - **CI-Gates (Qualitätsplan Phase 0):** Frontend `tsc --noEmit` und
   `eslint --max-warnings=0` blockieren jetzt; Alembic-Gate (`upgrade head`,

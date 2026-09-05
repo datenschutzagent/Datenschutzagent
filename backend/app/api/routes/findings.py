@@ -727,7 +727,8 @@ async def send_finding_chat_message(
         await chat_with_finding(finding_id, body.content, db)
     except DatenschutzAgentError:
         raise  # LLM/prompt errors → 503/400 via the domain error handler
-    except Exception as exc:
+    # route error boundary → 502 without details
+    except Exception as exc:  # noqa: BLE001
         logger.exception("Finding chat failed for %s", finding_id)
         raise HTTPException(
             status_code=502,

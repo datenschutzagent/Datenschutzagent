@@ -4,7 +4,16 @@ import uuid
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
-from sqlalchemy import DateTime, Float, ForeignKey, Index, Integer, String, Text
+from sqlalchemy import (
+    DateTime,
+    Float,
+    ForeignKey,
+    Index,
+    Integer,
+    String,
+    Text,
+    UniqueConstraint,
+)
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -22,6 +31,11 @@ class DocumentModel(Base):
         Index("ix_documents_extraction_status", "extraction_status"),
         Index("ix_documents_case_id_extraction_status", "case_id", "extraction_status"),
         Index("ix_documents_case_id_type", "case_id", "type"),
+        # One version number per (case, document type): the upload path computes
+        # max(version)+1 and relies on this constraint to catch parallel uploads.
+        UniqueConstraint(
+            "case_id", "type", "version", name="uq_documents_case_type_version"
+        ),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(

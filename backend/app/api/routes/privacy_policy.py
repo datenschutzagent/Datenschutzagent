@@ -207,7 +207,8 @@ async def generate_privacy_policy_for_case(
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except DatenschutzAgentError:
         raise  # LLM errors → 503 via the domain error handler
-    except Exception as exc:
+    # route error boundary → 500 without details
+    except Exception as exc:  # noqa: BLE001
         logger.exception("Privacy policy generation failed")
         raise HTTPException(
             status_code=500,

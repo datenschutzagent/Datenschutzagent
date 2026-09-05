@@ -6003,7 +6003,11 @@ export interface operations {
     };
     get_case_activities_api_v1_cases__case_id__activities_get: {
         parameters: {
-            query?: never;
+            query?: {
+                skip?: number;
+                /** @description Maximale Anzahl Einträge (neueste zuerst); Standard 200 */
+                limit?: number;
+            };
             header?: never;
             path: {
                 case_id: string;
@@ -6604,6 +6608,8 @@ export interface operations {
             query?: {
                 case_id?: string | null;
                 document_type?: string | null;
+                skip?: number;
+                limit?: number;
             };
             header?: never;
             path?: never;

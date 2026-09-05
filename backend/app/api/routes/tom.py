@@ -342,5 +342,6 @@ async def delete_tom_attachment(
 
     try:
         await asyncio.to_thread(delete_tom_file, storage_path)
-    except Exception:
+    # blob deletion is best-effort after the row is gone
+    except Exception:  # noqa: BLE001
         logger.warning("Could not delete TOM attachment file: %s", storage_path)

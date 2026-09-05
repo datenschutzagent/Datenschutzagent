@@ -480,8 +480,10 @@ async def prometheus_metrics(request: Request) -> Response:
         pool = engine.pool
         db_pool_checkedout.set(pool.checkedout())
         db_pool_total.set(pool.size())
-    except Exception:
-        pass
+    except Exception as exc:
+        # Pool gauges are best-effort (NullPool has no checkedout()); metrics output
+        # must still be produced.
+        logging.getLogger("app.metrics").debug("db pool gauges unavailable: %s", exc)
 
     return Response(content=generate_latest(), media_type=CONTENT_TYPE_LATEST)
 
