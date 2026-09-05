@@ -7,6 +7,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, Field
 from sqlalchemy import select
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.constants import FindingSeverity, FindingStatus
@@ -186,6 +187,189 @@ class _DSFAResult(BaseModel):
     )
 
 
+async def _load_vvt_info(db: AsyncSession, case_id: UUID) -> str:
+    """One-line VVT status from the latest DSB report; best-effort context only."""
+    from app.models.db import DSBReportModel
+
+    try:
+        report_result = await db.execute(
+            select(DSBReportModel).where(DSBReportModel.case_id == case_id)
+        )
+        report_row = report_result.scalar_one_or_none()
+    except SQLAlchemyError as exc:
+        logger.warning(
+            "Could not load DSB report for DSFA context: %s",
+            exc,
+            extra={"case_id": str(case_id)},
+        )
+        return "Keine VVT-Daten verfügbar."
+    summary = (report_row.payload or {}).get("summary") if report_row else None
+    if isinstance(summary, dict) and summary.get("vvt_available", False):
+        return f"VVT vorhanden, Vollständigkeit: {summary.get('vvt_completeness', 0)}%"
+    return "Keine VVT-Daten verfügbar."
+
+
+def _format_findings_info(findings) -> str:
+    if not findings:
+        return "Keine kritischen/hohen offenen Befunde."
+    return "\n".join(
+        f"- [{f.severity.upper()}] {f.check_name}: {f.description[:200]}"
+        for f in findings
+    )
+
+
+async def _run_dsfa_llm(
+    case: CaseModel, findings, user_content: str, policy
+) -> tuple["_DSFAResult", str, bool]:
+    """LLM run with the configured rule fallback.
+
+    Returns ``(result, source, llm_failed)`` where source is ``llm`` (LLM output
+    kept), ``rules`` (LLM failed, heuristic used) or ``hybrid`` (LLM answered but
+    below the confidence threshold, heuristic used instead).
+    """
+    case_id = str(case.id)
+    # DSFA (Art. 35) is a complex legal assessment → use the optional stronger analysis model.
+    agent = create_agent(_DSFA_SYSTEM_PROMPT, analysis=True)
+    try:
+        result = await agent.run(
+            user_content, output_type=wrap_output_type(_DSFAResult)
+        )
+    except Exception as exc:  # noqa: BLE001 – any provider/validation error → fallback
+        logger.error("DSFA LLM generation failed: %s", exc, extra={"case_id": case_id})
+        if not (policy.enabled and policy.uses_rule_fallback):
+            raise
+        return _dsfa_fallback_result(case, findings), "rules", True
+
+    data = result.output
+    # Output below the policy threshold: swap in the heuristic. The "both" strategy
+    # emits an audit event but keeps the LLM result.
+    if (
+        policy.enabled
+        and policy.uses_rule_fallback
+        and float(data.confidence) < policy.low_threshold
+    ):
+        logger.warning(
+            "DSFA LLM confidence below threshold — switching to rules fallback",
+            extra={
+                "case_id": case_id,
+                "llm_confidence": float(data.confidence),
+                "low_threshold": policy.low_threshold,
+            },
+        )
+        return _dsfa_fallback_result(case, findings), "hybrid", False
+    return data, "llm", False
+
+
+def _emit_dsfa_audit(
+    db: AsyncSession,
+    case_id: UUID,
+    policy,
+    *,
+    source: str,
+    llm_failed: bool,
+    confidence: float,
+) -> None:
+    """Audit-log entry when the policy demands escalation or the source is non-LLM."""
+    if source == "llm" and not policy.emits_audit_event:
+        return
+    db.add(
+        ActivityLogModel(
+            case_id=case_id,
+            event_type=policy.escalation_event_type,
+            payload={
+                "kind": "dsfa",
+                "source": source,
+                "llm_failed": llm_failed,
+                "confidence": confidence,
+                "low_threshold": policy.low_threshold,
+                "strategy": policy.fallback_strategy,
+            },
+        )
+    )
+
+
+def _inherent_risks(data: "_DSFAResult", dsfa_cfg) -> list[dict[str, Any]]:
+    """Matrix lookup per risk: likelihood × severity → risk_level (deterministic from
+    the config, not from LLM self-report)."""
+    out = []
+    for r in data.risks:
+        lik = max(1, min(5, int(r.likelihood)))
+        sev = max(1, min(5, int(r.severity)))
+        out.append(
+            {
+                "description": r.description,
+                "likelihood": _to_label(lik),
+                "severity": _to_label(sev),
+                "likelihood_score": lik,
+                "severity_score": sev,
+                "risk_level": dsfa_cfg.risk_level_for(lik, sev),
+                "mitigation": r.mitigation,
+            }
+        )
+    return out
+
+
+def _max_risk_level(risks: list[dict[str, Any]]) -> str:
+    return max(
+        (r["risk_level"] for r in risks),
+        key=lambda lv: _RESIDUAL_RANK.get(lv, 0),
+        default="low",
+    )
+
+
+def _residual_risks(
+    cfg, inherent: list[dict[str, Any]], applied_ids: list[str]
+) -> dict[str, Any]:
+    """Residual risk via the mitigation catalog. Without linked mitigations the
+    residual equals the inherent risk (complete backward-compat)."""
+    dsfa_cfg = cfg.dsfa_assessment
+    if cfg.mitigations.enabled and applied_ids and inherent:
+        return apply_dsfa_mitigations(
+            inherent_risks=inherent,
+            applied_mitigation_ids=applied_ids,
+            catalog=cfg.mitigations,
+            dsfa_cfg=dsfa_cfg,
+        )
+    residual_level = _max_risk_level(inherent)
+    return {
+        "residual_risks": [
+            {
+                **r,
+                "inherent_likelihood_score": r["likelihood_score"],
+                "inherent_severity_score": r["severity_score"],
+                "inherent_risk_level": r["risk_level"],
+                "applied_mitigation_ids": [],
+            }
+            for r in inherent
+        ],
+        "residual_overall_level": residual_level,
+        "applied_effects": [],
+        "dpo_consultation_required": (
+            residual_level in dsfa_cfg.dpo_consultation_required_when_residual_in
+        ),
+    }
+
+
+def _scale_metadata(dsfa_cfg) -> dict[str, Any]:
+    """Matrix metadata so the UI can render the right grid without admin scope on
+    the risk-config endpoint."""
+    return {
+        "scale_version": DSFA_SCALE_VERSION_NUMERIC,
+        "scale_type": dsfa_cfg.scale_type,
+        "scale_size": dsfa_cfg.size,
+        "matrix": dict(dsfa_cfg.matrix),
+        "scale_labels": {
+            "likelihood": {
+                str(k): v
+                for k, v in dsfa_cfg.scale_labels.get("likelihood", {}).items()
+            },
+            "severity": {
+                str(k): v for k, v in dsfa_cfg.scale_labels.get("severity", {}).items()
+            },
+        },
+    }
+
+
 async def generate_dsfa(case_id: UUID, db: AsyncSession) -> dict[str, Any]:
     """Generiert eine DSFA für den Vorgang und gibt das Payload-Dict zurück."""
     case_result = await db.execute(select(CaseModel).where(CaseModel.id == case_id))
@@ -206,37 +390,7 @@ async def generate_dsfa(case_id: UUID, db: AsyncSession) -> dict[str, Any]:
         .limit(20)
     )
     findings = findings_result.scalars().all()
-
-    # VVT-Info aus dem DSB-Report holen (falls vorhanden)
-    vvt_info = "Keine VVT-Daten verfügbar."
-    try:
-        from app.models.db import DSBReportModel
-
-        report_result = await db.execute(
-            select(DSBReportModel).where(DSBReportModel.case_id == case_id)
-        )
-        report_row = report_result.scalar_one_or_none()
-        if report_row and report_row.payload:
-            summary = report_row.payload.get("summary", {})
-            vvt_available = summary.get("vvt_available", False)
-            completeness = summary.get("vvt_completeness", 0)
-            if vvt_available:
-                vvt_info = f"VVT vorhanden, Vollständigkeit: {completeness}%"
-    except Exception as exc:
-        logger.warning(
-            "Could not load DSB report for DSFA context: %s",
-            exc,
-            extra={"case_id": str(case_id)},
-        )
-
-    findings_info = "Keine kritischen/hohen offenen Befunde."
-    if findings:
-        lines = []
-        for f in findings:
-            lines.append(
-                f"- [{f.severity.upper()}] {f.check_name}: {f.description[:200]}"
-            )
-        findings_info = "\n".join(lines)
+    vvt_info = await _load_vvt_info(db, case_id)
 
     user_content = _DSFA_USER_TEMPLATE.format(
         title=sanitize_prompt_field(case.title, max_chars=200),
@@ -245,53 +399,16 @@ async def generate_dsfa(case_id: UUID, db: AsyncSession) -> dict[str, Any]:
         special_category="Ja" if case.special_category_data else "Nein",
         international_transfer="Ja" if case.international_transfer else "Nein",
         vvt_info=sanitize_prompt_field(vvt_info, max_chars=500),
-        findings_info=sanitize_prompt_field(findings_info, max_chars=2000),
+        findings_info=sanitize_prompt_field(
+            _format_findings_info(findings), max_chars=2000
+        ),
     )
 
     cfg = get_risk_config()
     dsfa_cfg = cfg.dsfa_assessment
     policy = cfg.confidence_policy
-    source = "llm"
-    llm_failed = False
+    data, source, llm_failed = await _run_dsfa_llm(case, findings, user_content, policy)
 
-    # DSFA (Art. 35) is a complex legal assessment → use the optional stronger analysis model.
-    agent = create_agent(_DSFA_SYSTEM_PROMPT, analysis=True)
-    try:
-        result = await agent.run(
-            user_content, output_type=wrap_output_type(_DSFAResult)
-        )
-        data = result.output
-    except Exception as exc:
-        logger.error(
-            "DSFA LLM generation failed: %s", exc, extra={"case_id": str(case_id)}
-        )
-        llm_failed = True
-        if not (policy.enabled and policy.uses_rule_fallback):
-            raise
-        data = _dsfa_fallback_result(case, findings)
-        source = "rules"
-
-    # If the LLM produced output below the policy threshold, swap in the
-    # heuristic. The "both" strategy emits an audit event but keeps the LLM result.
-    if (
-        not llm_failed
-        and policy.enabled
-        and policy.uses_rule_fallback
-        and float(data.confidence) < policy.low_threshold
-    ):
-        logger.warning(
-            "DSFA LLM confidence below threshold — switching to rules fallback",
-            extra={
-                "case_id": str(case_id),
-                "llm_confidence": float(data.confidence),
-                "low_threshold": policy.low_threshold,
-            },
-        )
-        data = _dsfa_fallback_result(case, findings)
-        source = "hybrid"
-
-    # Matrix-Lookup pro Risiko: Likelihood × Severity → risk_level
-    # (deterministisch aus der Config, nicht aus LLM-Self-Report).
     confidence = float(data.confidence)
     low_confidence = confidence < dsfa_cfg.min_confidence
     if low_confidence:
@@ -303,126 +420,41 @@ async def generate_dsfa(case_id: UUID, db: AsyncSession) -> dict[str, Any]:
                 "min_confidence": dsfa_cfg.min_confidence,
             },
         )
+    _emit_dsfa_audit(
+        db,
+        case_id,
+        policy,
+        source=source,
+        llm_failed=llm_failed,
+        confidence=confidence,
+    )
 
-    # Emit an audit-log entry when the policy demands escalation or when the
-    # source is non-LLM. Audit entry is best-effort — never lets the DSFA fail.
-    if source != "llm" or policy.emits_audit_event:
-        try:
-            db.add(
-                ActivityLogModel(
-                    case_id=case_id,
-                    event_type=policy.escalation_event_type,
-                    payload={
-                        "kind": "dsfa",
-                        "source": source,
-                        "llm_failed": llm_failed,
-                        "confidence": confidence,
-                        "low_threshold": policy.low_threshold,
-                        "strategy": policy.fallback_strategy,
-                    },
-                )
-            )
-        except Exception as exc:  # noqa: BLE001 — audit must never break DSFA
-            logger.debug(
-                "Audit-log emission for DSFA fallback failed: %s",
-                exc,
-                extra={"case_id": str(case_id)},
-            )
-
-    inherent_risks_payload = []
-    for r in data.risks:
-        lik = max(1, min(5, int(r.likelihood)))
-        sev = max(1, min(5, int(r.severity)))
-        risk_level = dsfa_cfg.risk_level_for(lik, sev)
-        inherent_risks_payload.append(
-            {
-                "description": r.description,
-                "likelihood": _to_label(lik),
-                "severity": _to_label(sev),
-                "likelihood_score": lik,
-                "severity_score": sev,
-                "risk_level": risk_level,
-                "mitigation": r.mitigation,
-            }
-        )
-
-    # Inherent (vor Mitigation): höchstes Einzelrisiko.
-    if inherent_risks_payload:
-        inherent_residual = max(
-            (r["risk_level"] for r in inherent_risks_payload),
-            key=lambda lv: _RESIDUAL_RANK.get(lv, 0),
-        )
-    else:
-        inherent_residual = "low"
-
-    # Residual via Mitigation-Katalog. Wenn keine Mitigations verknüpft sind
-    # ist residual == inherent — kompletter Backward-compat.
+    inherent = _inherent_risks(data, dsfa_cfg)
     applied_ids = await _load_case_mitigation_ids(case_id, db)
-    if cfg.mitigations.enabled and applied_ids and inherent_risks_payload:
-        residual = apply_dsfa_mitigations(
-            inherent_risks=inherent_risks_payload,
-            applied_mitigation_ids=applied_ids,
-            catalog=cfg.mitigations,
-            dsfa_cfg=dsfa_cfg,
-        )
-        risks_payload = residual["residual_risks"]
-        residual_risk = residual["residual_overall_level"]
-        applied_effects = residual["applied_effects"]
-        dpo_required = residual["dpo_consultation_required"]
-    else:
-        # Keine Mitigations → spiegele inherent in residual + leeren Effekt-Trace.
-        risks_payload = [
-            {
-                **r,
-                "inherent_likelihood_score": r["likelihood_score"],
-                "inherent_severity_score": r["severity_score"],
-                "inherent_risk_level": r["risk_level"],
-                "applied_mitigation_ids": [],
-            }
-            for r in inherent_risks_payload
-        ]
-        residual_risk = inherent_residual
-        applied_effects = []
-        dpo_required = (
-            residual_risk in dsfa_cfg.dpo_consultation_required_when_residual_in
-        )
+    residual = _residual_risks(cfg, inherent, applied_ids)
 
     payload = {
         "necessity_assessment": data.necessity_assessment,
         "proportionality_assessment": data.proportionality_assessment,
-        "risks": risks_payload,
-        "inherent_risks": inherent_risks_payload,
-        "inherent_residual_risk": inherent_residual,
-        "residual_risk": residual_risk,
-        "dpo_consultation_required": dpo_required,
+        "risks": residual["residual_risks"],
+        "inherent_risks": inherent,
+        "inherent_residual_risk": _max_risk_level(inherent),
+        "residual_risk": residual["residual_overall_level"],
+        "dpo_consultation_required": residual["dpo_consultation_required"],
         "measures": list(data.measures),
         "applied_mitigations": applied_ids,
-        "applied_effects": applied_effects,
+        "applied_effects": residual["applied_effects"],
         "source": source,
         "confidence": confidence,
         "low_confidence": low_confidence,
-        "scale_version": DSFA_SCALE_VERSION_NUMERIC,
-        # Matrix metadata so the UI can render the right grid without
-        # needing admin scope on the risk-config endpoint.
-        "scale_type": dsfa_cfg.scale_type,
-        "scale_size": dsfa_cfg.size,
-        "matrix": dict(dsfa_cfg.matrix),
-        "scale_labels": {
-            "likelihood": {
-                str(k): v
-                for k, v in dsfa_cfg.scale_labels.get("likelihood", {}).items()
-            },
-            "severity": {
-                str(k): v for k, v in dsfa_cfg.scale_labels.get("severity", {}).items()
-            },
-        },
+        **_scale_metadata(dsfa_cfg),
     }
     logger.info(
         "DSFA generation complete",
         extra={
             "case_id": str(case_id),
             "residual_risk": payload["residual_risk"],
-            "risk_count": len(risks_payload),
+            "risk_count": len(payload["risks"]),
             "dpo_consultation_required": payload["dpo_consultation_required"],
         },
     )
@@ -495,9 +527,8 @@ async def screen_dsfa_requirement(case_id: UUID, db: AsyncSession) -> dict[str, 
     for factor in dsfa_cfg.factors:
         try:
             met = _factor_met(factor, case, open_findings)
-        except (
-            Exception
-        ) as exc:  # noqa: BLE001 — never let a single factor crash screening
+        # A single bad factor must never crash screening.
+        except Exception as exc:  # noqa: BLE001
             logger.debug(
                 "DSFA screening factor '%s' check failed: %s",
                 factor.id,

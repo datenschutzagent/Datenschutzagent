@@ -5,8 +5,8 @@ from types import SimpleNamespace
 
 from docx import Document
 
-from app.api.routes.findings import _build_findings_docx
 from app.constants import FindingStatus
+from app.services.findings_export_service import build_findings_docx
 
 
 def _finding(status: str, severity: str = "high") -> SimpleNamespace:
@@ -38,7 +38,7 @@ def test_summary_contains_status_counts():
         _finding(FindingStatus.OPEN),
         _finding(FindingStatus.FIXED, severity="low"),
     ]
-    data = _build_findings_docx("Vorgang X", findings, {})
+    data = build_findings_docx("Vorgang X", findings, {})
     rows = _table_rows(Document(io.BytesIO(data)))
 
     assert ["Status", "Anzahl"] in rows
@@ -51,7 +51,7 @@ def test_summary_contains_status_counts():
 
 
 def test_docx_lists_each_finding():
-    data = _build_findings_docx("Vorgang X", [_finding(FindingStatus.OPEN)], {})
+    data = build_findings_docx("Vorgang X", [_finding(FindingStatus.OPEN)], {})
     doc = Document(io.BytesIO(data))
     headings = [p.text for p in doc.paragraphs if p.style.name.startswith("Heading")]
     assert "Rechtsgrundlage" in headings

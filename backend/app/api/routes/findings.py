@@ -7,13 +7,11 @@ from datetime import UTC, datetime
 from typing import Annotated
 from uuid import UUID
 
-from docx import Document as DocxDocument
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import Response
 from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.constants import FindingSeverity, FindingStatus
 from app.core.auth import require_roles
 from app.core.exceptions import DatenschutzAgentError
 from app.core.rate_limit import limiter
@@ -42,6 +40,11 @@ from app.models.schemas import (
     FindingUpdate,
     ResolutionVelocityItem,
     TopFailingCheck,
+)
+from app.services.findings_export_service import (
+    SEVERITY_LABELS,
+    STATUS_LABELS,
+    build_findings_docx,
 )
 from app.services.query_helpers import finding_relations
 
@@ -340,96 +343,6 @@ async def bulk_delete_findings(
     return {"deleted": len(findings)}
 
 
-def _build_findings_docx(case_title: str, findings: list, docs_by_id: dict) -> bytes:
-    """Build DOCX with structured findings report: title page, summary table, per-finding sections."""
-    severity_labels = {
-        FindingSeverity.CRITICAL: "Kritisch",
-        FindingSeverity.HIGH: "Hoch",
-        FindingSeverity.MEDIUM: "Mittel",
-        FindingSeverity.LOW: "Niedrig",
-        FindingSeverity.INFO: "Info",
-    }
-    status_labels = {
-        FindingStatus.OPEN: "Offen",
-        FindingStatus.ACCEPTED: "Akzeptiert",
-        FindingStatus.OVERRULED: "Überfahren",
-        FindingStatus.FIXED: "Behoben",
-    }
-
-    doc = DocxDocument()
-    doc.add_heading("Befunde-Bericht", 0)
-    doc.add_paragraph(f"Vorgang: {case_title}")
-    doc.add_paragraph(f"Erstellt: {datetime.now(UTC).strftime('%d.%m.%Y')}")
-    doc.add_paragraph()
-
-    # Summary table
-    severity_counts = {
-        s: sum(1 for f in findings if f.severity == s) for s in severity_labels
-    }
-    status_counts = {
-        s: sum(1 for f in findings if f.status == s) for s in status_labels
-    }
-    doc.add_heading("Zusammenfassung", level=1)
-    summary_table = doc.add_table(rows=1 + len(severity_labels), cols=2)
-    summary_table.style = "Table Grid"
-    summary_table.rows[0].cells[0].text = "Schweregrad"
-    summary_table.rows[0].cells[1].text = "Anzahl"
-    for i, (sev, label) in enumerate(severity_labels.items()):
-        row = summary_table.rows[i + 1]
-        row.cells[0].text = label
-        row.cells[1].text = str(severity_counts.get(sev, 0))
-    doc.add_paragraph()
-
-    status_table = doc.add_table(rows=1 + len(status_labels), cols=2)
-    status_table.style = "Table Grid"
-    status_table.rows[0].cells[0].text = "Status"
-    status_table.rows[0].cells[1].text = "Anzahl"
-    for i, (st, label) in enumerate(status_labels.items()):
-        row = status_table.rows[i + 1]
-        row.cells[0].text = label
-        row.cells[1].text = str(status_counts.get(st, 0))
-    doc.add_paragraph()
-
-    # Per-finding sections
-    doc.add_heading("Einzelbefunde", level=1)
-    for f in findings:
-        doc.add_heading(f.check_name, level=2)
-        info_table = doc.add_table(rows=5, cols=2)
-        info_table.style = "Table Grid"
-        labels_rows = [
-            ("Schweregrad", severity_labels.get(f.severity, f.severity)),
-            ("Status", status_labels.get(f.status, f.status)),
-            ("Kategorie", f.category),
-            (
-                "Dokument",
-                (
-                    docs_by_id.get(f.document_id, "Vorgangsbezogen")
-                    if f.document_id
-                    else "Vorgangsbezogen"
-                ),
-            ),
-            ("Strategie", f.source_strategy or ""),
-        ]
-        for i, (label, value) in enumerate(labels_rows):
-            info_table.rows[i].cells[0].text = label
-            info_table.rows[i].cells[1].text = value
-        doc.add_paragraph()
-        doc.add_paragraph("Beschreibung:").bold = True
-        doc.add_paragraph(f.description)
-        if f.evidence:
-            doc.add_paragraph("Nachweise:").bold = True
-            for ev in f.evidence:
-                doc.add_paragraph(f"• {ev}")
-        if f.recommendation:
-            doc.add_paragraph("Empfehlung:").bold = True
-            doc.add_paragraph(f.recommendation)
-        doc.add_paragraph()
-
-    buf = io.BytesIO()
-    doc.save(buf)
-    return buf.getvalue()
-
-
 @router.get("/export", response_class=Response)
 async def export_findings(
     case_id: Annotated[UUID | None, Query()] = None,
@@ -498,7 +411,7 @@ async def export_findings(
     }
 
     if format.lower() == "docx":
-        content_bytes = _build_findings_docx(case_title, findings, docs_by_id)
+        content_bytes = build_findings_docx(case_title, findings, docs_by_id)
         filename = f"Befunde-{slug}-{date_str}.docx"
         _fn_enc = _quote(filename, safe="")
         return Response(
@@ -509,20 +422,6 @@ async def export_findings(
                 **export_headers,
             },
         )
-
-    severity_labels = {
-        FindingSeverity.CRITICAL: "Kritisch",
-        FindingSeverity.HIGH: "Hoch",
-        FindingSeverity.MEDIUM: "Mittel",
-        FindingSeverity.LOW: "Niedrig",
-        FindingSeverity.INFO: "Info",
-    }
-    status_labels = {
-        FindingStatus.OPEN: "Offen",
-        FindingStatus.ACCEPTED: "Akzeptiert",
-        FindingStatus.OVERRULED: "Überfahren",
-        FindingStatus.FIXED: "Behoben",
-    }
 
     buf = io.StringIO()
     writer = csv.writer(buf)
@@ -547,8 +446,8 @@ async def export_findings(
                 cases_by_id.get(f.case_id, str(f.case_id)),
                 f.check_name,
                 f.category,
-                severity_labels.get(f.severity, f.severity),
-                status_labels.get(f.status, f.status),
+                SEVERITY_LABELS.get(f.severity, f.severity),
+                STATUS_LABELS.get(f.status, f.status),
                 f.description,
                 f.recommendation,
                 docs_by_id.get(f.document_id, "") if f.document_id else "",

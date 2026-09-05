@@ -78,6 +78,16 @@ Das Format orientiert sich an [Keep a Changelog](https://keepachangelog.com/de/1
 - Kein stilles `except: pass` mehr (Metrik-Gauges, Charset-Erkennung,
   VVT-Vollständigkeit im DSB-Report loggen ihre Ursache); Ruff BLE001 gilt
   jetzt auch für alle Routen (Fehlergrenzen tragen inline `noqa` mit Grund).
+- **Zerlegung der komplexesten Funktionen** (Ruff C901 ≤ 15 gilt jetzt ohne
+  Ausnahmen): `scan_and_notify_deadlines` ist eine generische
+  Benachrichtigungsschleife plus sechs Nachrichten-Builder; die vier
+  Kopien `_doc_check_*`/`_case_check_*` sind ein `_execute_check` mit
+  Ziel-Objekt (Dokument/Vorgang) und Strategie (full_text/rag inkl.
+  Fallback); `run_checks_impl`, `pipeline_stats` und `generate_dsfa` sind in
+  benannte Schritte aufgeteilt. Risiko-Score-Historie und Ähnlichkeits-Ranking
+  liegen in `case_risk_service`, der DOCX-Export in `findings_export_service`
+  (CSV und DOCX teilen sich die Label-Maps). Verhalten unverändert, jetzt mit
+  reinen Unit-Tests je Baustein; Backend-Coverage 65 %, Gate auf 63 % angehoben.
 
 ### Added
 - **CI-Gates (Qualitätsplan Phase 0):** Frontend `tsc --noEmit` und

@@ -106,8 +106,8 @@ jobs:
         working-directory: backend
       - name: Tests (with coverage)
         # Coverage gate — ratchet: raise to the measured value after every merge that
-        # increases it, never lower it (see CONTRIBUTING.md). Measured 60 % on 2026-09-05.
-        run: python -m pytest tests/ -v --cov=app --cov-report=term-missing --cov-report=xml --cov-fail-under=58
+        # increases it, never lower it (see CONTRIBUTING.md). Measured 65 % on 2026-09-05.
+        run: python -m pytest tests/ -v --cov=app --cov-report=term-missing --cov-report=xml --cov-fail-under=63
         working-directory: backend
       - name: Upload coverage report
         if: always()

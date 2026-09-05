@@ -33,7 +33,6 @@ from app.models.schemas import (
     ActivityResponse,
     AnnotatedDocumentListItem,
     CaseCloneRequest,
-    CaseRiskScoreHistoryItem,
     CaseRiskScoreResponse,
     CaseSimilarityResult,
 )
@@ -41,6 +40,11 @@ from app.services.annotated_document_service import (
     build_annotated_docx,
     build_annotated_pdf,
     list_annotatable_documents,
+)
+from app.services.case_risk_service import (
+    open_check_names,
+    rank_similar_cases,
+    risk_score_response,
 )
 from app.services.dsb_report_service import (
     _payload_to_report,
@@ -948,52 +952,9 @@ async def get_case_risk_score(
         .order_by(RunChecksJobModel.created_at.desc())
         .limit(limit)
     )
-    jobs = list(jobs_result.scalars().all())
-
-    case_score_cfg = get_risk_config().case_score
-
-    def _score_from_payload(
-        payload: dict | None, findings_count: int
-    ) -> tuple[int, int, int, int]:
-        """Extract (critical, high, medium, score) from result_payload or defaults.
-
-        Severity weights and max score come from RiskConfig.case_score so that
-        each org-profile can tune the risk model without code changes.
-        """
-        if payload:
-            critical = int(payload.get("critical_findings", 0))
-            high = int(payload.get("high_findings", 0))
-            medium = int(payload.get("medium_findings", 0))
-        else:
-            critical = high = medium = 0
-        weights = case_score_cfg.severity_weights
-        penalty = (
-            critical * weights.get("critical", 0)
-            + high * weights.get("high", 0)
-            + medium * weights.get("medium", 0)
-        )
-        score = min(case_score_cfg.max_score, penalty)
-        return critical, high, medium, score
-
-    history: list[CaseRiskScoreHistoryItem] = []
-    for job in reversed(jobs):  # chronological order
-        critical, high, medium, score = _score_from_payload(
-            job.result_payload, job.findings_count
-        )
-        history.append(
-            CaseRiskScoreHistoryItem(
-                job_id=job.id,
-                created_at=job.created_at,
-                score=score,
-                findings_count=job.findings_count,
-                critical=critical,
-                high=high,
-                medium=medium,
-            )
-        )
-
-    current_score = history[-1].score if history else 0
-    return CaseRiskScoreResponse(case_id=case_id, score=current_score, history=history)
+    return risk_score_response(
+        case_id, list(jobs_result.scalars().all()), get_risk_config().case_score
+    )
 
 
 @router.get("/{case_id}/similar", response_model=list[CaseSimilarityResult])
@@ -1012,10 +973,7 @@ async def get_similar_cases(
     if not case:
         raise HTTPException(status_code=404, detail="Case not found")
 
-    # Open finding check names for the current case
-    current_check_names = {
-        f.check_name for f in case.findings if f.status == FindingStatus.OPEN
-    }
+    current_check_names = open_check_names(case)
     if not current_check_names:
         return []
 
@@ -1029,41 +987,6 @@ async def get_similar_cases(
         .options(*case_relations(documents=False))
         .limit(50)
     )
-    candidates = candidates_result.scalars().all()
-
-    scored: list[tuple[float, CaseModel]] = []
-    for candidate in candidates:
-        candidate_check_names = {f.check_name for f in candidate.findings}
-        shared = current_check_names & candidate_check_names
-        if not shared:
-            continue
-        overlap = len(shared) / len(current_check_names)
-        scored.append((overlap, candidate))
-
-    scored.sort(key=lambda x: x[0], reverse=True)
-    results = []
-    for overlap_score, cand in scored[:limit]:
-        resolution = {
-            FindingStatus.FIXED: 0,
-            FindingStatus.ACCEPTED: 0,
-            FindingStatus.OVERRULED: 0,
-        }
-        shared_check_names = sorted(
-            current_check_names & {f.check_name for f in cand.findings}
-        )
-        for f in cand.findings:
-            if f.check_name in shared_check_names and f.status in resolution:
-                resolution[f.status] += 1
-        results.append(
-            CaseSimilarityResult(
-                case_id=cand.id,
-                title=cand.title,
-                department=cand.department,
-                case_type=cand.case_type,
-                status=cand.status,
-                overlap_score=round(overlap_score, 2),
-                shared_check_names=shared_check_names,
-                resolution_summary=resolution,
-            )
-        )
-    return results
+    return rank_similar_cases(
+        current_check_names, candidates_result.scalars().all(), limit
+    )
