@@ -14,11 +14,15 @@ RUN apt-get update && apt-get upgrade -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt .
-# Upgrade pip and setuptools first: the base image ships older versions whose dist-info
-# is part of the scanned image surface (Trivy python-pkg; setuptools <78.1.1 carries
-# CVE-2025-47273), and old resolvers occasionally mis-pin.
+# Upgrade pip and setuptools first (old resolvers occasionally mis-pin; setuptools
+# <78.1.1 carries CVE-2025-47273), install the app, then remove pip from the runtime
+# image: nothing installs packages at runtime, and pip's vendored SBOM
+# (pip/_vendor/bom.cdx.json) lists its private copies of msgpack/setuptools at old
+# versions, which Trivy reports as image vulnerabilities although they are not on
+# the application's import path.
 RUN pip install --no-cache-dir --upgrade pip "setuptools>=78.1.1" \
-    && pip install --no-cache-dir -r requirements.txt
+    && pip install --no-cache-dir -r requirements.txt \
+    && pip uninstall -y pip
 
 # Remove build tools to reduce attack surface (libpq-dev runtime still needed)
 RUN apt-get purge -y --auto-remove build-essential \
