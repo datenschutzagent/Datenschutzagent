@@ -31,7 +31,9 @@ def upgrade() -> None:
     op.execute(
         "ALTER TABLE api_audit_log ADD COLUMN IF NOT EXISTS resource_id VARCHAR(36)"
     )
-    op.execute("ALTER TABLE api_audit_log ADD COLUMN IF NOT EXISTS prev_hash VARCHAR(64)")
+    op.execute(
+        "ALTER TABLE api_audit_log ADD COLUMN IF NOT EXISTS prev_hash VARCHAR(64)"
+    )
     op.execute(
         "ALTER TABLE api_audit_log ADD COLUMN IF NOT EXISTS entry_hash VARCHAR(64)"
     )
