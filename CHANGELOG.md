@@ -46,6 +46,15 @@ Das Format orientiert sich an [Keep a Changelog](https://keepachangelog.com/de/1
   der Admin-Bereich zeigt Provider und Freigabestatus unter „System“.
 
 ### Changed (Phase 2 – Backend-Robustheit)
+- **Abhängigkeiten/Image (aus dem CI-Lauf des PR):** pydantic-ai und
+  pydantic-evals auf 1.106.0 (PYSEC-2026-2977/-3692); npm-Lockfile per
+  `npm audit fix` (undici, react-router, postcss, js-yaml, nanoid,
+  brace-expansion). Das Backend-Image enthält kein pip mehr – zur Laufzeit
+  installiert niemand Pakete, und pips mitgelieferte SBOM meldete seine
+  privaten msgpack/setuptools-Kopien als Image-Schwachstellen.
+- **E2E-Smoke** an den dreistufigen „Neuer Vorgang“-Dialog angepasst (der Test
+  suchte einen nicht mehr existierenden „Erstellen“-Button und war auch auf
+  `main` rot).
 - **mypy für `app/core` und `app/services`** in Pre-Commit und CI (`mypy.ini`,
   Baseline auf null gebracht). Dabei gefunden: der MinIO-Verbindungscheck
   importierte eine nicht existierende Funktion und meldete den Speicher immer
