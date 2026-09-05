@@ -13,8 +13,14 @@ import {
 } from "./core";
 import type { ApiPlaybook } from "./cases";
 
-function mapPlaybook(d: Record<string, unknown>): Record<string, unknown> {
-  const base = deepSnakeToCamel(d) as Record<string, unknown>;
+/** Playbook content blob as stored by the backend (checks + optional legal-basis links). */
+export interface PlaybookContent {
+  checks: unknown[];
+  legal_basis_ids?: string[];
+}
+
+function mapPlaybook(d: Record<string, unknown>): ApiPlaybook {
+  const base = deepSnakeToCamel<ApiPlaybook>(d);
   const content = d.content as Record<string, unknown> | undefined;
   base.checks = content && Array.isArray(content.checks) ? content.checks : [];
   base.status = d.is_active ? "active" : "archived";
@@ -23,7 +29,7 @@ function mapPlaybook(d: Record<string, unknown>): Record<string, unknown> {
 
 export async function getPlaybooks(): Promise<ApiPlaybook[]> {
   const list = (await request<Record<string, unknown>[]>("GET", "/playbooks")) ?? [];
-  return list.map((p) => mapPlaybook(p) as ApiPlaybook);
+  return list.map((p) => mapPlaybook(p));
 }
 
 export interface PlaybookMatchRow {
@@ -54,20 +60,20 @@ export async function getPlaybooksForSelection(params: {
     const inner = row.playbook as Record<string, unknown> | undefined;
     return {
       matchPriority: typeof row.match_priority === "number" ? row.match_priority : 0,
-      playbook: mapPlaybook(inner ?? {}) as ApiPlaybook,
+      playbook: mapPlaybook(inner ?? {}),
     };
   });
 }
 
 export async function getPlaybook(id: string): Promise<ApiPlaybook> {
   const p = await request<Record<string, unknown>>("GET", `/playbooks/${id}`);
-  return mapPlaybook(p) as ApiPlaybook;
+  return mapPlaybook(p);
 }
 
 export interface PlaybookCreatePayload {
   name: string;
   version: string;
-  content: { checks: unknown[] };
+  content: PlaybookContent;
   case_type?: string | null;
   department?: string | null;
 }
@@ -75,7 +81,7 @@ export interface PlaybookCreatePayload {
 export interface PlaybookUpdatePayload {
   name?: string;
   version?: string;
-  content?: { checks: unknown[] };
+  content?: PlaybookContent;
   case_type?: string | null;
   department?: string | null;
   is_active?: boolean;
@@ -90,7 +96,7 @@ export async function createPlaybook(payload: PlaybookCreatePayload): Promise<Ap
     department: payload.department ?? null,
   };
   const p = await request<Record<string, unknown>>("POST", "/playbooks", { body });
-  return mapPlaybook(p) as ApiPlaybook;
+  return mapPlaybook(p);
 }
 
 export async function updatePlaybook(id: string, payload: PlaybookUpdatePayload): Promise<ApiPlaybook> {
@@ -102,7 +108,7 @@ export async function updatePlaybook(id: string, payload: PlaybookUpdatePayload)
   if (payload.department !== undefined) body.department = payload.department;
   if (payload.is_active !== undefined) body.is_active = payload.is_active;
   const p = await request<Record<string, unknown>>("PATCH", `/playbooks/${id}`, { body });
-  return mapPlaybook(p) as ApiPlaybook;
+  return mapPlaybook(p);
 }
 
 export async function deletePlaybook(id: string): Promise<void> {
@@ -114,7 +120,7 @@ export interface ApiPlaybookRevision {
   id: string;
   playbookId: string;
   version: string;
-  content: { checks: unknown[] };
+  content: PlaybookContent;
   changedBy: string;
   createdAt: string;
 }
@@ -153,7 +159,7 @@ export async function restorePlaybookRevision(
     "POST",
     `/playbooks/${id}/revisions/${revisionId}/restore`
   );
-  return mapPlaybook(p) as ApiPlaybook;
+  return mapPlaybook(p);
 }
 
 // --- Departments (Fachbereiche) ---

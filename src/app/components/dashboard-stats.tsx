@@ -73,7 +73,6 @@ export function DashboardStats({ cases: casesProp }: DashboardStatsProps = {}) {
     sum + c.findings.filter(f => f.status === "fixed").length, 0
   );
 
-  const totalDocuments = cases.reduce((sum, c) => sum + c.documents.length, 0);
   const activePlaybooks = playbooks.filter(pb => pb.isActive).length;
   const playbookDepartments = new Set(playbooks.map(pb => pb.department).filter(Boolean)).size;
 
@@ -257,7 +256,7 @@ export function DashboardStats({ cases: casesProp }: DashboardStatsProps = {}) {
                         {c.title}
                       </Link>
                       <span className="text-muted-foreground">
-                        {new Date(c.deadline!).toLocaleDateString("de-DE")}
+                        {c.deadline ? new Date(c.deadline).toLocaleDateString("de-DE") : ""}
                       </span>
                     </li>
                   ))}
@@ -285,7 +284,7 @@ export function DashboardStats({ cases: casesProp }: DashboardStatsProps = {}) {
                         {c.title}
                       </Link>
                       <span className="text-muted-foreground">
-                        {new Date(c.deadline!).toLocaleDateString("de-DE")}
+                        {c.deadline ? new Date(c.deadline).toLocaleDateString("de-DE") : ""}
                       </span>
                     </li>
                   ))}

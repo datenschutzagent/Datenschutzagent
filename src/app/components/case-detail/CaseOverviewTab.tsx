@@ -270,7 +270,7 @@ export function CaseOverviewTab({
                       <option value="both">Beide (Vergleich Volltext + RAG)</option>
                     </select>
                     <p className="text-xs text-slate-500 dark:text-slate-400">
-                      RAG nutzt die Vektordatenbank; „Beide" führt Volltext- und RAG-Checks parallel aus.
+                      RAG nutzt die Vektordatenbank; „Beide“ führt Volltext- und RAG-Checks parallel aus.
                     </p>
                   </div>
                   {/* Coverage preview */}

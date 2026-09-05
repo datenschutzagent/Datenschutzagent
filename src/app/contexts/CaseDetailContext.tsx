@@ -76,7 +76,7 @@ export function CaseDetailProvider({ caseData, children }: CaseDetailProviderPro
 
   const { data: coveragePreview = null } = useQuery<PlaybookCoverage | null>({
     queryKey: ["playbook-coverage", selectedPlaybookId, caseId],
-    queryFn: () => getPlaybookCoveragePreview(selectedPlaybookId, caseId!),
+    queryFn: () => getPlaybookCoveragePreview(selectedPlaybookId, caseId ?? ""),
     enabled: !!selectedPlaybookId && !!caseId,
     staleTime: 30_000,
   });

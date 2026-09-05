@@ -11,11 +11,11 @@ import {
   parseErrorResponse,
   request,
 } from "./core";
-import type { ApiDocument, DocumentType } from "./cases";
+import type { ApiDocument } from "./cases";
 
 // Private mapper
-function mapDocument(d: Record<string, unknown>): Record<string, unknown> {
-  const base = deepSnakeToCamel(d) as Record<string, unknown>;
+function mapDocument(d: Record<string, unknown>): ApiDocument {
+  const base = deepSnakeToCamel<ApiDocument>(d);
   const sizeBytes = d.size_bytes as number | undefined;
   base.size = sizeBytes != null ? formatBytes(sizeBytes) : "";
   return base;
@@ -27,7 +27,7 @@ export async function getDocuments(caseId?: string, documentType?: string): Prom
   if (documentType) params.set("document_type", documentType);
   const q = params.toString() ? `?${params.toString()}` : "";
   const list = (await request<Record<string, unknown>[]>("GET", `/documents${q}`)) ?? [];
-  return list.map((d) => mapDocument(d) as ApiDocument);
+  return list.map((d) => mapDocument(d));
 }
 
 export async function uploadDocument(
@@ -42,7 +42,7 @@ export async function uploadDocument(
   form.append("document_type", documentType);
   form.append("uploaded_by", uploadedBy);
   const d = await request<Record<string, unknown>>("POST", "/documents", { formData: form });
-  return mapDocument(d) as ApiDocument;
+  return mapDocument(d);
 }
 
 /** Upload multiple documents in one request. Same documentType and uploadedBy for all. */
@@ -66,7 +66,7 @@ export async function uploadDocumentsBulk(
     throw new Error(detail);
   }
   const list = (await res.json()) as Record<string, unknown>[];
-  return list.map((d) => mapDocument(d) as ApiDocument);
+  return list.map((d) => mapDocument(d));
 }
 
 export async function deleteDocument(id: string): Promise<void> {
@@ -78,7 +78,7 @@ export async function updateDocument(
   body: { content?: string }
 ): Promise<ApiDocument> {
   const d = await request<Record<string, unknown>>("PATCH", `/documents/${documentId}`, { body });
-  return mapDocument(d) as ApiDocument;
+  return mapDocument(d);
 }
 
 export async function getDocumentDownloadBlob(documentId: string): Promise<Blob> {

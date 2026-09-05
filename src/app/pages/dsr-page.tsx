@@ -223,16 +223,18 @@ export function DSRPage() {
   ).length;
 
   const dsrAnalytics = useMemo(() => {
-    const responded = requests.filter((r) => r.respondedAt != null);
+    const responded = requests.flatMap((r) =>
+      r.respondedAt != null ? [{ ...r, respondedAt: r.respondedAt }] : []
+    );
     const responseTimes = responded.map((r) =>
-      (new Date(r.respondedAt!).getTime() - new Date(r.receivedAt).getTime()) / 86_400_000
+      (new Date(r.respondedAt).getTime() - new Date(r.receivedAt).getTime()) / 86_400_000
     );
     const avgDays = responseTimes.length > 0
       ? Math.round(responseTimes.reduce((a, b) => a + b, 0) / responseTimes.length)
       : null;
 
     const onTime = responded.filter(
-      (r) => new Date(r.respondedAt!).getTime() <= new Date(r.responseDeadline).getTime()
+      (r) => new Date(r.respondedAt).getTime() <= new Date(r.responseDeadline).getTime()
     ).length;
     const onTimeRate = responded.length > 0 ? Math.round((onTime / responded.length) * 100) : null;
 

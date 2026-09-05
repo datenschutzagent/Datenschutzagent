@@ -475,7 +475,7 @@ export function AdminSystemTab() {
             </ul>
           ) : !loadingConnections ? (
             <p className="text-slate-600 dark:text-slate-400">
-              Klicken Sie auf „Verbindungen prüfen".
+              Klicken Sie auf „Verbindungen prüfen“.
             </p>
           ) : null}
         </CardContent>

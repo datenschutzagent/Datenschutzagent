@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter } from "react-router";
+import type { ApiDSRRequest } from "../lib/api";
 
 // ---------------------------------------------------------------------------
 // Mocks
@@ -48,7 +49,7 @@ import { DSRPage } from "./dsr-page";
 
 const mockList = vi.mocked(listDSRRequests);
 
-const makeFakeDSR = (overrides: Record<string, unknown> = {}) => ({
+const baseDSR: ApiDSRRequest = {
   id: "dsr-1",
   requestType: "access",
   requestorName: "Max Mustermann",
@@ -64,6 +65,10 @@ const makeFakeDSR = (overrides: Record<string, unknown> = {}) => ({
   draftResponse: null,
   createdAt: "2026-04-14T10:00:00Z",
   updatedAt: "2026-04-14T10:00:00Z",
+};
+
+const makeFakeDSR = (overrides: Partial<ApiDSRRequest> = {}): ApiDSRRequest => ({
+  ...baseDSR,
   ...overrides,
 });
 

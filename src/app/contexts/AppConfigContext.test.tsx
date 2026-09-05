@@ -69,7 +69,10 @@ describe("AppConfigProvider", () => {
       app_name: "Custom App",
       org_name: "My University",
       org_profile: "university",
-      processing_context_options: ["cloud", "on-prem"],
+      processing_context_options: [
+        { value: "cloud", label: "Cloud" },
+        { value: "on-prem", label: "On-Premises" },
+      ],
     });
     render(
       <AppConfigProvider>

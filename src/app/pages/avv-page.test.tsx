@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter } from "react-router";
+import type { ApiAVVContract } from "../lib/api";
 
 // ---------------------------------------------------------------------------
 // Mocks
@@ -47,7 +48,7 @@ import { AVVPage } from "./avv-page";
 
 const mockList = vi.mocked(listAVVContracts);
 
-const makeFakeAVV = (overrides: Record<string, unknown> = {}) => ({
+const baseAVV: ApiAVVContract = {
   id: "avv-1",
   partnerName: "Cloud Corp GmbH",
   partnerType: "processor",
@@ -60,8 +61,15 @@ const makeFakeAVV = (overrides: Record<string, unknown> = {}) => ({
   documentName: null,
   notes: null,
   checkResult: null,
+  riskScore: null,
+  riskLevel: null,
+  riskAssessedAt: null,
   createdAt: "2026-01-01T10:00:00Z",
   updatedAt: "2026-01-01T10:00:00Z",
+};
+
+const makeFakeAVV = (overrides: Partial<ApiAVVContract> = {}): ApiAVVContract => ({
+  ...baseAVV,
   ...overrides,
 });
 

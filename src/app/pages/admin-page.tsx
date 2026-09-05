@@ -22,7 +22,7 @@ export function AdminPage() {
           <CircleAlert className="size-4 text-amber-600 dark:text-amber-400" />
           <AlertDescription className="text-amber-800 dark:text-amber-200">
             Sie haben keine Berechtigung fuer die Verwaltung. Nur Nutzer mit der Rolle
-            "Admin" koennen diese Seite aufrufen.
+            „Admin“ können diese Seite aufrufen.
           </AlertDescription>
         </Alert>
         <Button className="mt-4" variant="outline" onClick={() => navigate("/")}>

@@ -18,7 +18,7 @@ export function getCaseStats(findings: ApiFinding[]): CaseStats {
 
 export type DeadlineStatus = "overdue" | "soon" | "ok";
 
-export function getDeadlineStatus(deadline?: string): DeadlineStatus | null {
+export function getDeadlineStatus(deadline?: string | null): DeadlineStatus | null {
   if (!deadline) return null;
   const daysUntil = Math.ceil((new Date(deadline).getTime() - Date.now()) / (1000 * 60 * 60 * 24));
   if (daysUntil < 0) return "overdue";

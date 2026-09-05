@@ -52,12 +52,12 @@ import {
   Undo2,
 } from "lucide-react";
 import { toast } from "sonner";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 
 /** Normalize API check item for display (backend may use name/instruction or check_name/requirement). */
 function normalizeChecks(checks: unknown[]): { id: string; name: string; description: string; type: "document" | "cross_document"; category: string; mandatory: boolean; targetDocuments: string[] }[] {
   return checks.map((c, i) => {
-    const o = (c && typeof c === "object" && c as Record<string, unknown>) || {};
+    const o: Record<string, unknown> = c && typeof c === "object" ? (c as Record<string, unknown>) : {};
     const name = (o.name as string) ?? (o.check_name as string) ?? `Check ${i + 1}`;
     const description = (o.description as string) ?? (o.instruction as string) ?? (o.requirement as string) ?? "";
     const type = ((o.type as string) === "cross_document" ? "cross_document" : "document") as "document" | "cross_document";
@@ -88,7 +88,7 @@ export function PlaybookDetailPage() {
   const [restoreTarget, setRestoreTarget] = useState<ApiPlaybookRevision | null>(null);
   const [restoreLoading, setRestoreLoading] = useState(false);
 
-  const loadPlaybook = () => {
+  const loadPlaybook = useCallback(() => {
     if (!playbookId) return;
     setLoading(true);
     setError(null);
@@ -99,7 +99,7 @@ export function PlaybookDetailPage() {
         setPlaybook(null);
       })
       .finally(() => setLoading(false));
-  };
+  }, [playbookId]);
 
   useEffect(() => {
     if (!playbookId) {
@@ -107,7 +107,7 @@ export function PlaybookDetailPage() {
       return;
     }
     loadPlaybook();
-  }, [playbookId]);
+  }, [playbookId, loadPlaybook]);
 
   useEffect(() => {
     getLegalBases().then(setLegalBases).catch(() => setLegalBases([]));
@@ -185,7 +185,10 @@ export function PlaybookDetailPage() {
     setActionLoading(true);
     try {
       const content = playbook.content as Record<string, unknown> | undefined;
-      const legalBasisIds = content && Array.isArray(content.legal_basis_ids) ? content.legal_basis_ids : [];
+      const legalBasisIds: string[] =
+        content && Array.isArray(content.legal_basis_ids)
+          ? content.legal_basis_ids.filter((x): x is string => typeof x === "string")
+          : [];
       const created = await createPlaybook({
         name: `Kopie von ${playbook.name}`,
         version: "1.0",
@@ -211,7 +214,7 @@ export function PlaybookDetailPage() {
     try {
       const content = (playbook.content as Record<string, unknown>) ?? {};
       const updated = await updatePlaybook(playbook.id, {
-        content: { ...content, legal_basis_ids: selectedLegalIds },
+        content: { ...content, checks: playbook.checks ?? [], legal_basis_ids: selectedLegalIds },
       });
       setPlaybook(updated);
     } finally {

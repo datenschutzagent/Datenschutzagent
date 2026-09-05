@@ -18,4 +18,8 @@ window.addEventListener("unhandledrejection", (event) => {
   logger.error("Unhandled Promise rejection", {}, event.reason);
 });
 
-createRoot(document.getElementById("root")!).render(<App />);
+const rootElement = document.getElementById("root");
+if (!rootElement) {
+  throw new Error('Root element "#root" not found in index.html');
+}
+createRoot(rootElement).render(<App />);

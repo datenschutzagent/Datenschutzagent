@@ -33,7 +33,7 @@ import {
   type ApiDepartment,
 } from "../lib/api";
 import { Download, FileText, Loader2, BarChart3 } from "lucide-react";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 
 const CASE_TYPE_OPTIONS = ["Allgemein", "HR", "IT-System", "Kommunikation"];
 const HAS_VVT_OPTIONS = [
@@ -65,7 +65,7 @@ export function VvtOverviewPage() {
     }
   };
 
-  const loadOverview = async () => {
+  const loadOverview = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
@@ -86,7 +86,7 @@ export function VvtOverviewPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [department, caseType, status, hasVvt]);
 
   const loadStats = async () => {
     setStatsLoading(true);
@@ -106,7 +106,7 @@ export function VvtOverviewPage() {
 
   useEffect(() => {
     loadOverview();
-  }, [department, caseType, status, hasVvt]);
+  }, [loadOverview]);
 
   useEffect(() => {
     loadStats();

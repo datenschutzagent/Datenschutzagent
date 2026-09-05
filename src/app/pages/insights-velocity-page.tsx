@@ -282,7 +282,7 @@ export function InsightsVelocityPage() {
               <CardTitle className="text-base flex items-center gap-2">
                 <AlertCircle className="size-4" /> Findings-Resolution-Velocity
               </CardTitle>
-              <CardDescription>Tage von „open" bis „fixed/accepted/overruled" pro Schweregrad.</CardDescription>
+              <CardDescription>Tage von „open“ bis „fixed/accepted/overruled“ pro Schweregrad.</CardDescription>
             </CardHeader>
             <CardContent>
               {data.findings.length === 0 ? (
