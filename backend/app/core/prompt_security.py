@@ -118,7 +118,9 @@ def sanitize_prompt_field(
             "Potential prompt injection pattern detected in user input",
             extra={
                 "event": "prompt_injection_attempt",
-                "value_preview": text[:100],
+                # No content preview: the input may contain personal data. Length and
+                # the matched pattern are enough to investigate.
+                "value_length": len(text),
                 "blocked": settings.prompt_injection_block,
             },
         )

@@ -12,7 +12,7 @@ verschoben.
 | Phase | Status | Ergebnis |
 | :--- | :--- | :--- |
 | 0 – Bugs + Gates | **erledigt** (2026-09-05) | B1–B9 behoben, je mit Regressionstest (724 Tests, Coverage 59,9 %). G1–G7 aktiv. Frontend: `tsc` 0 Fehler, ESLint 0/0. Der neue `alembic check` fand sofort einen Drift (partieller Index `ix_users_oidc_sub` fehlte im Modell). |
-| 1 – Security/DSGVO | in Arbeit | S1–S3 erledigt (2026-09-05): `TRUSTED_PROXIES` Pflicht in production, Uvicorn `--proxy-headers`, DSGVO-Freigabe für externe LLM-Provider inkl. Admin-Anzeige. |
+| 1 – Security/DSGVO | **erledigt** (2026-09-05) | S1–S10 umgesetzt, je mit Tests: Proxy-Vertrauen erzwungen, DSGVO-Freigabe für externe LLM-Provider, Zip-Bomben-/XXE-/PDF-Limits, absolute Session-Lebensdauer + Widerruf bei Rollenwechsel, hash-verkettetes Audit-Log mit Lesezugriffen und `audit verify`, MultiFernet-Rotation, PII aus Logs, Finding-Chat in Markern, URL-Validatoren. Bewusst nicht umgesetzt: Sperre privater IP-Ranges (S10) – Ollama/Weaviate liegen legitim im LAN/Docker-Netz. |
 | 2 – Backend-Robustheit | offen | – |
 | 3 – Frontend | offen | F1 (Typfehler) wurde für G1 vorgezogen und ist erledigt. |
 | 4 – Tests/Evals | offen | – |

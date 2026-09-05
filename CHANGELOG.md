@@ -7,6 +7,33 @@ Das Format orientiert sich an [Keep a Changelog](https://keepachangelog.com/de/1
 ## [Unreleased]
 
 ### Security
+- **Audit-Log hash-verkettet und um Lesezugriffe erweitert** (Phase 1, S6):
+  `api_audit_log` bekommt `seq`, `prev_hash`, `entry_hash`, `resource_id`
+  (Migration `d0e1f2a3b4c5`). Lesezugriffe auf Dokumentinhalte/Downloads,
+  annotierte Dokumente, DSB-Reports und Exporte werden mit Objekt-ID
+  protokolliert. Schreibfehler zählt `api_audit_log_write_failures_total`;
+  `AUDIT_LOG_STRICT=true` antwortet dann mit 500. Prüfung:
+  `python -m app.cli audit verify`.
+- **Upload-Härtung** (S4): ZIP-Container von DOCX/XLSX/PPTX werden vor dem Parsen
+  auf entpackte Größe, Eintragszahl und Kompressionsverhältnis geprüft
+  (Zip-Bomben); PDFs über `MAX_PDF_PAGES` werden abgelehnt; OOXML-Teile werden
+  mit gehärtetem lxml-Parser gelesen (keine externen Entities, kein Netz).
+- **Session-Lebensdauer begrenzt** (S5): `SESSION_ABSOLUTE_TTL_SECONDS`
+  (Standard 8 h) deckelt die gleitende Session; alle Sessions eines Nutzers
+  werden bei Rollenänderung widerrufen. Sessions ohne `issued_at` (vor diesem
+  Release) erfordern einmalig eine neue Anmeldung.
+- **Key-Rotation für Webhook-Secrets** (S7): `WEBHOOK_SECRET_ENCRYPTION_KEY`
+  akzeptiert eine kommagetrennte Schlüsselliste (MultiFernet); in production ist
+  ein nicht entschlüsselbarer Wert ein Fehler statt eines stillen
+  Klartext-Fallbacks. `rotate_secret()` schlüsselt Bestand um.
+- **Keine PII in Logs** (S8): Benachrichtigungs-Events speichern
+  `recipient_user_id` statt E-Mail; die Prompt-Injection-Warnung enthält keinen
+  Inhaltsauszug mehr.
+- **Finding-Chat gehärtet** (S9): Nutzer-Nachrichten, Verlauf und Dokumentauszug
+  laufen in Content-Markern, System-Prompt mit Safety-Preamble.
+- **Ausgehende URLs validiert** (S10): `OIDC_ISSUER_URL`, `OLLAMA_BASE_URL`,
+  `OCR_BASE_URL`, `LLM_BASE_URL`, `WEAVIATE_URL` nur `http(s)://`, mit Host,
+  ohne Credentials/Fragment; `OIDC_ISSUER_URL` in production nur `https://`.
 - **`TRUSTED_PROXIES` ist in production Pflicht** (Qualitätsplan Phase 1, S1).
   Ohne den Wert teilen sich hinter dem Reverse-Proxy alle Clients einen
   Rate-Limit-Bucket; der Start wird jetzt verweigert statt nur zu warnen.

@@ -219,3 +219,43 @@ def test_development_acknowledged_external_llm_does_not_warn(caplog):
     assert not any(
         "LLM_EXTERNAL_TRANSFER_ACKNOWLEDGED" in r.message for r in caplog.records
     )
+
+
+# ---------------------------------------------------------------------------
+# Phase 1 S10: outbound service URLs
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "field",
+    [
+        "ollama_base_url",
+        "ocr_base_url",
+        "llm_base_url",
+        "weaviate_url",
+        "oidc_issuer_url",
+    ],
+)
+@pytest.mark.parametrize(
+    "bad",
+    ["file:///etc/passwd", "gopher://x", "http://", "https://user:pw@idp.example.com"],
+)
+def test_outbound_urls_reject_unsafe_shapes(field, bad):
+    with pytest.raises(ValueError, match=field.upper()):
+        Settings(app_environment="development", database_url=_DB, **{field: bad})
+
+
+def test_outbound_urls_accept_private_hosts():
+    s = Settings(
+        app_environment="development",
+        database_url=_DB,
+        ollama_base_url="http://192.168.1.20:11434",
+        weaviate_url="http://weaviate:8080",
+        ocr_base_url="http://host.docker.internal:11434/",
+    )
+    assert s.ollama_base_url.startswith("http://192.168.1.20")
+
+
+def test_production_requires_https_oidc_issuer():
+    with pytest.raises(ValueError, match="OIDC_ISSUER_URL must use https"):
+        Settings(**_production_kwargs(oidc_issuer_url="http://idp.example.com"))

@@ -68,6 +68,18 @@ Der OCR-Aufruf nutzt das OpenAI-kompatible Chat-Completions-Format (Bild als Bas
 
 ---
 
+## Audit-Log und Upload-Härtung
+
+| Variable | Beschreibung |
+| :--- | :--- |
+| `AUDIT_LOG_STRICT` | `true`: Anfragen, deren Audit-Zeile nicht geschrieben werden kann, werden mit 500 beantwortet. Standard `false` (Fehlschlag wird geloggt und in `api_audit_log_write_failures_total` gezählt). Protokolliert werden alle mutierenden Aufrufe sowie Lesezugriffe auf Dokumentinhalte, Downloads, annotierte Dokumente, DSB-Reports und Exporte. Die Zeilen sind hash-verkettet; Integritätsprüfung mit `python -m app.cli audit verify`. |
+| `MAX_ARCHIVE_UNCOMPRESSED_BYTES` | Obergrenze der entpackten Größe für DOCX/XLSX/PPTX (Zip-Bomben-Schutz). Standard 200 MB. |
+| `MAX_ARCHIVE_ENTRIES` | Maximale Anzahl Einträge im Office-ZIP-Container. Standard 10 000. |
+| `MAX_ARCHIVE_COMPRESSION_RATIO` | Maximales Kompressionsverhältnis einzelner Einträge > 1 MB. Standard 200. |
+| `MAX_PDF_PAGES` | PDFs mit mehr Seiten werden abgelehnt. Standard 2000 (OCR hat zusätzlich `OCR_MAX_PAGES`). |
+
+---
+
 ## Reverse-Proxy
 
 | Variable | Beschreibung |
@@ -117,6 +129,10 @@ bremst alle.
 | `OIDC_AUDIENCE` | Optional; JWT `aud` muss übereinstimmen. |
 | `OIDC_SCOPES` | Gewünschte Scopes (z. B. `openid profile email`). |
 | `RBAC_DEFAULT_ROLE` | Default-Rolle für neue Nutzer (erstmaliger OIDC-Login): `viewer` \| `editor` \| `admin`. |
+| `AUTH_SESSION_COOKIE_ENABLED` | `true`: das Frontend nutzt HttpOnly-Session-Cookies (+ CSRF-Double-Submit) statt Bearer-Token im Browser. |
+| `SESSION_TTL_SECONDS` | Idle-Timeout der Cookie-Session (gleitend). Standard 43200 (12 h). |
+| `SESSION_ABSOLUTE_TTL_SECONDS` | Absolute Obergrenze ab Login, unabhängig von Aktivität. Standard 28800 (8 h). Sessions werden außerdem widerrufen, wenn ein Admin die Rolle des Nutzers ändert. |
+| `WEBHOOK_SECRET_ENCRYPTION_KEY` | Fernet-Schlüssel für Webhook-Secrets (Pflicht in production). Kommagetrennte Liste für Key-Rotation: der erste Schlüssel verschlüsselt, weitere entschlüsseln nur. In production ist ein nicht entschlüsselbarer Wert ein Fehler. |
 
 ---
 

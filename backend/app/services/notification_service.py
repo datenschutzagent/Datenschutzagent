@@ -170,7 +170,7 @@ async def scan_and_notify_deadlines(db: AsyncSession) -> dict:
                 event_type="notification_sent",
                 payload={
                     "type": "deadline_warning",
-                    "recipient": assignee_user.email,
+                    "recipient_user_id": str(assignee_user.id),
                     "days_left": days_left,
                 },
             )
@@ -223,7 +223,7 @@ async def scan_and_notify_deadlines(db: AsyncSession) -> dict:
                 event_type="notification_sent",
                 payload={
                     "type": "deadline_overdue",
-                    "recipient": assignee_user.email,
+                    "recipient_user_id": str(assignee_user.id),
                     "days_overdue": days_overdue,
                 },
             )
@@ -288,7 +288,7 @@ async def scan_and_notify_deadlines(db: AsyncSession) -> dict:
                     event_type="notification_sent",
                     payload={
                         "type": "breach_warning",
-                        "recipient": assignee_user.email,
+                        "recipient_user_id": str(assignee_user.id),
                         "hours_left": hours_left,
                     },
                 )
@@ -344,7 +344,7 @@ async def scan_and_notify_deadlines(db: AsyncSession) -> dict:
                     event_type="notification_sent",
                     payload={
                         "type": "breach_overdue",
-                        "recipient": assignee_user.email,
+                        "recipient_user_id": str(assignee_user.id),
                         "hours_overdue": hours_overdue,
                     },
                 )
@@ -418,7 +418,7 @@ async def scan_and_notify_deadlines(db: AsyncSession) -> dict:
                     event_type="notification_sent",
                     payload={
                         "type": "dsr_warning",
-                        "recipient": assignee_user.email,
+                        "recipient_user_id": str(assignee_user.id),
                         "days_left": days_left,
                     },
                 )
@@ -579,7 +579,7 @@ async def scan_and_notify_critical_findings(db: AsyncSession) -> dict:
                     event_type="notification_sent",
                     payload={
                         "type": "critical_finding",
-                        "recipient": recipient.email,
+                        "recipient_user_id": str(recipient.id),
                         "finding_id": str(finding.id),
                         "severity": finding.severity,
                     },

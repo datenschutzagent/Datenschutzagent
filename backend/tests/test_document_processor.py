@@ -662,9 +662,8 @@ class TestExtractTextFromPptx:
         assert "Inhalt der Präsentation" in result.text
 
     def test_corrupt_pptx_raises(self):
-        import zipfile
-
-        with pytest.raises(zipfile.BadZipFile):
+        # The container guard (Phase 1 S4) rejects it before python-pptx sees it.
+        with pytest.raises(dp.UnsupportedDocumentError, match="ZIP-Container"):
             extract_text("kaputt.pptx", b"PK\x03\x04 not a real pptx")
 
 
@@ -714,3 +713,92 @@ class TestExtractTextFromCsv:
         result = extract_text("export.csv", b"Zweck;Dauer\nLohn;10 Jahre\n")
         assert result.extraction_method == EXTRACTION_METHOD_TEXT
         assert "| Zeile | A | B |" in result.text
+
+
+# ---------------------------------------------------------------------------
+# Phase 1 S4: decompression guards (zip bombs) and hardened XML parsing
+# ---------------------------------------------------------------------------
+
+
+def _make_zip_bytes(entries: dict[str, bytes]) -> bytes:
+    import zipfile
+
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", compression=zipfile.ZIP_DEFLATED) as zf:
+        for name, data in entries.items():
+            zf.writestr(name, data)
+    return buf.getvalue()
+
+
+class TestZipContainerGuards:
+    def test_regular_docx_passes(self):
+        dp.check_zip_container(_make_docx_bytes(["Hallo"]), label="DOCX")
+
+    def test_total_uncompressed_size_limit(self, monkeypatch):
+        from app.config import settings
+
+        monkeypatch.setattr(settings, "max_archive_uncompressed_bytes", 1024 * 1024)
+        bomb = _make_zip_bytes({"word/document.xml": b"\0" * (2 * 1024 * 1024)})
+        assert len(bomb) < 20_000  # highly compressible: the point of the guard
+        with pytest.raises(dp.UnsupportedDocumentError, match="entpackte Größe"):
+            dp.check_zip_container(bomb, label="DOCX")
+
+    def test_entry_count_limit(self, monkeypatch):
+        from app.config import settings
+
+        monkeypatch.setattr(settings, "max_archive_entries", 5)
+        many = _make_zip_bytes({f"part{i}.xml": b"<a/>" for i in range(6)})
+        with pytest.raises(dp.UnsupportedDocumentError, match="Einträge"):
+            dp.check_zip_container(many, label="XLSX")
+
+    def test_compression_ratio_limit(self, monkeypatch):
+        from app.config import settings
+
+        monkeypatch.setattr(settings, "max_archive_uncompressed_bytes", 10**9)
+        monkeypatch.setattr(settings, "max_archive_compression_ratio", 50)
+        bomb = _make_zip_bytes({"word/document.xml": b"\0" * (4 * 1024 * 1024)})
+        with pytest.raises(dp.UnsupportedDocumentError, match="Kompressionsverhältnis"):
+            dp.check_zip_container(bomb, label="DOCX")
+
+    def test_corrupt_container_is_unsupported(self):
+        with pytest.raises(dp.UnsupportedDocumentError, match="ZIP-Container"):
+            dp.check_zip_container(b"PK\x03\x04 not really a zip", label="PPTX")
+
+    def test_docx_extraction_runs_guard(self, monkeypatch):
+        from app.config import settings
+
+        monkeypatch.setattr(settings, "max_archive_uncompressed_bytes", 1024)
+        with pytest.raises(dp.UnsupportedDocumentError):
+            dp.extract_text_from_docx(_make_docx_bytes(["x" * 5000]))
+
+    def test_xlsx_extraction_runs_guard(self, monkeypatch):
+        from app.config import settings
+
+        monkeypatch.setattr(settings, "max_archive_uncompressed_bytes", 1024)
+        with pytest.raises(dp.UnsupportedDocumentError):
+            dp.extract_text_from_xlsx(_make_xlsx_bytes({"S": [["a" * 5000]]}))
+
+
+def test_safe_xml_parser_disables_entities_and_network():
+    parser = dp._SAFE_XML_PARSER
+    # An external entity must not be expanded (XXE): the entity stays unresolved.
+    xml = (
+        b'<?xml version="1.0"?><!DOCTYPE d [<!ENTITY xxe SYSTEM "file:///etc/hostname">]>'
+        b"<d>&xxe;</d>"
+    )
+    from lxml import etree
+
+    root = etree.fromstring(xml, parser=parser)
+    assert (root.text or "") == ""
+
+
+def test_pdf_page_cap(monkeypatch):
+    from app.config import settings
+
+    monkeypatch.setattr(settings, "max_pdf_pages", 2)
+    monkeypatch.setattr(settings, "ollama_ocr_enabled", False, raising=False)
+    three_pages = _make_pdf_bytes([_PAGE1_LINES, _PAGE1_LINES, _PAGE1_LINES])
+    with pytest.raises(dp.UnsupportedDocumentError, match="MAX_PDF_PAGES"):
+        pdf.extract_text_from_pdf(three_pages)
+    two_pages = _make_pdf_bytes([_PAGE1_LINES, _PAGE1_LINES])
+    assert pdf.extract_text_from_pdf(two_pages).page_count == 2

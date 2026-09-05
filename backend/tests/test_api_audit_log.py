@@ -164,3 +164,171 @@ async def test_audit_middleware_db_failure_does_not_break_response(client):
 
     # Response must succeed despite the audit log failure
     assert resp.status_code == 201, resp.text
+
+
+# ---------------------------------------------------------------------------
+# Phase 1 S6: hash chain, audited reads, failure accounting
+# ---------------------------------------------------------------------------
+
+
+async def _add_document(case_id: str, content: str = "Vertraulicher Text") -> str:
+    import uuid
+
+    from app.database import async_session_factory
+    from app.models.db import DocumentModel
+
+    async with async_session_factory() as session:
+        doc = DocumentModel(
+            case_id=uuid.UUID(case_id),
+            name="doc.pdf",
+            type="other",
+            format="pdf",
+            size_bytes=10,
+            storage_path=f"test/{case_id}/doc.pdf",
+            content=content,
+        )
+        session.add(doc)
+        await session.commit()
+        return str(doc.id)
+
+
+@_needs_db
+async def test_document_content_read_is_audited_with_resource_id(client):
+    from app.database import async_session_factory
+    from app.models._db.audit import APIAuditLogModel
+
+    case = await _create_case(client)
+    doc_id = await _add_document(case["id"])
+    before = await _count_audit_rows(method="GET")
+
+    resp = await client.get(f"/api/v1/documents/{doc_id}/content")
+    assert resp.status_code == 200
+
+    assert await _count_audit_rows(method="GET") == before + 1
+    async with async_session_factory() as session:
+        entry = (
+            await session.execute(
+                select(APIAuditLogModel)
+                .where(APIAuditLogModel.method == "GET")
+                .order_by(APIAuditLogModel.seq.desc())
+                .limit(1)
+            )
+        ).scalar_one()
+    assert entry.endpoint == "/api/v1/documents/{id}/content"
+    assert entry.resource_id == doc_id
+    assert entry.entry_hash and len(entry.entry_hash) == 64
+
+
+@_needs_db
+async def test_failed_document_read_is_not_audited(client):
+    before = await _count_audit_rows(method="GET")
+    resp = await client.get(
+        "/api/v1/documents/00000000-0000-0000-0000-000000000000/content"
+    )
+    assert resp.status_code == 404
+    assert await _count_audit_rows(method="GET") == before
+
+
+@_needs_db
+async def test_chain_links_and_verifies(client):
+    from app.database import async_session_factory
+    from app.models._db.audit import APIAuditLogModel
+    from app.services.audit_service import verify_audit_chain
+
+    await _create_case(client)
+    await _create_case(client)
+
+    async with async_session_factory() as session:
+        rows = (
+            (
+                await session.execute(
+                    select(APIAuditLogModel)
+                    .order_by(APIAuditLogModel.seq.desc())
+                    .limit(2)
+                )
+            )
+            .scalars()
+            .all()
+        )
+        newest, previous = rows
+        assert newest.prev_hash == previous.entry_hash
+        result = await verify_audit_chain(session)
+    assert result.ok, result
+    assert result.checked >= 2
+
+
+@_needs_db
+async def test_tampering_breaks_chain(client):
+    from sqlalchemy import update
+
+    from app.database import async_session_factory
+    from app.models._db.audit import APIAuditLogModel
+    from app.services.audit_service import verify_audit_chain
+
+    case = await _create_case(client)
+    async with async_session_factory() as session:
+        victim = (
+            await session.execute(
+                select(APIAuditLogModel)
+                .where(APIAuditLogModel.method == "POST")
+                .order_by(APIAuditLogModel.seq.desc())
+                .limit(1)
+            )
+        ).scalar_one()
+        assert case["id"] not in victim.endpoint
+        original_status = victim.status_code
+        await session.execute(
+            update(APIAuditLogModel)
+            .where(APIAuditLogModel.id == victim.id)
+            .values(status_code=418)
+        )
+        await session.commit()
+
+    async with async_session_factory() as session:
+        result = await verify_audit_chain(session)
+        assert result.ok is False
+        assert result.first_broken_seq == victim.seq
+        assert "mismatch" in (result.reason or "")
+        # Restore so later tests (and the chain) are intact again.
+        await session.execute(
+            update(APIAuditLogModel)
+            .where(APIAuditLogModel.id == victim.id)
+            .values(status_code=original_status)
+        )
+        await session.commit()
+
+    async with async_session_factory() as session:
+        assert (await verify_audit_chain(session)).ok
+
+
+@_needs_db
+async def test_audit_write_failure_is_counted_and_strict_mode_returns_500(
+    client, monkeypatch
+):
+    from app.config import settings
+    from app.core.metrics import api_audit_log_write_failures_total
+
+    broken_cm = MagicMock()
+    broken_cm.__aenter__ = AsyncMock(side_effect=Exception("simulated DB failure"))
+    broken_cm.__aexit__ = AsyncMock(return_value=False)
+    payload = {
+        "title": "Strict-Audit-Test",
+        "department": "IT",
+        "case_type": "Softwareeinführung",
+        "language": "de",
+        "created_by": "test@example.com",
+        "assignee": "DSB",
+    }
+
+    before = api_audit_log_write_failures_total._value.get()
+    monkeypatch.setattr(settings, "audit_log_strict", False)
+    with patch("app.main.async_session_factory", return_value=broken_cm):
+        resp = await client.post("/api/v1/cases", json=payload)
+    assert resp.status_code == 201
+    assert api_audit_log_write_failures_total._value.get() == before + 1
+
+    monkeypatch.setattr(settings, "audit_log_strict", True)
+    with patch("app.main.async_session_factory", return_value=broken_cm):
+        resp = await client.post("/api/v1/cases", json=payload)
+    assert resp.status_code == 500
+    assert "Audit log" in resp.json()["title"]

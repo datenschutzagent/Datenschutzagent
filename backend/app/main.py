@@ -2,6 +2,7 @@
 
 import logging
 import logging.config
+import re
 import time
 import uuid
 from contextlib import asynccontextmanager
@@ -68,11 +69,12 @@ from app.api import router as api_router  # noqa: E402
 from app.api.routes import app_config as app_config_routes  # noqa: E402
 from app.api.routes import auth as auth_routes  # noqa: E402
 from app.config import settings  # noqa: E402
+from app.core.metrics import api_audit_log_write_failures_total  # noqa: E402
 from app.core.rate_limit import limiter  # noqa: E402
 from app.core.request_id import RequestIDMiddleware, get_request_id  # noqa: E402
 from app.database import async_session_factory  # noqa: E402
-from app.models._db.audit import APIAuditLogModel  # noqa: E402
 from app.models.db import UserModel  # noqa: E402
+from app.services.audit_service import record_audit_entry  # noqa: E402
 from app.services.playbook_import import import_playbooks_from_yaml  # noqa: E402
 
 # Fixed default user ID when CURRENT_USER_ID is not set (must match users.py)
@@ -458,20 +460,53 @@ _MUTATING_METHODS = frozenset({"POST", "PUT", "PATCH", "DELETE"})
 _AUDIT_SKIP_PATHS = frozenset(
     {"/health", "/metrics", "/docs", "/openapi.json", "/redoc"}
 )
+_UUID_RE = (
+    r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}"
+)
+# Privacy-relevant reads that are audited like mutations (Art. 5 Abs. 2 accountability):
+# who looked at which document text / downloaded which file / pulled which export.
+# The first capture group (if any) becomes resource_id.
+_AUDITED_READ_PATTERNS = tuple(
+    re.compile(p)
+    for p in (
+        rf"^/api/v1/documents/({_UUID_RE})/(?:content|download)$",
+        rf"^/api/v1/cases/{_UUID_RE}/annotated-documents/({_UUID_RE})$",
+        rf"^/api/v1/cases/({_UUID_RE})/activities/export$",
+        rf"^/api/v1/cases/({_UUID_RE})/dsb-report$",
+        r"^/api/v1/cases/export$",
+        r"^/api/v1/findings/export$",
+        r"^/api/v1/exports/",
+    )
+)
+
+
+def _audited_read_resource(path: str) -> tuple[bool, str | None]:
+    for pattern in _AUDITED_READ_PATTERNS:
+        m = pattern.match(path)
+        if m:
+            return True, (m.group(1) if m.groups() else None)
+    return False, None
 
 
 @app.middleware("http")
 async def audit_api_mutations(request: Request, call_next) -> Response:
-    """Persist a lean audit record for every mutating API call (POST/PUT/PATCH/DELETE).
+    """Persist a hash-chained audit record for mutating calls and privacy-relevant reads.
 
-    Runs fire-and-forget: a DB failure only logs a warning, the response is
-    always returned unchanged.  No request body or PII is stored.
+    Mutations (POST/PUT/PATCH/DELETE) are always audited; GET is audited for document
+    content/downloads and exports (``_AUDITED_READ_PATTERNS``). No request body or PII
+    is stored. A failed write is counted (``api_audit_log_write_failures_total``) and
+    logged at ERROR; with ``AUDIT_LOG_STRICT=true`` the request is answered with 500.
     """
     response = await call_next(request)
-    if request.method not in _MUTATING_METHODS:
-        return response
     if request.url.path in _AUDIT_SKIP_PATHS:
         return response
+    resource_id: str | None = None
+    if request.method not in _MUTATING_METHODS:
+        if request.method != "GET":
+            return response
+        audited, resource_id = _audited_read_resource(request.url.path)
+        if not audited or response.status_code >= 400:
+            return response
     # Collapse UUIDs in path segments to {id} – same approach as track_request_metrics
     path = request.url.path
     for segment in path.split("/"):
@@ -482,18 +517,33 @@ async def audit_api_mutations(request: Request, call_next) -> Response:
     user_id = getattr(getattr(request, "state", None), "current_user_id", None)
     try:
         async with async_session_factory() as session:
-            session.add(
-                APIAuditLogModel(
-                    user_id=user_id,
-                    endpoint=path,
-                    method=request.method,
-                    status_code=response.status_code,
-                    request_id=get_request_id(),
-                )
+            await record_audit_entry(
+                session,
+                user_id=user_id,
+                endpoint=path,
+                method=request.method,
+                status_code=response.status_code,
+                request_id=get_request_id(),
+                resource_id=resource_id,
             )
             await session.commit()
     except Exception:
-        _audit_logger.exception("api_audit_log write failed")
+        api_audit_log_write_failures_total.inc()
+        _audit_logger.exception(
+            "api_audit_log write failed",
+            extra={"endpoint": path, "method": request.method},
+        )
+        if settings.audit_log_strict:
+            return JSONResponse(
+                status_code=500,
+                content={
+                    "type": "about:blank",
+                    "title": "Audit log unavailable",
+                    "status": 500,
+                    "detail": "Request could not be recorded in the audit log "
+                    "(AUDIT_LOG_STRICT is enabled).",
+                },
+            )
     return response
 
 

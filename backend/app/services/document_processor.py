@@ -12,6 +12,7 @@ import re
 import shutil
 import subprocess
 import tempfile
+import zipfile
 from pathlib import Path
 
 import docx
@@ -20,6 +21,7 @@ from docx.oxml.ns import qn
 from lxml import etree
 from openpyxl.utils import get_column_letter
 
+from app.config import settings
 from app.services.pdf_extractor import (
     EXTRACTION_METHOD_OCR,  # noqa: F401  (re-exported for callers)
     EXTRACTION_METHOD_TEXT,
@@ -31,6 +33,53 @@ from app.services.pdf_extractor import (
 )
 
 logger = logging.getLogger(__name__)
+
+# Hardened XML parser for OOXML sub-parts we read ourselves (footnotes/endnotes):
+# no external entity resolution (XXE), no network fetches, no huge-tree expansion.
+_SAFE_XML_PARSER = etree.XMLParser(
+    resolve_entities=False, no_network=True, huge_tree=False, load_dtd=False
+)
+
+
+def check_zip_container(content: bytes, *, label: str = "Dokument") -> None:
+    """Reject ZIP-based office files that would expand beyond the configured limits.
+
+    Inspects the central directory only (no decompression): total uncompressed size,
+    number of entries and per-entry compression ratio. Raises
+    :class:`UnsupportedDocumentError` so the upload is marked as failed/unsupported
+    instead of exhausting memory inside python-docx / openpyxl / python-pptx.
+    """
+    max_bytes = settings.max_archive_uncompressed_bytes
+    max_entries = settings.max_archive_entries
+    max_ratio = settings.max_archive_compression_ratio
+    try:
+        with zipfile.ZipFile(io.BytesIO(content)) as zf:
+            infos = zf.infolist()
+    except zipfile.BadZipFile as exc:
+        raise UnsupportedDocumentError(
+            f"{label}: Datei ist kein gültiges Office-Dokument (ZIP-Container beschädigt)."
+        ) from exc
+    if len(infos) > max_entries:
+        raise UnsupportedDocumentError(
+            f"{label}: ZIP-Container enthält {len(infos)} Einträge (Limit {max_entries})."
+        )
+    total = 0
+    for info in infos:
+        total += info.file_size
+        if total > max_bytes:
+            raise UnsupportedDocumentError(
+                f"{label}: entpackte Größe überschreitet {max_bytes // (1024 * 1024)} MB."
+            )
+        # Ratio check only for entries large enough to matter (tiny XML parts compress
+        # extremely well and would trip a naive ratio test).
+        if info.file_size > 1024 * 1024 and info.compress_size > 0:
+            ratio = info.file_size / info.compress_size
+            if ratio > max_ratio:
+                raise UnsupportedDocumentError(
+                    f"{label}: verdächtiges Kompressionsverhältnis ({ratio:.0f}:1) in "
+                    f"'{info.filename}'."
+                )
+
 
 # Re-export so existing callers that import these from document_processor still work.
 __all__ = [
@@ -210,7 +259,7 @@ def _iter_footnote_text(doc) -> list[str]:
         if getattr(rel, "is_external", False):
             continue
         try:
-            root = etree.fromstring(rel.target_part.blob)
+            root = etree.fromstring(rel.target_part.blob, parser=_SAFE_XML_PARSER)
         except Exception as exc:
             logger.debug("DOCX footnote part unreadable: %s", exc)
             continue
@@ -226,6 +275,7 @@ def _iter_footnote_text(doc) -> list[str]:
 
 def extract_text_from_docx(content: bytes) -> str:
     """Extract text from DOCX bytes including text boxes, headers/footers and footnotes."""
+    check_zip_container(content, label="DOCX")
     doc = docx.Document(io.BytesIO(content))
     parts: list[str] = []
     for para in doc.paragraphs:
@@ -254,6 +304,7 @@ def extract_text_from_docx(content: bytes) -> str:
 
 def extract_text_from_xlsx(content: bytes) -> str:
     """Extract text from XLSX bytes as one Markdown table per sheet."""
+    check_zip_container(content, label="XLSX")
     wb = openpyxl.load_workbook(io.BytesIO(content), data_only=True)
     out: list[str] = []
     for sheet in wb.sheetnames:
@@ -317,6 +368,7 @@ def extract_text_from_pptx(content: bytes) -> str:
     """Extract text from PPTX bytes: slide text frames, tables and speaker notes."""
     import pptx
 
+    check_zip_container(content, label="PPTX")
     prs = pptx.Presentation(io.BytesIO(content))
     slides = list(prs.slides)
     slide_parts: list[str] = []
