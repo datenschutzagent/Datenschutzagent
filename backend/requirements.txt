@@ -30,7 +30,7 @@ python-pptx>=1.0.2
 
 # AI / LLM
 pydantic-ai==1.106.0  # PYSEC-2026-2977/-3692 (<1.106.0), CVE-2026-46678 (1.77.0)
-pydantic-evals==1.99.0  # extraction/check quality evaluation harness
+pydantic-evals==1.106.0  # extraction/check quality evaluation harness (must match pydantic-ai)
 
 # Transitive (kombu, mistralai) – pinned for GHSA-6v7p-g79w-8964; Trivy gates the image on it.
 msgpack>=1.2.1

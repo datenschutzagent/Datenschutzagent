@@ -39,7 +39,7 @@ async def scan_cases_for_retention(
     Returns list of cases that were (or would be, if dry_run=True) archived.
     """
     base = _retention_base_sql()
-    stmt = text(  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text
+    stmt = text(  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text
         f"""
         SELECT id, title, department, retention_months, created_at, completed_at,
                {base} AS retention_base
@@ -130,7 +130,7 @@ async def scan_cases_due_for_retention_warning(db: AsyncSession) -> list[dict]:
     """
     grace = max(0, int(settings.retention_grace_days))
     base = _retention_base_sql()
-    stmt = text(  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text
+    stmt = text(  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text
         f"""
         SELECT id, title, department, retention_months, created_at, completed_at,
                {base} AS retention_base,
@@ -142,7 +142,9 @@ async def scan_cases_due_for_retention_warning(db: AsyncSession) -> list[dict]:
           AND {base} + (retention_months * INTERVAL '1 month') BETWEEN NOW() AND NOW() + (:grace * INTERVAL '1 day')
         ORDER BY retention_due_at ASC
     """
-    ).bindparams(grace=grace)
+    ).bindparams(
+        grace=grace
+    )
     result = await db.execute(stmt)
     rows = result.mappings().all()
     warnings: list[dict] = []

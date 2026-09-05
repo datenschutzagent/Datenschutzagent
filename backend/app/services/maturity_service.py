@@ -215,7 +215,7 @@ async def maturity_stats(
     if department:
         trend_filter = " AND department = :dept "
         trend_params["dept"] = department
-    trend_q = text(  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text
+    trend_q = text(  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text
         f"""
         SELECT department, snapshot_date, composite_score
         FROM compliance_maturity_snapshots
@@ -236,7 +236,7 @@ async def maturity_stats(
 
     if has_history:
         ninety_days_ago = date.today() - timedelta(days=90)
-        prev_q = text(  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text
+        prev_q = text(  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text
             f"""
             SELECT DISTINCT ON (department) department, composite_score, snapshot_date
             FROM compliance_maturity_snapshots
@@ -346,7 +346,7 @@ async def compute_risk_velocity(
         for name in _RISK_VELOCITY_SUBSCORES
     )
 
-    current_q = text(  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text
+    current_q = text(  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text
         f"""
         SELECT DISTINCT ON (department) department, snapshot_date,
             composite_score, {score_columns}
@@ -355,7 +355,7 @@ async def compute_risk_velocity(
         ORDER BY department, snapshot_date DESC
     """
     )
-    previous_q = text(  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text
+    previous_q = text(  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text
         f"""
         SELECT DISTINCT ON (department) department, snapshot_date,
             composite_score, {score_columns}

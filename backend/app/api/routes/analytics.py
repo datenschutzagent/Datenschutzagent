@@ -44,7 +44,7 @@ async def get_org_risk_dashboard(
         dept_filter_cases = " AND department = :dept "
 
     result = await db.execute(
-        text(  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text
+        text(  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text
             f"""
         WITH dept_findings AS (
             SELECT c.department,
