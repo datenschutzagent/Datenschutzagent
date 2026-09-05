@@ -77,6 +77,11 @@ jobs:
       - name: Black format check
         run: pip install black==25.1.0 && black --check .
         working-directory: backend
+      # Static types for the domain layer (mypy.ini). Routes/models are added once
+      # core/services stay clean; the baseline was brought to zero on 2026-09-05.
+      - name: mypy (core + services)
+        run: pip install mypy==2.3.1 && mypy -p app.core -p app.services
+        working-directory: backend
       # Migration gate: Alembic is the only schema source. `alembic check` fails when the
       # ORM metadata and the migrated schema drift apart (a model change without a
       # migration); the downgrade/upgrade roundtrip proves the latest revision is

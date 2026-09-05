@@ -244,7 +244,7 @@ async def maturity_stats(
             ORDER BY department, snapshot_date DESC
         """
         )
-        prev_params = {"cut": ninety_days_ago}
+        prev_params: dict[str, Any] = {"cut": ninety_days_ago}
         if department:
             prev_params["dept"] = department
         prev_map: dict[str, float] = {

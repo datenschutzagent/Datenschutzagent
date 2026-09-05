@@ -12,7 +12,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class Settings(BaseSettings):
     """Settings loaded from environment."""
 
-    model_config = SettingsConfigDict(
+    model_config = SettingsConfigDict(  # type: ignore[typeddict-unknown-key]  # repr= works at runtime
         env_file=".env",
         env_file_encoding="utf-8",
         repr=False,  # prevent accidental secret leakage in logs

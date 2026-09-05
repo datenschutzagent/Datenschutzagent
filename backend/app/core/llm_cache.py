@@ -71,7 +71,7 @@ def _get_redis_client():
     global _redis_client
     if _redis_client is None:
         try:
-            import redis.asyncio as aioredis  # type: ignore
+            import redis.asyncio as aioredis
 
             _redis_client = aioredis.from_url(
                 settings.celery_broker_url,

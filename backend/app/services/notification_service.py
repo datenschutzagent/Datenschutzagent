@@ -160,6 +160,10 @@ async def scan_and_notify_deadlines(db: AsyncSession) -> dict:
         # Anti-Spam: nicht öfter als einmal pro Cooldown-Fenster benachrichtigen
         if case.last_notified_at and (now_utc - case.last_notified_at) < cooldown:
             continue
+        if (
+            case.deadline is None
+        ):  # filtered by the query; keeps the type checker honest
+            continue
         days_left = (case.deadline - today).days
         subject = f"[Datenschutzagent] Frist in {days_left} Tag(en): {case.title}"
         body = (
@@ -212,6 +216,8 @@ async def scan_and_notify_deadlines(db: AsyncSession) -> dict:
             continue
         # Anti-Spam: nicht öfter als einmal pro Cooldown-Fenster benachrichtigen
         if case.last_notified_at and (now_utc - case.last_notified_at) < cooldown:
+            continue
+        if case.deadline is None:
             continue
         days_overdue = (today - case.deadline).days
         subject = f"[Datenschutzagent] ÜBERFÄLLIG ({days_overdue}d): {case.title}"
@@ -467,6 +473,8 @@ async def scan_and_notify_deadlines(db: AsyncSession) -> dict:
         # Anti-Spam: nicht öfter als einmal pro Cooldown-Fenster benachrichtigen
         if avv.last_notified_at and (now_utc - avv.last_notified_at) < cooldown:
             continue
+        if avv.expiry_date is None:
+            continue
         days_left = (avv.expiry_date - today).days
         subject = f"[Datenschutzagent] AVV läuft ab in {days_left} Tag(en): {avv.partner_name}"
         body = (
@@ -577,6 +585,8 @@ async def scan_and_notify_critical_findings(db: AsyncSession) -> dict:
             f"Bitte prüfen und beheben Sie den Befund zeitnah.\n\n"
             f"-- Datenschutzagent"
         )
+        if not recipient.email:
+            continue
         try:
             await _send_email_async(recipient.email, subject, body)
             finding.last_notified_at = now_utc
@@ -700,6 +710,8 @@ async def scan_and_notify_maturity_decline(
             f"{body_text}\n\n"
             f"-- Datenschutzagent"
         )
+        if not admin.email:
+            continue
         try:
             await _send_email_async(admin.email, subject, body)
             sent_count += 1

@@ -43,7 +43,9 @@ async def list_annotatable_documents(
         .where(FindingModel.case_id == case_id, FindingModel.document_id.isnot(None))
         .group_by(FindingModel.document_id)
     )
-    count_by_doc = dict(counts_result.all())
+    count_by_doc: dict[UUID, int] = {
+        doc_id: int(count) for doc_id, count in counts_result.all()
+    }
 
     out: list[tuple[UUID, str, int]] = []
     for doc in case.documents:

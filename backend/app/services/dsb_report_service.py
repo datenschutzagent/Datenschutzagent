@@ -2,6 +2,7 @@
 
 import logging
 from datetime import UTC, datetime
+from typing import Literal
 from uuid import UUID
 
 from fastapi import HTTPException
@@ -19,6 +20,18 @@ from app.services.query_helpers import case_relations
 from app.services.vvt_service import normalize_vvt
 
 logger = logging.getLogger(__name__)
+
+
+_SEVERITY_LITERALS: tuple[str, ...] = ("critical", "high", "medium", "low", "info")
+
+
+def _severity_literal(
+    value: str,
+) -> Literal["critical", "high", "medium", "low", "info"]:
+    """Narrow a stored severity string to the report schema's Literal (unknown → medium)."""
+    if value in _SEVERITY_LITERALS:
+        return value  # type: ignore[return-value]  # membership check narrows it
+    return "medium"
 
 
 async def get_last_run_checks_at(case_id: UUID, db: AsyncSession) -> datetime | None:
@@ -170,11 +183,7 @@ async def build_dsb_report(case_id: UUID, db: AsyncSession) -> DSBReportResponse
     risks = [
         DSBReportRisk(
             title=f.check_name,
-            severity=(
-                f.severity
-                if f.severity in ("critical", "high", "medium", "low", "info")
-                else "medium"
-            ),
+            severity=_severity_literal(f.severity),
             description=f.description or "",
         )
         for f in findings
@@ -202,6 +211,7 @@ async def build_dsb_report(case_id: UUID, db: AsyncSession) -> DSBReportResponse
     ]
 
     last_run_at = await get_last_run_checks_at(case_id, db)
+    dsfa_assessment: Literal["required", "not_required", "unclear"]
     if last_run_at is None:
         dsfa_assessment = "unclear"
     elif critical > 0 or high > 0:

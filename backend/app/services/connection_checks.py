@@ -62,10 +62,17 @@ async def check_minio() -> dict[str, Any]:
     if not settings.s3_endpoint_url:
         return {"status": "not_configured", "message": "S3 endpoint not set"}
     try:
-        from app.storage import _get_minio_client
+        from app.storage import _MinioBackend, get_storage
 
-        client = _get_minio_client()
-        client.list_buckets()
+        backend = get_storage()
+        if not isinstance(backend, _MinioBackend):
+            return {
+                "status": "not_configured",
+                "message": "Storage backend is not MinIO/S3",
+            }
+        # mypy caught this: the previous code imported a symbol that never existed
+        # (`_get_minio_client`), so the check always reported "unreachable".
+        backend._get_client().list_buckets()
         return {"status": "ok"}
     except Exception as e:
         logger.debug("MinIO connection check failed: %s", e)
@@ -118,13 +125,13 @@ async def check_all_connections() -> dict[str, Any]:
         check_redis(),
         return_exceptions=True,
     )
-    out = {}
+    out: dict[str, dict[str, Any]] = {}
     for key, res in zip(
         ["ollama", "weaviate", "minio", "postgres", "redis"],
         results,
         strict=False,
     ):
-        if isinstance(res, Exception):
+        if isinstance(res, BaseException):
             out[key] = {"status": "unreachable", "message": str(res)}
         else:
             out[key] = res

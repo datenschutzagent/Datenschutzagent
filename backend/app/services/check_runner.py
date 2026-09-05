@@ -7,6 +7,7 @@ from pydantic import BaseModel, Field
 from pydantic_ai import ModelRetry
 
 from app.config import settings
+from app.constants import FindingSeverity
 from app.core.grounding import grounding_ratio, partition_grounded
 from app.core.llm import create_agent, gather_all, llm_retry_call
 from app.core.llm_cache import _cache_get, _cache_key, _cache_set
@@ -299,7 +300,7 @@ def _aggregate_check_results(results: list[CheckResult]) -> CheckResult:
     return CheckResult(
         reasoning=base.reasoning,
         is_compliant=True,
-        severity="info",
+        severity=FindingSeverity.INFO,
         description=base.description,
         evidence=base.evidence,
         recommendation=base.recommendation,
@@ -471,7 +472,7 @@ async def run_check(
             if results
             else CheckResult(
                 is_compliant=True,
-                severity="info",
+                severity=FindingSeverity.INFO,
                 description="No content to evaluate.",
                 evidence=[],
                 recommendation="",

@@ -46,6 +46,11 @@ Das Format orientiert sich an [Keep a Changelog](https://keepachangelog.com/de/1
   der Admin-Bereich zeigt Provider und Freigabestatus unter „System“.
 
 ### Changed (Phase 2 – Backend-Robustheit)
+- **mypy für `app/core` und `app/services`** in Pre-Commit und CI (`mypy.ini`,
+  Baseline auf null gebracht). Dabei gefunden: der MinIO-Verbindungscheck
+  importierte eine nicht existierende Funktion und meldete den Speicher immer
+  als „unreachable“; `Agent(output_retries=…)` war in pydantic-ai 1.99
+  deprecated (jetzt `retries={"output": …}`).
 - **Event-Loop bleibt frei:** OIDC-Discovery/Token-Exchange über `httpx.AsyncClient`,
   SMTP-Versand, Storage-IO, Textextraktion und Weaviate-Abfragen laufen in
   Worker-Threads; der Legal-Basis-Kontext wird pro Prüflauf einmal je Check

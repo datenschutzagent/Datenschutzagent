@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import statistics
+from collections.abc import Sequence
 from datetime import UTC, date, datetime, timedelta
 from typing import Any
 
@@ -54,7 +55,7 @@ def _histogram_hours(values: list[float]) -> list[dict]:
     return [{"bucket": b[0], "count": counts[b[0]]} for b in buckets]
 
 
-def _summarize_funnel(label: str, rows: list[Any]) -> dict:
+def _summarize_funnel(label: str, rows: Sequence[Any]) -> dict:
     by_transition: dict[str, list[float]] = {}
     for row in rows:
         prev, curr, hours = row

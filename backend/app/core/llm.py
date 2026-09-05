@@ -567,11 +567,15 @@ def create_agent(
         system_prompt=system_prompt,
         model_settings=model_settings
         or default_model_settings(temperature=temperature),
-        output_retries=(
-            output_retries
-            if output_retries is not None
-            else settings.llm_output_retries
-        ),
+        # pydantic-ai ≥1.99 deprecates ``output_retries=``; the dict form sets only the
+        # output-validation budget (tool retries keep the library default).
+        retries={
+            "output": (
+                output_retries
+                if output_retries is not None
+                else settings.llm_output_retries
+            )
+        },
     )
     if output_validator is not None:
         agent.output_validator(output_validator)

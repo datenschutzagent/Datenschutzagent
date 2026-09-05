@@ -33,6 +33,7 @@ Bitte stellen Sie sicher, dass folgendes lokal grün ist:
 ```bash
 ruff check .            # Lint (Konfiguration: ruff.toml)
 black --check .         # Formatierung
+mypy -p app.core -p app.services   # Typprüfung (mypy.ini; pip install mypy==2.3.1)
 pytest tests/ -v        # Tests (benötigt DATABASE_URL auf eine Postgres-Instanz)
 python -m evals.run     # Offline-Qualitäts-Gate (Extraktion/Grounding)
 ```

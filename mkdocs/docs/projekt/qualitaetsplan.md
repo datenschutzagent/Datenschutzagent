@@ -13,7 +13,7 @@ verschoben.
 | :--- | :--- | :--- |
 | 0 – Bugs + Gates | **erledigt** (2026-09-05) | B1–B9 behoben, je mit Regressionstest (724 Tests, Coverage 59,9 %). G1–G7 aktiv. Frontend: `tsc` 0 Fehler, ESLint 0/0. Der neue `alembic check` fand sofort einen Drift (partieller Index `ix_users_oidc_sub` fehlte im Modell). |
 | 1 – Security/DSGVO | **erledigt** (2026-09-05) | S1–S10 umgesetzt, je mit Tests: Proxy-Vertrauen erzwungen, DSGVO-Freigabe für externe LLM-Provider, Zip-Bomben-/XXE-/PDF-Limits, absolute Session-Lebensdauer + Widerruf bei Rollenwechsel, hash-verkettetes Audit-Log mit Lesezugriffen und `audit verify`, MultiFernet-Rotation, PII aus Logs, Finding-Chat in Markern, URL-Validatoren. Bewusst nicht umgesetzt: Sperre privater IP-Ranges (S10) – Ollama/Weaviate liegen legitim im LAN/Docker-Netz. |
-| 2 – Backend-Robustheit | in Arbeit | R1–R4, R6, R8, R9 erledigt (2026-09-05): Event-Loop frei, Celery-Fehlerpolitik mit Retry, Domain-Fehler-Handler, LLM-Retry-Klassifikation + Budget, N+1/Pagination/Unique-Constraint, Savepoints im Bulk-Upload, keine stillen Swallows, BLE001 auch für Routen. Offen: R5 (mypy), R7 (Zerlegung). |
+| 2 – Backend-Robustheit | in Arbeit | R1–R4, R6, R8, R9 erledigt (2026-09-05): Event-Loop frei, Celery-Fehlerpolitik mit Retry, Domain-Fehler-Handler, LLM-Retry-Klassifikation + Budget, N+1/Pagination/Unique-Constraint, Savepoints im Bulk-Upload, keine stillen Swallows, BLE001 auch für Routen. R5 (mypy core+services, Baseline 0, fand den toten MinIO-Check) erledigt. Offen: R7 (Zerlegung). |
 | 3 – Frontend | offen | F1 (Typfehler) wurde für G1 vorgezogen und ist erledigt. |
 | 4 – Tests/Evals | offen | – |
 | 5 – Betrieb/Doku | offen | – |
