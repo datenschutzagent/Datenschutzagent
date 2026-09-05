@@ -29,11 +29,11 @@ test.describe("Cases", () => {
     const dialog = page.getByRole("dialog");
     await expect(dialog).toBeVisible();
 
-    // Submit without filling in required fields → form should show validation
-    const submitButton = dialog.getByRole("button", { name: /Erstellen|Create/i });
-    await submitButton.click();
-
-    // At least one validation error or the dialog should still be open
+    // The dialog is a three-step wizard: step 1 cannot be left until the required
+    // fields are filled, so the "Weiter" button stays disabled and the dialog open.
+    const nextButton = dialog.getByRole("button", { name: /Weiter|Next/i });
+    await expect(nextButton).toBeVisible();
+    await expect(nextButton).toBeDisabled();
     await expect(dialog).toBeVisible();
   });
 

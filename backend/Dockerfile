@@ -14,9 +14,10 @@ RUN apt-get update && apt-get upgrade -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt .
-# Upgrade pip itself first: the base image ships an older pip whose dist-info is part of
-# the scanned image surface (Trivy python-pkg), and old resolvers occasionally mis-pin.
-RUN pip install --no-cache-dir --upgrade pip \
+# Upgrade pip and setuptools first: the base image ships older versions whose dist-info
+# is part of the scanned image surface (Trivy python-pkg; setuptools <78.1.1 carries
+# CVE-2025-47273), and old resolvers occasionally mis-pin.
+RUN pip install --no-cache-dir --upgrade pip "setuptools>=78.1.1" \
     && pip install --no-cache-dir -r requirements.txt
 
 # Remove build tools to reduce attack surface (libpq-dev runtime still needed)
