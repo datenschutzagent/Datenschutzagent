@@ -476,7 +476,12 @@ def create_agent(
 def get_llm_provider_info() -> dict:
     """Return current LLM provider configuration (ohne Secrets) für Admin-Anzeige."""
     provider = settings.llm_provider.lower()
-    info: dict = {"provider": provider}
+    info: dict = {
+        "provider": provider,
+        # Surfaced in the admin UI so operators see that document texts leave the org.
+        "external_transfer": settings.llm_provider_is_external,
+        "external_transfer_acknowledged": settings.llm_external_transfer_acknowledged,
+    }
     if provider == "openai":
         info["model"] = settings.openai_model
         info["api_key_configured"] = bool(settings.openai_api_key.get_secret_value())

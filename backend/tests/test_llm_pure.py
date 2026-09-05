@@ -273,3 +273,23 @@ def test_openai_model_requires_api_key(monkeypatch):
     monkeypatch.setattr(settings, "openai_api_key", SecretStr(""), raising=False)
     with pytest.raises(RuntimeError, match="OPENAI_API_KEY"):
         llm.get_openai_model()
+
+
+def test_provider_info_flags_external_transfer(monkeypatch):
+    from pydantic import SecretStr
+
+    monkeypatch.setattr(settings, "llm_provider", "openai", raising=False)
+    monkeypatch.setattr(settings, "openai_api_key", SecretStr("sk"), raising=False)
+    monkeypatch.setattr(
+        settings, "llm_external_transfer_acknowledged", False, raising=False
+    )
+    info = llm.get_llm_provider_info()
+    assert info["external_transfer"] is True
+    assert info["external_transfer_acknowledged"] is False
+    assert "sk" not in str(info.get("model"))
+
+
+def test_provider_info_ollama_is_not_external(monkeypatch):
+    monkeypatch.setattr(settings, "llm_provider", "ollama", raising=False)
+    info = llm.get_llm_provider_info()
+    assert info["external_transfer"] is False

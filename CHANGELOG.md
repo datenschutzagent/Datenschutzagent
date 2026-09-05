@@ -6,6 +6,18 @@ Das Format orientiert sich an [Keep a Changelog](https://keepachangelog.com/de/1
 
 ## [Unreleased]
 
+### Security
+- **`TRUSTED_PROXIES` ist in production Pflicht** (Qualitätsplan Phase 1, S1).
+  Ohne den Wert teilen sich hinter dem Reverse-Proxy alle Clients einen
+  Rate-Limit-Bucket; der Start wird jetzt verweigert statt nur zu warnen.
+- Uvicorn startet mit `--proxy-headers --forwarded-allow-ips=$TRUSTED_PROXIES`
+  (S2): `X-Forwarded-Proto`/`X-Forwarded-For` werden nur von den konfigurierten
+  Proxies akzeptiert; hinter TLS-Terminierung ist `request.url.scheme` jetzt `https`.
+- **Externe LLM-Provider brauchen eine DSGVO-Freigabe** (S3):
+  `LLM_PROVIDER=openai|anthropic` erfordert `LLM_EXTERNAL_TRANSFER_ACKNOWLEDGED=true`
+  (production: Startabbruch, sonst Warnung). Jeder Start loggt die Übermittlung;
+  der Admin-Bereich zeigt Provider und Freigabestatus unter „System“.
+
 ### Added
 - **CI-Gates (Qualitätsplan Phase 0):** Frontend `tsc --noEmit` und
   `eslint --max-warnings=0` blockieren jetzt; Alembic-Gate (`upgrade head`,

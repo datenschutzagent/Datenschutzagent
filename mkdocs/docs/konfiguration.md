@@ -17,6 +17,7 @@ Die Anwendung wird über Umgebungsvariablen konfiguriert. Im Projektroot liegt e
 | Variable | Beschreibung |
 | :--- | :--- |
 | `LLM_PROVIDER` | Aktiver Provider: `ollama` (Standard) \| `openai` \| `anthropic` \| `openai_compatible`. |
+| `LLM_EXTERNAL_TRANSFER_ACKNOWLEDGED` | Pflicht bei `openai`/`anthropic` in production. Bestätigt, dass die Übermittlung von Dokumentvolltexten, Findings und Vorgangsdaten an den externen Anbieter dokumentiert ist (AVV/DPA nach Art. 28, Eintrag im VVT nach Art. 30). Ohne `true` startet die App in production nicht; in anderen Umgebungen wird gewarnt. Der Admin-Bereich zeigt den Status unter „System“. |
 | `LLM_STRUCTURED_OUTPUT_MODE` | Wie das Output-Schema durchgesetzt wird: `tool` (Standard; Tool-Calling), `native` (JSON-Schema-`response_format` → constrained decoding; empfohlen für lokale Server wie vLLM/llama.cpp/Ollama) oder `prompted` (Schema nur im Prompt). Bei Anthropic wird `native` ignoriert. |
 | `MAX_CONCURRENT_LLM_CALLS` | Maximale Anzahl gleichzeitiger LLM-Anfragen, global pro Worker-Prozess/Task durchgesetzt — inkl. paralleler Map-Reduce-Fragmente und Self-Consistency-Samples. `0` = unbegrenzt. Standard: 2. |
 | `LLM_CONTEXT_TOKEN_BUDGET` | Optionales Token-Budget (Heuristik). `> 0`: überschreibt alle `MAX_CONTEXT_CHARS_*`-Limits einheitlich mit Budget × `LLM_CHARS_PER_TOKEN`. `0` (Standard) = Zeichen-Limits gelten unverändert. |
@@ -64,6 +65,19 @@ Der OCR-Aufruf nutzt das OpenAI-kompatible Chat-Completions-Format (Bild als Bas
 | Variable | Beschreibung |
 | :--- | :--- |
 | `CORS_ORIGINS` | Kommagetrennte Liste erlaubter Origins (z. B. `http://localhost:3002`, `http://192.168.1.20:3002`). Bei Zugriff über LAN die entsprechende URL ergänzen. |
+
+---
+
+## Reverse-Proxy
+
+| Variable | Beschreibung |
+| :--- | :--- |
+| `TRUSTED_PROXIES` | Kommagetrennte IPs/CIDR-Ranges der Reverse-Proxies bzw. Load-Balancer. Nur von diesen Absendern akzeptiert das Backend `X-Forwarded-For` (Rate-Limiter: echte Client-IP statt Proxy-IP) und `X-Forwarded-Proto` (uvicorn `--proxy-headers`: korrektes `https`-Schema hinter TLS-Terminierung). **Pflicht in production.** Mit dem mitgelieferten nginx-Container liegt der Proxy im Docker-Netz, z. B. `172.16.0.0/12`; ein vorgelagerter Load-Balancer wird ergänzt (`172.16.0.0/12,10.0.0.0/8`). Leer = nur der direkte Socket-Peer zählt. |
+
+Warum das wichtig ist: Ohne `TRUSTED_PROXIES` sieht das Backend hinter nginx für jede
+Anfrage die Proxy-Adresse. Alle Nutzer teilen sich dann einen Rate-Limit-Bucket, und ein
+Angreifer, der Login-Versuche ausprobiert, wird nicht individuell gebremst, sondern
+bremst alle.
 
 ---
 

@@ -103,6 +103,15 @@ async def lifespan(app: FastAPI):
             "SECURITY: DEBUG mode is active. API documentation (/docs, /redoc) is publicly "
             "accessible. Disable DEBUG for production deployments."
         )
+    if settings.llm_provider_is_external:
+        # Always logged (also when acknowledged) so the transfer is visible in every
+        # startup log — the acknowledgement only silences the config-time warning.
+        _startup_logger.warning(
+            "DSGVO: LLM_PROVIDER=%s — document texts, findings and case metadata are sent "
+            "to an external processor (acknowledged=%s).",
+            settings.llm_provider,
+            settings.llm_external_transfer_acknowledged,
+        )
     # Schema is owned by Alembic (entrypoint.sh runs `alembic upgrade head`); no
     # create_all here so a model change without migration surfaces as drift in CI
     # (`alembic check`) instead of silently creating tables in production.

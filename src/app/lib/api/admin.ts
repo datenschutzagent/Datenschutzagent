@@ -123,6 +123,19 @@ export interface ApiAdminSettings {
   celery_enabled: boolean;
   celery_broker_configured: boolean;
   max_context_chars_per_doc?: number;
+  llm_provider?: ApiLlmProviderInfo;
+}
+
+/** Read-only LLM provider view from GET /admin/settings (no secrets). */
+export interface ApiLlmProviderInfo {
+  provider: string;
+  model?: string;
+  base_url?: string;
+  api_key_configured?: boolean;
+  /** true for openai/anthropic: document texts leave the organisation. */
+  external_transfer: boolean;
+  /** LLM_EXTERNAL_TRANSFER_ACKNOWLEDGED — operator confirmed AVV/DPA + Art. 30 record. */
+  external_transfer_acknowledged: boolean;
 }
 
 export interface ApiConnectionStatus {

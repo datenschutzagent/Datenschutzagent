@@ -184,6 +184,22 @@ export function AdminSystemTab() {
             <dl className="grid gap-2 text-sm">
               {[
                 ["App-Name", settings.app_name],
+                ...(settings.llm_provider
+                  ? [
+                      ["LLM-Provider", settings.llm_provider.provider],
+                      ...(settings.llm_provider.model
+                        ? [["LLM-Modell", settings.llm_provider.model]]
+                        : []),
+                      [
+                        "Externe Datenübermittlung (LLM)",
+                        settings.llm_provider.external_transfer
+                          ? settings.llm_provider.external_transfer_acknowledged
+                            ? "Ja – freigegeben (AVV/VVT dokumentiert)"
+                            : "Ja – NICHT freigegeben (LLM_EXTERNAL_TRANSFER_ACKNOWLEDGED fehlt)"
+                          : "Nein (selbst gehostet)",
+                      ],
+                    ]
+                  : []),
                 ["Ollama URL", settings.ollama_base_url],
                 ["Ollama aktiv", settings.ollama_enabled ? "Ja" : "Nein"],
                 ["Ollama-Modell", settings.ollama_model],

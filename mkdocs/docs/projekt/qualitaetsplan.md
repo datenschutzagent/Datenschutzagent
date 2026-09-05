@@ -12,7 +12,7 @@ verschoben.
 | Phase | Status | Ergebnis |
 | :--- | :--- | :--- |
 | 0 – Bugs + Gates | **erledigt** (2026-09-05) | B1–B9 behoben, je mit Regressionstest (724 Tests, Coverage 59,9 %). G1–G7 aktiv. Frontend: `tsc` 0 Fehler, ESLint 0/0. Der neue `alembic check` fand sofort einen Drift (partieller Index `ix_users_oidc_sub` fehlte im Modell). |
-| 1 – Security/DSGVO | offen | – |
+| 1 – Security/DSGVO | in Arbeit | S1–S3 erledigt (2026-09-05): `TRUSTED_PROXIES` Pflicht in production, Uvicorn `--proxy-headers`, DSGVO-Freigabe für externe LLM-Provider inkl. Admin-Anzeige. |
 | 2 – Backend-Robustheit | offen | – |
 | 3 – Frontend | offen | F1 (Typfehler) wurde für G1 vorgezogen und ist erledigt. |
 | 4 – Tests/Evals | offen | – |

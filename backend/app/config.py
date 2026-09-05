@@ -384,6 +384,12 @@ class Settings(BaseSettings):
         ""
     )  # Anthropic API-Key (wenn llm_provider=anthropic)
     anthropic_model: str = "claude-3-5-haiku-latest"  # Anthropic-Modell
+    # DSGVO: LLM_PROVIDER=openai|anthropic sends full document texts, findings and
+    # case metadata (potentially personal data, incl. Art. 9 categories) to a
+    # third-party processor outside the organisation. The operator must acknowledge
+    # this explicitly; in production the app refuses to start otherwise. Document the
+    # transfer in the ROPA (Art. 30) and check for an AVV/DPA with the provider.
+    llm_external_transfer_acknowledged: bool = False
 
     # Custom OpenAI-kompatibler Server (llama.cpp "llama-server", vLLM, LiteLLM, TGI, ...).
     # Nur wirksam bei LLM_PROVIDER=openai_compatible. Die Basis-URL darf mit oder ohne "/v1"
@@ -599,6 +605,34 @@ class Settings(BaseSettings):
             )
         return self
 
+    @property
+    def llm_provider_is_external(self) -> bool:
+        """True when the active LLM provider is a third-party cloud service.
+
+        ``ollama`` and ``openai_compatible`` are treated as self-hosted: the operator
+        controls where they run. ``openai``/``anthropic`` always leave the organisation.
+        """
+        return (self.llm_provider or "").lower() in ("openai", "anthropic")
+
+    @model_validator(mode="after")
+    def _warn_external_llm_transfer(self) -> Settings:
+        """Non-production environments: warn (production hard-fails in the profile validator)."""
+        import logging as _logging
+
+        if (
+            self.app_environment != "production"
+            and self.llm_provider_is_external
+            and not self.llm_external_transfer_acknowledged
+        ):
+            _logging.getLogger("app.startup").warning(
+                "DSGVO: LLM_PROVIDER=%s sends document texts and findings to an external "
+                "processor. Set LLM_EXTERNAL_TRANSFER_ACKNOWLEDGED=true once the transfer "
+                "is documented (AVV/DPA, Art. 30 record); production refuses to start "
+                "without it.",
+                self.llm_provider,
+            )
+        return self
+
     @model_validator(mode="after")
     def _validate_production_profile(self) -> Settings:
         """Hard-fail on misconfigured production deployments; warn in other envs."""
@@ -634,9 +668,20 @@ class Settings(BaseSettings):
             )
         trusted = self.trusted_proxies if isinstance(self.trusted_proxies, list) else []
         if not trusted:
-            _log.warning(
-                "SECURITY: APP_ENVIRONMENT=production but TRUSTED_PROXIES is empty. "
-                "Set it to the CIDR range of your load balancer."
+            # Without it every client behind the reverse proxy shares one rate-limit
+            # bucket (the proxy IP) and X-Forwarded-Proto is ignored by uvicorn.
+            problems.append(
+                "TRUSTED_PROXIES must list the reverse proxy / load balancer "
+                "(IP or CIDR, e.g. the Docker network 172.16.0.0/12)"
+            )
+        if (
+            self.llm_provider_is_external
+            and not self.llm_external_transfer_acknowledged
+        ):
+            problems.append(
+                f"LLM_PROVIDER={self.llm_provider} sends document texts to an external "
+                "processor; set LLM_EXTERNAL_TRANSFER_ACKNOWLEDGED=true after documenting "
+                "the transfer (Art. 28/30 DSGVO)"
             )
         if problems:
             raise ValueError(
