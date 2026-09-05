@@ -11,11 +11,13 @@ from celery import Celery
 from celery.exceptions import SoftTimeLimitExceeded
 from celery.schedules import crontab
 from sqlalchemy import create_engine, select, update
+from sqlalchemy.exc import InterfaceError, OperationalError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.config import settings
 from app.constants import CaseStatus, DocumentExtractionStatus, JobStatus
+from app.core.exceptions import LLMBudgetExceededError, LLMProviderError
 from app.models.db import (
     ActivityLogModel,
     CaseModel,
@@ -25,7 +27,7 @@ from app.models.db import (
     PlaybookModel,
     RunChecksJobModel,
 )
-from app.services.document_processor import extract_text
+from app.services.document_processor import UnsupportedDocumentError, extract_text
 from app.services.dsb_report_service import build_dsb_report, save_report
 from app.services.playbook_matching import rank_playbooks_for_selection
 from app.services.run_checks_service import run_checks_impl
@@ -67,11 +69,78 @@ def _connect_task_metrics() -> None:
             celery_task_duration_seconds.labels(
                 task_name=task_name, status=status
             ).observe(time.monotonic() - start)
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug("celery task metric not recorded: %s", exc)
 
 
 _connect_task_metrics()
+
+
+# ---------------------------------------------------------------------------
+# Task failure policy (Qualitätsplan Phase 2 R2)
+# ---------------------------------------------------------------------------
+#
+# A task that swallows an exception and returns {"ok": False} ends as SUCCESS: the
+# Prometheus metric counts it as a success, acks_late/reject_on_worker_lost have no
+# effect and nobody retries. Instead:
+#   * transient infrastructure errors (storage/network/DB/LLM provider) are retried with
+#     exponential backoff, the job row stays RUNNING/PROCESSING in the meantime;
+#   * everything else marks the job/document FAILED with the error text and re-raises,
+#     so Celery records FAILURE;
+#   * expected terminal outcomes (unsupported file, missing file) mark the document
+#     FAILED and return normally – they are results, not infrastructure failures.
+
+_TRANSIENT_TASK_ERRORS: tuple[type[BaseException], ...] = (
+    OSError,
+    OperationalError,
+    InterfaceError,
+    LLMProviderError,
+)
+TASK_MAX_RETRIES = 3
+TASK_RETRY_BACKOFF_SECONDS = (30, 120, 300)
+
+
+def _is_transient_task_error(exc: BaseException) -> bool:
+    if isinstance(exc, LLMBudgetExceededError | FileNotFoundError):
+        return False  # budget: permanent for this job; missing file: terminal outcome
+    return isinstance(exc, _TRANSIENT_TASK_ERRORS)
+
+
+def _retry_or_fail(task, exc: Exception, *, mark_failed, label: str, **log_extra):
+    """Retry transient errors (job stays RUNNING); otherwise mark failed and re-raise."""
+    retries = getattr(task.request, "retries", 0) or 0
+    if _is_transient_task_error(exc) and retries < TASK_MAX_RETRIES:
+        countdown = TASK_RETRY_BACKOFF_SECONDS[
+            min(retries, len(TASK_RETRY_BACKOFF_SECONDS) - 1)
+        ]
+        logger.warning(
+            "%s: transient error, retry %d/%d in %ds: %s",
+            label,
+            retries + 1,
+            TASK_MAX_RETRIES,
+            countdown,
+            exc,
+            extra=log_extra,
+        )
+        raise task.retry(exc=exc, countdown=countdown, max_retries=TASK_MAX_RETRIES)
+    err_msg = str(exc)[:490]
+    logger.error("%s failed: %s", label, err_msg, extra={**log_extra, "error": err_msg})
+    mark_failed(err_msg)
+    raise exc
+
+
+def _warn_if_redelivered(task, label: str, **log_extra) -> None:
+    """acks_late + reject_on_worker_lost redeliver a task after a worker crash. The job row
+    is still RUNNING then, so the idempotency guard lets it run again; findings are
+    de-duplicated by (check_name, document_id). Make the re-run visible in the log."""
+    info = getattr(task.request, "delivered_info", None) or {}
+    if info.get("redelivered"):
+        logger.warning(
+            "%s: task was redelivered after a worker loss; re-running",
+            label,
+            extra=log_extra,
+        )
+
 
 celery_app = Celery(
     "datenschutzagent",
@@ -244,6 +313,7 @@ def extract_document_text(self, document_id: str) -> dict:
     Called after upload; document row must exist and storage_path must be set.
     """
     logger.info("extract_document_text started", extra={"document_id": document_id})
+    _warn_if_redelivered(self, "extract_document_text", document_id=document_id)
     uid = UUID(document_id)
     session: Session = _get_session_factory()()
     try:
@@ -306,22 +376,33 @@ def extract_document_text(self, document_id: str) -> dict:
             "extract_document_text timed out",
             extra={"document_id": document_id, "error": "soft_time_limit_exceeded"},
         )
-        return {"ok": False, "error": "soft_time_limit_exceeded"}
+        raise
     except FileNotFoundError:
+        # Terminal outcome (upload without blob): the document is marked failed, the
+        # task itself completed its job.
         _set_extraction_failed(session, uid, "file_not_found")
         logger.error(
             "extract_document_text failed",
             extra={"document_id": document_id, "error": "file_not_found"},
         )
         return {"ok": False, "error": "file_not_found"}
-    except Exception as e:
-        err_msg = str(e)
+    except UnsupportedDocumentError as e:
+        # Terminal outcome (encrypted PDF, zip bomb, unreadable container).
+        err_msg = str(e)[:490]
         _set_extraction_failed(session, uid, err_msg)
-        logger.error(
-            "extract_document_text failed",
+        logger.warning(
+            "extract_document_text: unsupported document",
             extra={"document_id": document_id, "error": err_msg},
         )
         return {"ok": False, "error": err_msg}
+    except Exception as e:
+        _retry_or_fail(
+            self,
+            e,
+            mark_failed=lambda msg: _set_extraction_failed(session, uid, msg),
+            label="extract_document_text",
+            document_id=document_id,
+        )
     finally:
         session.close()
 
@@ -493,6 +574,7 @@ def run_playbook_checks(self, job_id: str, task_request_id: str | None = None) -
             "request_id": task_request_id or "-",
         },
     )
+    _warn_if_redelivered(self, "run_playbook_checks", job_id=job_id)
     t0 = time.monotonic()
     try:
         asyncio.run(_run_checks_async(job_id, task_request_id))
@@ -509,16 +591,16 @@ def run_playbook_checks(self, job_id: str, task_request_id: str | None = None) -
             extra={"job_id": job_id, "elapsed_seconds": elapsed},
         )
         _set_run_checks_job_failed(job_id, "soft_time_limit_exceeded")
-        return {"ok": False, "error": "soft_time_limit_exceeded"}
+        raise
     except Exception as e:
-        elapsed = round(time.monotonic() - t0, 2)
-        err_msg = str(e)[:490]
-        logger.error(
-            "run_playbook_checks failed",
-            extra={"job_id": job_id, "error": err_msg, "elapsed_seconds": elapsed},
+        _retry_or_fail(
+            self,
+            e,
+            mark_failed=lambda msg: _set_run_checks_job_failed(job_id, msg),
+            label="run_playbook_checks",
+            job_id=job_id,
+            elapsed_seconds=round(time.monotonic() - t0, 2),
         )
-        _set_run_checks_job_failed(job_id, err_msg)
-        return {"ok": False, "error": err_msg}
 
 
 def _set_run_checks_job_failed(job_id: str, error_message: str) -> None:
@@ -586,14 +668,15 @@ def build_dsb_report_task(
     except SoftTimeLimitExceeded:
         logger.error("build_dsb_report_task timed out", extra={"job_id": job_id})
         _set_dsb_report_job_failed(job_id, "soft_time_limit_exceeded")
-        return {"ok": False, "error": "soft_time_limit_exceeded"}
+        raise
     except Exception as e:
-        err_msg = str(e)
-        logger.error(
-            "build_dsb_report_task failed", extra={"job_id": job_id, "error": err_msg}
+        _retry_or_fail(
+            self,
+            e,
+            mark_failed=lambda msg: _set_dsb_report_job_failed(job_id, msg),
+            label="build_dsb_report_task",
+            job_id=job_id,
         )
-        _set_dsb_report_job_failed(job_id, err_msg)
-        return {"ok": False, "error": err_msg}
 
 
 def _set_dsb_report_job_failed(job_id: str, error_message: str) -> None:
@@ -656,14 +739,15 @@ def build_dsfa_task(self, job_id: str, task_request_id: str | None = None) -> di
     except SoftTimeLimitExceeded:
         logger.error("build_dsfa_task timed out", extra={"job_id": job_id})
         _set_dsfa_job_failed(job_id, "soft_time_limit_exceeded")
-        return {"ok": False, "error": "soft_time_limit_exceeded"}
+        raise
     except Exception as e:
-        err_msg = str(e)
-        logger.error(
-            "build_dsfa_task failed", extra={"job_id": job_id, "error": err_msg}
+        _retry_or_fail(
+            self,
+            e,
+            mark_failed=lambda msg: _set_dsfa_job_failed(job_id, msg),
+            label="build_dsfa_task",
+            job_id=job_id,
         )
-        _set_dsfa_job_failed(job_id, err_msg)
-        return {"ok": False, "error": err_msg}
 
 
 def _set_dsfa_job_failed(job_id: str, error_message: str) -> None:
@@ -792,9 +876,25 @@ async def _periodic_recheck_async() -> dict:
 
     session_factory = _get_async_session_factory()
     queued_count = 0
+    # (job_id, case_id, interval_days) — dispatched only after the commit below.
+    pending_dispatch: list[tuple[uuid.UUID, uuid.UUID, int]] = []
 
     async with session_factory() as session:
         now = datetime.now(UTC)
+        # Active playbooks are the same for every case → load once, not per case (N+1).
+        active_playbooks = (
+            (
+                await session.execute(
+                    select(PlaybookModel).where(PlaybookModel.is_active.is_(True))
+                )
+            )
+            .scalars()
+            .all()
+        )
+        if not active_playbooks:
+            logger.info("periodic_recheck: no active playbooks, nothing to queue")
+            return {"queued": 0}
+        recheck_strategies = _parse_recheck_strategies()
         # Vorgänge mit konfiguriertem Recheck-Intervall laden
         result = await session.execute(
             select(CaseModel).where(
@@ -816,13 +916,6 @@ async def _periodic_recheck_async() -> dict:
                 continue
 
             # Bestes aktives Playbook finden
-            playbooks = await session.execute(
-                select(PlaybookModel).where(PlaybookModel.is_active.is_(True))
-            )
-            active_playbooks = playbooks.scalars().all()
-            if not active_playbooks:
-                continue
-
             ranked = rank_playbooks_for_selection(
                 active_playbooks,
                 department=case.department or "",
@@ -833,7 +926,6 @@ async def _periodic_recheck_async() -> dict:
             )
             best_playbook = ranked[0][0] if ranked else active_playbooks[0]
 
-            recheck_strategies = _parse_recheck_strategies()
             job_id = uuid.uuid4()
             job = RunChecksJobModel(
                 id=job_id,
@@ -849,20 +941,23 @@ async def _periodic_recheck_async() -> dict:
             case.last_rechecked_at = now
 
             await session.flush()
-            run_playbook_checks.apply_async(
-                (str(job_id),),
-                countdown=queued_count * settings.run_checks_stagger_seconds,
-            )
-            queued_count += 1
-            logger.info(
-                "periodic_recheck queued job %s for case %s (interval: %dd, countdown: %ds)",
-                job_id,
-                case.id,
-                case.recheck_interval_days,
-                (queued_count - 1) * settings.run_checks_stagger_seconds,
-            )
+            pending_dispatch.append((job_id, case.id, case.recheck_interval_days))
 
+        # Commit BEFORE dispatching so the worker's own DB session can see the job rows
+        # (same race as in cases/checks.py: dispatch-before-commit → "job not found").
         await session.commit()
+
+    for job_id, case_id, interval_days in pending_dispatch:
+        countdown = queued_count * settings.run_checks_stagger_seconds
+        run_playbook_checks.apply_async((str(job_id),), countdown=countdown)
+        queued_count += 1
+        logger.info(
+            "periodic_recheck queued job %s for case %s (interval: %dd, countdown: %ds)",
+            job_id,
+            case_id,
+            interval_days,
+            countdown,
+        )
 
     return {"queued": queued_count}
 

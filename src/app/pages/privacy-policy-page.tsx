@@ -154,7 +154,7 @@ export function PrivacyPolicyPage() {
               </p>
               {policies.length === 0 && (
                 <p className="text-xs text-muted-foreground mt-2">
-                  Datenschutzerklärungen werden im Tab „Datenschutzerklärung" eines Vorgangs generiert.
+                  Datenschutzerklärungen werden im Tab „Datenschutzerklärung“ eines Vorgangs generiert.
                 </p>
               )}
             </CardContent>

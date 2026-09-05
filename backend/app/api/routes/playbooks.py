@@ -109,7 +109,7 @@ async def create_playbook(
         department=playbook.department,
     )
     db.add(db_playbook)
-    await db.commit()
+    await db.flush()
     await db.refresh(db_playbook)
     return PlaybookResponse.model_validate(db_playbook)
 

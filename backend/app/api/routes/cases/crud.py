@@ -5,13 +5,13 @@ import csv
 import io
 import logging
 import re
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from typing import Literal
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import JSONResponse, Response, StreamingResponse
-from sqlalchemy import func, select
+from sqlalchemy import Select, exists, func, nulls_first, nulls_last, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.celery_app import build_dsb_report_task
@@ -24,8 +24,8 @@ from app.database import get_db
 from app.models import CaseCreate, CaseListResponse, CaseModel, CaseResponse, CaseUpdate
 from app.models.db import (
     ActivityLogModel,
-    DocumentModel,
     DSBReportJobModel,
+    FindingModel,
     RunChecksJobModel,
     UserModel,
 )
@@ -33,7 +33,6 @@ from app.models.schemas import (
     ActivityResponse,
     AnnotatedDocumentListItem,
     CaseCloneRequest,
-    CaseRiskScoreHistoryItem,
     CaseRiskScoreResponse,
     CaseSimilarityResult,
 )
@@ -41,6 +40,11 @@ from app.services.annotated_document_service import (
     build_annotated_docx,
     build_annotated_pdf,
     list_annotatable_documents,
+)
+from app.services.case_risk_service import (
+    open_check_names,
+    rank_similar_cases,
+    risk_score_response,
 )
 from app.services.dsb_report_service import (
     _payload_to_report,
@@ -99,6 +103,68 @@ _CASE_SORT_COLUMNS = {
 }
 
 
+def _apply_case_filters(
+    base_q: Select,
+    *,
+    q: str | None,
+    status: str | None,
+    department: str | None,
+    assignee: str | None,
+    created_by: str | None,
+    has_open_findings: bool | None,
+    deadline_overdue: bool | None,
+    include_archived: bool,
+) -> Select:
+    """Apply the shared GET /cases filter set to a CaseModel select.
+
+    Single source of truth for list and export so both endpoints return the same rows
+    for the same filters (the export previously interpreted ``has_open_findings`` as
+    "has a document").
+    """
+    if q:
+        like = f"%{q}%"
+        base_q = base_q.where(
+            or_(
+                CaseModel.title.ilike(like),
+                CaseModel.department.ilike(like),
+                CaseModel.case_type.ilike(like),
+                CaseModel.created_by.ilike(like),
+                CaseModel.assignee.ilike(like),
+            )
+        )
+    if status:
+        base_q = base_q.where(CaseModel.status == status)
+    if department:
+        base_q = base_q.where(CaseModel.department == department)
+    if assignee:
+        base_q = base_q.where(CaseModel.assignee.ilike(f"%{assignee}%"))
+    if created_by:
+        base_q = base_q.where(CaseModel.created_by.ilike(f"%{created_by}%"))
+    if has_open_findings is not None:
+        open_findings_exists = exists(
+            select(FindingModel.id).where(
+                FindingModel.case_id == CaseModel.id,
+                FindingModel.status == FindingStatus.OPEN,
+            )
+        )
+        base_q = base_q.where(
+            open_findings_exists if has_open_findings else ~open_findings_exists
+        )
+    if deadline_overdue is True:
+        today = date.today()
+        base_q = base_q.where(
+            CaseModel.deadline < today, CaseModel.status != CaseStatus.COMPLETED
+        )
+    elif deadline_overdue is False:
+        today = date.today()
+        base_q = base_q.where(
+            (CaseModel.deadline >= today) | (CaseModel.deadline.is_(None))
+        )
+    if not include_archived:
+        base_q = base_q.where(CaseModel.archived_at.is_(None))
+    return base_q
+
+
 @router.get("", response_model=CaseListResponse, summary="Vorgänge auflisten")
 async def list_cases(
     skip: int = Query(default=0, ge=0),
@@ -142,66 +208,17 @@ async def list_cases(
     db: AsyncSession = Depends(get_db),
 ):
     """List cases with optional pagination and server-side filtering. Returns items and total count."""
-    from datetime import date as date_type
-
-    from sqlalchemy import exists
-
-    base_q = select(CaseModel)
-    if q:
-        like = f"%{q}%"
-        from sqlalchemy import or_
-
-        base_q = base_q.where(
-            or_(
-                CaseModel.title.ilike(like),
-                CaseModel.department.ilike(like),
-                CaseModel.case_type.ilike(like),
-                CaseModel.created_by.ilike(like),
-                CaseModel.assignee.ilike(like),
-            )
-        )
-    if status:
-        base_q = base_q.where(CaseModel.status == status)
-    if department:
-        base_q = base_q.where(CaseModel.department == department)
-    if assignee:
-        base_q = base_q.where(CaseModel.assignee.ilike(f"%{assignee}%"))
-    if created_by:
-        base_q = base_q.where(CaseModel.created_by.ilike(f"%{created_by}%"))
-    if has_open_findings is True:
-        from app.models.db import FindingModel
-
-        base_q = base_q.where(
-            exists(
-                select(FindingModel.id).where(
-                    FindingModel.case_id == CaseModel.id,
-                    FindingModel.status == FindingStatus.OPEN,
-                )
-            )
-        )
-    elif has_open_findings is False:
-        from app.models.db import FindingModel
-
-        base_q = base_q.where(
-            ~exists(
-                select(FindingModel.id).where(
-                    FindingModel.case_id == CaseModel.id,
-                    FindingModel.status == FindingStatus.OPEN,
-                )
-            )
-        )
-    if deadline_overdue is True:
-        today = date_type.today()
-        base_q = base_q.where(
-            CaseModel.deadline < today, CaseModel.status != CaseStatus.COMPLETED
-        )
-    elif deadline_overdue is False:
-        today = date_type.today()
-        base_q = base_q.where(
-            (CaseModel.deadline >= today) | (CaseModel.deadline.is_(None))
-        )
-    if not include_archived:
-        base_q = base_q.where(CaseModel.archived_at == None)  # noqa: E711
+    base_q = _apply_case_filters(
+        select(CaseModel),
+        q=q,
+        status=status,
+        department=department,
+        assignee=assignee,
+        created_by=created_by,
+        has_open_findings=has_open_findings,
+        deadline_overdue=deadline_overdue,
+        include_archived=include_archived,
+    )
 
     count_result = await db.execute(select(func.count()).select_from(base_q.subquery()))
     total = count_result.scalar_one()
@@ -209,8 +226,6 @@ async def list_cases(
     sort_col = _CASE_SORT_COLUMNS.get(sort_by, CaseModel.updated_at)
     sort_expr = sort_col.asc() if order == "asc" else sort_col.desc()
     # NULL-Werte (z. B. deadline) werden bei DESC ans Ende gestellt (NULLS LAST)
-    from sqlalchemy import nulls_first, nulls_last
-
     sort_expr = nulls_last(sort_expr) if order == "desc" else nulls_first(sort_expr)
 
     result = await db.execute(
@@ -296,50 +311,38 @@ async def export_cases(
     assignee: str | None = Query(default=None),
     created_by: str | None = Query(default=None),
     has_open_findings: bool | None = Query(default=None),
+    deadline_overdue: bool | None = Query(default=None),
     include_archived: bool = Query(default=False),
     format: Literal["csv"] = Query(default="csv"),
     db: AsyncSession = Depends(get_db),
     _user=require_roles("viewer", "editor", "admin"),
 ):
     """Export cases list as CSV. Applies same filters as GET /cases."""
-
-    from sqlalchemy import exists as sql_exists
-
-    base_q = select(CaseModel).options(*case_relations(documents=False))
-    if q:
-        like = f"%{q}%"
-        from sqlalchemy import or_
-
-        base_q = base_q.where(
-            or_(
-                CaseModel.title.ilike(like),
-                CaseModel.department.ilike(like),
-                CaseModel.case_type.ilike(like),
-                CaseModel.created_by.ilike(like),
-                CaseModel.assignee.ilike(like),
-            )
+    # Open-findings count as a correlated subquery: no findings relation is loaded for
+    # up to 5000 cases just to count in Python.
+    open_findings_count = (
+        select(func.count(FindingModel.id))
+        .where(
+            FindingModel.case_id == CaseModel.id,
+            FindingModel.status == FindingStatus.OPEN,
         )
-    if status:
-        base_q = base_q.where(CaseModel.status == status)
-    if department:
-        base_q = base_q.where(CaseModel.department == department)
-    if assignee:
-        base_q = base_q.where(CaseModel.assignee.ilike(f"%{assignee}%"))
-    if created_by:
-        base_q = base_q.where(CaseModel.created_by.ilike(f"%{created_by}%"))
-    if has_open_findings is True:
-        base_q = base_q.where(
-            sql_exists(
-                select(DocumentModel.id).where(
-                    DocumentModel.case_id == CaseModel.id,
-                )
-            )
-        )
-    if not include_archived:
-        base_q = base_q.where(CaseModel.archived_at == None)  # noqa: E711
+        .correlate(CaseModel)
+        .scalar_subquery()
+    )
+    base_q = _apply_case_filters(
+        select(CaseModel, open_findings_count),
+        q=q,
+        status=status,
+        department=department,
+        assignee=assignee,
+        created_by=created_by,
+        has_open_findings=has_open_findings,
+        deadline_overdue=deadline_overdue,
+        include_archived=include_archived,
+    )
 
     result = await db.execute(base_q.order_by(CaseModel.updated_at.desc()).limit(5000))
-    cases = result.scalars().all()
+    rows = result.all()
 
     buf = io.StringIO()
     writer = csv.writer(buf)
@@ -359,8 +362,7 @@ async def export_cases(
             "Archiviert",
         ]
     )
-    for c in cases:
-        open_findings = sum(1 for f in c.findings if f.status == FindingStatus.OPEN)
+    for c, open_findings in rows:
         writer.writerow(
             [
                 str(c.id),
@@ -380,7 +382,7 @@ async def export_cases(
 
     date_str = datetime.now(UTC).strftime("%Y-%m-%d")
     body_content = "\ufeff" + buf.getvalue()
-    logger.info("Cases exported as CSV", extra={"row_count": len(cases)})
+    logger.info("Cases exported as CSV", extra={"row_count": len(rows)})
     return Response(
         content=body_content.encode("utf-8"),
         media_type="text/csv; charset=utf-8",
@@ -408,6 +410,13 @@ async def get_case(
 @router.get("/{case_id}/activities", response_model=list[ActivityResponse])
 async def get_case_activities(
     case_id: UUID,
+    skip: int = Query(default=0, ge=0),
+    limit: int = Query(
+        default=200,
+        ge=1,
+        le=1000,
+        description="Maximale Anzahl Einträge (neueste zuerst); Standard 200",
+    ),
     db: AsyncSession = Depends(get_db),
 ):
     """Get activity log for the case (run_checks, finding_status_updated, etc.), sorted by time descending."""
@@ -418,6 +427,8 @@ async def get_case_activities(
         select(ActivityLogModel)
         .where(ActivityLogModel.case_id == case_id)
         .order_by(ActivityLogModel.created_at.desc())
+        .offset(skip)
+        .limit(limit)
     )
     activities = activities_result.scalars().all()
     return [ActivityResponse.model_validate(a) for a in activities]
@@ -487,6 +498,7 @@ async def create_case(
         processing_context=body.processing_context,
         special_category_data=body.special_category_data,
         international_transfer=body.international_transfer,
+        deadline=body.deadline,
         auto_run_checks=body.auto_run_checks,
     )
     db.add(case)
@@ -575,7 +587,8 @@ async def update_case(
                     },
                     db,
                 )
-            except Exception as exc:
+            # webhook delivery must never fail the request
+            except Exception as exc:  # noqa: BLE001
                 logger.warning("Webhook fire_event failed (non-critical): %s", exc)
     # Re-fetch with relationships loaded to avoid lazy load in async context (MissingGreenlet)
     result = await db.execute(
@@ -621,10 +634,11 @@ async def export_audit_package(
         zip_bytes, filename = await build_audit_export(case_id, db)
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
-    except Exception as exc:
-        logger.error("Audit export failed for case %s: %s", case_id, exc)
+    # route error boundary → 500 without details
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("Audit export failed for case %s", case_id)
         raise HTTPException(
-            status_code=500, detail=f"Export fehlgeschlagen: {exc}"
+            status_code=500, detail="Export fehlgeschlagen (Details im Server-Log)."
         ) from exc
     from urllib.parse import quote as _quote
 
@@ -847,6 +861,9 @@ async def generate_dsb_report(
         db.add(job)
         await db.flush()
         await db.refresh(job)
+        # Commit BEFORE dispatching so the worker's own DB session can see the job row
+        # (same race as in cases/checks.py: dispatch-before-commit → "job not found").
+        await db.commit()
         build_dsb_report_task.delay(str(job.id), get_request_id())
         return JSONResponse(
             status_code=202,
@@ -935,52 +952,9 @@ async def get_case_risk_score(
         .order_by(RunChecksJobModel.created_at.desc())
         .limit(limit)
     )
-    jobs = list(jobs_result.scalars().all())
-
-    case_score_cfg = get_risk_config().case_score
-
-    def _score_from_payload(
-        payload: dict | None, findings_count: int
-    ) -> tuple[int, int, int, int]:
-        """Extract (critical, high, medium, score) from result_payload or defaults.
-
-        Severity weights and max score come from RiskConfig.case_score so that
-        each org-profile can tune the risk model without code changes.
-        """
-        if payload:
-            critical = int(payload.get("critical_findings", 0))
-            high = int(payload.get("high_findings", 0))
-            medium = int(payload.get("medium_findings", 0))
-        else:
-            critical = high = medium = 0
-        weights = case_score_cfg.severity_weights
-        penalty = (
-            critical * weights.get("critical", 0)
-            + high * weights.get("high", 0)
-            + medium * weights.get("medium", 0)
-        )
-        score = min(case_score_cfg.max_score, penalty)
-        return critical, high, medium, score
-
-    history: list[CaseRiskScoreHistoryItem] = []
-    for job in reversed(jobs):  # chronological order
-        critical, high, medium, score = _score_from_payload(
-            job.result_payload, job.findings_count
-        )
-        history.append(
-            CaseRiskScoreHistoryItem(
-                job_id=job.id,
-                created_at=job.created_at,
-                score=score,
-                findings_count=job.findings_count,
-                critical=critical,
-                high=high,
-                medium=medium,
-            )
-        )
-
-    current_score = history[-1].score if history else 0
-    return CaseRiskScoreResponse(case_id=case_id, score=current_score, history=history)
+    return risk_score_response(
+        case_id, list(jobs_result.scalars().all()), get_risk_config().case_score
+    )
 
 
 @router.get("/{case_id}/similar", response_model=list[CaseSimilarityResult])
@@ -999,10 +973,7 @@ async def get_similar_cases(
     if not case:
         raise HTTPException(status_code=404, detail="Case not found")
 
-    # Open finding check names for the current case
-    current_check_names = {
-        f.check_name for f in case.findings if f.status == FindingStatus.OPEN
-    }
+    current_check_names = open_check_names(case)
     if not current_check_names:
         return []
 
@@ -1016,41 +987,6 @@ async def get_similar_cases(
         .options(*case_relations(documents=False))
         .limit(50)
     )
-    candidates = candidates_result.scalars().all()
-
-    scored: list[tuple[float, CaseModel]] = []
-    for candidate in candidates:
-        candidate_check_names = {f.check_name for f in candidate.findings}
-        shared = current_check_names & candidate_check_names
-        if not shared:
-            continue
-        overlap = len(shared) / len(current_check_names)
-        scored.append((overlap, candidate))
-
-    scored.sort(key=lambda x: x[0], reverse=True)
-    results = []
-    for overlap_score, cand in scored[:limit]:
-        resolution = {
-            FindingStatus.FIXED: 0,
-            FindingStatus.ACCEPTED: 0,
-            FindingStatus.OVERRULED: 0,
-        }
-        shared_check_names = sorted(
-            current_check_names & {f.check_name for f in cand.findings}
-        )
-        for f in cand.findings:
-            if f.check_name in shared_check_names and f.status in resolution:
-                resolution[f.status] += 1
-        results.append(
-            CaseSimilarityResult(
-                case_id=cand.id,
-                title=cand.title,
-                department=cand.department,
-                case_type=cand.case_type,
-                status=cand.status,
-                overlap_score=round(overlap_score, 2),
-                shared_check_names=shared_check_names,
-                resolution_summary=resolution,
-            )
-        )
-    return results
+    return rank_similar_cases(
+        current_check_names, candidates_result.scalars().all(), limit
+    )

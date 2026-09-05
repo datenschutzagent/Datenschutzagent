@@ -183,13 +183,9 @@ export function CasesPage() {
                               <Badge className={statusColors[caseItem.status]}>
                                 {statusLabels[caseItem.status]}
                               </Badge>
-                              {(caseItem as { priority?: string }).priority && (
-                                <Badge
-                                  className={
-                                    priorityColors[(caseItem as { priority: string }).priority]
-                                  }
-                                >
-                                  {priorityLabels[(caseItem as { priority: string }).priority]}
+                              {caseItem.priority && (
+                                <Badge className={priorityColors[caseItem.priority]}>
+                                  {priorityLabels[caseItem.priority]}
                                 </Badge>
                               )}
                               {isRunning(caseItem.id) && (
@@ -209,15 +205,6 @@ export function CasesPage() {
                                 {new Date(caseItem.createdAt).toLocaleDateString("de-DE")}
                               </span>
                             </CardDescription>
-                            {(caseItem as { tags?: string[] }).tags?.length ? (
-                              <div className="flex flex-wrap gap-2 mt-2">
-                                {(caseItem as { tags: string[] }).tags.map((tag) => (
-                                  <Badge key={tag} variant="outline" className="text-xs">
-                                    {tag}
-                                  </Badge>
-                                ))}
-                              </div>
-                            ) : null}
                           </div>
                         </div>
                       </CardHeader>

@@ -162,7 +162,16 @@ export function DSBReportView({ caseId }: DSBReportViewProps) {
     );
   }
 
-  const reportData = data!;
+  if (!data) {
+    // Generation in progress and nothing cached yet (loading && generating).
+    return (
+      <div className="flex items-center justify-center py-12 gap-2 text-slate-600 dark:text-slate-400">
+        <Loader2 className="size-5 animate-spin" />
+        <span>Report wird erstellt…</span>
+      </div>
+    );
+  }
+  const reportData = data;
 
   return (
     <div className="space-y-6">

@@ -27,6 +27,13 @@ http_request_duration_seconds = Histogram(
     buckets=[0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0],
 )
 
+# Audit-log writes that failed (DB error). Must stay at 0: every increment is a gap in
+# the DSGVO accountability trail. Alert on it; AUDIT_LOG_STRICT=true turns it into a 500.
+api_audit_log_write_failures_total = Counter(
+    "api_audit_log_write_failures_total",
+    "Audit log rows that could not be persisted",
+)
+
 # ---------------------------------------------------------------------------
 # LLM metrics
 # ---------------------------------------------------------------------------

@@ -108,12 +108,21 @@ async def update_user_role(
     user.role = body.role
     await db.flush()
     await db.refresh(user)
+    # A role change must take effect immediately: cookie sessions cache nothing about
+    # the role, but revoking them forces a fresh login so the UI re-reads permissions
+    # and a downgraded admin cannot keep an open session.
+    revoked = 0
+    if user.oidc_sub and old_role != body.role:
+        from app.core.session import destroy_user_sessions
+
+        revoked = await destroy_user_sessions(user.oidc_sub)
     logger.info(
         "Admin: user role updated",
         extra={
             "target_user_id": str(user_id),
             "old_role": old_role,
             "new_role": body.role,
+            "sessions_revoked": revoked,
         },
     )
     return UserResponse.model_validate(user)
@@ -320,9 +329,10 @@ async def update_admin_risk_config(
     try:
         path = save_risk_config(cfg)
     except OSError as exc:
-        logger.error("Failed to persist risk_config: %s", exc)
+        logger.exception("Failed to persist risk_config")
         raise HTTPException(
-            status_code=500, detail=f"Failed to write risk_config: {exc}"
+            status_code=500,
+            detail="risk_config konnte nicht geschrieben werden (Details im Server-Log).",
         ) from exc
 
     logger.info(

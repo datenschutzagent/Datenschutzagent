@@ -17,6 +17,7 @@ from __future__ import annotations
 import json
 import logging
 import secrets
+import time
 from typing import Any
 
 from fastapi import HTTPException, Request, Response, status
@@ -53,6 +54,14 @@ def _use_secure_cookie() -> bool:
 # ---------------------------------------------------------------------------
 
 _SESSION_KEY_PREFIX = "ds_session:"
+# Per-user index of live session ids so all sessions of a user can be revoked at once
+# (role change, admin action). Expires with the absolute TTL.
+_USER_SESSIONS_PREFIX = "ds_user_sessions:"
+
+
+def _user_sessions_key(user_sub: str) -> str:
+    return _USER_SESSIONS_PREFIX + user_sub
+
 
 _redis_client = None
 
@@ -62,7 +71,7 @@ def _get_redis():
     global _redis_client
     if _redis_client is None:
         try:
-            import redis.asyncio as aioredis  # type: ignore
+            import redis.asyncio as aioredis
 
             _redis_client = aioredis.from_url(
                 settings.celery_broker_url,
@@ -90,15 +99,27 @@ async def create_session(
         )
     session_id = secrets.token_urlsafe(32)
     csrf_token = secrets.token_urlsafe(32)
-    payload = {"sub": user_sub, "csrf": csrf_token}
+    payload = {"sub": user_sub, "csrf": csrf_token, "issued_at": int(time.time())}
     if extra:
         payload.update(extra)
-    await r.setex(
-        _SESSION_KEY_PREFIX + session_id,
-        settings.session_ttl_seconds,
-        json.dumps(payload),
-    )
+    ttl = min(settings.session_ttl_seconds, settings.session_absolute_ttl_seconds)
+    await r.setex(_SESSION_KEY_PREFIX + session_id, ttl, json.dumps(payload))
+    index_key = _user_sessions_key(user_sub)
+    await r.sadd(index_key, session_id)
+    await r.expire(index_key, settings.session_absolute_ttl_seconds)
     return session_id, csrf_token
+
+
+def _is_past_absolute_lifetime(payload: dict[str, Any]) -> bool:
+    """True when the session is older than ``session_absolute_ttl_seconds``.
+
+    Sessions without ``issued_at`` (created before this field existed) are treated as
+    expired: forcing one re-login is safer than granting them an unbounded lifetime.
+    """
+    issued_at = payload.get("issued_at")
+    if not isinstance(issued_at, int | float):
+        return True
+    return (time.time() - issued_at) > settings.session_absolute_ttl_seconds
 
 
 async def load_session(session_id: str) -> dict[str, Any] | None:
@@ -113,17 +134,32 @@ async def load_session(session_id: str) -> dict[str, Any] | None:
     if raw is None:
         return None
     try:
-        return json.loads(raw)
+        payload = json.loads(raw)
     except Exception:
         return None
+    if _is_past_absolute_lifetime(payload):
+        logger.info("Session reached absolute lifetime; revoking")
+        await destroy_session(session_id)
+        return None
+    return payload
 
 
 async def refresh_session_ttl(session_id: str) -> None:
+    """Extend the idle TTL, never beyond the absolute lifetime."""
     r = _get_redis()
     if r is None or not session_id:
         return
     try:
-        await r.expire(_SESSION_KEY_PREFIX + session_id, settings.session_ttl_seconds)
+        raw = await r.get(_SESSION_KEY_PREFIX + session_id)
+        remaining_absolute = settings.session_absolute_ttl_seconds
+        if raw:
+            issued_at = json.loads(raw).get("issued_at")
+            if isinstance(issued_at, int | float):
+                remaining_absolute = int(
+                    settings.session_absolute_ttl_seconds - (time.time() - issued_at)
+                )
+        ttl = max(1, min(settings.session_ttl_seconds, remaining_absolute))
+        await r.expire(_SESSION_KEY_PREFIX + session_id, ttl)
     except Exception as exc:  # pragma: no cover
         logger.debug("Session TTL refresh failed: %s", exc)
 
@@ -133,9 +169,33 @@ async def destroy_session(session_id: str) -> None:
     if r is None or not session_id:
         return
     try:
+        raw = await r.get(_SESSION_KEY_PREFIX + session_id)
         await r.delete(_SESSION_KEY_PREFIX + session_id)
+        if raw:
+            sub = json.loads(raw).get("sub")
+            if sub:
+                await r.srem(_user_sessions_key(sub), session_id)
     except Exception as exc:  # pragma: no cover
         logger.warning("Session destroy failed: %s", exc)
+
+
+async def destroy_user_sessions(user_sub: str) -> int:
+    """Revoke every live session of a user (e.g. after a role change). Returns the count."""
+    r = _get_redis()
+    if r is None or not user_sub:
+        return 0
+    try:
+        index_key = _user_sessions_key(user_sub)
+        session_ids = await r.smembers(index_key)
+        for sid in session_ids:
+            await r.delete(_SESSION_KEY_PREFIX + sid)
+        await r.delete(index_key)
+        if session_ids:
+            logger.info("Revoked user sessions", extra={"count": len(session_ids)})
+        return len(session_ids)
+    except Exception as exc:  # pragma: no cover
+        logger.warning("Session revocation failed: %s", exc)
+        return 0
 
 
 # ---------------------------------------------------------------------------

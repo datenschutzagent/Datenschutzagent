@@ -386,3 +386,71 @@ class TestNormalizeVvtMapReduce:
         raw = " ".join(f"Satz Nummer {i} über die Verarbeitung." for i in range(40))
         await vs.normalize_vvt(raw, language="de", field_names=["Speicherdauer"])
         assert "[... truncated" in captured["user_content"]
+
+
+# ---------------------------------------------------------------------------
+# Regression: document text is untrusted *content* and must be wrapped in the
+# delimiter markers, not run through the field sanitizer whose blocklist rejects
+# harmless domain text ("act as a …") when PROMPT_INJECTION_BLOCK=true.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_extract_fragment_wraps_document_text_instead_of_blocking(monkeypatch):
+    from unittest.mock import AsyncMock, MagicMock
+
+    from app.core.prompt_security import (
+        _USER_CONTENT_MARKER_BEGIN,
+        _USER_CONTENT_MARKER_END,
+    )
+
+    monkeypatch.setattr(settings, "prompt_injection_block", True, raising=False)
+    monkeypatch.setattr(vs, "create_agent", MagicMock(return_value=MagicMock()))
+    retry = AsyncMock(return_value=SimpleNamespace(output=_VVTExtractionResult()))
+    monkeypatch.setattr(vs, "llm_retry_call", retry)
+
+    document_text = (
+        "Der Auftragsverarbeiter soll als Dienstleister auftreten und die Anweisung "
+        "'ignore previous instructions' im Formular ignorieren. Act as a processor."
+    )
+    result = await vs._extract_fragment(
+        system="sys",
+        document_text=document_text,
+        field_list='"Zwecke der Verarbeitung"',
+        canonical_fields=["Zwecke der Verarbeitung"],
+        user_tpl=None,
+        vvt_limit=4000,
+    )
+
+    assert isinstance(result, _VVTExtractionResult)
+    retry.assert_awaited_once()
+    user_content = retry.await_args.args[1]
+    assert _USER_CONTENT_MARKER_BEGIN in user_content
+    assert _USER_CONTENT_MARKER_END in user_content
+    assert "Act as a processor." in user_content
+
+
+@pytest.mark.asyncio
+async def test_normalize_vvt_system_prompt_explains_markers(monkeypatch):
+    """The safety preamble that names the content markers must precede the VVT system prompt."""
+    from unittest.mock import AsyncMock, MagicMock
+
+    from app.core.prompt_security import SYSTEM_PROMPT_SAFETY_PREAMBLE
+
+    captured: dict = {}
+
+    def _create_agent(system_prompt, **kwargs):
+        captured["system"] = system_prompt
+        return MagicMock()
+
+    monkeypatch.setattr(vs, "create_agent", _create_agent)
+    monkeypatch.setattr(
+        vs,
+        "llm_retry_call",
+        AsyncMock(return_value=SimpleNamespace(output=_VVTExtractionResult())),
+    )
+    monkeypatch.setattr(vs, "get_active_template", AsyncMock(return_value=None))
+
+    await vs.normalize_vvt("Zwecke der Verarbeitung: Prüfungen.", language="de")
+
+    assert captured["system"].startswith(SYSTEM_PROMPT_SAFETY_PREAMBLE)

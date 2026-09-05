@@ -169,7 +169,7 @@ async def _verify_jwt(token: str) -> dict[str, Any]:
             algorithms=algorithms,
             audience=effective_audience,
             issuer=issuer,
-            options=options,
+            options=options,  # type: ignore[arg-type]  # PyJWT's Options TypedDict is private
         )
         return payload
     except jwt.ExpiredSignatureError:

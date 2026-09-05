@@ -46,3 +46,50 @@ def test_openai_compatible_accepts_base_url_and_model():
         llm_model="Qwen/Qwen2.5-14B-Instruct",
     )
     assert s.llm_structured_output_mode == "tool"  # default keeps existing behaviour
+
+
+# ---------------------------------------------------------------------------
+# Phase 2 R5: connection check for MinIO used a symbol that never existed
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_check_minio_reaches_the_client(monkeypatch):
+    from unittest.mock import MagicMock
+
+    from app.config import settings
+    from app.services import connection_checks
+    from app.storage import _MinioBackend
+
+    monkeypatch.setattr(settings, "storage_backend", "minio", raising=False)
+    monkeypatch.setattr(settings, "s3_endpoint_url", "http://minio:9000", raising=False)
+    backend = _MinioBackend()
+    client = MagicMock()
+    monkeypatch.setattr(backend, "_get_client", lambda: client)
+    with monkeypatch.context() as m:
+        m.setattr("app.storage.get_storage", lambda: backend)
+        result = await connection_checks.check_minio()
+    assert result == {"status": "ok"}
+    client.list_buckets.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_check_minio_reports_unreachable_on_client_error(monkeypatch):
+    from unittest.mock import MagicMock
+
+    from app.config import settings
+    from app.storage import _MinioBackend
+
+    monkeypatch.setattr(settings, "storage_backend", "minio", raising=False)
+    monkeypatch.setattr(settings, "s3_endpoint_url", "http://minio:9000", raising=False)
+    backend = _MinioBackend()
+    client = MagicMock()
+    client.list_buckets.side_effect = ConnectionError("refused")
+    monkeypatch.setattr(backend, "_get_client", lambda: client)
+    with monkeypatch.context() as m:
+        m.setattr("app.storage.get_storage", lambda: backend)
+        from app.services.connection_checks import check_minio
+
+        result = await check_minio()
+    assert result["status"] == "unreachable"
+    assert "refused" in result["message"]

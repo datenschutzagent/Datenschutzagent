@@ -43,6 +43,9 @@ export type DocumentType =
   | "other";
 
 export type FindingStatus = "open" | "accepted" | "overruled" | "fixed";
+export type FindingSeverity = "critical" | "high" | "medium" | "low" | "info";
+/** Not delivered by the backend yet — kept for the client-side filter UI. */
+export type CasePriority = "low" | "medium" | "high" | "urgent";
 
 export type VVTFieldStatus = "filled" | "missing" | "inconsistent";
 
@@ -115,7 +118,7 @@ export type SourceStrategy = "full_text" | "rag";
 export interface ApiFinding {
   id: string;
   checkName: string;
-  severity: string;
+  severity: FindingSeverity;
   status: FindingStatus;
   category: string;
   description: string;
@@ -237,7 +240,7 @@ export interface ApiCase {
   retentionMonths?: number | null;
   documents: ApiDocument[];
   findings: ApiFinding[];
-  priority?: string;
+  priority?: CasePriority;
 }
 
 export async function getCases(skip = 0, limit = 100, filter?: CasesFilter, includeArchived = false): Promise<ApiCase[]> {
@@ -418,10 +421,22 @@ export interface ApiActivity {
   created_at: string;
 }
 
+export type TimelineActivityType =
+  | "case_created"
+  | "document_uploaded"
+  | "document_updated"
+  | "status_changed"
+  | "playbook_run"
+  | "finding_status_changed"
+  | "comment_added"
+  | "deadline_set"
+  | "deadline_changed"
+  | "assigned";
+
 export interface TimelineActivity {
   id: string;
   caseId: string;
-  type: "playbook_run" | "finding_status_changed";
+  type: TimelineActivityType;
   timestamp: string;
   performedBy: string;
   description: string;
@@ -456,10 +471,31 @@ function mapApiActivityToTimeline(a: ApiActivity): TimelineActivity {
       metadata: { oldValue: oldStatus, newValue: newStatus },
     };
   }
+  if (a.event_type === "comment_added") {
+    return {
+      id: a.id,
+      caseId,
+      type: "comment_added",
+      timestamp,
+      performedBy: "System",
+      description: "Kommentar hinzugefügt",
+      metadata: { comment: (a.payload?.comment as string) ?? undefined },
+    };
+  }
+  if (a.event_type === "created") {
+    return {
+      id: a.id,
+      caseId,
+      type: "case_created",
+      timestamp,
+      performedBy: "System",
+      description: "Vorgang angelegt",
+    };
+  }
   return {
     id: a.id,
     caseId,
-    type: "playbook_run",
+    type: "status_changed",
     timestamp,
     performedBy: "System",
     description: a.event_type,

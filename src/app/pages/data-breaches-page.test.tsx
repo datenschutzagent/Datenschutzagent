@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter } from "react-router";
+import type { ApiDataBreach } from "../lib/api";
 
 // ---------------------------------------------------------------------------
 // Mocks
@@ -48,7 +49,7 @@ import { DataBreachesPage } from "./data-breaches-page";
 
 const mockList = vi.mocked(listDataBreaches);
 
-const makeFakeBreach = (overrides: Record<string, unknown> = {}) => ({
+const baseBreach: ApiDataBreach = {
   id: "breach-1",
   title: "Test-Datenpanne",
   description: "E-Mail an falschen Empfänger",
@@ -68,6 +69,10 @@ const makeFakeBreach = (overrides: Record<string, unknown> = {}) => ({
   draftNotification: null,
   createdAt: "2026-04-14T10:00:00Z",
   updatedAt: "2026-04-14T10:00:00Z",
+};
+
+const makeFakeBreach = (overrides: Partial<ApiDataBreach> = {}): ApiDataBreach => ({
+  ...baseBreach,
   ...overrides,
 });
 

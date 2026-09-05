@@ -1,4 +1,4 @@
-import { createBrowserRouter, Navigate, useLocation } from "react-router";
+import { createBrowserRouter, useLocation } from "react-router";
 import { CasesPage } from "./pages/cases-page";
 import { CaseDetailPage } from "./pages/case-detail-page";
 import { VvtOverviewPage } from "./pages/vvt-overview-page";

@@ -20,7 +20,10 @@ from pydantic_ai import ModelRetry
 from app.config import settings
 from app.core.grounding import grounding_ratio, partition_grounded
 from app.core.llm import create_agent, gather_all, llm_retry_call
-from app.core.prompt_security import sanitize_prompt_field
+from app.core.prompt_security import (
+    SYSTEM_PROMPT_SAFETY_PREAMBLE,
+    wrap_untrusted_content,
+)
 from app.core.tokens import effective_context_chars
 from app.services.document_processor import detect_language
 from app.services.org_profile_loader import DEFAULT_VVT_FIELD_NAMES
@@ -374,7 +377,11 @@ async def _extract_fragment(
             # document_text is already limited by construction (window / sentence-aware
             # truncation); the small headroom keeps the appended truncation marker intact.
             "field_list": field_list,
-            "document_text": sanitize_prompt_field(
+            # Document text is untrusted *content*, not a short field: wrap it in the
+            # delimiter markers (like check_runner) instead of sanitize_prompt_field,
+            # whose blocklist would reject harmless domain text ("act as a …") when
+            # PROMPT_INJECTION_BLOCK=true.
+            "document_text": wrap_untrusted_content(
                 document_text, max_chars=vvt_limit + 200
             ),
         },
@@ -412,6 +419,8 @@ async def normalize_vvt(
     language_hint = _vvt_language_hint(language) if language else ""
     system_tpl = await get_active_template("vvt_system")
     system = render(system_tpl or DEFAULT_VVT_SYSTEM, {"language_hint": language_hint})
+    # Explains the <<<USER_CONTENT_*>>> markers used by wrap_untrusted_content (see check_runner).
+    system = SYSTEM_PROMPT_SAFETY_PREAMBLE + "\n\n" + system
     user_tpl = await get_active_template("vvt_user")
     vvt_limit = effective_context_chars("vvt")
     field_list = ", ".join(f'"{n}"' for n in canonical_fields)

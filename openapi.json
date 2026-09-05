@@ -1204,6 +1204,22 @@
             }
           },
           {
+            "name": "deadline_overdue",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "boolean"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Deadline Overdue"
+            }
+          },
+          {
             "name": "include_archived",
             "in": "query",
             "required": false,
@@ -1416,6 +1432,31 @@
               "format": "uuid",
               "title": "Case Id"
             }
+          },
+          {
+            "name": "skip",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "default": 0,
+              "title": "Skip"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 1000,
+              "minimum": 1,
+              "description": "Maximale Anzahl Einträge (neueste zuerst); Standard 200",
+              "default": 200,
+              "title": "Limit"
+            },
+            "description": "Maximale Anzahl Einträge (neueste zuerst); Standard 200"
           }
         ],
         "responses": {
@@ -2464,6 +2505,29 @@
                 }
               ],
               "title": "Document Type"
+            }
+          },
+          {
+            "name": "skip",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "default": 0,
+              "title": "Skip"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 1000,
+              "minimum": 1,
+              "default": 500,
+              "title": "Limit"
             }
           }
         ],

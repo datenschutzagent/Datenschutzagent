@@ -17,7 +17,6 @@ import {
   generateCodeVerifier,
   getStoredToken,
   setStoredCodeVerifier,
-  setStoredToken,
 } from "../lib/auth";
 
 interface AuthContextValue {
@@ -148,7 +147,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       try {
         await endSessionCookie();
       } catch (err) {
-        logger.warn("Backend logout failed", err);
+        logger.warn("Backend logout failed", {
+          error: err instanceof Error ? err.message : String(err),
+        });
       }
     }
     setAccessToken(null);

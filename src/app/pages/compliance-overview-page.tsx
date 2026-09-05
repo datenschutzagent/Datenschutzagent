@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useCallback } from "react";
 import { AppLayout } from "../components/app-layout";
 import { PageHeader } from "../components/page-header";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../components/ui/card";
@@ -59,7 +59,7 @@ export function ComplianceOverviewPage() {
   const [stats, setStats] = useState<FindingStatsResult | null>(null);
   const PAGE_SIZE = 50;
 
-  const loadFindings = async (newOffset = 0, sev = severityFilter, st = statusFilter) => {
+  const loadFindings = useCallback(async (newOffset = 0, sev = severityFilter, st = statusFilter) => {
     setLoading(true);
     try {
       const result = await listFindings({
@@ -76,11 +76,11 @@ export function ComplianceOverviewPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [severityFilter, statusFilter]);
 
   useEffect(() => {
     loadFindings(0, severityFilter, statusFilter);
-  }, [severityFilter, statusFilter]);
+  }, [loadFindings, severityFilter, statusFilter]);
 
   useEffect(() => {
     getFindingStats()
@@ -134,16 +134,16 @@ export function ComplianceOverviewPage() {
             <CardDescription>Org-weite Gesamtzahlen (alle Vorgänge)</CardDescription>
           </CardHeader>
           <CardContent>
-            {!stats ? (
+            {!stats || !orgWideSeverityData ? (
               <Skeleton className="h-40 w-full" />
             ) : (
               <ResponsiveContainer width="100%" height={160}>
-                <BarChart data={orgWideSeverityData!} margin={{ top: 4, right: 4, bottom: 4, left: -20 }}>
+                <BarChart data={orgWideSeverityData} margin={{ top: 4, right: 4, bottom: 4, left: -20 }}>
                   <XAxis dataKey="name" tick={{ fontSize: 11 }} />
                   <YAxis tick={{ fontSize: 11 }} />
                   <Tooltip formatter={(v: number) => [v, "Findings"]} />
                   <Bar dataKey="count" radius={[4, 4, 0, 0]}>
-                    {orgWideSeverityData!.map((entry) => (
+                    {orgWideSeverityData.map((entry) => (
                       <Cell key={entry.severity} fill={SEVERITY_CHART_COLORS[entry.severity] ?? "#6b7280"} />
                     ))}
                   </Bar>
@@ -286,21 +286,21 @@ export function ComplianceOverviewPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {["critical", "high", "medium", "low", "info"]
-                    .map((sev) => stats.resolutionVelocity.find((v) => v.severity === sev))
-                    .filter(Boolean)
-                    .map((v) => (
-                      <tr key={v!.severity} className="border-b border-border last:border-0">
+                  {SEVERITY_ORDER.flatMap((sev) => {
+                    const v = stats.resolutionVelocity.find((row) => row.severity === sev);
+                    return v ? [v] : [];
+                  }).map((v) => (
+                      <tr key={v.severity} className="border-b border-border last:border-0">
                         <td className="py-2 px-4">
-                          <Badge className={severityColors[v!.severity as FindingSeverity]}>
-                            {severityLabels[v!.severity as FindingSeverity]}
+                          <Badge className={severityColors[v.severity as FindingSeverity]}>
+                            {severityLabels[v.severity as FindingSeverity]}
                           </Badge>
                         </td>
                         <td className="py-2 px-4 text-right font-mono font-semibold">
-                          {v!.avgDaysToFix}d
+                          {v.avgDaysToFix}d
                         </td>
                         <td className="py-2 px-4 text-right text-muted-foreground">
-                          {v!.sampleSize}
+                          {v.sampleSize}
                         </td>
                       </tr>
                     ))}

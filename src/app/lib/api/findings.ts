@@ -12,15 +12,15 @@ import {
 } from "./core";
 import type { ApiFinding, FindingStatus } from "./cases";
 
-function mapFinding(d: Record<string, unknown>): Record<string, unknown> {
-  return deepSnakeToCamel(d) as Record<string, unknown>;
+function mapFinding(d: Record<string, unknown>): ApiFinding {
+  return deepSnakeToCamel<ApiFinding>(d);
 }
 
 export async function updateFindingStatus(findingId: string, status: FindingStatus): Promise<ApiFinding> {
   const f = await request<Record<string, unknown>>("PATCH", `/findings/${findingId}`, {
     body: { status },
   });
-  return mapFinding(f) as ApiFinding;
+  return mapFinding(f);
 }
 
 export interface FindingListParams {
@@ -50,7 +50,7 @@ export async function listFindings(params: FindingListParams): Promise<FindingLi
     `/findings?${q.toString()}`
   );
   return {
-    items: raw.items.map((f) => mapFinding(f) as ApiFinding),
+    items: raw.items.map((f) => mapFinding(f)),
     total: raw.total,
   };
 }
@@ -92,7 +92,7 @@ export async function updateFindingDueDate(findingId: string, status: FindingSta
   const body: Record<string, unknown> = { status };
   if (dueDate !== undefined) body.due_date = dueDate;
   const f = await request<Record<string, unknown>>("PATCH", `/findings/${findingId}`, { body });
-  return mapFinding(f) as ApiFinding;
+  return mapFinding(f);
 }
 
 // --- Finding comments ---

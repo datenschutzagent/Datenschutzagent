@@ -1,3 +1,4 @@
+import asyncio
 import logging
 import time
 from uuid import UUID
@@ -6,6 +7,7 @@ from pydantic import BaseModel, Field
 from pydantic_ai import ModelRetry
 
 from app.config import settings
+from app.constants import FindingSeverity
 from app.core.grounding import grounding_ratio, partition_grounded
 from app.core.llm import create_agent, gather_all, llm_retry_call
 from app.core.llm_cache import _cache_get, _cache_key, _cache_set
@@ -298,7 +300,7 @@ def _aggregate_check_results(results: list[CheckResult]) -> CheckResult:
     return CheckResult(
         reasoning=base.reasoning,
         is_compliant=True,
-        severity="info",
+        severity=FindingSeverity.INFO,
         description=base.description,
         evidence=base.evidence,
         recommendation=base.recommendation,
@@ -470,7 +472,7 @@ async def run_check(
             if results
             else CheckResult(
                 is_compliant=True,
-                severity="info",
+                severity=FindingSeverity.INFO,
                 description="No content to evaluate.",
                 evidence=[],
                 recommendation="",
@@ -600,8 +602,11 @@ async def run_check_rag(
     """
     from app.services.weaviate_service import get_relevant_chunks
 
-    chunks = get_relevant_chunks(
-        document_id, check_instruction, top_k=settings.weaviate_top_k
+    chunks = await asyncio.to_thread(
+        get_relevant_chunks,
+        document_id,
+        check_instruction,
+        top_k=settings.weaviate_top_k,
     )
     if not chunks:
         return None
@@ -664,8 +669,11 @@ async def run_cross_document_check_rag(
     """
     from app.services.weaviate_service import get_relevant_chunks_for_case
 
-    chunks = get_relevant_chunks_for_case(
-        case_id, check_instruction, top_k_per_doc=settings.weaviate_top_k
+    chunks = await asyncio.to_thread(
+        get_relevant_chunks_for_case,
+        case_id,
+        check_instruction,
+        top_k_per_doc=settings.weaviate_top_k,
     )
     if not chunks:
         return None

@@ -69,3 +69,77 @@ def test_empty_plaintext_passes_through_in_any_environment(monkeypatch):
     # Empty string short-circuits before the production check — callers rely
     # on this to avoid serializing empty optional secrets.
     assert crypto.encrypt_secret("") == ""
+
+
+# ---------------------------------------------------------------------------
+# Phase 1 S7: key rotation (MultiFernet) and no silent plaintext fallback in production
+# ---------------------------------------------------------------------------
+
+
+def _keys(n: int) -> list[str]:
+    from cryptography.fernet import Fernet
+
+    return [Fernet.generate_key().decode() for _ in range(n)]
+
+
+def test_old_key_still_decrypts_after_rotation(monkeypatch):
+    from pydantic import SecretStr
+
+    old, new = _keys(2)
+    monkeypatch.setattr(settings, "app_environment", "production")
+    monkeypatch.setattr(settings, "webhook_secret_encryption_key", SecretStr(old))
+    ciphertext_old = crypto.encrypt_secret("hook-secret")
+
+    crypto._fernet = None
+    crypto._fernet_initialized = False
+    monkeypatch.setattr(
+        settings, "webhook_secret_encryption_key", SecretStr(f"{new},{old}")
+    )
+    assert crypto.decrypt_secret(ciphertext_old) == "hook-secret"
+    rotated = crypto.rotate_secret(ciphertext_old)
+    assert rotated != ciphertext_old
+    assert crypto.decrypt_secret(rotated) == "hook-secret"
+
+    # After dropping the old key the rotated value still works, the old one does not.
+    crypto._fernet = None
+    crypto._fernet_initialized = False
+    monkeypatch.setattr(settings, "webhook_secret_encryption_key", SecretStr(new))
+    assert crypto.decrypt_secret(rotated) == "hook-secret"
+    with pytest.raises(RuntimeError, match="cannot be decrypted"):
+        crypto.decrypt_secret(ciphertext_old)
+
+
+def test_production_undecryptable_value_raises(monkeypatch):
+    from pydantic import SecretStr
+
+    monkeypatch.setattr(settings, "app_environment", "production")
+    monkeypatch.setattr(
+        settings, "webhook_secret_encryption_key", SecretStr(_keys(1)[0])
+    )
+    with pytest.raises(RuntimeError):
+        crypto.decrypt_secret("legacy-plaintext-secret")
+
+
+def test_development_undecryptable_value_falls_back_with_warning(monkeypatch, caplog):
+    from pydantic import SecretStr
+
+    monkeypatch.setattr(settings, "app_environment", "development")
+    monkeypatch.setattr(
+        settings, "webhook_secret_encryption_key", SecretStr(_keys(1)[0])
+    )
+    with caplog.at_level("WARNING", logger="app.core.crypto"):
+        assert (
+            crypto.decrypt_secret("legacy-plaintext-secret")
+            == "legacy-plaintext-secret"
+        )
+    assert any("Klartext" in r.getMessage() for r in caplog.records)
+
+
+def test_invalid_key_in_list_disables_encryption(monkeypatch):
+    from pydantic import SecretStr
+
+    monkeypatch.setattr(settings, "app_environment", "development")
+    monkeypatch.setattr(
+        settings, "webhook_secret_encryption_key", SecretStr(f"{_keys(1)[0]},not-a-key")
+    )
+    assert crypto._get_fernet() is None

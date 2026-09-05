@@ -2,7 +2,6 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { act } from "@testing-library/react";
 import { waitFor } from "@testing-library/react";
 import { renderWithProviders, makeTestQueryClient } from "../test-utils";
-import React from "react";
 import type { RunningCheckJob } from "../lib/api";
 
 // ---------------------------------------------------------------------------
@@ -57,7 +56,12 @@ function renderWithRunningChecks() {
     { queryClient: qc },
   );
 
-  return { getContext: () => contextValue! };
+  return {
+    getContext: () => {
+      if (!contextValue) throw new Error("RunningChecksProvider did not render the probe");
+      return contextValue;
+    },
+  };
 }
 
 // ---------------------------------------------------------------------------

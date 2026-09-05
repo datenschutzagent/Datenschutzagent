@@ -1,4 +1,3 @@
-import { Link, useNavigate } from "react-router";
 import { AppLayout } from "../components/app-layout";
 import { PageHeader } from "../components/page-header";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../components/ui/card";
@@ -42,7 +41,6 @@ import { Plus, Scale, Edit, Trash2, Loader2 } from "lucide-react";
 import { useState, useEffect } from "react";
 
 export function LegalBasesPage() {
-  const navigate = useNavigate();
   const auth = useAuthOptional();
   const [bases, setBases] = useState<ApiLegalBase[]>([]);
   const [loading, setLoading] = useState(true);

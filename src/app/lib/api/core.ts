@@ -102,17 +102,23 @@ export function snakeToCamel(key: string): string {
   return key.replace(/_([a-z])/g, (_, c: string) => c.toUpperCase());
 }
 
-export function deepSnakeToCamel(value: unknown): unknown {
-  if (Array.isArray(value)) return value.map(deepSnakeToCamel);
+/**
+ * Recursively convert snake_case keys to camelCase.
+ *
+ * The type parameter is a boundary cast: callers assert the camelCased shape
+ * (e.g. ``deepSnakeToCamel<ApiDocument>(raw)``) — the runtime does not validate.
+ */
+export function deepSnakeToCamel<T = unknown>(value: unknown): T {
+  if (Array.isArray(value)) return value.map((v) => deepSnakeToCamel(v)) as T;
   if (value !== null && typeof value === "object") {
     return Object.fromEntries(
       Object.entries(value as Record<string, unknown>).map(([k, v]) => [
         snakeToCamel(k),
         deepSnakeToCamel(v),
       ])
-    );
+    ) as T;
   }
-  return value;
+  return value as T;
 }
 
 /** Parse error message from a non-ok Response (JSON detail or body text). */

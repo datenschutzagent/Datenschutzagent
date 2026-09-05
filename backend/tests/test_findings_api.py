@@ -136,3 +136,57 @@ async def test_bulk_update_nonexistent_ids_returns_zero(client):
     )
     assert resp.status_code == 200
     assert resp.json()["updated"] == 0
+
+
+async def _add_findings(case_id: str, n: int, status: str = "open") -> list[str]:
+    import uuid
+
+    from app.database import async_session_factory
+    from app.models.db import FindingModel
+
+    ids: list[str] = []
+    async with async_session_factory() as session:
+        for i in range(n):
+            finding = FindingModel(
+                case_id=uuid.UUID(case_id),
+                check_name=f"check-{i}",
+                severity="medium",
+                status=status,
+                category="test",
+                description="desc",
+            )
+            session.add(finding)
+            await session.flush()
+            ids.append(str(finding.id))
+        await session.commit()
+    return ids
+
+
+async def test_bulk_update_counts_only_changed_findings(client):
+    """Regression: ``updated`` was incremented for every finding, changed or not."""
+    case = await _create_case(client, title="Bulk-Count")
+    ids = await _add_findings(case["id"], 3, status="open")
+
+    same = await client.patch(
+        "/api/v1/findings/bulk-update", json={"finding_ids": ids, "status": "open"}
+    )
+    assert same.status_code == 200
+    assert same.json()["updated"] == 0
+
+    changed = await client.patch(
+        "/api/v1/findings/bulk-update",
+        json={"finding_ids": ids, "status": "accepted"},
+    )
+    assert changed.status_code == 200
+    assert changed.json()["updated"] == 3
+
+    again = await client.patch(
+        "/api/v1/findings/bulk-update",
+        json={"finding_ids": ids, "status": "accepted"},
+    )
+    assert again.json()["updated"] == 0
+
+    listed = await client.get("/api/v1/findings", params={"case_id": case["id"]})
+    assert listed.status_code == 200
+    statuses = {f["status"] for f in listed.json()["items"]}
+    assert statuses == {"accepted"}

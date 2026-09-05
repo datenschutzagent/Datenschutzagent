@@ -12,6 +12,7 @@ Case) gemaess Art. 13/14 DSGVO. Die Generierung nutzt:
 """
 
 import logging
+from collections.abc import Sequence
 from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID
@@ -190,7 +191,7 @@ async def _build_avv_summary(db: AsyncSession, department: str | None) -> str:
     return _format_avv(contracts)
 
 
-def _format_avv(contracts: list[AVVContractModel]) -> str:
+def _format_avv(contracts: Sequence[AVVContractModel]) -> str:
     lines = []
     for c in contracts:
         type_label = "AV" if c.partner_type == "processor" else "Unter-AV"

@@ -288,7 +288,7 @@ export function AdminPromptsTab() {
               ))}
               {versionsList.length === 0 && (
                 <p className="text-slate-500 text-sm">
-                  Keine Versionen. Über „Bearbeiten" eine neue anlegen.
+                  Keine Versionen. Über „Bearbeiten“ eine neue anlegen.
                 </p>
               )}
             </ul>

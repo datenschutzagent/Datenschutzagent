@@ -118,14 +118,15 @@ export function DataBreachesPage() {
   ).length;
 
   const breachAnalytics = useMemo(() => {
-    const notified = breaches.filter(
-      (b) =>
-        ["reported_to_authority", "reported_to_subjects", "closed"].includes(b.status) &&
-        b.authorityNotifiedAt != null,
+    const notified = breaches.flatMap((b) =>
+      ["reported_to_authority", "reported_to_subjects", "closed"].includes(b.status) &&
+      b.authorityNotifiedAt != null
+        ? [{ ...b, authorityNotifiedAt: b.authorityNotifiedAt }]
+        : [],
     );
     const onTime = notified.filter(
       (b) =>
-        new Date(b.authorityNotifiedAt!).getTime() <=
+        new Date(b.authorityNotifiedAt).getTime() <=
         new Date(b.notificationDeadline).getTime(),
     );
     const complianceRate =
@@ -133,7 +134,7 @@ export function DataBreachesPage() {
 
     const notifyTimes = notified.map(
       (b) =>
-        (new Date(b.authorityNotifiedAt!).getTime() - new Date(b.discoveredAt).getTime()) /
+        (new Date(b.authorityNotifiedAt).getTime() - new Date(b.discoveredAt).getTime()) /
         3_600_000,
     );
     const avgHours =

@@ -219,8 +219,9 @@ export function TOMPage() {
   }
 
   async function handleAttachmentDownload(att: ApiTOMAttachment) {
+    if (!selected) return;
     try {
-      const blob = await getTOMAttachmentBlob(selected!.id, att.id);
+      const blob = await getTOMAttachmentBlob(selected.id, att.id);
       downloadBlob(blob, att.name);
     } catch {
       toast.error("Download fehlgeschlagen.");

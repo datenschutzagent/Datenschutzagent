@@ -85,8 +85,18 @@ const makeFakeCase = (overrides: Record<string, unknown> = {}) => ({
   ...overrides,
 });
 
-const loadingState = { data: undefined, isLoading: true, isError: false, error: null };
-const emptyState = { data: [], isLoading: false, isError: false, error: null };
+type CasesQueryResult = ReturnType<typeof useCases>;
+
+/** The page only reads data/isLoading/isError/error; stub the rest of UseQueryResult. */
+const asQueryResult = (partial: {
+  data: ReturnType<typeof makeFakeCase>[] | undefined;
+  isLoading: boolean;
+  isError: boolean;
+  error: Error | null;
+}): CasesQueryResult => partial as unknown as CasesQueryResult;
+
+const loadingState = asQueryResult({ data: undefined, isLoading: true, isError: false, error: null });
+const emptyState = asQueryResult({ data: [], isLoading: false, isError: false, error: null });
 
 function renderPage() {
   return renderWithProviders(<CasesPage />);
@@ -99,26 +109,28 @@ function renderPage() {
 describe("CasesPage", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mockUseArchivedCases.mockReturnValue(emptyState as ReturnType<typeof useArchivedCases>);
+    mockUseArchivedCases.mockReturnValue(emptyState);
   });
 
   it("shows a loading skeleton while cases are being fetched", () => {
-    mockUseCases.mockReturnValue(loadingState as ReturnType<typeof useCases>);
+    mockUseCases.mockReturnValue(loadingState);
     renderPage();
     const skeletons = document.querySelectorAll("[data-slot='skeleton']");
     expect(skeletons.length).toBeGreaterThan(0);
   });
 
   it("renders case titles after loading", async () => {
-    mockUseCases.mockReturnValue({
-      data: [
-        makeFakeCase({ title: "Datenschutzfall Alpha" }),
-        makeFakeCase({ id: "case-2", title: "Datenschutzfall Beta" }),
-      ],
-      isLoading: false,
-      isError: false,
-      error: null,
-    } as ReturnType<typeof useCases>);
+    mockUseCases.mockReturnValue(
+      asQueryResult({
+        data: [
+          makeFakeCase({ title: "Datenschutzfall Alpha" }),
+          makeFakeCase({ id: "case-2", title: "Datenschutzfall Beta" }),
+        ],
+        isLoading: false,
+        isError: false,
+        error: null,
+      })
+    );
 
     renderPage();
     await waitFor(() => {
@@ -128,12 +140,14 @@ describe("CasesPage", () => {
   });
 
   it("shows an error message when the query fails", async () => {
-    mockUseCases.mockReturnValue({
-      data: undefined,
-      isLoading: false,
-      isError: true,
-      error: new Error("Netzwerkfehler"),
-    } as ReturnType<typeof useCases>);
+    mockUseCases.mockReturnValue(
+      asQueryResult({
+        data: undefined,
+        isLoading: false,
+        isError: true,
+        error: new Error("Netzwerkfehler"),
+      })
+    );
 
     renderPage();
     await waitFor(() => {
@@ -142,7 +156,7 @@ describe("CasesPage", () => {
   });
 
   it("shows empty state when no cases exist", async () => {
-    mockUseCases.mockReturnValue(emptyState as ReturnType<typeof useCases>);
+    mockUseCases.mockReturnValue(emptyState);
     renderPage();
     await waitFor(() => {
       expect(screen.queryByText("Datenschutzfall")).toBeNull();
@@ -150,12 +164,14 @@ describe("CasesPage", () => {
   });
 
   it("renders department badge for each case", async () => {
-    mockUseCases.mockReturnValue({
-      data: [makeFakeCase({ department: "Personalabteilung" })],
-      isLoading: false,
-      isError: false,
-      error: null,
-    } as ReturnType<typeof useCases>);
+    mockUseCases.mockReturnValue(
+      asQueryResult({
+        data: [makeFakeCase({ department: "Personalabteilung" })],
+        isLoading: false,
+        isError: false,
+        error: null,
+      })
+    );
 
     renderPage();
     await waitFor(() => {

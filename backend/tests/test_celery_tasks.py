@@ -9,6 +9,8 @@ are patched via unittest.mock.
 import uuid
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from app.celery_app import (
     _count_checks_total,
     _set_extraction_failed,
@@ -200,7 +202,8 @@ def test_extract_document_text_file_not_found():
     assert doc.extraction_status == "failed"
 
 
-def test_extract_document_text_extraction_error():
+def test_extract_document_text_unexpected_error_marks_failed_and_raises():
+    """Phase 2 R2: unexpected errors surface as Celery FAILURE, not as a SUCCESS result."""
     doc_id = uuid.uuid4()
     doc = _FakeDoc(doc_id)
     mock_factory, mock_session = _make_session_factory(doc)
@@ -209,12 +212,118 @@ def test_extract_document_text_extraction_error():
         patch("app.celery_app._get_session_factory", return_value=mock_factory),
         patch("app.celery_app.get_file", return_value=b"bytes"),
         patch("app.celery_app.extract_text", side_effect=RuntimeError("OCR crash")),
+        pytest.raises(RuntimeError, match="OCR crash"),
+    ):
+        extract_document_text(str(doc_id))
+
+    assert doc.extraction_status == "failed"
+    assert "OCR crash" in doc.extraction_error
+
+
+def test_extract_document_text_unsupported_document_is_terminal():
+    from app.services.document_processor import UnsupportedDocumentError
+
+    doc_id = uuid.uuid4()
+    doc = _FakeDoc(doc_id)
+    mock_factory, mock_session = _make_session_factory(doc)
+
+    with (
+        patch("app.celery_app._get_session_factory", return_value=mock_factory),
+        patch("app.celery_app.get_file", return_value=b"bytes"),
+        patch(
+            "app.celery_app.extract_text",
+            side_effect=UnsupportedDocumentError("PDF verschlüsselt"),
+        ),
     ):
         result = extract_document_text(str(doc_id))
 
     assert result["ok"] is False
-    assert "OCR crash" in result["error"]
+    assert "verschlüsselt" in result["error"]
     assert doc.extraction_status == "failed"
+
+
+def test_extract_document_text_transient_error_is_retried():
+    """Storage/network hiccups (OSError) go through task.retry with backoff."""
+    from app import celery_app
+
+    doc_id = uuid.uuid4()
+    doc = _FakeDoc(doc_id)
+    mock_factory, mock_session = _make_session_factory(doc)
+    retry_calls: list[dict] = []
+
+    class _Retried(Exception):
+        pass
+
+    def _fake_retry(**kwargs):
+        retry_calls.append(kwargs)
+        return _Retried()
+
+    with (
+        patch("app.celery_app._get_session_factory", return_value=mock_factory),
+        patch("app.celery_app.get_file", side_effect=ConnectionError("minio down")),
+        patch.object(celery_app.extract_document_text, "retry", _fake_retry),
+        pytest.raises(_Retried),
+    ):
+        extract_document_text(str(doc_id))
+
+    assert len(retry_calls) == 1
+    assert retry_calls[0]["countdown"] == celery_app.TASK_RETRY_BACKOFF_SECONDS[0]
+    assert retry_calls[0]["max_retries"] == celery_app.TASK_MAX_RETRIES
+    # Still "processing": the retry will pick it up, no premature FAILED state.
+    assert doc.extraction_status == "processing"
+
+
+def test_run_playbook_checks_llm_outage_is_retried_and_budget_is_not():
+    from app import celery_app
+    from app.core.exceptions import LLMBudgetExceededError, LLMProviderError
+
+    retried: list[dict] = []
+
+    class _Retried(Exception):
+        pass
+
+    def _fake_retry(**kwargs):
+        retried.append(kwargs)
+        return _Retried()
+
+    with (
+        patch(
+            "app.celery_app.asyncio.run", side_effect=LLMProviderError("breaker open")
+        ),
+        patch("app.celery_app._set_run_checks_job_failed") as mark_failed,
+        patch.object(celery_app.run_playbook_checks, "retry", _fake_retry),
+        pytest.raises(_Retried),
+    ):
+        celery_app.run_playbook_checks(str(uuid.uuid4()))
+    assert len(retried) == 1
+    mark_failed.assert_not_called()
+
+    job_id = str(uuid.uuid4())
+    with (
+        patch(
+            "app.celery_app.asyncio.run", side_effect=LLMBudgetExceededError("budget")
+        ),
+        patch("app.celery_app._set_run_checks_job_failed") as mark_failed,
+        pytest.raises(LLMBudgetExceededError),
+    ):
+        celery_app.run_playbook_checks(job_id)
+    mark_failed.assert_called_once()
+    assert mark_failed.call_args.args[0] == job_id
+
+
+def test_run_playbook_checks_programming_error_marks_failed_and_raises():
+    from app import celery_app
+
+    job_id = str(uuid.uuid4())
+    with (
+        patch(
+            "app.celery_app.asyncio.run", side_effect=ValueError("Playbook not found")
+        ),
+        patch("app.celery_app._set_run_checks_job_failed") as mark_failed,
+        pytest.raises(ValueError),
+    ):
+        celery_app.run_playbook_checks(job_id)
+    mark_failed.assert_called_once_with(job_id, "Playbook not found")
 
 
 def test_extract_document_text_sets_processing_then_done():
@@ -245,3 +354,70 @@ def test_extract_document_text_sets_processing_then_done():
     assert "processing" in status_history
     assert "done" in status_history
     assert status_history.index("processing") < status_history.index("done")
+
+
+# ---------------------------------------------------------------------------
+# periodic_recheck: jobs must be committed BEFORE the Celery dispatch, otherwise
+# the worker's own session cannot find the job row.
+# ---------------------------------------------------------------------------
+
+
+def test_periodic_recheck_dispatches_after_commit():
+    import asyncio
+    from datetime import UTC, datetime, timedelta
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock
+
+    from app import celery_app
+
+    old = datetime.now(UTC) - timedelta(days=30)
+    case = SimpleNamespace(
+        id=uuid.uuid4(),
+        recheck_interval_days=7,
+        last_rechecked_at=old,
+        created_at=old,
+        department="IT",
+        processing_context=None,
+        case_type="Softwareeinführung",
+    )
+    playbook = SimpleNamespace(id=uuid.uuid4(), name="PB")
+
+    cases_result = MagicMock()
+    cases_result.scalars.return_value.all.return_value = [case]
+    playbooks_result = MagicMock()
+    playbooks_result.scalars.return_value.all.return_value = [playbook]
+
+    session = MagicMock()
+    # Playbooks are loaded once before the case loop (no per-case query).
+    session.execute = AsyncMock(side_effect=[playbooks_result, cases_result])
+    session.flush = AsyncMock()
+    committed: list[bool] = []
+
+    async def _commit():
+        committed.append(True)
+
+    session.commit = _commit
+    factory = MagicMock()
+    factory.return_value.__aenter__ = AsyncMock(return_value=session)
+    factory.return_value.__aexit__ = AsyncMock(return_value=False)
+
+    dispatched_after_commit: list[bool] = []
+
+    def _apply_async(args, countdown=0):
+        dispatched_after_commit.append(bool(committed))
+
+    with (
+        patch("app.celery_app._get_async_session_factory", return_value=factory),
+        patch(
+            "app.celery_app.rank_playbooks_for_selection",
+            return_value=[(playbook, 1.0)],
+        ),
+        patch("app.celery_app._parse_recheck_strategies", return_value=["full_text"]),
+        patch.object(celery_app.run_playbook_checks, "apply_async", _apply_async),
+    ):
+        result = asyncio.run(celery_app._periodic_recheck_async())
+
+    assert result == {"queued": 1}
+    assert dispatched_after_commit == [True]
+    assert session.execute.await_count == 2  # playbooks + cases, not N+1
+    assert case.last_rechecked_at > old

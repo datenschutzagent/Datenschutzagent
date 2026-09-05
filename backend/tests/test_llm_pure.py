@@ -4,6 +4,8 @@ Covers the model/cost levers added for Batch B: the optional analysis model, pro
 default model settings (incl. the Anthropic prompt-cache breakpoint) and the temperature override.
 """
 
+from unittest.mock import MagicMock, patch
+
 import pytest
 from pydantic import BaseModel
 
@@ -221,3 +223,73 @@ def test_gather_all_preserves_order_and_runs_all_on_failure():
     with pytest.raises(RuntimeError, match="fragment failed"):
         asyncio.run(failing())
     assert set(completed) == {0, -1, 2}
+
+
+# ---------------------------------------------------------------------------
+# Regression: LLM_REQUEST_TIMEOUT must apply to cloud providers too. The shared
+# httpx client (which carries the timeout) used to be passed only to Ollama.
+# ---------------------------------------------------------------------------
+
+
+def test_openai_model_uses_shared_http_client(monkeypatch):
+    from pydantic import SecretStr
+
+    monkeypatch.setattr(settings, "openai_api_key", SecretStr("sk-test"), raising=False)
+    monkeypatch.setattr(settings, "openai_model", "gpt-test", raising=False)
+    sentinel = object()
+    monkeypatch.setattr(llm, "_get_local_http_client", lambda: sentinel)
+    provider_cls = MagicMock(name="OpenAIProvider")
+    monkeypatch.setattr(llm, "OpenAIProvider", provider_cls)
+    monkeypatch.setattr(llm, "OpenAIChatModel", MagicMock(name="OpenAIChatModel"))
+
+    llm.get_openai_model()
+
+    provider_cls.assert_called_once_with(api_key="sk-test", http_client=sentinel)
+
+
+def test_anthropic_model_uses_shared_http_client(monkeypatch):
+    from pydantic import SecretStr
+
+    pytest.importorskip("pydantic_ai.providers.anthropic")
+    monkeypatch.setattr(
+        settings, "anthropic_api_key", SecretStr("ak-test"), raising=False
+    )
+    monkeypatch.setattr(settings, "anthropic_model", "claude-test", raising=False)
+    sentinel = object()
+    monkeypatch.setattr(llm, "_get_local_http_client", lambda: sentinel)
+    provider_cls = MagicMock(name="AnthropicProvider")
+    with (
+        patch("pydantic_ai.providers.anthropic.AnthropicProvider", provider_cls),
+        patch("pydantic_ai.models.anthropic.AnthropicModel", MagicMock()),
+    ):
+        llm.get_anthropic_model()
+
+    provider_cls.assert_called_once_with(api_key="ak-test", http_client=sentinel)
+
+
+def test_openai_model_requires_api_key(monkeypatch):
+    from pydantic import SecretStr
+
+    monkeypatch.setattr(settings, "openai_api_key", SecretStr(""), raising=False)
+    with pytest.raises(RuntimeError, match="OPENAI_API_KEY"):
+        llm.get_openai_model()
+
+
+def test_provider_info_flags_external_transfer(monkeypatch):
+    from pydantic import SecretStr
+
+    monkeypatch.setattr(settings, "llm_provider", "openai", raising=False)
+    monkeypatch.setattr(settings, "openai_api_key", SecretStr("sk"), raising=False)
+    monkeypatch.setattr(
+        settings, "llm_external_transfer_acknowledged", False, raising=False
+    )
+    info = llm.get_llm_provider_info()
+    assert info["external_transfer"] is True
+    assert info["external_transfer_acknowledged"] is False
+    assert "sk" not in str(info.get("model"))
+
+
+def test_provider_info_ollama_is_not_external(monkeypatch):
+    monkeypatch.setattr(settings, "llm_provider", "ollama", raising=False)
+    info = llm.get_llm_provider_info()
+    assert info["external_transfer"] is False

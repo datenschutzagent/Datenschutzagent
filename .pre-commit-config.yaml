@@ -39,6 +39,17 @@ repos:
         args: ["--fix"]
         files: ^backend/
 
+  # Python: statische Typprüfung (mypy aus der Projektumgebung, damit die echten
+  # Abhängigkeiten sichtbar sind – `pip install mypy==2.3.1`).
+  - repo: local
+    hooks:
+      - id: mypy-backend
+        name: mypy (backend/app/core, app/services)
+        entry: bash -c 'cd backend && mypy -p app.core -p app.services'
+        language: system
+        pass_filenames: false
+        files: ^backend/app/(core|services)/.*\.py$
+
   # Secrets-Scanning
   - repo: https://github.com/Yelp/detect-secrets
     rev: v1.5.0

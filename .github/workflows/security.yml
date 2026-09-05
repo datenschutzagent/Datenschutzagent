@@ -9,10 +9,15 @@ on:
     # Weekly Monday 04:00 UTC – catches newly-disclosed CVEs
     - cron: '0 4 * * 1'
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   python-sast:
     name: Python SAST (Bandit + pip-audit)
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
@@ -30,10 +35,11 @@ jobs:
         run: pip-audit -r backend/requirements.txt
 
       - name: Bandit – Python SAST
-        # Medium+ severity; skip B101 (assert in tests), B110 (try-except-pass — reviewed),
-        # B608 (string-built SQL — reviewed 2026-06: all raw queries interpolate only
-        # hardcoded filter fragments and bind values via :params; SQL injection coverage
-        # remains via the Semgrep job, p/owasp-top-ten).
+        # Gate: bandit exits 1 on any finding at or above the severity level, also with
+        # --format json (verified 2026-09-05). Skips: B101 (assert in tests), B110
+        # (try-except-pass — reviewed), B608 (string-built SQL — reviewed 2026-06: all raw
+        # queries interpolate only hardcoded filter fragments and bind values via :params;
+        # SQL injection coverage remains via the Semgrep job, p/owasp-top-ten).
         run: |
           bandit -r backend/app/ \
             --severity-level medium \
@@ -51,6 +57,7 @@ jobs:
   frontend-security:
     name: Frontend Security (npm audit)
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
@@ -68,12 +75,13 @@ jobs:
   semgrep:
     name: Semgrep SAST (OWASP Top 10 + Secrets)
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     container:
       image: semgrep/semgrep:latest
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
-      - name: Run Semgrep
+      - name: Run Semgrep (full report, all severities)
         run: |
           semgrep \
             --config=p/python \
@@ -81,6 +89,20 @@ jobs:
             --config=p/owasp-top-ten \
             --json \
             --output semgrep-report.json \
+            backend/app/
+
+      - name: Semgrep gate (ERROR severity)
+        # Without --error semgrep always exits 0, so the step above only produces an
+        # artifact. This step fails the job on ERROR-severity findings; WARNING/INFO stay
+        # visible in the report. Tighten to --severity WARNING once the report is clean.
+        run: |
+          semgrep \
+            --config=p/python \
+            --config=p/secrets \
+            --config=p/owasp-top-ten \
+            --severity ERROR \
+            --error \
+            --quiet \
             backend/app/
 
       - name: Upload Semgrep report
@@ -93,12 +115,29 @@ jobs:
   container-scan:
     name: Container Vulnerability Scan (Trivy)
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     permissions:
       security-events: write
       actions: read
       contents: read
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - name: Trivy – expired exceptions
+        # Every .trivyignore entry carries an "# Expires: YYYY-MM-DD" line. Once that
+        # date has passed the exception must be re-reviewed (removed or extended with a
+        # fresh justification) — this step turns red instead of letting it rot silently.
+        run: |
+          today=$(date -u +%F)
+          status=0
+          while IFS= read -r line; do
+            expires=$(printf '%s' "$line" | sed -nE 's/^# *Expires: *([0-9]{4}-[0-9]{2}-[0-9]{2}).*/\1/p')
+            if [ -n "$expires" ] && [ "$expires" \< "$today" ]; then
+              echo "::error file=.trivyignore::expired exception ($expires): $line"
+              status=1
+            fi
+          done < .trivyignore
+          exit $status
 
       - name: Build backend image for scanning
         run: docker build -t datenschutzagent-backend:scan backend/
@@ -140,34 +179,32 @@ jobs:
   secret-scan:
     name: Secret Detection (detect-secrets)
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
-        with:
-          fetch-depth: 0  # Full history for detect-secrets baseline comparison
 
       - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
         with:
           python-version: "3.12"
 
       - name: Install detect-secrets
-        run: pip install detect-secrets
+        # Same version as .pre-commit-config.yaml so local and CI results match.
+        run: pip install detect-secrets==1.5.0
 
-      - name: Run detect-secrets scan
+      - name: Check for new secrets
+        # Gate: fails on any potential secret that is not already recorded in
+        # .secrets.baseline (the baseline carries its own exclude filters). To accept a
+        # false positive, refresh the baseline locally:
+        #   detect-secrets scan --baseline .secrets.baseline
+        run: git ls-files -z | xargs -0 detect-secrets-hook --baseline .secrets.baseline
+
+      - name: Full scan report (artifact)
+        if: always()
         run: |
           detect-secrets scan \
             --exclude-files '\.env\.example$' \
             --exclude-files '\.secrets\.baseline$' \
             > .secrets.scan-result.json
-
-      - name: Check for new secrets
-        run: |
-          # If baseline exists, compare; otherwise just report
-          if [ -f .secrets.baseline ]; then
-            detect-secrets audit .secrets.baseline
-          else
-            echo "No baseline found — review .secrets.scan-result.json"
-            cat .secrets.scan-result.json
-          fi
 
       - name: Upload secrets report
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -179,6 +216,7 @@ jobs:
   sbom:
     name: SBOM (CycloneDX – Backend + Frontend)
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 

@@ -7,7 +7,11 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.llm import create_agent, llm_retry_call
-from app.core.prompt_security import sanitize_prompt_field
+from app.core.prompt_security import (
+    SYSTEM_PROMPT_SAFETY_PREAMBLE,
+    sanitize_prompt_field,
+    wrap_untrusted_content,
+)
 from app.models.db import DocumentModel, FindingChatMessageModel, FindingModel
 
 logger = logging.getLogger(__name__)
@@ -28,6 +32,7 @@ Beantworte Fragen zu diesem Befund präzise und praxisnah. Schlage konkrete Verb
 Antworte auf Deutsch, es sei denn, der Nutzer fragt auf Englisch."""
 
 _MAX_DOC_CHARS = 3000
+_MAX_TURN_CHARS = 4000
 
 
 def _build_system_prompt(finding: FindingModel, document: DocumentModel | None) -> str:
@@ -40,18 +45,28 @@ def _build_system_prompt(finding: FindingModel, document: DocumentModel | None) 
         excerpt = document.content[:_MAX_DOC_CHARS]
         if len(document.content) > _MAX_DOC_CHARS:
             excerpt += "\n[... Dokument gekürzt ...]"
-        doc_context = f"**Relevanter Dokumentauszug ({document.name})**:\n{sanitize_prompt_field(excerpt, max_chars=_MAX_DOC_CHARS)}"
+        # Document text is untrusted content → delimiter markers (like check_runner), not
+        # the field sanitizer whose blocklist would reject harmless domain text.
+        doc_name = sanitize_prompt_field(document.name, max_chars=200)
+        doc_context = (
+            f"**Relevanter Dokumentauszug ({doc_name})**:\n"
+            f"{wrap_untrusted_content(excerpt, max_chars=_MAX_DOC_CHARS + 200)}"
+        )
 
-    return _CHAT_SYSTEM_TEMPLATE.format(
-        check_name=sanitize_prompt_field(finding.check_name, max_chars=200),
-        category=sanitize_prompt_field(finding.category, max_chars=100),
-        severity=sanitize_prompt_field(finding.severity, max_chars=50),
-        description=sanitize_prompt_field(finding.description, max_chars=1000),
-        recommendation=sanitize_prompt_field(
-            finding.recommendation or "Keine Empfehlung vorhanden.", max_chars=500
-        ),
-        evidence=sanitize_prompt_field(evidence_text, max_chars=1000),
-        doc_context=doc_context,
+    return (
+        SYSTEM_PROMPT_SAFETY_PREAMBLE
+        + "\n\n"
+        + _CHAT_SYSTEM_TEMPLATE.format(
+            check_name=sanitize_prompt_field(finding.check_name, max_chars=200),
+            category=sanitize_prompt_field(finding.category, max_chars=100),
+            severity=sanitize_prompt_field(finding.severity, max_chars=50),
+            description=sanitize_prompt_field(finding.description, max_chars=1000),
+            recommendation=sanitize_prompt_field(
+                finding.recommendation or "Keine Empfehlung vorhanden.", max_chars=500
+            ),
+            evidence=sanitize_prompt_field(evidence_text, max_chars=1000),
+            doc_context=doc_context,
+        )
     )
 
 
@@ -92,11 +107,17 @@ async def chat_with_finding(
     system_prompt = _build_system_prompt(finding, document)
 
     # Baue den User-Content mit Gesprächsverlauf auf
+    # Every turn — the new message and the stored history — is user-controlled text
+    # and goes into the prompt only inside the content markers.
     conversation_parts = []
     for msg in history:
         role_label = "Nutzer" if msg.role == "user" else "Assistent"
-        conversation_parts.append(f"{role_label}: {msg.content}")
-    conversation_parts.append(f"Nutzer: {user_message}")
+        conversation_parts.append(
+            f"{role_label}: {wrap_untrusted_content(msg.content, max_chars=_MAX_TURN_CHARS)}"
+        )
+    conversation_parts.append(
+        f"Nutzer: {wrap_untrusted_content(user_message, max_chars=_MAX_TURN_CHARS)}"
+    )
     full_user_content = "\n\n".join(conversation_parts)
 
     agent = create_agent(system_prompt)

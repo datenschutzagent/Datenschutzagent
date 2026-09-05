@@ -1,5 +1,6 @@
 """TOM-Katalog API (Art. 32 DSGVO) – Technisch-Organisatorische Maßnahmen."""
 
+import asyncio
 import logging
 from uuid import UUID
 
@@ -266,7 +267,9 @@ async def upload_tom_attachment(
     db.add(attachment)
     await db.flush()  # populates attachment.id
 
-    storage_path = save_tom_file(tom_id, attachment.id, filename, content)
+    storage_path = await asyncio.to_thread(
+        save_tom_file, tom_id, attachment.id, filename, content
+    )
     attachment.storage_path = storage_path
     await db.flush()
     await db.refresh(attachment)
@@ -293,7 +296,7 @@ async def download_tom_attachment(
     if not attachment:
         raise HTTPException(status_code=404, detail="Anhang nicht gefunden")
     try:
-        content = get_tom_file(attachment.storage_path)
+        content = await asyncio.to_thread(get_tom_file, attachment.storage_path)
     except FileNotFoundError:
         raise HTTPException(status_code=404, detail="Datei nicht gefunden") from None
 
@@ -338,6 +341,7 @@ async def delete_tom_attachment(
     await db.flush()
 
     try:
-        delete_tom_file(storage_path)
-    except Exception:
+        await asyncio.to_thread(delete_tom_file, storage_path)
+    # blob deletion is best-effort after the row is gone
+    except Exception:  # noqa: BLE001
         logger.warning("Could not delete TOM attachment file: %s", storage_path)

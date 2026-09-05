@@ -2,6 +2,7 @@
 
 import logging
 import re
+from typing import cast
 from urllib.parse import urlparse
 from uuid import UUID
 
@@ -199,10 +200,11 @@ def chunk_text(
     chunks: list[str] = []
     for kind, payload in blocks:
         if kind == "table":
-            label, header, sep, rows = payload  # type: ignore[misc]
+            table = cast(tuple[str, str, str, list[str]], payload)
+            label, header, sep, rows = table
             chunks.extend(_chunk_table(label, header, sep, rows, size))
         else:
-            chunks.extend(_chunk_prose(payload, size, overlap_chars))  # type: ignore[arg-type]
+            chunks.extend(_chunk_prose(cast(str, payload), size, overlap_chars))
 
     return [c for c in chunks if c.strip()]
 
@@ -571,7 +573,9 @@ def get_relevant_legal_base_chunks(
     if not legal_base_ids or not (query_text or "").strip():
         return []
 
-    k = top_k or getattr(settings, "weaviate_legal_bases_top_k", 8)
+    k: int = (
+        int(top_k) if top_k else int(getattr(settings, "weaviate_legal_bases_top_k", 8))
+    )
     client = get_weaviate_client()
     if not client:
         return []

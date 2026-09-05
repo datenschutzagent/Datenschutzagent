@@ -12,7 +12,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class Settings(BaseSettings):
     """Settings loaded from environment."""
 
-    model_config = SettingsConfigDict(
+    model_config = SettingsConfigDict(  # type: ignore[typeddict-unknown-key]  # repr= works at runtime
         env_file=".env",
         env_file_encoding="utf-8",
         repr=False,  # prevent accidental secret leakage in logs
@@ -154,6 +154,21 @@ class Settings(BaseSettings):
 
     # Dokument-Upload: maximale Dateigröße in Bytes (Standard: 50 MB; via MAX_UPLOAD_SIZE_BYTES überschreibbar)
     max_upload_size_bytes: int = 52428800
+    # Decompression guards for ZIP-based office formats (DOCX/XLSX/PPTX). A 50 MB upload
+    # may expand to gigabytes ("zip bomb"); the container is inspected *before* python-docx/
+    # openpyxl/python-pptx parse it. Limits: total uncompressed bytes, entry count and the
+    # per-entry compression ratio (legit office XML rarely exceeds ~50x).
+    max_archive_uncompressed_bytes: int = 200 * 1024 * 1024
+    max_archive_entries: int = 10_000
+    max_archive_compression_ratio: int = 200
+    # PDF page cap for text extraction (memory/CPU); OCR has its own ocr_max_pages.
+    max_pdf_pages: int = 2000
+
+    # Audit log (api_audit_log): when strict, a request whose audit row cannot be
+    # written is answered with 500 instead of succeeding silently — accountability over
+    # availability. Default off; the failure is always counted in
+    # api_audit_log_write_failures_total and logged at ERROR.
+    audit_log_strict: bool = False
 
     # Periodischer Recheck: Verzögerung in Sekunden zwischen gestaffelten Celery-Jobs (verhindert Lastspitzen)
     run_checks_stagger_seconds: int = 30
@@ -217,6 +232,10 @@ class Settings(BaseSettings):
     # legacy head-truncation behaviour.
     long_doc_map_reduce_enabled: bool = True
     long_doc_max_chunks: int = 6  # safety cap on map-reduce LLM calls per check
+    # Hard cap on LLM provider *attempts* per run_checks job (fragments × self-consistency
+    # samples × retries all count). Protects against runaway cost on large cases;
+    # remaining checks are reported as errors once the budget is used up. 0 = unlimited.
+    run_checks_max_llm_calls: int = 1000
 
     # VVT/ROPA normalization on large documents: when the extracted text exceeds
     # max_context_chars_vvt, extract over sentence-aware fragments (map-reduce) and merge the
@@ -329,7 +348,11 @@ class Settings(BaseSettings):
     # readable CSRF cookie. The legacy Bearer-token flow keeps working so
     # deployments can roll the change out gradually.
     auth_session_cookie_enabled: bool = False
-    session_ttl_seconds: int = 43200  # 12h sliding session
+    session_ttl_seconds: int = 43200  # 12h sliding (idle) session
+    # Absolute cap: a session dies this long after login regardless of activity, so a
+    # stolen cookie cannot be kept alive indefinitely by polling. Sessions are also
+    # revoked when an admin changes the user's role.
+    session_absolute_ttl_seconds: int = 28800  # 8h
     # Cookie names. The ``__Host-`` prefix mandates Secure + no Domain + Path=/
     # and is only usable over HTTPS, so we drop it in non-production so
     # browsers accept the cookie on plain-HTTP dev setups.
@@ -384,6 +407,12 @@ class Settings(BaseSettings):
         ""
     )  # Anthropic API-Key (wenn llm_provider=anthropic)
     anthropic_model: str = "claude-3-5-haiku-latest"  # Anthropic-Modell
+    # DSGVO: LLM_PROVIDER=openai|anthropic sends full document texts, findings and
+    # case metadata (potentially personal data, incl. Art. 9 categories) to a
+    # third-party processor outside the organisation. The operator must acknowledge
+    # this explicitly; in production the app refuses to start otherwise. Document the
+    # transfer in the ROPA (Art. 30) and check for an AVV/DPA with the provider.
+    llm_external_transfer_acknowledged: bool = False
 
     # Custom OpenAI-kompatibler Server (llama.cpp "llama-server", vLLM, LiteLLM, TGI, ...).
     # Nur wirksam bei LLM_PROVIDER=openai_compatible. Die Basis-URL darf mit oder ohne "/v1"
@@ -599,6 +628,73 @@ class Settings(BaseSettings):
             )
         return self
 
+    @field_validator(
+        "oidc_issuer_url",
+        "ollama_base_url",
+        "ocr_base_url",
+        "llm_base_url",
+        "weaviate_url",
+        mode="before",
+    )
+    @classmethod
+    def _validate_outbound_url(cls, v: str | None, info) -> str:
+        """Outbound service URLs: http(s) only, a real host, no embedded credentials.
+
+        These are admin-configured, so private/loopback ranges are legitimate (Ollama on
+        the LAN, Weaviate in the Docker network) and deliberately allowed. What is
+        rejected are the SSRF-style shapes: exotic schemes (file://, gopher://), URLs
+        without a host, and userinfo (``https://user:pw@host``) that would leak into  # pragma: allowlist secret
+        logs and error messages.
+        """
+        if v is None:
+            return ""
+        value = str(v).strip()
+        if not value:
+            return value
+        from urllib.parse import urlsplit
+
+        parts = urlsplit(value)
+        name = info.field_name.upper()
+        if parts.scheme not in ("http", "https"):
+            raise ValueError(
+                f"{name} must start with http:// or https:// (got {parts.scheme!r})"
+            )
+        if not parts.hostname:
+            raise ValueError(f"{name} has no host: {value!r}")
+        if parts.username is not None or parts.password is not None:
+            raise ValueError(f"{name} must not contain credentials (user:pass@host)")
+        if parts.fragment:
+            raise ValueError(f"{name} must not contain a fragment (#...)")
+        return value
+
+    @property
+    def llm_provider_is_external(self) -> bool:
+        """True when the active LLM provider is a third-party cloud service.
+
+        ``ollama`` and ``openai_compatible`` are treated as self-hosted: the operator
+        controls where they run. ``openai``/``anthropic`` always leave the organisation.
+        """
+        return (self.llm_provider or "").lower() in ("openai", "anthropic")
+
+    @model_validator(mode="after")
+    def _warn_external_llm_transfer(self) -> Settings:
+        """Non-production environments: warn (production hard-fails in the profile validator)."""
+        import logging as _logging
+
+        if (
+            self.app_environment != "production"
+            and self.llm_provider_is_external
+            and not self.llm_external_transfer_acknowledged
+        ):
+            _logging.getLogger("app.startup").warning(
+                "DSGVO: LLM_PROVIDER=%s sends document texts and findings to an external "
+                "processor. Set LLM_EXTERNAL_TRANSFER_ACKNOWLEDGED=true once the transfer "
+                "is documented (AVV/DPA, Art. 30 record); production refuses to start "
+                "without it.",
+                self.llm_provider,
+            )
+        return self
+
     @model_validator(mode="after")
     def _validate_production_profile(self) -> Settings:
         """Hard-fail on misconfigured production deployments; warn in other envs."""
@@ -634,9 +730,24 @@ class Settings(BaseSettings):
             )
         trusted = self.trusted_proxies if isinstance(self.trusted_proxies, list) else []
         if not trusted:
-            _log.warning(
-                "SECURITY: APP_ENVIRONMENT=production but TRUSTED_PROXIES is empty. "
-                "Set it to the CIDR range of your load balancer."
+            # Without it every client behind the reverse proxy shares one rate-limit
+            # bucket (the proxy IP) and X-Forwarded-Proto is ignored by uvicorn.
+            problems.append(
+                "TRUSTED_PROXIES must list the reverse proxy / load balancer "
+                "(IP or CIDR, e.g. the Docker network 172.16.0.0/12)"
+            )
+        if self.oidc_issuer_url and not self.oidc_issuer_url.startswith("https://"):
+            problems.append(
+                "OIDC_ISSUER_URL must use https:// (id_tokens travel over it)"
+            )
+        if (
+            self.llm_provider_is_external
+            and not self.llm_external_transfer_acknowledged
+        ):
+            problems.append(
+                f"LLM_PROVIDER={self.llm_provider} sends document texts to an external "
+                "processor; set LLM_EXTERNAL_TRANSFER_ACKNOWLEDGED=true after documenting "
+                "the transfer (Art. 28/30 DSGVO)"
             )
         if problems:
             raise ValueError(

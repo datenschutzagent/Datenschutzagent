@@ -48,6 +48,13 @@ def _parse_args() -> argparse.Namespace:
     config_p = subparsers.add_parser("config", help="System configuration (read-only)")
     config_sub = config_p.add_subparsers(dest="config_command", required=True)
     config_sub.add_parser("show", help="Show current settings (no secrets)")
+    # audit
+    audit_p = subparsers.add_parser("audit", help="API audit log")
+    audit_sub = audit_p.add_subparsers(dest="audit_command", required=True)
+    audit_sub.add_parser(
+        "verify", help="Verify the api_audit_log hash chain (exit 1 when broken)"
+    )
+
     config_sub.add_parser(
         "check", help="Run connection checks (Ollama, Weaviate, Postgres, MinIO, Redis)"
     )
@@ -126,6 +133,24 @@ async def _cmd_config_show() -> int:
     return 0
 
 
+async def _cmd_audit_verify() -> int:
+    from app.services.audit_service import verify_audit_chain
+
+    async with async_session_factory() as session:
+        result = await verify_audit_chain(session)
+    if result.ok:
+        print(
+            f"audit chain OK: {result.checked} entries verified, "
+            f"{result.skipped_unhashed} pre-chain entries skipped"
+        )
+        return 0
+    print(
+        f"audit chain BROKEN at seq={result.first_broken_seq}: {result.reason} "
+        f"({result.checked} entries verified before the break)"
+    )
+    return 1
+
+
 async def _cmd_config_check() -> int:
     results = await check_all_connections()
     for name, r in results.items():
@@ -151,6 +176,8 @@ async def _main_async(args: argparse.Namespace) -> int:
             return await _cmd_config_show()
         if args.config_command == "check":
             return await _cmd_config_check()
+    if args.command == "audit" and args.audit_command == "verify":
+        return await _cmd_audit_verify()
     return 1
 
 

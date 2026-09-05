@@ -120,7 +120,7 @@ export function DataBreachDetailDialog({
     getDataBreachActivity(breach.id)
       .then(setActivity)
       .finally(() => setLoadingActivity(false));
-  }, [breach.id]);
+  }, [breach]);
 
   const handleStatusChange = async (newStatus: string) => {
     setUpdatingStatus(true);

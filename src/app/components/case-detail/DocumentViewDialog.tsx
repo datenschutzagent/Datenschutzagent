@@ -74,7 +74,7 @@ export function DocumentViewDialog({
   }, [doc?.id]);
 
   useEffect(() => {
-    if (!open || !doc) {
+    if (!open || !doc?.id) {
       setContent(null);
       setExtractionStatus(undefined);
       setExtractionError(undefined);
@@ -105,7 +105,7 @@ export function DocumentViewDialog({
   }, [open, doc?.id, doc?.extractionStatus, extractionStatus, loading, fetchContent]);
 
   useEffect(() => {
-    if (!open || !doc) return;
+    if (!open || !doc?.id) return;
     loadComments();
   }, [open, doc?.id, loadComments]);
 

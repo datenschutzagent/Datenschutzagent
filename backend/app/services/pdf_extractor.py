@@ -185,6 +185,11 @@ def extract_text_from_pdf(content: bytes) -> ExtractionResult:
                 "Bitte ein entsperrtes PDF hochladen."
             )
         num_pages = len(doc)
+        if num_pages > settings.max_pdf_pages:
+            raise UnsupportedDocumentError(
+                f"Die PDF hat {num_pages} Seiten; verarbeitet werden maximal "
+                f"{settings.max_pdf_pages} Seiten (MAX_PDF_PAGES)."
+            )
         page_digital = [doc[i].get_text() for i in range(num_pages)]
         image_heavy = _image_heavy_pages(doc) if settings.ollama_ocr_enabled else set()
 

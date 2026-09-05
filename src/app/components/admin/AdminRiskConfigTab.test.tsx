@@ -189,8 +189,8 @@ describe("AdminRiskConfigTab", () => {
     const inputs = screen.getAllByRole("spinbutton") as HTMLInputElement[];
     // Erste 0.2-Eingabe finden und ändern (Maturity vvt z.B.) — wir nehmen einfach das erste, das den Wert "0.2" hat
     const vvtInput = inputs.find((i) => i.value === "0.2");
-    expect(vvtInput).toBeTruthy();
-    await user.tripleClick(vvtInput!);
+    if (!vvtInput) throw new Error("expected a spinbutton with value 0.2");
+    await user.tripleClick(vvtInput);
     await user.keyboard("0.25");
 
     await waitFor(() => {
@@ -214,8 +214,8 @@ describe("AdminRiskConfigTab", () => {
     // Eine kleine Änderung: required_threshold von 2 auf 3
     const thresholdInputs = screen.getAllByRole("spinbutton") as HTMLInputElement[];
     const target = thresholdInputs.find((i) => i.value === "2");
-    expect(target).toBeTruthy();
-    await user.tripleClick(target!);
+    if (!target) throw new Error("expected a spinbutton with value 2");
+    await user.tripleClick(target);
     await user.keyboard("3");
 
     const saveBtn = await waitFor(() => {

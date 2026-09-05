@@ -2,6 +2,7 @@
 
 import logging
 import logging.config
+import re
 import time
 import uuid
 from contextlib import asynccontextmanager
@@ -68,11 +69,13 @@ from app.api import router as api_router  # noqa: E402
 from app.api.routes import app_config as app_config_routes  # noqa: E402
 from app.api.routes import auth as auth_routes  # noqa: E402
 from app.config import settings  # noqa: E402
+from app.core.exceptions import DatenschutzAgentError  # noqa: E402
+from app.core.metrics import api_audit_log_write_failures_total  # noqa: E402
 from app.core.rate_limit import limiter  # noqa: E402
 from app.core.request_id import RequestIDMiddleware, get_request_id  # noqa: E402
-from app.database import async_session_factory, init_db  # noqa: E402
-from app.models._db.audit import APIAuditLogModel  # noqa: E402
+from app.database import async_session_factory  # noqa: E402
 from app.models.db import UserModel  # noqa: E402
+from app.services.audit_service import record_audit_entry  # noqa: E402
 from app.services.playbook_import import import_playbooks_from_yaml  # noqa: E402
 
 # Fixed default user ID when CURRENT_USER_ID is not set (must match users.py)
@@ -103,7 +106,18 @@ async def lifespan(app: FastAPI):
             "SECURITY: DEBUG mode is active. API documentation (/docs, /redoc) is publicly "
             "accessible. Disable DEBUG for production deployments."
         )
-    await init_db()
+    if settings.llm_provider_is_external:
+        # Always logged (also when acknowledged) so the transfer is visible in every
+        # startup log — the acknowledgement only silences the config-time warning.
+        _startup_logger.warning(
+            "DSGVO: LLM_PROVIDER=%s — document texts, findings and case metadata are sent "
+            "to an external processor (acknowledged=%s).",
+            settings.llm_provider,
+            settings.llm_external_transfer_acknowledged,
+        )
+    # Schema is owned by Alembic (entrypoint.sh runs `alembic upgrade head`); no
+    # create_all here so a model change without migration surfaces as drift in CI
+    # (`alembic check`) instead of silently creating tables in production.
     seed_dir = (
         Path(settings.playbooks_seed_dir) if settings.playbooks_seed_dir else None
     )
@@ -282,6 +296,59 @@ async def _http_exception_handler(request: Request, exc) -> JSONResponse:
     return _problem_detail(_status, detail, error_code)
 
 
+async def _domain_error_handler(request: Request, exc) -> JSONResponse:
+    """Map DatenschutzAgentError subclasses to stable Problem Details.
+
+    Before this handler existed, an LLM outage surfaced as an opaque 500; now the
+    client gets 503 + LLM_UNAVAILABLE and can back off / show a meaningful message.
+    Messages of our own exception classes are safe to expose (no stack traces, no
+    provider payloads).
+    """
+    from app.core.exceptions import (
+        ErrorCode,
+        LLMBudgetExceededError,
+        LLMProviderError,
+        LLMRetryExhaustedError,
+        PromptInjectionError,
+        RAGUnavailableError,
+    )
+
+    if isinstance(exc, PromptInjectionError):
+        return _problem_detail(400, str(exc), ErrorCode.PROMPT_REJECTED)
+    if isinstance(exc, LLMBudgetExceededError):
+        return _problem_detail(503, str(exc), ErrorCode.LLM_BUDGET_EXCEEDED)
+    if isinstance(exc, LLMRetryExhaustedError):
+        return _problem_detail(503, str(exc), ErrorCode.LLM_RETRY_EXHAUSTED)
+    if isinstance(exc, LLMProviderError):
+        return _problem_detail(503, str(exc), ErrorCode.LLM_UNAVAILABLE)
+    if isinstance(exc, RAGUnavailableError):
+        return _problem_detail(503, str(exc), ErrorCode.RAG_UNAVAILABLE)
+    logging.getLogger("app.errors").exception(
+        "Unhandled domain error", extra={"request_id": get_request_id()}
+    )
+    return _problem_detail(
+        500,
+        f"Interner Fehler (request_id={get_request_id()})",
+        ErrorCode.INTERNAL_ERROR,
+    )
+
+
+async def _unhandled_exception_handler(
+    request: Request, exc: Exception
+) -> JSONResponse:
+    """Last-resort 500: never leak exception text; log with the request id instead."""
+    from app.core.exceptions import ErrorCode
+
+    logging.getLogger("app.errors").exception(
+        "Unhandled exception", extra={"request_id": get_request_id()}
+    )
+    return _problem_detail(
+        500,
+        f"Interner Fehler (request_id={get_request_id()})",
+        ErrorCode.INTERNAL_ERROR,
+    )
+
+
 async def _validation_exception_handler(
     request: Request, exc: RequestValidationError
 ) -> JSONResponse:
@@ -304,6 +371,8 @@ from fastapi import HTTPException as _FastAPIHTTPException  # noqa: E402
 
 app.add_exception_handler(_FastAPIHTTPException, _http_exception_handler)  # type: ignore[arg-type]
 app.add_exception_handler(RequestValidationError, _validation_exception_handler)  # type: ignore[arg-type]
+app.add_exception_handler(DatenschutzAgentError, _domain_error_handler)
+app.add_exception_handler(Exception, _unhandled_exception_handler)
 
 app.add_middleware(RequestIDMiddleware)
 app.add_middleware(
@@ -411,8 +480,10 @@ async def prometheus_metrics(request: Request) -> Response:
         pool = engine.pool
         db_pool_checkedout.set(pool.checkedout())
         db_pool_total.set(pool.size())
-    except Exception:
-        pass
+    except Exception as exc:
+        # Pool gauges are best-effort (NullPool has no checkedout()); metrics output
+        # must still be produced.
+        logging.getLogger("app.metrics").debug("db pool gauges unavailable: %s", exc)
 
     return Response(content=generate_latest(), media_type=CONTENT_TYPE_LATEST)
 
@@ -447,20 +518,53 @@ _MUTATING_METHODS = frozenset({"POST", "PUT", "PATCH", "DELETE"})
 _AUDIT_SKIP_PATHS = frozenset(
     {"/health", "/metrics", "/docs", "/openapi.json", "/redoc"}
 )
+_UUID_RE = (
+    r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}"
+)
+# Privacy-relevant reads that are audited like mutations (Art. 5 Abs. 2 accountability):
+# who looked at which document text / downloaded which file / pulled which export.
+# The first capture group (if any) becomes resource_id.
+_AUDITED_READ_PATTERNS = tuple(
+    re.compile(p)
+    for p in (
+        rf"^/api/v1/documents/({_UUID_RE})/(?:content|download)$",
+        rf"^/api/v1/cases/{_UUID_RE}/annotated-documents/({_UUID_RE})$",
+        rf"^/api/v1/cases/({_UUID_RE})/activities/export$",
+        rf"^/api/v1/cases/({_UUID_RE})/dsb-report$",
+        r"^/api/v1/cases/export$",
+        r"^/api/v1/findings/export$",
+        r"^/api/v1/exports/",
+    )
+)
+
+
+def _audited_read_resource(path: str) -> tuple[bool, str | None]:
+    for pattern in _AUDITED_READ_PATTERNS:
+        m = pattern.match(path)
+        if m:
+            return True, (m.group(1) if m.groups() else None)
+    return False, None
 
 
 @app.middleware("http")
 async def audit_api_mutations(request: Request, call_next) -> Response:
-    """Persist a lean audit record for every mutating API call (POST/PUT/PATCH/DELETE).
+    """Persist a hash-chained audit record for mutating calls and privacy-relevant reads.
 
-    Runs fire-and-forget: a DB failure only logs a warning, the response is
-    always returned unchanged.  No request body or PII is stored.
+    Mutations (POST/PUT/PATCH/DELETE) are always audited; GET is audited for document
+    content/downloads and exports (``_AUDITED_READ_PATTERNS``). No request body or PII
+    is stored. A failed write is counted (``api_audit_log_write_failures_total``) and
+    logged at ERROR; with ``AUDIT_LOG_STRICT=true`` the request is answered with 500.
     """
     response = await call_next(request)
-    if request.method not in _MUTATING_METHODS:
-        return response
     if request.url.path in _AUDIT_SKIP_PATHS:
         return response
+    resource_id: str | None = None
+    if request.method not in _MUTATING_METHODS:
+        if request.method != "GET":
+            return response
+        audited, resource_id = _audited_read_resource(request.url.path)
+        if not audited or response.status_code >= 400:
+            return response
     # Collapse UUIDs in path segments to {id} – same approach as track_request_metrics
     path = request.url.path
     for segment in path.split("/"):
@@ -471,18 +575,33 @@ async def audit_api_mutations(request: Request, call_next) -> Response:
     user_id = getattr(getattr(request, "state", None), "current_user_id", None)
     try:
         async with async_session_factory() as session:
-            session.add(
-                APIAuditLogModel(
-                    user_id=user_id,
-                    endpoint=path,
-                    method=request.method,
-                    status_code=response.status_code,
-                    request_id=get_request_id(),
-                )
+            await record_audit_entry(
+                session,
+                user_id=user_id,
+                endpoint=path,
+                method=request.method,
+                status_code=response.status_code,
+                request_id=get_request_id(),
+                resource_id=resource_id,
             )
             await session.commit()
     except Exception:
-        _audit_logger.exception("api_audit_log write failed")
+        api_audit_log_write_failures_total.inc()
+        _audit_logger.exception(
+            "api_audit_log write failed",
+            extra={"endpoint": path, "method": request.method},
+        )
+        if settings.audit_log_strict:
+            return JSONResponse(
+                status_code=500,
+                content={
+                    "type": "about:blank",
+                    "title": "Audit log unavailable",
+                    "status": 500,
+                    "detail": "Request could not be recorded in the audit log "
+                    "(AUDIT_LOG_STRICT is enabled).",
+                },
+            )
     return response
 
 

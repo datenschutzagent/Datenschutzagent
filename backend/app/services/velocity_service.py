@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import statistics
+from collections.abc import Sequence
 from datetime import UTC, date, datetime, timedelta
 from typing import Any
 
@@ -54,7 +55,7 @@ def _histogram_hours(values: list[float]) -> list[dict]:
     return [{"bucket": b[0], "count": counts[b[0]]} for b in buckets]
 
 
-def _summarize_funnel(label: str, rows: list[Any]) -> dict:
+def _summarize_funnel(label: str, rows: Sequence[Any]) -> dict:
     by_transition: dict[str, list[float]] = {}
     for row in rows:
         prev, curr, hours = row
@@ -85,7 +86,7 @@ async def _compute_funnels(db: AsyncSession, department: str | None) -> list[dic
             " JOIN dsr_requests r ON r.id = a.request_id AND r.department = :dept "
         )
         params["dept"] = department
-    dsr_funnel_q = text(
+    dsr_funnel_q = text(  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text
         f"""
         WITH ordered AS (
             SELECT a.request_id,
@@ -111,7 +112,7 @@ async def _compute_funnels(db: AsyncSession, department: str | None) -> list[dic
         dept_join_breach = (
             " JOIN data_breaches b ON b.id = a.breach_id AND b.department = :dept "
         )
-    breach_funnel_q = text(
+    breach_funnel_q = text(  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text
         f"""
         WITH ordered AS (
             SELECT a.breach_id,
@@ -144,7 +145,7 @@ async def velocity_stats(
         dept_filter_dsr = " AND department = :dept "
         params["dept"] = department
 
-    dsr_q = text(
+    dsr_q = text(  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text
         f"""
         SELECT (responded_at - received_at) AS days, request_type, received_at
         FROM dsr_requests
@@ -206,7 +207,7 @@ async def velocity_stats(
     dept_filter_breach = ""
     if department:
         dept_filter_breach = " AND department = :dept "
-    breach_q = text(
+    breach_q = text(  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text
         f"""
         SELECT EXTRACT(EPOCH FROM (authority_notified_at - discovered_at))/3600.0 AS hours_auth,
                EXTRACT(EPOCH FROM (subjects_notified_at - discovered_at))/3600.0 AS hours_subj,
@@ -259,7 +260,7 @@ async def velocity_stats(
     dept_filter_find = ""
     if department:
         dept_filter_find = " AND c.department = :dept "
-    find_q = text(
+    find_q = text(  # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text
         f"""
         SELECT f.severity, EXTRACT(EPOCH FROM (f.updated_at - f.created_at))/86400.0 AS days
         FROM findings f
