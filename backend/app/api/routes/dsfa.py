@@ -116,9 +116,12 @@ async def generate_dsfa(
     if settings.celery_enabled:
         from app.celery_app import build_dsfa_task
 
+        # Commit BEFORE dispatching so the worker's own DB session can see the job row
+        # (same race as in cases/checks.py: dispatch-before-commit → "job not found").
+        await db.commit()
         task = build_dsfa_task.delay(str(job_id), get_request_id())
         job.celery_task_id = task.id
-        await db.flush()
+        await db.commit()
     else:
         # Synchroner Fallback
         asyncio.create_task(_run_dsfa_inline(job_id, db))

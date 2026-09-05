@@ -310,7 +310,7 @@ async def bulk_update_findings(
                 },
             )
             db.add(activity)
-        updated += 1
+            updated += 1
 
     await db.flush()
     return {"updated": updated}
@@ -362,7 +362,9 @@ def _build_findings_docx(case_title: str, findings: list, docs_by_id: dict) -> b
     severity_counts = {
         s: sum(1 for f in findings if f.severity == s) for s in severity_labels
     }
-    {s: sum(1 for f in findings if f.status == s) for s in status_labels}
+    status_counts = {
+        s: sum(1 for f in findings if f.status == s) for s in status_labels
+    }
     doc.add_heading("Zusammenfassung", level=1)
     summary_table = doc.add_table(rows=1 + len(severity_labels), cols=2)
     summary_table.style = "Table Grid"
@@ -372,6 +374,16 @@ def _build_findings_docx(case_title: str, findings: list, docs_by_id: dict) -> b
         row = summary_table.rows[i + 1]
         row.cells[0].text = label
         row.cells[1].text = str(severity_counts.get(sev, 0))
+    doc.add_paragraph()
+
+    status_table = doc.add_table(rows=1 + len(status_labels), cols=2)
+    status_table.style = "Table Grid"
+    status_table.rows[0].cells[0].text = "Status"
+    status_table.rows[0].cells[1].text = "Anzahl"
+    for i, (st, label) in enumerate(status_labels.items()):
+        row = status_table.rows[i + 1]
+        row.cells[0].text = label
+        row.cells[1].text = str(status_counts.get(st, 0))
     doc.add_paragraph()
 
     # Per-finding sections

@@ -1204,6 +1204,22 @@
             }
           },
           {
+            "name": "deadline_overdue",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "boolean"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Deadline Overdue"
+            }
+          },
+          {
             "name": "include_archived",
             "in": "query",
             "required": false,

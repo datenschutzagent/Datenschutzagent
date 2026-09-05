@@ -242,14 +242,19 @@ async def test_webhook(
         raise HTTPException(status_code=404, detail="Webhook nicht gefunden")
     from app.services.webhook_service import _deliver_webhook
 
-    success, http_status, error = await _deliver_webhook(
+    success, http_status, error, attempts = await _deliver_webhook(
         webhook.id,
         webhook.url,
         decrypt_secret(webhook.secret) if webhook.secret else None,
         "test",
         {"message": "Datenschutzagent Test-Event", "webhook_id": str(webhook.id)},
     )
-    return {"success": success, "http_status": http_status, "error": error}
+    return {
+        "success": success,
+        "http_status": http_status,
+        "error": error,
+        "attempts": attempts,
+    }
 
 
 @router.get("/{webhook_id}/deliveries", summary="Webhook-Zustellprotokolle abrufen")

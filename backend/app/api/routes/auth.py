@@ -178,7 +178,7 @@ async def start_session(
     # Trust the JWT signature via the central verifier to avoid duplicating logic.
     from app.core.auth import _verify_jwt
 
-    claims = _verify_jwt(id_token)
+    claims = await _verify_jwt(id_token)
     sub = claims.get("sub")
     if not sub:
         raise HTTPException(

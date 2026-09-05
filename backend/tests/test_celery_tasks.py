@@ -245,3 +245,68 @@ def test_extract_document_text_sets_processing_then_done():
     assert "processing" in status_history
     assert "done" in status_history
     assert status_history.index("processing") < status_history.index("done")
+
+
+# ---------------------------------------------------------------------------
+# periodic_recheck: jobs must be committed BEFORE the Celery dispatch, otherwise
+# the worker's own session cannot find the job row.
+# ---------------------------------------------------------------------------
+
+
+def test_periodic_recheck_dispatches_after_commit():
+    import asyncio
+    from datetime import UTC, datetime, timedelta
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock
+
+    from app import celery_app
+
+    old = datetime.now(UTC) - timedelta(days=30)
+    case = SimpleNamespace(
+        id=uuid.uuid4(),
+        recheck_interval_days=7,
+        last_rechecked_at=old,
+        created_at=old,
+        department="IT",
+        processing_context=None,
+        case_type="Softwareeinführung",
+    )
+    playbook = SimpleNamespace(id=uuid.uuid4(), name="PB")
+
+    cases_result = MagicMock()
+    cases_result.scalars.return_value.all.return_value = [case]
+    playbooks_result = MagicMock()
+    playbooks_result.scalars.return_value.all.return_value = [playbook]
+
+    session = MagicMock()
+    session.execute = AsyncMock(side_effect=[cases_result, playbooks_result])
+    session.flush = AsyncMock()
+    committed: list[bool] = []
+
+    async def _commit():
+        committed.append(True)
+
+    session.commit = _commit
+    factory = MagicMock()
+    factory.return_value.__aenter__ = AsyncMock(return_value=session)
+    factory.return_value.__aexit__ = AsyncMock(return_value=False)
+
+    dispatched_after_commit: list[bool] = []
+
+    def _apply_async(args, countdown=0):
+        dispatched_after_commit.append(bool(committed))
+
+    with (
+        patch("app.celery_app._get_async_session_factory", return_value=factory),
+        patch(
+            "app.celery_app.rank_playbooks_for_selection",
+            return_value=[(playbook, 1.0)],
+        ),
+        patch("app.celery_app._parse_recheck_strategies", return_value=["full_text"]),
+        patch.object(celery_app.run_playbook_checks, "apply_async", _apply_async),
+    ):
+        result = asyncio.run(celery_app._periodic_recheck_async())
+
+    assert result == {"queued": 1}
+    assert dispatched_after_commit == [True]
+    assert case.last_rechecked_at > old

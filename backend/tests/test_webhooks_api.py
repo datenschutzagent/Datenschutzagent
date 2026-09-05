@@ -94,3 +94,53 @@ async def test_create_webhook_invalid_event(client):
         },
     )
     assert resp.status_code == 400
+
+
+# ---------------------------------------------------------------------------
+# Test delivery (POST /{id}/test)
+# ---------------------------------------------------------------------------
+
+
+async def test_test_webhook_returns_delivery_result(client):
+    """Regression: the route unpacked 3 values but _deliver_webhook returns 4 → 500."""
+    from unittest.mock import AsyncMock, patch
+
+    webhook = await _create_webhook(client, name="Test-Delivery-Webhook")
+    deliver = AsyncMock(return_value=(True, 200, None, 1))
+    with patch("app.services.webhook_service._deliver_webhook", deliver):
+        resp = await client.post(f"/api/v1/admin/webhooks/{webhook['id']}/test")
+
+    assert resp.status_code == 200, resp.text
+    assert resp.json() == {
+        "success": True,
+        "http_status": 200,
+        "error": None,
+        "attempts": 1,
+    }
+    deliver.assert_awaited_once()
+    args = deliver.await_args.args
+    assert str(args[0]) == webhook["id"]
+    assert args[1] == "https://example.com/webhook"
+    assert args[3] == "test"
+
+
+async def test_test_webhook_reports_failure(client):
+    from unittest.mock import AsyncMock, patch
+
+    webhook = await _create_webhook(client, name="Test-Delivery-Fail")
+    deliver = AsyncMock(return_value=(False, 503, "Service Unavailable", 3))
+    with patch("app.services.webhook_service._deliver_webhook", deliver):
+        resp = await client.post(f"/api/v1/admin/webhooks/{webhook['id']}/test")
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["success"] is False
+    assert body["http_status"] == 503
+    assert body["attempts"] == 3
+
+
+async def test_test_webhook_unknown_id_returns_404(client):
+    resp = await client.post(
+        "/api/v1/admin/webhooks/00000000-0000-0000-0000-000000000000/test"
+    )
+    assert resp.status_code == 404

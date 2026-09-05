@@ -75,3 +75,52 @@ async def test_dsfa_screening_has_factors(client):
         assert "met" in factor, f"Factor missing 'met': {factor}"
         assert "description" in factor, f"Factor missing 'description': {factor}"
         assert "weight" in factor, f"Factor missing 'weight': {factor}"
+
+
+async def test_generate_dsfa_commits_before_dispatch(client, monkeypatch):
+    """The Celery worker opens its own session: the job row must be committed first."""
+    from unittest.mock import MagicMock, patch
+
+    from app import celery_app
+    from app.config import settings
+    from app.database import async_session_factory, get_db
+    from app.main import app
+
+    monkeypatch.setattr(settings, "celery_enabled", True, raising=False)
+    case = await _create_case(client, title="DSFA-Dispatch")
+
+    commits: list[int] = []
+    dispatched_after_commits: list[int] = []
+
+    async def _tracked_db():
+        async with async_session_factory() as session:
+            original_commit = session.commit
+
+            async def _commit():
+                await original_commit()
+                commits.append(1)
+
+            session.commit = _commit  # type: ignore[method-assign]
+            try:
+                yield session
+                await session.commit()
+            finally:
+                await session.close()
+
+    def _fake_delay(job_id, request_id=None):
+        dispatched_after_commits.append(len(commits))
+        return MagicMock(id="celery-task-id")
+
+    app.dependency_overrides[get_db] = _tracked_db
+    try:
+        with patch.object(celery_app.build_dsfa_task, "delay", _fake_delay):
+            resp = await client.post(f"/api/v1/cases/{case['id']}/dsfa/generate")
+    finally:
+        app.dependency_overrides.pop(get_db, None)
+
+    assert resp.status_code == 202, resp.text
+    assert dispatched_after_commits == [1], "task must be dispatched after commit"
+    # Job row is visible in a fresh request/session, i.e. it was committed.
+    status_resp = await client.get(f"/api/v1/cases/{case['id']}/dsfa/status")
+    assert status_resp.status_code == 200, status_resp.text
+    assert status_resp.json()["job_id"] == resp.json()["job_id"]

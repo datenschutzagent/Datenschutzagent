@@ -792,6 +792,8 @@ async def _periodic_recheck_async() -> dict:
 
     session_factory = _get_async_session_factory()
     queued_count = 0
+    # (job_id, case_id, interval_days) — dispatched only after the commit below.
+    pending_dispatch: list[tuple[uuid.UUID, uuid.UUID, int]] = []
 
     async with session_factory() as session:
         now = datetime.now(UTC)
@@ -849,20 +851,23 @@ async def _periodic_recheck_async() -> dict:
             case.last_rechecked_at = now
 
             await session.flush()
-            run_playbook_checks.apply_async(
-                (str(job_id),),
-                countdown=queued_count * settings.run_checks_stagger_seconds,
-            )
-            queued_count += 1
-            logger.info(
-                "periodic_recheck queued job %s for case %s (interval: %dd, countdown: %ds)",
-                job_id,
-                case.id,
-                case.recheck_interval_days,
-                (queued_count - 1) * settings.run_checks_stagger_seconds,
-            )
+            pending_dispatch.append((job_id, case.id, case.recheck_interval_days))
 
+        # Commit BEFORE dispatching so the worker's own DB session can see the job rows
+        # (same race as in cases/checks.py: dispatch-before-commit → "job not found").
         await session.commit()
+
+    for job_id, case_id, interval_days in pending_dispatch:
+        countdown = queued_count * settings.run_checks_stagger_seconds
+        run_playbook_checks.apply_async((str(job_id),), countdown=countdown)
+        queued_count += 1
+        logger.info(
+            "periodic_recheck queued job %s for case %s (interval: %dd, countdown: %ds)",
+            job_id,
+            case_id,
+            interval_days,
+            countdown,
+        )
 
     return {"queued": queued_count}
 

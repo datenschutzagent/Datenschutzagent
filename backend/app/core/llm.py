@@ -339,7 +339,8 @@ def get_openai_model(model_name: str | None = None) -> OpenAIChatModel:
             "LLM_PROVIDER=openai erfordert OPENAI_API_KEY. "
             "Bitte in der .env-Datei setzen."
         )
-    provider = OpenAIProvider(api_key=api_key)
+    # Shared client so LLM_TIMEOUT applies to cloud providers too (not only Ollama).
+    provider = OpenAIProvider(api_key=api_key, http_client=_get_local_http_client())
     return OpenAIChatModel(model_name or settings.openai_model, provider=provider)
 
 
@@ -358,7 +359,10 @@ def get_anthropic_model(model_name: str | None = None):
         from pydantic_ai.models.anthropic import AnthropicModel
         from pydantic_ai.providers.anthropic import AnthropicProvider
 
-        provider = AnthropicProvider(api_key=api_key)
+        # Shared client so LLM_TIMEOUT applies to cloud providers too (not only Ollama).
+        provider = AnthropicProvider(
+            api_key=api_key, http_client=_get_local_http_client()
+        )
         return AnthropicModel(model_name or settings.anthropic_model, provider=provider)
     except ImportError as exc:
         raise RuntimeError(

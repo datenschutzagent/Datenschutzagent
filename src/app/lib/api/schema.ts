@@ -5876,6 +5876,7 @@ export interface operations {
                 assignee?: string | null;
                 created_by?: string | null;
                 has_open_findings?: boolean | null;
+                deadline_overdue?: boolean | null;
                 include_archived?: boolean;
                 format?: "csv";
             };
