@@ -1,5 +1,6 @@
 """E-Mail-Benachrichtigungen für Fristen und überfällige Befunde."""
 
+import asyncio
 import logging
 import smtplib
 import ssl
@@ -63,6 +64,12 @@ def _send_email(to_address: str, subject: str, body: str) -> None:
                     settings.smtp_username, settings.smtp_password.get_secret_value()
                 )
             smtp.send_message(msg)
+
+
+async def _send_email_async(to_address: str, subject: str, body: str) -> None:
+    """``_send_email`` in a worker thread: smtplib blocks for seconds per mail and the
+    scans run inside FastAPI's event loop (admin trigger) as well as in Celery."""
+    await asyncio.to_thread(_send_email, to_address, subject, body)
 
 
 def test_smtp_connection() -> dict:
@@ -163,7 +170,7 @@ async def scan_and_notify_deadlines(db: AsyncSession) -> dict:
             f"-- Datenschutzagent"
         )
         try:
-            _send_email(assignee_user.email, subject, body)
+            await _send_email_async(assignee_user.email, subject, body)
             case.last_notified_at = now_utc
             activity = ActivityLogModel(
                 case_id=case.id,
@@ -216,7 +223,7 @@ async def scan_and_notify_deadlines(db: AsyncSession) -> dict:
             f"-- Datenschutzagent"
         )
         try:
-            _send_email(assignee_user.email, subject, body)
+            await _send_email_async(assignee_user.email, subject, body)
             case.last_notified_at = now_utc
             activity = ActivityLogModel(
                 case_id=case.id,
@@ -280,7 +287,7 @@ async def scan_and_notify_deadlines(db: AsyncSession) -> dict:
             f"-- Datenschutzagent"
         )
         try:
-            _send_email(assignee_user.email, subject, body)
+            await _send_email_async(assignee_user.email, subject, body)
             breach.last_notified_at = now
             db.add(
                 DataBreachActivityLogModel(
@@ -336,7 +343,7 @@ async def scan_and_notify_deadlines(db: AsyncSession) -> dict:
             f"-- Datenschutzagent"
         )
         try:
-            _send_email(assignee_user.email, subject, body)
+            await _send_email_async(assignee_user.email, subject, body)
             breach.last_notified_at = now
             db.add(
                 DataBreachActivityLogModel(
@@ -410,7 +417,7 @@ async def scan_and_notify_deadlines(db: AsyncSession) -> dict:
             f"-- Datenschutzagent"
         )
         try:
-            _send_email(assignee_user.email, subject, body)
+            await _send_email_async(assignee_user.email, subject, body)
             dsr.last_notified_at = now_utc
             db.add(
                 DSRActivityLogModel(
@@ -472,7 +479,7 @@ async def scan_and_notify_deadlines(db: AsyncSession) -> dict:
             f"-- Datenschutzagent"
         )
         try:
-            _send_email(assignee_user.email, subject, body)
+            await _send_email_async(assignee_user.email, subject, body)
             avv.last_notified_at = now_utc
             sent_count += 1
         except Exception as exc:
@@ -571,7 +578,7 @@ async def scan_and_notify_critical_findings(db: AsyncSession) -> dict:
             f"-- Datenschutzagent"
         )
         try:
-            _send_email(recipient.email, subject, body)
+            await _send_email_async(recipient.email, subject, body)
             finding.last_notified_at = now_utc
             db.add(
                 ActivityLogModel(
@@ -694,7 +701,7 @@ async def scan_and_notify_maturity_decline(
             f"-- Datenschutzagent"
         )
         try:
-            _send_email(admin.email, subject, body)
+            await _send_email_async(admin.email, subject, body)
             sent_count += 1
         except Exception as exc:  # noqa: BLE001
             logger.warning(

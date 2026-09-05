@@ -37,6 +37,9 @@ class ErrorCode(StrEnum):
     # LLM / AI
     LLM_UNAVAILABLE = "LLM_UNAVAILABLE"
     LLM_RETRY_EXHAUSTED = "LLM_RETRY_EXHAUSTED"
+    LLM_BUDGET_EXCEEDED = "LLM_BUDGET_EXCEEDED"
+    PROMPT_REJECTED = "PROMPT_REJECTED"
+    RAG_UNAVAILABLE = "RAG_UNAVAILABLE"
 
     # Generic
     INTERNAL_ERROR = "INTERNAL_ERROR"
@@ -57,6 +60,10 @@ class LLMProviderError(DatenschutzAgentError):
 
 class LLMRetryExhaustedError(LLMProviderError):
     """Raised when all retry attempts for an LLM call have been exhausted."""
+
+
+class LLMBudgetExceededError(LLMProviderError):
+    """Raised when a job's LLM call budget (``LLMCallBudget``) is used up."""
 
 
 # ---------------------------------------------------------------------------

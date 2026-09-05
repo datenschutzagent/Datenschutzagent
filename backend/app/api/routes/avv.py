@@ -8,6 +8,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.auth import require_roles
+from app.core.exceptions import DatenschutzAgentError
 from app.core.rate_limit import limiter
 from app.database import get_db
 from app.models.db import AVVContractModel
@@ -254,10 +255,13 @@ async def assess_avv_risk(
         assessment = await _assess(contract_id, db)
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except DatenschutzAgentError:
+        raise  # mapped to 503/400 by the domain error handler
     except Exception as exc:
-        logger.error("AVV risk assessment failed for %s: %s", contract_id, exc)
+        logger.exception("AVV risk assessment failed for %s", contract_id)
         raise HTTPException(
-            status_code=500, detail=f"Risikobewertung fehlgeschlagen: {exc}"
+            status_code=500,
+            detail="Risikobewertung fehlgeschlagen (Details im Server-Log).",
         ) from exc
     return assessment
 

@@ -1,10 +1,8 @@
 """Public auth config for frontend (OIDC endpoints, no auth required)."""
 
-import json
 import logging
-import urllib.parse
-import urllib.request
 
+import httpx
 from fastapi import APIRouter, HTTPException, Request, Response, status
 from pydantic import BaseModel
 
@@ -25,7 +23,7 @@ router = APIRouter()
 
 @router.get("/config")
 @limiter.limit("30/minute")
-def get_auth_config(request: Request):
+async def get_auth_config(request: Request):
     """
     Return OIDC configuration for the frontend (login URL, client id, scopes).
     No authentication required. When OIDC is disabled, frontend may skip login.
@@ -42,23 +40,28 @@ def get_auth_config(request: Request):
     if not settings.oidc_enabled or not out["oidc_issuer_url"]:
         return out
     try:
-        url = f"{out['oidc_issuer_url']}/.well-known/openid-configuration"
-        req = urllib.request.Request(url, method="GET")
-        with urllib.request.urlopen(
-            req, timeout=3
-        ) as resp:  # nosec B310 – URL from trusted config (OIDC_ISSUER_URL)
-            discovery = json.loads(resp.read().decode())
-            out["authorization_endpoint"] = (
-                discovery.get("authorization_endpoint") or ""
-            )
-            out["token_endpoint"] = discovery.get("token_endpoint") or ""
-            out["end_session_endpoint"] = discovery.get("end_session_endpoint") or ""
+        discovery = await _oidc_discovery(out["oidc_issuer_url"], timeout=3.0)
+        out["authorization_endpoint"] = discovery.get("authorization_endpoint") or ""
+        out["token_endpoint"] = discovery.get("token_endpoint") or ""
+        out["end_session_endpoint"] = discovery.get("end_session_endpoint") or ""
     except Exception as exc:
-        logger.warning("OIDC discovery failed for %s: %s", url, exc)
+        logger.warning("OIDC discovery failed for %s: %s", out["oidc_issuer_url"], exc)
         out["authorization_endpoint"] = ""
         out["token_endpoint"] = ""
         out["end_session_endpoint"] = ""
     return out
+
+
+async def _oidc_discovery(issuer: str, *, timeout: float) -> dict:
+    """Fetch the OpenID discovery document without blocking the event loop."""
+    url = f"{issuer.rstrip('/')}/.well-known/openid-configuration"
+    async with httpx.AsyncClient(timeout=timeout) as client:
+        resp = await client.get(url)  # URL from trusted config (OIDC_ISSUER_URL)
+        resp.raise_for_status()
+        data = resp.json()
+    if not isinstance(data, dict):
+        raise ValueError("OIDC discovery document is not a JSON object")
+    return data
 
 
 # ---------------------------------------------------------------------------
@@ -72,9 +75,8 @@ class _SessionExchangeBody(BaseModel):
     code_verifier: str
 
 
-def _oidc_token_endpoint() -> str:
-    """Resolve the OIDC token endpoint via discovery. Cached would be nice
-    but this endpoint is hit only during login, so a fresh call is fine."""
+async def _oidc_token_endpoint() -> str:
+    """Resolve the OIDC token endpoint via discovery (hit only during login)."""
     issuer = (settings.oidc_issuer_url or "").rstrip("/")
     if not issuer:
         raise HTTPException(
@@ -82,12 +84,7 @@ def _oidc_token_endpoint() -> str:
             detail="OIDC issuer not configured",
         )
     try:
-        url = f"{issuer}/.well-known/openid-configuration"
-        req = urllib.request.Request(url, method="GET")
-        with urllib.request.urlopen(
-            req, timeout=5
-        ) as resp:  # nosec B310 — trusted issuer URL from config
-            discovery = json.loads(resp.read().decode())
+        discovery = await _oidc_discovery(issuer, timeout=5.0)
         token_endpoint = discovery.get("token_endpoint")
     except Exception as exc:
         logger.warning("OIDC discovery failed during token exchange: %s", exc)
@@ -103,14 +100,15 @@ def _oidc_token_endpoint() -> str:
     return token_endpoint
 
 
-def _exchange_code_for_id_token(body: _SessionExchangeBody) -> str:
+async def _exchange_code_for_id_token(body: _SessionExchangeBody) -> str:
     """Exchange the PKCE authorization code for tokens at the IdP, return the id_token.
 
     The backend performs the exchange so a confidential client's secret (if any)
     never reaches the browser. Public clients with PKCE still work; we send the
-    client_id and optional client_secret if configured.
+    client_id and optional client_secret if configured. Runs on httpx.AsyncClient so
+    a slow IdP (up to 10 s) no longer blocks the event loop for every other request.
     """
-    token_endpoint = _oidc_token_endpoint()
+    token_endpoint = await _oidc_token_endpoint()
     form = {
         "grant_type": "authorization_code",
         "code": body.code,
@@ -121,31 +119,30 @@ def _exchange_code_for_id_token(body: _SessionExchangeBody) -> str:
     client_secret = settings.oidc_client_secret.get_secret_value()
     if client_secret:
         form["client_secret"] = client_secret
-    data = urllib.parse.urlencode(form).encode()
-    req = urllib.request.Request(
-        token_endpoint,
-        data=data,
-        headers={"Content-Type": "application/x-www-form-urlencoded"},
-        method="POST",
-    )
     try:
-        with urllib.request.urlopen(
-            req, timeout=10
-        ) as resp:  # nosec B310 — token endpoint from trusted OIDC discovery
-            payload = json.loads(resp.read().decode())
-    except urllib.error.HTTPError as exc:
-        detail = exc.read().decode(errors="replace")[:200]
-        logger.warning("OIDC token exchange failed: %s %s", exc.code, detail)
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED, detail="Token exchange failed"
-        ) from exc
-    except Exception as exc:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            resp = await client.post(token_endpoint, data=form)
+    except httpx.HTTPError as exc:
         logger.warning("OIDC token exchange error: %s", exc)
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Token exchange unreachable",
         ) from exc
-    id_token = payload.get("id_token")
+    if resp.status_code >= 400:
+        logger.warning(
+            "OIDC token exchange failed: %s %s", resp.status_code, resp.text[:200]
+        )
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="Token exchange failed"
+        )
+    try:
+        payload = resp.json()
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Token response is not JSON",
+        ) from exc
+    id_token = payload.get("id_token") if isinstance(payload, dict) else None
     if not id_token:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -174,7 +171,7 @@ async def start_session(
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST, detail="OIDC is not enabled"
         )
-    id_token = _exchange_code_for_id_token(body)
+    id_token = await _exchange_code_for_id_token(body)
     # Trust the JWT signature via the central verifier to avoid duplicating logic.
     from app.core.auth import _verify_jwt
 

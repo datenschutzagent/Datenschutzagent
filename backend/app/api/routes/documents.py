@@ -1,5 +1,6 @@
 """Document upload and management API."""
 
+import asyncio
 import contextlib
 import logging
 from uuid import UUID
@@ -193,7 +194,7 @@ async def _process_one_upload(
         extraction_status = DocumentExtractionStatus.PENDING
         extraction_error = None
     else:
-        ext_result = extract_text(filename, content)
+        ext_result = await asyncio.to_thread(extract_text, filename, content)
         text_content = ext_result.text
         extraction_method = ext_result.extraction_method
         extraction_status = DocumentExtractionStatus.DONE
@@ -215,7 +216,9 @@ async def _process_one_upload(
     )
     db.add(doc)
     await db.flush()
-    storage_path = save_file(case_id, doc.id, filename, content)
+    storage_path = await asyncio.to_thread(
+        save_file, case_id, doc.id, filename, content
+    )
     doc.storage_path = storage_path
     await db.flush()
     await db.refresh(doc)
@@ -257,7 +260,7 @@ async def download_document(
     if not doc.storage_path:
         raise HTTPException(status_code=404, detail="File not found")
     try:
-        content = get_file(doc.storage_path)
+        content = await asyncio.to_thread(get_file, doc.storage_path)
     except FileNotFoundError:
         logger.warning(
             "Document file missing from storage",
@@ -395,7 +398,7 @@ async def update_document(
         doc.content = body.content
         await db.flush()
         await db.refresh(doc)
-        delete_chunks_by_document_id(document_id)
+        await asyncio.to_thread(delete_chunks_by_document_id, document_id)
     await db.commit()
     return DocumentResponse.model_validate(doc)
 
@@ -516,12 +519,12 @@ async def delete_document(
     if not doc:
         raise HTTPException(status_code=404, detail="Document not found")
     storage_path = doc.storage_path
-    delete_chunks_by_document_id(document_id)
+    await asyncio.to_thread(delete_chunks_by_document_id, document_id)
     await db.delete(doc)
     await db.flush()
     if storage_path:
         with contextlib.suppress(FileNotFoundError):
-            delete_file(storage_path)
+            await asyncio.to_thread(delete_file, storage_path)
     logger.info(
         "Document deleted",
         extra={"document_id": str(document_id), "case_id": str(doc.case_id)},

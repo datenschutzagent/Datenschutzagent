@@ -69,6 +69,7 @@ from app.api import router as api_router  # noqa: E402
 from app.api.routes import app_config as app_config_routes  # noqa: E402
 from app.api.routes import auth as auth_routes  # noqa: E402
 from app.config import settings  # noqa: E402
+from app.core.exceptions import DatenschutzAgentError  # noqa: E402
 from app.core.metrics import api_audit_log_write_failures_total  # noqa: E402
 from app.core.rate_limit import limiter  # noqa: E402
 from app.core.request_id import RequestIDMiddleware, get_request_id  # noqa: E402
@@ -295,6 +296,59 @@ async def _http_exception_handler(request: Request, exc) -> JSONResponse:
     return _problem_detail(_status, detail, error_code)
 
 
+async def _domain_error_handler(request: Request, exc) -> JSONResponse:
+    """Map DatenschutzAgentError subclasses to stable Problem Details.
+
+    Before this handler existed, an LLM outage surfaced as an opaque 500; now the
+    client gets 503 + LLM_UNAVAILABLE and can back off / show a meaningful message.
+    Messages of our own exception classes are safe to expose (no stack traces, no
+    provider payloads).
+    """
+    from app.core.exceptions import (
+        ErrorCode,
+        LLMBudgetExceededError,
+        LLMProviderError,
+        LLMRetryExhaustedError,
+        PromptInjectionError,
+        RAGUnavailableError,
+    )
+
+    if isinstance(exc, PromptInjectionError):
+        return _problem_detail(400, str(exc), ErrorCode.PROMPT_REJECTED)
+    if isinstance(exc, LLMBudgetExceededError):
+        return _problem_detail(503, str(exc), ErrorCode.LLM_BUDGET_EXCEEDED)
+    if isinstance(exc, LLMRetryExhaustedError):
+        return _problem_detail(503, str(exc), ErrorCode.LLM_RETRY_EXHAUSTED)
+    if isinstance(exc, LLMProviderError):
+        return _problem_detail(503, str(exc), ErrorCode.LLM_UNAVAILABLE)
+    if isinstance(exc, RAGUnavailableError):
+        return _problem_detail(503, str(exc), ErrorCode.RAG_UNAVAILABLE)
+    logging.getLogger("app.errors").exception(
+        "Unhandled domain error", extra={"request_id": get_request_id()}
+    )
+    return _problem_detail(
+        500,
+        f"Interner Fehler (request_id={get_request_id()})",
+        ErrorCode.INTERNAL_ERROR,
+    )
+
+
+async def _unhandled_exception_handler(
+    request: Request, exc: Exception
+) -> JSONResponse:
+    """Last-resort 500: never leak exception text; log with the request id instead."""
+    from app.core.exceptions import ErrorCode
+
+    logging.getLogger("app.errors").exception(
+        "Unhandled exception", extra={"request_id": get_request_id()}
+    )
+    return _problem_detail(
+        500,
+        f"Interner Fehler (request_id={get_request_id()})",
+        ErrorCode.INTERNAL_ERROR,
+    )
+
+
 async def _validation_exception_handler(
     request: Request, exc: RequestValidationError
 ) -> JSONResponse:
@@ -317,6 +371,8 @@ from fastapi import HTTPException as _FastAPIHTTPException  # noqa: E402
 
 app.add_exception_handler(_FastAPIHTTPException, _http_exception_handler)  # type: ignore[arg-type]
 app.add_exception_handler(RequestValidationError, _validation_exception_handler)  # type: ignore[arg-type]
+app.add_exception_handler(DatenschutzAgentError, _domain_error_handler)
+app.add_exception_handler(Exception, _unhandled_exception_handler)
 
 app.add_middleware(RequestIDMiddleware)
 app.add_middleware(

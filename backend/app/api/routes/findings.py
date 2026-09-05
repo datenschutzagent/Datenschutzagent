@@ -2,6 +2,7 @@
 
 import csv
 import io
+import logging
 from datetime import UTC, datetime
 from typing import Annotated
 from uuid import UUID
@@ -14,6 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.constants import FindingSeverity, FindingStatus
 from app.core.auth import require_roles
+from app.core.exceptions import DatenschutzAgentError
 from app.core.rate_limit import limiter
 from app.database import get_db
 from app.models.db import (
@@ -42,6 +44,8 @@ from app.models.schemas import (
     TopFailingCheck,
 )
 from app.services.query_helpers import finding_relations
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -721,8 +725,14 @@ async def send_finding_chat_message(
 
     try:
         await chat_with_finding(finding_id, body.content, db)
+    except DatenschutzAgentError:
+        raise  # LLM/prompt errors → 503/400 via the domain error handler
     except Exception as exc:
-        raise HTTPException(status_code=502, detail=f"LLM-Fehler: {exc}") from exc
+        logger.exception("Finding chat failed for %s", finding_id)
+        raise HTTPException(
+            status_code=502,
+            detail="LLM-Anfrage fehlgeschlagen (Details im Server-Log).",
+        ) from exc
 
     # Die letzte Assistent-Nachricht zurückgeben
     last_result = await db.execute(

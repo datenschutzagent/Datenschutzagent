@@ -15,15 +15,22 @@ import threading
 import time
 import weakref
 from collections.abc import Callable
+from contextvars import ContextVar
 
 import httpx
 from pydantic_ai import Agent, NativeOutput, PromptedOutput
+from pydantic_ai.exceptions import ModelHTTPError, UsageLimitExceeded, UserError
 from pydantic_ai.models.openai import OpenAIChatModel
 from pydantic_ai.providers.openai import OpenAIProvider
 from pydantic_ai.settings import ModelSettings
 
 from app.config import settings
-from app.core.exceptions import LLMProviderError, LLMRetryExhaustedError
+from app.core.exceptions import (
+    LLMBudgetExceededError,
+    LLMProviderError,
+    LLMRetryExhaustedError,
+    PromptInjectionError,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -145,6 +152,82 @@ async def gather_all(coros):
     return results
 
 
+# ---------------------------------------------------------------------------
+# Per-job LLM call budget
+# ---------------------------------------------------------------------------
+
+
+class LLMCallBudget:
+    """Hard cap on provider calls for one unit of work (a run_checks job, a report).
+
+    Every *attempt* in :func:`llm_retry_call` consumes one unit, so map-reduce fragments,
+    self-consistency samples and retries all count. ``limit <= 0`` means unlimited.
+    """
+
+    def __init__(self, limit: int, *, label: str = "job"):
+        self.limit = int(limit)
+        self.used = 0
+        self.label = label
+
+    @property
+    def exhausted(self) -> bool:
+        return self.limit > 0 and self.used >= self.limit
+
+    def consume(self) -> None:
+        if self.exhausted:
+            raise LLMBudgetExceededError(
+                f"LLM call budget exhausted for {self.label}: {self.used}/{self.limit} calls"
+            )
+        self.used += 1
+
+
+_llm_budget: ContextVar[LLMCallBudget | None] = ContextVar("llm_budget", default=None)
+
+
+def set_llm_budget(budget: LLMCallBudget | None):
+    """Install ``budget`` for the current context (propagates into child tasks).
+    Returns the token for :func:`reset_llm_budget`."""
+    return _llm_budget.set(budget)
+
+
+def reset_llm_budget(token) -> None:
+    _llm_budget.reset(token)
+
+
+def current_llm_budget() -> LLMCallBudget | None:
+    return _llm_budget.get()
+
+
+_RETRYABLE_HTTP_STATUS = frozenset({408, 409, 425, 429, 500, 502, 503, 504})
+_NON_RETRYABLE_TYPES: tuple[type[BaseException], ...] = (
+    LLMBudgetExceededError,
+    PromptInjectionError,
+    UsageLimitExceeded,
+    UserError,
+    TypeError,
+    KeyError,
+    AttributeError,
+)
+
+
+def is_retryable_llm_error(exc: BaseException) -> bool:
+    """Only transient failures are worth another attempt.
+
+    Retrying a 401 (bad key), a 400/422 (rejected request) or a programming error just
+    burns the backoff delays and, with the circuit breaker counting per attempt, hides
+    the real cause behind "retry exhausted".
+    """
+    if isinstance(exc, _NON_RETRYABLE_TYPES):
+        return False
+    if isinstance(exc, ModelHTTPError):
+        return exc.status_code in _RETRYABLE_HTTP_STATUS
+    if isinstance(exc, httpx.HTTPStatusError):
+        return exc.response.status_code in _RETRYABLE_HTTP_STATUS
+    # Pydantic validation / JSON errors from our own code are not transient; every
+    # other exception (network, timeouts, provider hiccups) gets another attempt.
+    return not (isinstance(exc, ValueError) and not isinstance(exc, LLMProviderError))
+
+
 # Module-level circuit breaker instance (one per worker process).
 _circuit_breaker: CircuitBreaker | None = None
 
@@ -203,6 +286,7 @@ async def llm_retry_call(
     output_type = wrap_output_type(output_type)
 
     cb = get_circuit_breaker()
+    budget = _llm_budget.get()
     last_exc: Exception | None = None
     t0 = time.monotonic()
     for attempt, delay in enumerate(
@@ -219,6 +303,8 @@ async def llm_retry_call(
             raise LLMProviderError(
                 "LLM provider circuit breaker is open; provider assumed unavailable"
             )
+        if budget is not None:
+            budget.consume()  # raises LLMBudgetExceededError (non-retryable)
         if delay:
             await asyncio.sleep(delay)
         try:
@@ -249,20 +335,37 @@ async def llm_retry_call(
             return result
         except Exception as exc:
             last_exc = exc
+            retryable = is_retryable_llm_error(exc)
+            # Every failed provider attempt counts towards opening the breaker — not only
+            # the exhausted sequence — so a dead provider trips after `threshold` attempts
+            # instead of threshold × attempts.
+            if not isinstance(exc, LLMBudgetExceededError):
+                cb.record_failure()
             logger.warning(
-                "LLM call failed (attempt %d/%d): %s  [request_id=%s]",
+                "LLM call failed (attempt %d/%d, retryable=%s): %s: %s  [request_id=%s]",
                 attempt,
                 LLM_RETRY_ATTEMPTS,
+                retryable,
+                type(exc).__name__,
                 exc,
                 request_id,
             )
+            if not retryable:
+                elapsed = round(time.monotonic() - t0, 2)
+                llm_call_duration_seconds.labels(
+                    provider=provider, status="error"
+                ).observe(elapsed)
+                if isinstance(exc, LLMProviderError):
+                    raise
+                raise LLMProviderError(
+                    f"LLM call failed with a non-retryable error: {type(exc).__name__}"
+                ) from exc
     elapsed = round(time.monotonic() - t0, 2)
     logger.error(
         "LLM call exhausted all retries elapsed=%.2fs  [request_id=%s]",
         elapsed,
         request_id,
     )
-    cb.record_failure()
     llm_call_duration_seconds.labels(provider=provider, status="error").observe(elapsed)
     raise LLMRetryExhaustedError(
         f"All {LLM_RETRY_ATTEMPTS} LLM retry attempts failed"
@@ -391,8 +494,10 @@ def get_active_model(model_name: str | None = None):
 
 def get_active_model_name(*, analysis: bool = False) -> str:
     """Return the configured model identifier for the active provider (for logging/metrics)."""
-    if analysis and _analysis_model_name():
-        return _analysis_model_name()
+    if analysis:
+        override = _analysis_model_name()
+        if override:
+            return override
     provider = settings.llm_provider.lower()
     if provider == "openai":
         return settings.openai_model

@@ -1,3 +1,4 @@
+import asyncio
 import logging
 import time
 from uuid import UUID
@@ -600,8 +601,11 @@ async def run_check_rag(
     """
     from app.services.weaviate_service import get_relevant_chunks
 
-    chunks = get_relevant_chunks(
-        document_id, check_instruction, top_k=settings.weaviate_top_k
+    chunks = await asyncio.to_thread(
+        get_relevant_chunks,
+        document_id,
+        check_instruction,
+        top_k=settings.weaviate_top_k,
     )
     if not chunks:
         return None
@@ -664,8 +668,11 @@ async def run_cross_document_check_rag(
     """
     from app.services.weaviate_service import get_relevant_chunks_for_case
 
-    chunks = get_relevant_chunks_for_case(
-        case_id, check_instruction, top_k_per_doc=settings.weaviate_top_k
+    chunks = await asyncio.to_thread(
+        get_relevant_chunks_for_case,
+        case_id,
+        check_instruction,
+        top_k_per_doc=settings.weaviate_top_k,
     )
     if not chunks:
         return None

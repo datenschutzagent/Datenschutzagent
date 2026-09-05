@@ -329,9 +329,10 @@ async def update_admin_risk_config(
     try:
         path = save_risk_config(cfg)
     except OSError as exc:
-        logger.error("Failed to persist risk_config: %s", exc)
+        logger.exception("Failed to persist risk_config")
         raise HTTPException(
-            status_code=500, detail=f"Failed to write risk_config: {exc}"
+            status_code=500,
+            detail="risk_config konnte nicht geschrieben werden (Details im Server-Log).",
         ) from exc
 
     logger.info(

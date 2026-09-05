@@ -19,6 +19,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.auth import require_roles
+from app.core.exceptions import DatenschutzAgentError
 from app.core.rate_limit import limiter
 from app.database import get_db
 from app.models.db import CaseModel, PrivacyPolicyModel
@@ -204,10 +205,13 @@ async def generate_privacy_policy_for_case(
         )
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except DatenschutzAgentError:
+        raise  # LLM errors → 503 via the domain error handler
     except Exception as exc:
-        logger.error("Privacy policy generation failed: %s", exc)
+        logger.exception("Privacy policy generation failed")
         raise HTTPException(
-            status_code=500, detail=f"Generierung fehlgeschlagen: {exc}"
+            status_code=500,
+            detail="Generierung fehlgeschlagen (Details im Server-Log).",
         ) from exc
 
     creator = getattr(_user, "display_name", "") if _user else ""

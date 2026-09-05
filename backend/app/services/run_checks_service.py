@@ -13,7 +13,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
 from app.constants import DocumentExtractionStatus, FindingStatus
-from app.core.llm import get_llm_provider_info
+from app.core.llm import (
+    LLMCallBudget,
+    get_llm_provider_info,
+    reset_llm_budget,
+    set_llm_budget,
+)
 from app.models.db import CaseModel, FindingModel, LegalBaseModel, PlaybookModel
 from app.services.check_runner import (
     run_check,
@@ -87,17 +92,43 @@ def _legal_base_ids_for_check(
     return [uid for uid in playbook_legal_ids if uid in legal_bases_by_id]
 
 
-def _legal_bases_context(
+async def _legal_bases_context(
     legal_base_ids: list[UUID],
     instruction: str,
     top_k: int,
 ) -> str:
+    """Retrieve legal-basis chunks for one instruction (Weaviate; runs in a thread)."""
     if not legal_base_ids or not instruction:
         return ""
-    chunks = get_relevant_legal_base_chunks(
-        legal_base_ids, instruction, top_k=top_k, include_source=True
+    chunks = await asyncio.to_thread(
+        get_relevant_legal_base_chunks,
+        legal_base_ids,
+        instruction,
+        top_k=top_k,
+        include_source=True,
     )
     return "\n\n".join(chunks) if chunks else ""
+
+
+async def _legal_context_for(
+    state: "_CheckRunState", lb_ids: list[UUID], instruction: str
+) -> str:
+    """Per-run cache: the same (legal bases, instruction) pair is needed once per check,
+    not once per check × document. Concurrent callers share one in-flight lookup."""
+    key = (tuple(sorted(str(u) for u in lb_ids)), instruction)
+    fut = state.legal_ctx_cache.get(key)
+    if fut is None:
+        fut = asyncio.ensure_future(
+            _legal_bases_context(
+                lb_ids, instruction, settings.weaviate_legal_bases_top_k
+            )
+        )
+        state.legal_ctx_cache[key] = fut
+    try:
+        return await fut
+    except Exception as exc:
+        logger.warning("legal-bases context unavailable (%s); continuing without", exc)
+        return ""
 
 
 # ---------------------------------------------------------------------------
@@ -162,6 +193,7 @@ class _CheckRunState:
     rag_skipped: bool = False
     rag_weaviate_error_logged: bool = False
     errors: list[dict] = field(default_factory=list)
+    legal_ctx_cache: dict[tuple, "asyncio.Future[str]"] = field(default_factory=dict)
 
     def add_finding(
         self,
@@ -266,9 +298,7 @@ async def _doc_check_full_text(
     lb_ids = _legal_base_ids_for_check(
         item, state.playbook_legal_ids, state.legal_bases_by_id
     )
-    legal_ctx = _legal_bases_context(
-        lb_ids, instruction, settings.weaviate_legal_bases_top_k
-    )
+    legal_ctx = await _legal_context_for(state, lb_ids, instruction)
 
     async def _execute() -> bool:
         logger.info("run_check [full_text] start: '%s' doc=%s", name, doc_id)
@@ -330,9 +360,7 @@ async def _doc_check_rag(state: _CheckRunState, doc_id: UUID, item: dict) -> Non
     lb_ids = _legal_base_ids_for_check(
         item, state.playbook_legal_ids, state.legal_bases_by_id
     )
-    legal_ctx = _legal_bases_context(
-        lb_ids, instruction, settings.weaviate_legal_bases_top_k
-    )
+    legal_ctx = await _legal_context_for(state, lb_ids, instruction)
 
     async def _execute() -> bool:
         logger.info("run_check [rag] start: '%s' doc=%s", name, doc_id)
@@ -451,9 +479,7 @@ async def _case_check_full_text(
     lb_ids = _legal_base_ids_for_check(
         item, state.playbook_legal_ids, state.legal_bases_by_id
     )
-    legal_ctx = _legal_bases_context(
-        lb_ids, instruction, settings.weaviate_legal_bases_top_k
-    )
+    legal_ctx = await _legal_context_for(state, lb_ids, instruction)
 
     async def _execute() -> bool:
         logger.info("run_check [case/full_text] start: '%s'", name)
@@ -515,9 +541,7 @@ async def _case_check_rag(
     lb_ids = _legal_base_ids_for_check(
         item, state.playbook_legal_ids, state.legal_bases_by_id
     )
-    legal_ctx = _legal_bases_context(
-        lb_ids, instruction, settings.weaviate_legal_bases_top_k
-    )
+    legal_ctx = await _legal_context_for(state, lb_ids, instruction)
 
     async def _execute() -> bool:
         logger.info("run_check [case/rag] start: '%s'", name)
@@ -723,102 +747,115 @@ async def run_checks_impl(
     )
 
     playbook_revision = f"{playbook.id}:{playbook.version}"
-    _max_concurrent = getattr(settings, "max_concurrent_llm_calls", 2)
-    state = _CheckRunState(
-        db=db,
-        case=case,
-        case_id=case_id,
-        case_language=case_language,
-        playbook_revision=playbook_revision,
-        playbook_legal_ids=playbook_legal_ids,
-        legal_bases_by_id=legal_bases_by_id,
-        existing_open=existing_open,
-        on_check_done=on_check_done,
-        semaphore=asyncio.Semaphore(_max_concurrent) if _max_concurrent > 0 else None,
-        timeout=getattr(settings, "check_timeout_seconds", 180.0) or None,
+    budget = LLMCallBudget(
+        getattr(settings, "run_checks_max_llm_calls", 0), label=f"run_checks {case_id}"
     )
-
-    # Filter to only documents with completed text extraction
-    extractable_docs = [
-        doc
-        for doc in case.documents
-        if doc.extraction_status == DocumentExtractionStatus.DONE
-    ]
-    skipped_doc_count = len(case.documents) - len(extractable_docs)
-    if skipped_doc_count:
-        logger.warning(
-            "run_checks: skipping %d document(s) with extraction_status != 'done' for case %s",
-            skipped_doc_count,
-            case_id,
+    budget_token = set_llm_budget(budget)
+    try:
+        _max_concurrent = getattr(settings, "max_concurrent_llm_calls", 2)
+        state = _CheckRunState(
+            db=db,
+            case=case,
+            case_id=case_id,
+            case_language=case_language,
+            playbook_revision=playbook_revision,
+            playbook_legal_ids=playbook_legal_ids,
+            legal_bases_by_id=legal_bases_by_id,
+            existing_open=existing_open,
+            on_check_done=on_check_done,
+            semaphore=(
+                asyncio.Semaphore(_max_concurrent) if _max_concurrent > 0 else None
+            ),
+            timeout=getattr(settings, "check_timeout_seconds", 180.0) or None,
         )
-    logger.info(
-        "run_checks_impl: document filtering complete",
-        extra={
-            "case_id": str(case_id),
-            "total_documents": len(case.documents),
-            "extractable_documents": len(extractable_docs),
-            "skipped_documents": skipped_doc_count,
-            "existing_dedup_findings": len(existing_open),
-        },
-    )
 
-    # Dispatch document-scoped checks
-    doc_coros = []
-    for doc in extractable_docs:
-        for item in document_checks:
-            if "full_text" in strategies:
-                doc_coros.append(
-                    _doc_check_full_text(state, doc.id, doc.content or "", item)
-                )
-            if "rag" in strategies:
-                doc_coros.append(_doc_check_rag(state, doc.id, item))
-    logger.info(
-        "run_checks_impl: dispatching document checks",
-        extra={"case_id": str(case_id), "doc_coroutine_count": len(doc_coros)},
-    )
-    if doc_coros:
-        t_doc = time.monotonic()
-        await asyncio.gather(*doc_coros)
+        # Filter to only documents with completed text extraction
+        extractable_docs = [
+            doc
+            for doc in case.documents
+            if doc.extraction_status == DocumentExtractionStatus.DONE
+        ]
+        skipped_doc_count = len(case.documents) - len(extractable_docs)
+        if skipped_doc_count:
+            logger.warning(
+                "run_checks: skipping %d document(s) with extraction_status != 'done' for case %s",
+                skipped_doc_count,
+                case_id,
+            )
         logger.info(
-            "run_checks_impl: document checks completed",
+            "run_checks_impl: document filtering complete",
             extra={
                 "case_id": str(case_id),
-                "doc_coroutine_count": len(doc_coros),
-                "elapsed_seconds": round(time.monotonic() - t_doc, 2),
-                "findings_so_far": state.findings_added,
+                "total_documents": len(case.documents),
+                "extractable_documents": len(extractable_docs),
+                "skipped_documents": skipped_doc_count,
+                "existing_dedup_findings": len(existing_open),
             },
         )
 
-    # Dispatch case-scoped checks
-    if case_checks and extractable_docs:
-        doc_list = [(doc.id, doc.content or "") for doc in extractable_docs]
-        case_coros = []
-        for item in case_checks:
-            if "full_text" in strategies:
-                case_coros.append(_case_check_full_text(state, doc_list, item))
-            if "rag" in strategies:
-                case_coros.append(_case_check_rag(state, doc_list, item))
+        # Dispatch document-scoped checks
+        doc_coros = []
+        for doc in extractable_docs:
+            for item in document_checks:
+                if "full_text" in strategies:
+                    doc_coros.append(
+                        _doc_check_full_text(state, doc.id, doc.content or "", item)
+                    )
+                if "rag" in strategies:
+                    doc_coros.append(_doc_check_rag(state, doc.id, item))
         logger.info(
-            "run_checks_impl: dispatching case checks",
-            extra={"case_id": str(case_id), "case_coroutine_count": len(case_coros)},
+            "run_checks_impl: dispatching document checks",
+            extra={"case_id": str(case_id), "doc_coroutine_count": len(doc_coros)},
         )
-        if case_coros:
-            t_case = time.monotonic()
-            await asyncio.gather(*case_coros)
+        if doc_coros:
+            t_doc = time.monotonic()
+            await asyncio.gather(*doc_coros)
             logger.info(
-                "run_checks_impl: case checks completed",
+                "run_checks_impl: document checks completed",
                 extra={
                     "case_id": str(case_id),
-                    "case_coroutine_count": len(case_coros),
-                    "elapsed_seconds": round(time.monotonic() - t_case, 2),
+                    "doc_coroutine_count": len(doc_coros),
+                    "elapsed_seconds": round(time.monotonic() - t_doc, 2),
                     "findings_so_far": state.findings_added,
                 },
             )
 
-    await db.flush()
+        # Dispatch case-scoped checks
+        if case_checks and extractable_docs:
+            doc_list = [(doc.id, doc.content or "") for doc in extractable_docs]
+            case_coros = []
+            for item in case_checks:
+                if "full_text" in strategies:
+                    case_coros.append(_case_check_full_text(state, doc_list, item))
+                if "rag" in strategies:
+                    case_coros.append(_case_check_rag(state, doc_list, item))
+            logger.info(
+                "run_checks_impl: dispatching case checks",
+                extra={
+                    "case_id": str(case_id),
+                    "case_coroutine_count": len(case_coros),
+                },
+            )
+            if case_coros:
+                t_case = time.monotonic()
+                await asyncio.gather(*case_coros)
+                logger.info(
+                    "run_checks_impl: case checks completed",
+                    extra={
+                        "case_id": str(case_id),
+                        "case_coroutine_count": len(case_coros),
+                        "elapsed_seconds": round(time.monotonic() - t_case, 2),
+                        "findings_so_far": state.findings_added,
+                    },
+                )
+
+        await db.flush()
+    finally:
+        reset_llm_budget(budget_token)
 
     llm_info = get_llm_provider_info()
     activity_payload: dict = {
+        "llm_calls": budget.used,
         "playbook_id": str(playbook_id),
         "playbook_name": playbook.name,
         "playbook_version": playbook.version,
@@ -837,6 +874,14 @@ async def run_checks_impl(
     if state.rag_skipped:
         activity_payload["rag_fallback"] = (
             "rag requested but Weaviate/chunks unavailable for some checks"
+        )
+    if budget.exhausted:
+        activity_payload["llm_budget_exhausted"] = True
+        logger.error(
+            "run_checks_impl: LLM call budget exhausted (%d calls) – remaining checks "
+            "were skipped; raise RUN_CHECKS_MAX_LLM_CALLS or reduce fragments/samples",
+            budget.limit,
+            extra={"case_id": str(case_id)},
         )
     if state.errors:
         activity_payload["errors"] = state.errors

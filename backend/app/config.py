@@ -232,6 +232,10 @@ class Settings(BaseSettings):
     # legacy head-truncation behaviour.
     long_doc_map_reduce_enabled: bool = True
     long_doc_max_chunks: int = 6  # safety cap on map-reduce LLM calls per check
+    # Hard cap on LLM provider *attempts* per run_checks job (fragments × self-consistency
+    # samples × retries all count). Protects against runaway cost on large cases;
+    # remaining checks are reported as errors once the budget is used up. 0 = unlimited.
+    run_checks_max_llm_calls: int = 1000
 
     # VVT/ROPA normalization on large documents: when the extracted text exceeds
     # max_context_chars_vvt, extract over sentence-aware fragments (map-reduce) and merge the

@@ -611,9 +611,9 @@ async def export_audit_package(
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except Exception as exc:
-        logger.error("Audit export failed for case %s: %s", case_id, exc)
+        logger.exception("Audit export failed for case %s", case_id)
         raise HTTPException(
-            status_code=500, detail=f"Export fehlgeschlagen: {exc}"
+            status_code=500, detail="Export fehlgeschlagen (Details im Server-Log)."
         ) from exc
     from urllib.parse import quote as _quote
 
