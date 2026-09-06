@@ -130,8 +130,9 @@ jobs:
         working-directory: backend
       - name: Tests (with coverage)
         # Coverage gate — ratchet: raise to the measured value after every merge that
-        # increases it, never lower it (see CONTRIBUTING.md). Measured 65 % on 2026-09-05.
-        run: python -m pytest tests/ -v --cov=app --cov-report=term-missing --cov-report=xml --cov-fail-under=63
+        # increases it, never lower it (see CONTRIBUTING.md). Measured 78.3 % on 2026-09-06 with the
+        # greenlet-aware .coveragerc (earlier numbers under-counted async routes); 1 point margin.
+        run: python -m pytest tests/ -v --cov=app --cov-report=term-missing --cov-report=xml --cov-fail-under=77
         working-directory: backend
       - name: Upload coverage report
         if: always()
