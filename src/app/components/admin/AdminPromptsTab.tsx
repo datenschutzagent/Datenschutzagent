@@ -200,8 +200,9 @@ export function AdminPromptsTab() {
           </DialogHeader>
           <div className="flex flex-col gap-4 flex-1 min-h-0">
             <div className="space-y-2">
-              <Label>Inhalt</Label>
+              <Label htmlFor="prompt-edit-content">Inhalt</Label>
               <Textarea
+                id="prompt-edit-content"
                 value={editContent}
                 onChange={(e) => setEditContent(e.target.value)}
                 className="min-h-[200px] font-mono text-sm"
@@ -209,8 +210,9 @@ export function AdminPromptsTab() {
               />
             </div>
             <div className="space-y-2">
-              <Label>Version (leer = Auto)</Label>
+              <Label htmlFor="prompt-edit-version">Version (leer = Auto)</Label>
               <input
+                id="prompt-edit-version"
                 type="text"
                 value={editVersion}
                 onChange={(e) => setEditVersion(e.target.value)}

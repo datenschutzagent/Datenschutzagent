@@ -157,9 +157,9 @@ export function NewPlaybookDialog({
           </div>
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
-              <Label>Organisationseinheit</Label>
+              <Label htmlFor="pb-department">Organisationseinheit</Label>
               <Select value={department} onValueChange={setDepartment}>
-                <SelectTrigger>
+                <SelectTrigger id="pb-department">
                   <SelectValue placeholder="Einheit wählen" />
                 </SelectTrigger>
                 <SelectContent>
@@ -183,7 +183,7 @@ export function NewPlaybookDialog({
           </div>
           <div className="space-y-2">
             <div className="flex items-center justify-between">
-              <Label>Checks *</Label>
+              <p className="text-sm font-medium">Checks *</p>
               <Button type="button" variant="outline" size="sm" onClick={addCheck} className="gap-1">
                 <Plus className="size-4" />
                 Check hinzufügen

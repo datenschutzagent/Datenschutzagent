@@ -9,7 +9,7 @@ import { Input } from "../components/ui/input";
 import { Label } from "../components/ui/label";
 import { Textarea } from "../components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../components/ui/select";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "../components/ui/dialog";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogFooter } from "../components/ui/dialog";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "../components/ui/alert-dialog";
 import { Skeleton } from "../components/ui/skeleton";
 import { Progress } from "../components/ui/progress";
@@ -350,26 +350,29 @@ export function TOMPage() {
       {/* New TOM dialog */}
       <Dialog open={showNew} onOpenChange={setShowNew}>
         <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
-          <DialogHeader><DialogTitle>TOM anlegen</DialogTitle></DialogHeader>
+          <DialogHeader>
+            <DialogTitle>TOM anlegen</DialogTitle>
+            <DialogDescription>Neue technische oder organisatorische Maßnahme mit Kategorie und Umsetzungsstatus erfassen.</DialogDescription>
+          </DialogHeader>
           <div className="space-y-4 py-2">
             <div>
-              <Label>Titel *</Label>
-              <Input value={form.title} onChange={(e) => setForm((f) => ({ ...f, title: e.target.value }))} placeholder="Bezeichnung der Maßnahme" />
+              <Label htmlFor="tom-create-title">Titel *</Label>
+              <Input id="tom-create-title" value={form.title} onChange={(e) => setForm((f) => ({ ...f, title: e.target.value }))} placeholder="Bezeichnung der Maßnahme" />
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <Label>Kategorie *</Label>
+                <Label htmlFor="tom-create-category">Kategorie *</Label>
                 <Select value={form.category} onValueChange={(v) => setForm((f) => ({ ...f, category: v as TOMCategory }))}>
-                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectTrigger id="tom-create-category"><SelectValue /></SelectTrigger>
                   <SelectContent>
                     {Object.entries(CATEGORY_LABELS).map(([v, l]) => <SelectItem key={v} value={v}>{l}</SelectItem>)}
                   </SelectContent>
                 </Select>
               </div>
               <div>
-                <Label>Status</Label>
+                <Label htmlFor="tom-create-status">Status</Label>
                 <Select value={form.implementation_status} onValueChange={(v) => setForm((f) => ({ ...f, implementation_status: v as TOMStatus }))}>
-                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectTrigger id="tom-create-status"><SelectValue /></SelectTrigger>
                   <SelectContent>
                     {Object.entries(STATUS_LABELS).map(([v, l]) => <SelectItem key={v} value={v}>{l}</SelectItem>)}
                   </SelectContent>
@@ -377,22 +380,22 @@ export function TOMPage() {
               </div>
             </div>
             <div>
-              <Label>Beschreibung</Label>
-              <Textarea value={form.description} onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))} rows={3} />
+              <Label htmlFor="tom-create-description">Beschreibung</Label>
+              <Textarea id="tom-create-description" value={form.description} onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))} rows={3} />
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <Label>Zuständig</Label>
-                <Input value={form.responsible} onChange={(e) => setForm((f) => ({ ...f, responsible: e.target.value }))} />
+                <Label htmlFor="tom-create-responsible">Zuständig</Label>
+                <Input id="tom-create-responsible" value={form.responsible} onChange={(e) => setForm((f) => ({ ...f, responsible: e.target.value }))} />
               </div>
               <div>
-                <Label>Überprüfungsdatum</Label>
-                <Input type="date" value={form.review_date} onChange={(e) => setForm((f) => ({ ...f, review_date: e.target.value }))} />
+                <Label htmlFor="tom-create-review-date">Überprüfungsdatum</Label>
+                <Input id="tom-create-review-date" type="date" value={form.review_date} onChange={(e) => setForm((f) => ({ ...f, review_date: e.target.value }))} />
               </div>
             </div>
             <div>
-              <Label>Nachweise / Belege</Label>
-              <Textarea value={form.evidence} onChange={(e) => setForm((f) => ({ ...f, evidence: e.target.value }))} rows={2} placeholder="Dokumentation, Zertifikate, etc." />
+              <Label htmlFor="tom-create-evidence">Nachweise / Belege</Label>
+              <Textarea id="tom-create-evidence" value={form.evidence} onChange={(e) => setForm((f) => ({ ...f, evidence: e.target.value }))} rows={2} placeholder="Dokumentation, Zertifikate, etc." />
             </div>
           </div>
           <DialogFooter>
@@ -414,6 +417,7 @@ export function TOMPage() {
                 <StatusIcon status={selected.implementationStatus} />
                 {selected.title}
               </DialogTitle>
+              <DialogDescription>Details, Umsetzungsstatus und Nachweise der Maßnahme.</DialogDescription>
             </DialogHeader>
             <div className="space-y-4">
               <div className="flex gap-2">

@@ -3,7 +3,14 @@ import { Button } from "../ui/button";
 import { Badge } from "../ui/badge";
 import { Skeleton } from "../ui/skeleton";
 import { Separator } from "../ui/separator";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "../ui/dialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from "../ui/dialog";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -168,6 +175,9 @@ export function DataBreachDetailDialog({
             <ShieldAlert className="size-5 text-orange-500" />
             {current.title}
           </DialogTitle>
+          <DialogDescription>
+            Details, Status und Meldefrist der erfassten Datenpanne einsehen und bearbeiten.
+          </DialogDescription>
         </DialogHeader>
 
         <div className="space-y-5">

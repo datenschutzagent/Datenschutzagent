@@ -35,8 +35,11 @@ export function AdminRiskConfigDsfaSection() {
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="max-w-md">
-            <Label className="text-xs">Pflicht-Schwelle (gewichtet)</Label>
+            <Label htmlFor="dsfa-required-threshold" className="text-xs">
+              Pflicht-Schwelle (gewichtet)
+            </Label>
             <Input
+              id="dsfa-required-threshold"
               type="number"
               step="0.5"
               min="0"
@@ -54,7 +57,7 @@ export function AdminRiskConfigDsfaSection() {
           </div>
 
           <div>
-            <Label className="text-sm font-medium">Faktoren ({config.dsfa_screening.factors.length})</Label>
+            <p className="text-sm font-medium">Faktoren ({config.dsfa_screening.factors.length})</p>
             <p className="text-xs text-muted-foreground mb-2">
               Faktor-IDs müssen eindeutig sein. Keywords werden case-insensitiv geprüft.
             </p>
@@ -222,7 +225,7 @@ export function AdminRiskConfigDsfaSection() {
           </div>
 
           <div>
-            <Label className="text-sm font-medium">DSB-Konsultation erforderlich bei Residualrisiko in:</Label>
+            <p className="text-sm font-medium">DSB-Konsultation erforderlich bei Residualrisiko in:</p>
             <div className="flex flex-wrap gap-3 mt-2">
               {RISK_LEVELS.map((lv) => {
                 const checked = config.dsfa_assessment.dpo_consultation_required_when_residual_in.includes(lv);
@@ -250,9 +253,12 @@ export function AdminRiskConfigDsfaSection() {
           </div>
 
           <div className="max-w-md">
-            <Label className="text-xs">Mindest-Konfidenz (DSFA)</Label>
+            <Label htmlFor="dsfa-min-confidence" className="text-xs">
+              Mindest-Konfidenz (DSFA)
+            </Label>
             <div className="flex items-center gap-3 mt-1">
               <Slider
+                id="dsfa-min-confidence"
                 value={[config.dsfa_assessment.min_confidence * 100]}
                 onValueChange={(values) =>
                   setConfig((c) => {

@@ -166,8 +166,9 @@ export function DocumentUploadZone({ caseId, uploadedBy = "", onUploadComplete }
 
   return (
     <div className="space-y-4">
-      {/* Drop Zone */}
+      {/* Drop Zone: drag handlers only; the file input below is the keyboard path */}
       <div
+        role="presentation"
         className={`border-2 border-dashed rounded-lg p-12 text-center transition-all duration-150 ${
           isDragging
             ? "border-primary bg-primary/5 scale-[1.01]"

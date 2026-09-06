@@ -7,7 +7,7 @@ import { Input } from "../components/ui/input";
 import { Label } from "../components/ui/label";
 import { Textarea } from "../components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../components/ui/select";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "../components/ui/dialog";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogFooter } from "../components/ui/dialog";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "../components/ui/alert-dialog";
 import { Skeleton } from "../components/ui/skeleton";
 import { Separator } from "../components/ui/separator";
@@ -290,17 +290,20 @@ export function AVVPage() {
       {/* New dialog */}
       <Dialog open={showNew} onOpenChange={setShowNew}>
         <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
-          <DialogHeader><DialogTitle>AVV anlegen</DialogTitle></DialogHeader>
+          <DialogHeader>
+            <DialogTitle>AVV anlegen</DialogTitle>
+            <DialogDescription>Neuen Auftragsverarbeitungsvertrag mit Partner, Laufzeit und Zuständigkeit erfassen.</DialogDescription>
+          </DialogHeader>
           <div className="space-y-4 py-2">
             <div>
-              <Label>Partnername *</Label>
-              <Input value={form.partner_name} onChange={(e) => setForm((f) => ({ ...f, partner_name: e.target.value }))} placeholder="Unternehmen / Dienstleister" />
+              <Label htmlFor="avv-create-partner-name">Partnername *</Label>
+              <Input id="avv-create-partner-name" value={form.partner_name} onChange={(e) => setForm((f) => ({ ...f, partner_name: e.target.value }))} placeholder="Unternehmen / Dienstleister" />
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <Label>Typ</Label>
+                <Label htmlFor="avv-create-partner-type">Typ</Label>
                 <Select value={form.partner_type} onValueChange={(v) => setForm((f) => ({ ...f, partner_type: v as NewAVVForm["partner_type"] }))}>
-                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectTrigger id="avv-create-partner-type"><SelectValue /></SelectTrigger>
                   <SelectContent>
                     <SelectItem value="processor">Auftragsverarbeiter</SelectItem>
                     <SelectItem value="sub_processor">Unter-Auftragsverarbeiter</SelectItem>
@@ -308,31 +311,31 @@ export function AVVPage() {
                 </Select>
               </div>
               <div>
-                <Label>Abteilung</Label>
-                <Input value={form.department} onChange={(e) => setForm((f) => ({ ...f, department: e.target.value }))} />
+                <Label htmlFor="avv-create-department">Abteilung</Label>
+                <Input id="avv-create-department" value={form.department} onChange={(e) => setForm((f) => ({ ...f, department: e.target.value }))} />
               </div>
             </div>
             <div>
-              <Label>Vertragsgegenstand</Label>
-              <Textarea value={form.subject_matter} onChange={(e) => setForm((f) => ({ ...f, subject_matter: e.target.value }))} rows={2} />
+              <Label htmlFor="avv-create-subject-matter">Vertragsgegenstand</Label>
+              <Textarea id="avv-create-subject-matter" value={form.subject_matter} onChange={(e) => setForm((f) => ({ ...f, subject_matter: e.target.value }))} rows={2} />
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <Label>Vertragsdatum</Label>
-                <Input type="date" value={form.contract_date} onChange={(e) => setForm((f) => ({ ...f, contract_date: e.target.value }))} />
+                <Label htmlFor="avv-create-contract-date">Vertragsdatum</Label>
+                <Input id="avv-create-contract-date" type="date" value={form.contract_date} onChange={(e) => setForm((f) => ({ ...f, contract_date: e.target.value }))} />
               </div>
               <div>
-                <Label>Ablaufdatum</Label>
-                <Input type="date" value={form.expiry_date} onChange={(e) => setForm((f) => ({ ...f, expiry_date: e.target.value }))} />
+                <Label htmlFor="avv-create-expiry-date">Ablaufdatum</Label>
+                <Input id="avv-create-expiry-date" type="date" value={form.expiry_date} onChange={(e) => setForm((f) => ({ ...f, expiry_date: e.target.value }))} />
               </div>
             </div>
             <div>
-              <Label>Zuständig</Label>
-              <Input value={form.assignee} onChange={(e) => setForm((f) => ({ ...f, assignee: e.target.value }))} />
+              <Label htmlFor="avv-create-assignee">Zuständig</Label>
+              <Input id="avv-create-assignee" value={form.assignee} onChange={(e) => setForm((f) => ({ ...f, assignee: e.target.value }))} />
             </div>
             <div>
-              <Label>Notizen</Label>
-              <Textarea value={form.notes} onChange={(e) => setForm((f) => ({ ...f, notes: e.target.value }))} rows={2} />
+              <Label htmlFor="avv-create-notes">Notizen</Label>
+              <Textarea id="avv-create-notes" value={form.notes} onChange={(e) => setForm((f) => ({ ...f, notes: e.target.value }))} rows={2} />
             </div>
           </div>
           <DialogFooter>
@@ -349,7 +352,10 @@ export function AVVPage() {
       {selected && (
         <Dialog open onOpenChange={() => { setSelected(null); setRiskAssessment(null); }}>
           <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
-            <DialogHeader><DialogTitle>{selected.partnerName}</DialogTitle></DialogHeader>
+            <DialogHeader>
+              <DialogTitle>{selected.partnerName}</DialogTitle>
+              <DialogDescription>Details, Status und Risikobewertung des Auftragsverarbeitungsvertrags.</DialogDescription>
+            </DialogHeader>
             <div className="space-y-4">
               <div className="flex gap-2 flex-wrap">
                 <span className={`text-xs px-2 py-1 rounded-full font-medium ${STATUS_COLORS[selected.status] ?? ""}`}>

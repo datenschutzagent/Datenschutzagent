@@ -8,7 +8,7 @@ import { Input } from "../components/ui/input";
 import { Label } from "../components/ui/label";
 import { Textarea } from "../components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../components/ui/select";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "../components/ui/dialog";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogFooter } from "../components/ui/dialog";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "../components/ui/alert-dialog";
 import { Skeleton } from "../components/ui/skeleton";
 import { Separator } from "../components/ui/separator";
@@ -443,12 +443,13 @@ export function DSRPage() {
         <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Betroffenenrechts-Anfrage erfassen</DialogTitle>
+            <DialogDescription>Neue Anfrage einer betroffenen Person erfassen; die Antwortfrist wird automatisch berechnet.</DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-2">
             <div>
-              <Label>Art der Anfrage *</Label>
+              <Label htmlFor="dsr-create-request-type">Art der Anfrage *</Label>
               <Select value={form.request_type} onValueChange={(v) => setForm((f) => ({ ...f, request_type: v as DSRRequestType }))}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectTrigger id="dsr-create-request-type"><SelectValue /></SelectTrigger>
                 <SelectContent>
                   {Object.entries(REQUEST_TYPE_LABELS).map(([v, l]) => (
                     <SelectItem key={v} value={v}>{l}</SelectItem>
@@ -458,36 +459,37 @@ export function DSRPage() {
             </div>
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <Label>Name der betroffenen Person</Label>
-                <Input value={form.requestor_name} onChange={(e) => setForm((f) => ({ ...f, requestor_name: e.target.value }))} placeholder="Max Mustermann" />
+                <Label htmlFor="dsr-create-requestor-name">Name der betroffenen Person</Label>
+                <Input id="dsr-create-requestor-name" value={form.requestor_name} onChange={(e) => setForm((f) => ({ ...f, requestor_name: e.target.value }))} placeholder="Max Mustermann" />
               </div>
               <div>
-                <Label>E-Mail</Label>
-                <Input type="email" value={form.requestor_email} onChange={(e) => setForm((f) => ({ ...f, requestor_email: e.target.value }))} placeholder="max@beispiel.de" />
+                <Label htmlFor="dsr-create-requestor-email">E-Mail</Label>
+                <Input id="dsr-create-requestor-email" type="email" value={form.requestor_email} onChange={(e) => setForm((f) => ({ ...f, requestor_email: e.target.value }))} placeholder="max@beispiel.de" />
               </div>
             </div>
             <div>
-              <Label>Beschreibung</Label>
-              <Textarea value={form.description} onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))} rows={3} placeholder="Details zur Anfrage..." />
+              <Label htmlFor="dsr-create-description">Beschreibung</Label>
+              <Textarea id="dsr-create-description" value={form.description} onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))} rows={3} placeholder="Details zur Anfrage..." />
             </div>
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <Label>Abteilung</Label>
-                <Input value={form.department} onChange={(e) => setForm((f) => ({ ...f, department: e.target.value }))} />
+                <Label htmlFor="dsr-create-department">Abteilung</Label>
+                <Input id="dsr-create-department" value={form.department} onChange={(e) => setForm((f) => ({ ...f, department: e.target.value }))} />
               </div>
               <div>
-                <Label>Zuständig</Label>
-                <Input value={form.assignee} onChange={(e) => setForm((f) => ({ ...f, assignee: e.target.value }))} />
+                <Label htmlFor="dsr-create-assignee">Zuständig</Label>
+                <Input id="dsr-create-assignee" value={form.assignee} onChange={(e) => setForm((f) => ({ ...f, assignee: e.target.value }))} />
               </div>
             </div>
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <Label>Eingegangen am *</Label>
-                <Input type="date" value={form.received_at} onChange={(e) => setForm((f) => ({ ...f, received_at: e.target.value }))} />
+                <Label htmlFor="dsr-create-received-at">Eingegangen am *</Label>
+                <Input id="dsr-create-received-at" type="date" value={form.received_at} onChange={(e) => setForm((f) => ({ ...f, received_at: e.target.value }))} />
               </div>
               <div>
-                <Label>Fristverlängerung (Tage)</Label>
+                <Label htmlFor="dsr-create-deadline-extension">Fristverlängerung (Tage)</Label>
                 <Input
+                  id="dsr-create-deadline-extension"
                   type="number"
                   min={0}
                   max={60}
@@ -517,6 +519,7 @@ export function DSRPage() {
                 <UserCheck className="size-5 text-blue-500" />
                 {REQUEST_TYPE_LABELS[selected.requestType]} – {selected.requestorName || "Anonyme Anfrage"}
               </DialogTitle>
+              <DialogDescription>Details, Status, Fristen und Antwortentwurf der Betroffenenanfrage.</DialogDescription>
             </DialogHeader>
 
             <div className="space-y-5">

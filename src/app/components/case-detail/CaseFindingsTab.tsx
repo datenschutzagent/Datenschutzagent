@@ -17,6 +17,7 @@ import {
 import { useBulkUpdateFindingStatus } from "../../lib/queries/caseDetailQueries";
 import { toast } from "sonner";
 import { errorMessage } from "../../lib/errors";
+import { onEnterOrSpace } from "../../lib/a11y";
 
 function SeverityIcon({ severity }: { severity: FindingSeverity }) {
   switch (severity) {
@@ -209,7 +210,12 @@ export function CaseFindingsTab({ caseData, onSelectFinding }: CaseFindingsTabPr
               }`}
             >
               <div className="flex items-start gap-3">
-                <div className="mt-0.5 shrink-0" onClick={(e) => e.stopPropagation()}>
+                <div
+                  className="mt-0.5 shrink-0"
+                  role="presentation"
+                  onClick={(e) => e.stopPropagation()}
+                  onKeyDown={(e) => e.stopPropagation()}
+                >
                   <Checkbox
                     checked={selectedIds.has(finding.id)}
                     onCheckedChange={() => toggleSelect(finding.id)}
@@ -218,7 +224,10 @@ export function CaseFindingsTab({ caseData, onSelectFinding }: CaseFindingsTabPr
                 </div>
                 <div
                   className="flex items-start gap-3 flex-1 cursor-pointer"
+                  role="button"
+                  tabIndex={0}
                   onClick={() => onSelectFinding(finding)}
+                  onKeyDown={onEnterOrSpace(() => onSelectFinding(finding))}
                 >
                   {finding.status === "open" && <CircleAlert className="size-5 text-red-600 dark:text-red-400 mt-0.5 shrink-0" />}
                   {finding.status === "fixed" && <CheckCircle2 className="size-5 text-green-600 dark:text-green-400 mt-0.5 shrink-0" />}

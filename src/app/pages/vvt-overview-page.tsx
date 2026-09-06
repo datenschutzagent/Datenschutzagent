@@ -271,9 +271,9 @@ export function VvtOverviewPage() {
           <CardContent className="pt-6">
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
               <div className="space-y-2">
-                <label className="text-sm font-medium">Einheit</label>
+                <label htmlFor="vvt-filter-department" className="text-sm font-medium">Einheit</label>
                 <Select value={department} onValueChange={setDepartment}>
-                  <SelectTrigger className="w-full">
+                  <SelectTrigger id="vvt-filter-department" className="w-full">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
@@ -287,9 +287,9 @@ export function VvtOverviewPage() {
                 </Select>
               </div>
               <div className="space-y-2">
-                <label className="text-sm font-medium">Vorgangstyp</label>
+                <label htmlFor="vvt-filter-case-type" className="text-sm font-medium">Vorgangstyp</label>
                 <Select value={caseType} onValueChange={setCaseType}>
-                  <SelectTrigger className="w-full">
+                  <SelectTrigger id="vvt-filter-case-type" className="w-full">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
@@ -303,9 +303,9 @@ export function VvtOverviewPage() {
                 </Select>
               </div>
               <div className="space-y-2">
-                <label className="text-sm font-medium">Status</label>
+                <label htmlFor="vvt-filter-status" className="text-sm font-medium">Status</label>
                 <Select value={status} onValueChange={setStatus}>
-                  <SelectTrigger className="w-full">
+                  <SelectTrigger id="vvt-filter-status" className="w-full">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
@@ -319,9 +319,9 @@ export function VvtOverviewPage() {
                 </Select>
               </div>
               <div className="space-y-2">
-                <label className="text-sm font-medium">VVT</label>
+                <label htmlFor="vvt-filter-has-vvt" className="text-sm font-medium">VVT</label>
                 <Select value={hasVvt} onValueChange={setHasVvt}>
-                  <SelectTrigger className="w-full">
+                  <SelectTrigger id="vvt-filter-has-vvt" className="w-full">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>

@@ -12,6 +12,7 @@ import { useCaseDetail } from "../../contexts/CaseDetailContext";
 import { CircleAlert, Download, FileCheck, Loader2, Shield, Zap } from "lucide-react";
 import { toast } from "sonner";
 import { errorMessage } from "../../lib/errors";
+import { onEnterOrSpace } from "../../lib/a11y";
 
 export interface CaseOverviewTabProps {
   caseData: ApiCase;
@@ -247,8 +248,11 @@ export function CaseOverviewTab({
                     </DialogDescription>
                   </DialogHeader>
                   <div className="space-y-2">
-                    <label className="text-sm font-medium">Playbook</label>
+                    <label className="text-sm font-medium" htmlFor="run-checks-playbook">
+                      Playbook
+                    </label>
                     <select
+                      id="run-checks-playbook"
                       className="w-full border border-input rounded-md px-3 py-2 bg-input-background"
                       value={selectedPlaybookId}
                       onChange={(e) => setSelectedPlaybookId(e.target.value)}
@@ -260,8 +264,11 @@ export function CaseOverviewTab({
                     </select>
                   </div>
                   <div className="space-y-2">
-                    <label className="text-sm font-medium">Prüfvariante</label>
+                    <label className="text-sm font-medium" htmlFor="run-checks-strategy">
+                      Prüfvariante
+                    </label>
                     <select
+                      id="run-checks-strategy"
                       className="w-full border border-input rounded-md px-3 py-2 bg-input-background"
                       value={runChecksStrategy}
                       onChange={(e) => setRunChecksStrategy(e.target.value as "full_text" | "rag" | "both")}
@@ -460,7 +467,10 @@ export function CaseOverviewTab({
               <div
                 key={finding.id}
                 className="p-4 border border-border rounded-lg hover:bg-slate-50 dark:hover:bg-slate-800/50 cursor-pointer transition-colors"
+                role="button"
+                tabIndex={0}
                 onClick={() => onSelectFinding(finding)}
+                onKeyDown={onEnterOrSpace(() => onSelectFinding(finding))}
               >
                 <div className="flex items-start gap-3">
                   <CircleAlert className="size-5 text-red-600 dark:text-red-400 mt-0.5" />

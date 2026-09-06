@@ -307,9 +307,9 @@ export function LegalBasesPage() {
               />
             </div>
             <div className="grid gap-2">
-              <Label>Gültigkeit</Label>
+              <Label htmlFor="lb-applicability">Gültigkeit</Label>
               <Select value={applicability} onValueChange={(v) => setApplicability(v as "always" | "conditional")}>
-                <SelectTrigger>
+                <SelectTrigger id="lb-applicability">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>

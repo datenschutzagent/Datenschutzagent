@@ -94,8 +94,9 @@ export function ProfilePage() {
             </div>
 
             <div className="space-y-3">
-              <Label>Theme</Label>
+              <p id="profile-theme-label" className="text-sm leading-none font-medium">Theme</p>
               <RadioGroup
+                aria-labelledby="profile-theme-label"
                 value={theme}
                 onValueChange={(v) => setTheme(v as UserTheme)}
                 className="flex flex-col gap-2"
@@ -112,8 +113,9 @@ export function ProfilePage() {
             </div>
 
             <div className="space-y-3">
-              <Label>Sprache</Label>
+              <p id="profile-language-label" className="text-sm leading-none font-medium">Sprache</p>
               <RadioGroup
+                aria-labelledby="profile-language-label"
                 value={language}
                 onValueChange={(v) => setLanguage(v as UserUILanguage)}
                 className="flex flex-col gap-2"
