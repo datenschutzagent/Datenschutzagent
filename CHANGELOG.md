@@ -57,6 +57,13 @@ Das Format orientiert sich an [Keep a Changelog](https://keepachangelog.com/de/1
   dann lazy). Beide Stellen laden den Vorgang jetzt neu mit `case_relations()`.
 - Die Eval-Schwelle `VVTFieldRecall` hatte keinen Evaluator mehr und gatete
   nichts; entfernt, ein Test prüft die Zuordnung Schwelle → Evaluator.
+- **Dokument-Upload im Docker-Stack** (`STORAGE_BACKEND=local`, Standard):
+  `/app/storage` fehlte im Image (`.dockerignore`), das benannte Volume
+  `backend_storage` wurde daher root-eigen angelegt und jeder Upload endete mit
+  `Permission denied` (500). Das Verzeichnis wird jetzt im Image mit
+  `appuser`-Besitz angelegt. Gefunden durch die neuen E2E-Tests; bestehende
+  Installationen mit bereits angelegtem Volume müssen es einmalig neu anlegen
+  (`docker compose down -v` bei leerem Speicher) oder den Besitzer ändern.
 
 ### Security
 - **Audit-Log hash-verkettet und um Lesezugriffe erweitert** (Phase 1, S6):
