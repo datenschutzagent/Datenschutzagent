@@ -8,6 +8,8 @@ import uuid
 
 import pytest
 
+from tests.factories import create_case
+
 pytestmark = pytest.mark.asyncio
 
 
@@ -16,38 +18,20 @@ pytestmark = pytest.mark.asyncio
 # ---------------------------------------------------------------------------
 
 
-async def _create_case(client, **overrides) -> dict:
-    payload = {
-        "title": "Test-Vorgang",
-        "department": "IT",
-        "case_type": "Softwareeinführung",
-        "language": "de",
-        "created_by": "test@example.com",
-        "assignee": "DSB Team",
-        "processing_context": None,
-        "special_category_data": False,
-        "international_transfer": False,
-        **overrides,
-    }
-    resp = await client.post("/api/v1/cases", json=payload)
-    assert resp.status_code == 201, resp.text
-    return resp.json()
-
-
 # ---------------------------------------------------------------------------
 # Case CRUD
 # ---------------------------------------------------------------------------
 
 
 async def test_create_case_returns_id(client):
-    case = await _create_case(client, title="Neues CRM-System")
+    case = await create_case(client, title="Neues CRM-System")
     assert "id" in case
     assert case["title"] == "Neues CRM-System"
     assert case["status"] == "intake"
 
 
 async def test_get_case_by_id(client):
-    case = await _create_case(client, title="Get-by-ID Test")
+    case = await create_case(client, title="Get-by-ID Test")
     case_id = case["id"]
 
     resp = await client.get(f"/api/v1/cases/{case_id}")
@@ -63,7 +47,7 @@ async def test_get_case_not_found(client):
 
 
 async def test_list_cases_includes_created(client):
-    case = await _create_case(client, title="List-Test-Vorgang")
+    case = await create_case(client, title="List-Test-Vorgang")
     resp = await client.get("/api/v1/cases", params={"limit": 500})
     assert resp.status_code == 200
     ids = [c["id"] for c in resp.json()["items"]]
@@ -71,7 +55,7 @@ async def test_list_cases_includes_created(client):
 
 
 async def test_update_case_status(client):
-    case = await _create_case(client)
+    case = await create_case(client)
     case_id = case["id"]
 
     resp = await client.patch(f"/api/v1/cases/{case_id}", json={"status": "in_review"})
@@ -80,7 +64,7 @@ async def test_update_case_status(client):
 
 
 async def test_delete_case(client):
-    case = await _create_case(client, title="Zu-löschen")
+    case = await create_case(client, title="Zu-löschen")
     case_id = case["id"]
 
     del_resp = await client.delete(f"/api/v1/cases/{case_id}")
@@ -96,7 +80,7 @@ async def test_delete_case(client):
 
 
 async def test_list_findings_empty_for_new_case(client):
-    case = await _create_case(client)
+    case = await create_case(client)
     resp = await client.get(f"/api/v1/cases/{case['id']}")
     assert resp.status_code == 200
     assert resp.json()["findings"] == []
@@ -156,9 +140,9 @@ async def _add_document(case_id: str) -> None:
 
 
 async def test_export_has_open_findings_matches_list_filter(client):
-    with_finding = await _create_case(client, title="Export-mit-Befund")
-    doc_only = await _create_case(client, title="Export-nur-Dokument")
-    fixed_only = await _create_case(client, title="Export-behobener-Befund")
+    with_finding = await create_case(client, title="Export-mit-Befund")
+    doc_only = await create_case(client, title="Export-nur-Dokument")
+    fixed_only = await create_case(client, title="Export-behobener-Befund")
     await _add_finding(with_finding["id"], status="open")
     await _add_document(doc_only["id"])
     await _add_finding(fixed_only["id"], status="fixed")
@@ -190,7 +174,7 @@ async def test_export_has_open_findings_matches_list_filter(client):
 
 async def test_export_accepts_deadline_overdue_filter(client):
     """The export exposes the same filter set as the list endpoint."""
-    overdue = await _create_case(
+    overdue = await create_case(
         client, title="Export-überfällig", deadline="2000-01-01"
     )
     # Regression: POST /cases accepted ``deadline`` but never persisted it.
@@ -222,7 +206,7 @@ async def test_generate_dsb_report_commits_before_dispatch(client, monkeypatch):
     monkeypatch.setattr(
         settings, "celery_broker_url", "redis://test:6379/0", raising=False
     )
-    case = await _create_case(client, title="DSB-Report-Dispatch")
+    case = await create_case(client, title="DSB-Report-Dispatch")
 
     commits: list[int] = []
     dispatched_after_commits: list[int] = []

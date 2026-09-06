@@ -7,6 +7,8 @@ They test create, read, update, and delete behaviour for DSR requests
 
 import pytest
 
+from tests.factories import create_dsr
+
 pytestmark = pytest.mark.asyncio
 
 
@@ -15,30 +17,13 @@ pytestmark = pytest.mark.asyncio
 # ---------------------------------------------------------------------------
 
 
-async def _create_dsr(client, **overrides) -> dict:
-    payload = {
-        "request_type": "access",
-        "requestor_name": "Max Mustermann",
-        "requestor_email": "max@example.com",
-        "description": "Auskunft über gespeicherte Daten",
-        "department": "IT",
-        "assignee": "DSB Team",
-        "received_at": "2026-04-14",
-        "deadline_extension_days": 0,
-        **overrides,
-    }
-    resp = await client.post("/api/v1/dsr", json=payload)
-    assert resp.status_code == 201, resp.text
-    return resp.json()
-
-
 # ---------------------------------------------------------------------------
 # DSR CRUD
 # ---------------------------------------------------------------------------
 
 
 async def test_create_dsr_request_returns_id(client):
-    dsr = await _create_dsr(client, requestor_name="Erika Musterfrau")
+    dsr = await create_dsr(client, requestor_name="Erika Musterfrau")
     assert "id" in dsr
     assert dsr["request_type"] == "access"
     assert dsr["status"] == "received"
@@ -46,21 +31,19 @@ async def test_create_dsr_request_returns_id(client):
 
 
 async def test_create_dsr_request_calculates_deadline(client):
-    dsr = await _create_dsr(client, received_at="2026-04-14", deadline_extension_days=0)
+    dsr = await create_dsr(client, received_at="2026-04-14", deadline_extension_days=0)
     # Art. 12 Abs. 3 DSGVO: 30-day default deadline
     assert dsr["response_deadline"] == "2026-05-14"
 
 
 async def test_create_dsr_request_with_extension(client):
-    dsr = await _create_dsr(
-        client, received_at="2026-04-14", deadline_extension_days=30
-    )
+    dsr = await create_dsr(client, received_at="2026-04-14", deadline_extension_days=30)
     # 30 base days + 30 extension days = 60 days total
     assert dsr["response_deadline"] == "2026-06-13"
 
 
 async def test_get_dsr_request_by_id(client):
-    dsr = await _create_dsr(client, requestor_name="Get-by-ID Test")
+    dsr = await create_dsr(client, requestor_name="Get-by-ID Test")
     dsr_id = dsr["id"]
 
     resp = await client.get(f"/api/v1/dsr/{dsr_id}")
@@ -76,7 +59,7 @@ async def test_get_dsr_request_not_found(client):
 
 
 async def test_list_dsr_requests_includes_created(client):
-    dsr = await _create_dsr(client, requestor_email="list-test@example.com")
+    dsr = await create_dsr(client, requestor_email="list-test@example.com")
     resp = await client.get("/api/v1/dsr")
     assert resp.status_code == 200
     data = resp.json()
@@ -85,7 +68,7 @@ async def test_list_dsr_requests_includes_created(client):
 
 
 async def test_list_dsr_filter_status(client):
-    dsr = await _create_dsr(client)
+    dsr = await create_dsr(client)
     dsr_id = dsr["id"]
 
     # Advance status to in_progress
@@ -107,7 +90,7 @@ async def test_list_dsr_filter_status(client):
 
 
 async def test_update_dsr_status(client):
-    dsr = await _create_dsr(client)
+    dsr = await create_dsr(client)
     dsr_id = dsr["id"]
 
     resp = await client.patch(f"/api/v1/dsr/{dsr_id}", json={"status": "in_progress"})
@@ -116,7 +99,7 @@ async def test_update_dsr_status(client):
 
 
 async def test_delete_dsr_request(client):
-    dsr = await _create_dsr(client, requestor_name="Zu löschen")
+    dsr = await create_dsr(client, requestor_name="Zu löschen")
     dsr_id = dsr["id"]
 
     del_resp = await client.delete(f"/api/v1/dsr/{dsr_id}")
@@ -127,7 +110,7 @@ async def test_delete_dsr_request(client):
 
 
 async def test_get_dsr_activity_has_created_event(client):
-    dsr = await _create_dsr(client)
+    dsr = await create_dsr(client)
     dsr_id = dsr["id"]
 
     resp = await client.get(f"/api/v1/dsr/{dsr_id}/activity")

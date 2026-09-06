@@ -14,11 +14,59 @@ verschoben.
 | 0 – Bugs + Gates | **erledigt** (2026-09-05) | B1–B9 behoben, je mit Regressionstest (724 Tests, Coverage 59,9 %). G1–G7 aktiv. Frontend: `tsc` 0 Fehler, ESLint 0/0. Der neue `alembic check` fand sofort einen Drift (partieller Index `ix_users_oidc_sub` fehlte im Modell). |
 | 1 – Security/DSGVO | **erledigt** (2026-09-05) | S1–S10 umgesetzt, je mit Tests: Proxy-Vertrauen erzwungen, DSGVO-Freigabe für externe LLM-Provider, Zip-Bomben-/XXE-/PDF-Limits, absolute Session-Lebensdauer + Widerruf bei Rollenwechsel, hash-verkettetes Audit-Log mit Lesezugriffen und `audit verify`, MultiFernet-Rotation, PII aus Logs, Finding-Chat in Markern, URL-Validatoren. Bewusst nicht umgesetzt: Sperre privater IP-Ranges (S10) – Ollama/Weaviate liegen legitim im LAN/Docker-Netz. |
 | 2 – Backend-Robustheit | **erledigt** (2026-09-05) | R1–R9 umgesetzt: Event-Loop frei, Celery-Fehlerpolitik mit Retry, Domain-Fehler-Handler, LLM-Retry-Klassifikation + Budget, mypy für core/services (Baseline 0, fand den toten MinIO-Check), N+1/Pagination/Unique-Constraint, Zerlegung der vier C901-Funktionen (per-file-Ignores entfernt; Notification-Schleife, `_execute_check` mit Ziel/Strategie, `pipeline_stats`, `generate_dsfa`) und Auszug von Risiko-Scoring/DOCX aus den Routen, Savepoints im Bulk-Upload, keine stillen Swallows, BLE001 auch für Routen. 871 Tests, Coverage 65 % (Gate 63 %). |
-| 3 – Frontend | offen | F1 (Typfehler) wurde für G1 vorgezogen und ist erledigt. |
-| 4 – Tests/Evals | offen | – |
+| 3 – Frontend | in Arbeit (Runde 3) | F1 (Typfehler) wurde für G1 vorgezogen und ist erledigt. |
+| 4 – Tests/Evals | in Arbeit (Runde 3) | T6 (Migrations-Roundtrip in CI) ist seit Phase 0 (G2) erledigt. |
 | 5 – Betrieb/Doku | offen | – |
 
 Entscheidung zu 4.1 (Mandantentrennung): **Single-Org**, siehe Abschnitt 4.
+
+### Runde 3 (Start 2026-09-05): Phase 3 und 4 gemeinsam
+
+Ist-Stand vor der Runde, neu erhoben (weicht teils vom Befund in den Tabellen ab):
+
+- Mock-Daten: nur noch `dashboard-stats.tsx` importiert `mockCases` (Fallback ohne Prop);
+  elf weitere Dateien importieren aus `mock-data.ts` ausschließlich Label-/Farb-Maps und
+  Typen. `mockPlaybooks`/`mockActivities` sind unreferenziert.
+- Fehlerbehandlung: 43 `catch {}` in 19 Dateien; `parseErrorResponse`/`ApiError` werden
+  in Seiten und Komponenten nirgends benutzt. ErrorBoundary nur global in `App.tsx`.
+- Serverstate: TanStack Query in fünf Dateien, in **keiner** Seite; 16 Seiten laden per
+  `useState`+`useEffect`. Key-Factories existieren nur für Cases/Case-Detail.
+- A11y: 60 von 83 `<Label>` ohne `htmlFor`, 8 `DialogContent` ohne `DialogDescription`,
+  vier klickbare `div`/`span`; nur vier jsx-a11y-Regeln aktiv, alle `warn`. Der
+  `ignores`-Eintrag `src/components/ui/**` zeigt auf einen nicht existierenden Pfad.
+- Bundle: kein `React.lazy`; sieben Dependencies ohne Import (`date-fns`, `motion`,
+  `next-themes`, `react-dnd`, `react-dnd-html5-backend`, `react-responsive-masonry`,
+  `react-slick`); 19 nie importierte Dateien in `components/ui/` (darunter `sidebar.tsx`,
+  726 Zeilen); keine Bundle-Messung.
+- Backend-Tests: 14 kopierte Create-Helper in 12 Dateien; keine registrierten Marker;
+  Limiter global aus, kein 429-Test; Coverage 65 % mit Routen zwischen 25 und 40 %,
+  `annotated_document_service` 16 %, `org_profile_loader` 25 %, `cli.py` 0 %.
+- Frontend-Tests: keine Coverage-Messung, `msw` installiert aber ungenutzt, 56× `vi.mock`,
+  5 von 24 Seiten getestet, `useMultiStepForm`/`AuthContext`/`CaseDetailContext` ungetestet.
+- E2E: 8 Tests, 2 mit `@smoke`; die fünf Tests in `checks`/`document-upload` werden ohne
+  fachliche Assertion grün (16 abgeschwächte Stellen, 6 stille `test.skip()`),
+  ein `data-testid` im gesamten Frontend.
+- Evals: kein `--strict`, kein Datei-Output, kein Nightly; LLM-/OCR-Evaluatoren laufen
+  nirgends; Schwelle `VVTFieldRecall` ohne Evaluator.
+
+Reihenfolge und Umfang der Runde (je Punkt ein Commit, CI muss nach jedem grün bleiben):
+
+| # | Schritt | Ziel |
+| :--- | :--- | :--- |
+| 1 | **T2** Factory-Fixtures (`create_case`, `create_avv`, `create_dsr`, `create_tom`, `create_breach`) in `conftest.py`, Marker `requires_db` registriert und automatisch auf `client`-Tests gesetzt, ein echter 429-Test mit temporär aktivem Limiter. | 14 Kopien weg; Testlauf ohne DB überspringt sauber statt zu scheitern. |
+| 2 | **T1** Tests für die schwächsten Module: `mitigations`, `cases/checks`, `playbooks`, `admin_prompt_templates`, `legal_bases`, `case_templates`, `exports`, `annotated_document_service`, `org_profile_loader`, `cli`. | Backend-Coverage ≥ 70 %, Gate auf gemessenen Wert. |
+| 3 | **F2 + F8 + F6** Label-Maps nach `lib/labels.ts`, `mock-data.ts` löschen, Mock-Fallback in `dashboard-stats` entfernen; `package.json`-Name/`pnpm.overrides`/Make-Kommentare bereinigen; sieben tote Dependencies und 19 tote UI-Dateien entfernen; Routen per `React.lazy`; Bundle-Größe als CI-Artefakt. `noUncheckedIndexedAccess` nur, wenn die Fehlerzahl im Rahmen bleibt. | Kleineres Initial-Bundle, keine erfundenen Daten im Produktionspfad. |
+| 4 | **F3** `catch (e)` + `errorMessage(e)` aus `ApiError` + Toast an allen 43 Stellen; ErrorBoundary je Route (`errorElement`). | Nutzer sehen die Ursache; ein Render-Fehler reißt nicht die App. |
+| 5 | **F5** `label-has-associated-control`, `click-events-have-key-events`, `no-static-element-interactions` als `error`; Treffer beheben; `DialogDescription` in den acht Dialogen; `ignores`-Pfad korrigiert. | A11y-Basis erzwungen statt nur dokumentiert. |
+| 6 | **F4 (+F7 teilweise)** Katalog-Seiten `dsr`, `tom`, `avv`, `data-breaches` auf TanStack Query mit Key-Factories (`lib/queries/*`), gemeinsames Katalog-Muster; die Seiten schrumpfen dadurch. | Cache, Dedup, Invalidierung; Stale-Closure-Klasse beseitigt. |
+| 7 | **T3** `@vitest/coverage-v8` + Gate; Tests für `useMultiStepForm`, `AuthContext`, `CaseDetailContext`, `tom-page`; `msw` entweder für die API-Mapper eingesetzt oder als Dependency entfernt. | Frontend-Coverage messbar und gedeckelt. |
+| 8 | **T4** harte Assertions, `data-testid` an Fall-Karten/Tabs, `@smoke` auf ~6 Tests, `retries: 1`, übrige Specs nightly. | E2E, das bei Regressionen rot wird. |
+| 9 | **T5** `--strict`, `--out <json>`, tote Schwelle entfernt; Nightly-Workflow, der die LLM-Evals nur bei konfiguriertem Provider-Secret ausführt und das JSON als Artefakt ablegt. | Kernqualität (Check-Verdikt) wird überhaupt gemessen. |
+
+Bewusst nicht in dieser Runde: F7 für `playbook-detail-page`/`new-case-dialog`
+(eigene Runde nach F4), Transaktions-Isolation je Test (T2, Kosten/Nutzen bei 870
+Tests, die per Fixture-Session schreiben; die Suite läuft mit akkumulierten Daten stabil),
+Phase 5.
 
 Korrekturen gegenüber der Erstanalyse, beim Umsetzen festgestellt:
 

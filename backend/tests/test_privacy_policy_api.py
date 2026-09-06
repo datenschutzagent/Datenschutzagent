@@ -9,6 +9,8 @@ Tested behaviour:
 
 import pytest
 
+from tests.factories import create_case
+
 pytestmark = pytest.mark.asyncio
 
 
@@ -18,24 +20,6 @@ class _FakeLLMResult:
     def __init__(self, output=None):
         self.output = output
         self.data = output
-
-
-async def _create_case(client, **overrides) -> dict:
-    payload = {
-        "title": "Test-Vorgang Datenschutzerklaerung",
-        "department": "IT",
-        "case_type": "Softwareeinfuehrung",
-        "language": "de",
-        "created_by": "test@example.com",
-        "assignee": "DSB Team",
-        "processing_context": None,
-        "special_category_data": False,
-        "international_transfer": False,
-        **overrides,
-    }
-    resp = await client.post("/api/v1/cases", json=payload)
-    assert resp.status_code == 201, resp.text
-    return resp.json()
 
 
 def _llm_result(version_note: str = "Initial") -> _FakeLLMResult:
@@ -61,7 +45,7 @@ async def test_generate_requires_valid_case(client, mock_llm):
 
 
 async def test_generate_creates_first_version(client, mock_llm):
-    case = await _create_case(client, title="Neue Verarbeitung A")
+    case = await create_case(client, title="Neue Verarbeitung A")
     mock_llm.run.return_value = _llm_result(version_note="v1")
 
     resp = await client.post(
@@ -77,7 +61,7 @@ async def test_generate_creates_first_version(client, mock_llm):
 
 
 async def test_generate_increments_version(client, mock_llm):
-    case = await _create_case(client, title="Neue Verarbeitung B")
+    case = await create_case(client, title="Neue Verarbeitung B")
 
     mock_llm.run.return_value = _llm_result("v1")
     r1 = await client.post(
@@ -95,7 +79,7 @@ async def test_generate_increments_version(client, mock_llm):
 
 
 async def test_list_versions_for_case(client, mock_llm):
-    case = await _create_case(client, title="Neue Verarbeitung C")
+    case = await create_case(client, title="Neue Verarbeitung C")
     mock_llm.run.return_value = _llm_result()
     await client.post(f"/api/v1/cases/{case['id']}/privacy-policies/generate", json={})
     mock_llm.run.return_value = _llm_result()
@@ -111,7 +95,7 @@ async def test_list_versions_for_case(client, mock_llm):
 
 
 async def test_global_list_includes_policy(client, mock_llm):
-    case = await _create_case(client, title="Neue Verarbeitung D")
+    case = await create_case(client, title="Neue Verarbeitung D")
     mock_llm.run.return_value = _llm_result()
     create = await client.post(
         f"/api/v1/cases/{case['id']}/privacy-policies/generate", json={}
@@ -125,7 +109,7 @@ async def test_global_list_includes_policy(client, mock_llm):
 
 
 async def test_update_policy(client, mock_llm):
-    case = await _create_case(client, title="Neue Verarbeitung E")
+    case = await create_case(client, title="Neue Verarbeitung E")
     mock_llm.run.return_value = _llm_result()
     create = await client.post(
         f"/api/v1/cases/{case['id']}/privacy-policies/generate", json={}
@@ -143,7 +127,7 @@ async def test_update_policy(client, mock_llm):
 
 
 async def test_cascade_delete_on_case(client, mock_llm):
-    case = await _create_case(client, title="Neue Verarbeitung F")
+    case = await create_case(client, title="Neue Verarbeitung F")
     mock_llm.run.return_value = _llm_result()
     create = await client.post(
         f"/api/v1/cases/{case['id']}/privacy-policies/generate", json={}

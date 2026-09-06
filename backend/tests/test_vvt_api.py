@@ -6,33 +6,14 @@ They test VVT list, stats, and export endpoints.
 
 import pytest
 
+from tests.factories import create_case
+
 pytestmark = pytest.mark.asyncio
 
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
-
-
-async def _create_case(
-    client, title: str = "VVT Test Case", department: str = "IT"
-) -> dict:
-    resp = await client.post(
-        "/api/v1/cases",
-        json={
-            "title": title,
-            "department": department,
-            "case_type": "Softwareeinführung",
-            "language": "de",
-            "created_by": "test@example.com",
-            "assignee": "DSB",
-            "processing_context": None,
-            "special_category_data": False,
-            "international_transfer": False,
-        },
-    )
-    assert resp.status_code == 201, resp.text
-    return resp.json()
 
 
 # ---------------------------------------------------------------------------
@@ -51,7 +32,7 @@ async def test_vvt_overview_returns_list(client):
 
 
 async def test_vvt_overview_contains_created_case(client):
-    case = await _create_case(client, title="VVT Overview Test")
+    case = await create_case(client, title="VVT Overview Test")
     resp = await client.get("/api/v1/vvt-overview")
     assert resp.status_code == 200
     case_ids = [item["case_id"] for item in resp.json()]
@@ -59,7 +40,7 @@ async def test_vvt_overview_contains_created_case(client):
 
 
 async def test_vvt_overview_item_has_required_fields(client):
-    await _create_case(client, title="VVT Field Test")
+    await create_case(client, title="VVT Field Test")
     resp = await client.get("/api/v1/vvt-overview")
     assert resp.status_code == 200
     items = resp.json()
@@ -74,7 +55,7 @@ async def test_vvt_overview_item_has_required_fields(client):
 
 
 async def test_vvt_overview_new_case_has_no_vvt(client):
-    case = await _create_case(client, title="No VVT Test")
+    case = await create_case(client, title="No VVT Test")
     resp = await client.get("/api/v1/vvt-overview")
     items = {i["case_id"]: i for i in resp.json()}
     if case["id"] in items:
@@ -83,7 +64,7 @@ async def test_vvt_overview_new_case_has_no_vvt(client):
 
 async def test_vvt_overview_department_filter(client):
     dept = "Spezial-VVT-Abteilung"
-    case = await _create_case(client, title="Dept Filter Test", department=dept)
+    case = await create_case(client, title="Dept Filter Test", department=dept)
     resp = await client.get("/api/v1/vvt-overview", params={"department": dept})
     assert resp.status_code == 200
     ids = [i["case_id"] for i in resp.json()]
@@ -92,7 +73,7 @@ async def test_vvt_overview_department_filter(client):
 
 async def test_vvt_overview_filter_has_vvt_false(client):
     """Filter has_vvt=false returns only cases without VVT documents."""
-    case = await _create_case(client, title="No VVT Filter Test")
+    case = await create_case(client, title="No VVT Filter Test")
     resp = await client.get("/api/v1/vvt-overview", params={"has_vvt": "false"})
     assert resp.status_code == 200
     ids = [i["case_id"] for i in resp.json()]

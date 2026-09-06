@@ -17,6 +17,8 @@ from app.celery_app import (
     extract_document_text,
 )
 
+pytestmark = pytest.mark.requires_db
+
 # ---------------------------------------------------------------------------
 # _count_checks_total (pure function)
 # ---------------------------------------------------------------------------

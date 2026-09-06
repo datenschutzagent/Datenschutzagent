@@ -6,6 +6,8 @@ DSFA screening is case-scoped: a case must exist before calling the endpoint.
 
 import pytest
 
+from tests.factories import create_case
+
 pytestmark = pytest.mark.asyncio
 
 
@@ -14,28 +16,13 @@ pytestmark = pytest.mark.asyncio
 # ---------------------------------------------------------------------------
 
 
-async def _create_case(client, **overrides) -> dict:
-    payload = {
-        "title": "DSFA-Test-Vorgang",
-        "department": "Forschung",
-        "case_type": "Forschungsprojekt",
-        "language": "de",
-        "created_by": "test@example.com",
-        "assignee": "DSB Team",
-        **overrides,
-    }
-    resp = await client.post("/api/v1/cases", json=payload)
-    assert resp.status_code == 201, resp.text
-    return resp.json()
-
-
 # ---------------------------------------------------------------------------
 # DSFA Screening
 # ---------------------------------------------------------------------------
 
 
 async def test_dsfa_screening_returns_result(client):
-    case = await _create_case(client, title="DSFA Screening Smoke Test")
+    case = await create_case(client, title="DSFA Screening Smoke Test")
     case_id = case["id"]
 
     resp = await client.get(f"/api/v1/cases/{case_id}/dsfa/screening")
@@ -60,7 +47,7 @@ async def test_dsfa_screening_requires_valid_case(client):
 
 
 async def test_dsfa_screening_has_factors(client):
-    case = await _create_case(client, title="DSFA Faktoren Test")
+    case = await create_case(client, title="DSFA Faktoren Test")
     case_id = case["id"]
 
     resp = await client.get(f"/api/v1/cases/{case_id}/dsfa/screening")
@@ -87,7 +74,7 @@ async def test_generate_dsfa_commits_before_dispatch(client, monkeypatch):
     from app.main import app
 
     monkeypatch.setattr(settings, "celery_enabled", True, raising=False)
-    case = await _create_case(client, title="DSFA-Dispatch")
+    case = await create_case(client, title="DSFA-Dispatch")
 
     commits: list[int] = []
     dispatched_after_commits: list[int] = []

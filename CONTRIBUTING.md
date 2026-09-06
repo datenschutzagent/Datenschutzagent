@@ -34,9 +34,17 @@ Bitte stellen Sie sicher, dass folgendes lokal grün ist:
 ruff check .            # Lint (Konfiguration: ruff.toml)
 black --check .         # Formatierung
 mypy -p app.core -p app.services   # Typprüfung (mypy.ini; pip install mypy==2.3.1)
-pytest tests/ -v        # Tests (benötigt DATABASE_URL auf eine Postgres-Instanz)
+pytest tests/ -v        # Tests; ohne DATABASE_URL laufen nur die reinen Unit-Tests
 python -m evals.run     # Offline-Qualitäts-Gate (Extraktion/Grounding)
 ```
+
+Testkonventionen (Backend): Tests, die das `client`-Fixture nutzen, bekommen automatisch
+den Marker `requires_db` und werden ohne `DATABASE_URL` übersprungen; Module, die direkt
+über `async_session_factory` schreiben, setzen `pytestmark = pytest.mark.requires_db`
+selbst. Testdaten werden über `tests/factories.py` angelegt (`create_case`, `create_avv`,
+`create_dsr`, `create_tom`, `create_breach`), keine lokalen Kopien der Payloads. Der
+Rate-Limiter ist in der Suite deaktiviert; `tests/test_rate_limit_api.py` schaltet ihn
+gezielt ein.
 
 **Frontend** (Projektwurzel):
 
