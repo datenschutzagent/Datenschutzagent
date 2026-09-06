@@ -36,7 +36,14 @@ black --check .         # Formatierung
 mypy -p app.core -p app.services   # Typprüfung (mypy.ini; pip install mypy==2.3.1)
 pytest tests/ -v        # Tests; ohne DATABASE_URL laufen nur die reinen Unit-Tests
 python -m evals.run     # Offline-Qualitäts-Gate (Extraktion/Grounding)
+python -m evals.run --llm --strict --out evals.json   # LLM-Evals (Provider + DB nötig; nightly)
 ```
+
+Coverage-Messung: `.coveragerc` setzt `concurrency = greenlet,thread`. Ohne diese
+Einstellung verliert coverage in async Route-Handlern jede Zeile nach dem ersten
+`await db.execute(...)` (SQLAlchemy wechselt den Greenlet) – die Zahlen für DB-Routen
+wären dann systematisch zu niedrig. `--cov=app` wie in CI verwenden; ein Modulpfad wie
+`--cov=app.api.routes.playbooks` importiert die App vor der `conftest.py` und bricht ab.
 
 Testkonventionen (Backend): Tests, die das `client`-Fixture nutzen, bekommen automatisch
 den Marker `requires_db` und werden ohne `DATABASE_URL` übersprungen; Module, die direkt
@@ -52,15 +59,24 @@ gezielt ein.
 npm run lint -- --max-warnings=0   # ESLint (Warnungen zählen als Fehler, wie in CI)
 npm run typecheck                  # tsc --noEmit (Typprüfung)
 npm run test                       # Vitest
+npm run test:coverage              # Vitest mit v8-Coverage und Schwellen (wie in CI)
 npm run test:e2e                   # Playwright E2E (benötigt laufenden Stack)
+npm run test:e2e -- --grep @smoke  # nur das Smoke-Set, das im PR-Gate läuft
 ```
+
+E2E-Tests legen ihre Testdaten selbst per API an (`e2e/fixtures.ts`) und räumen sie
+wieder ab; sie dürfen nicht davon abhängen, was zufällig in der Datenbank liegt.
+Keine weichen Assertions (`.catch(() => {})`, `isVisible()`-Guards); `test.skip`
+nur mit Begründung. Das `@smoke`-Set läuft bei jedem PR, die volle Suite und die
+LLM-Evals nachts (`.github/workflows/nightly.yml`).
 
 ### Coverage-Ratchet
 
-Das Backend-Coverage-Gate (`--cov-fail-under` in `.github/workflows/test.yml`) wird
-nach jedem Merge, der die Abdeckung erhöht, auf den gemessenen Wert (abgerundet)
-angehoben und **nie gesenkt**. Wer Tests hinzufügt, hebt die Schwelle im selben PR an.
-Ziel laut [Qualitätsplan](mkdocs/docs/projekt/qualitaetsplan.md): 70 %.
+Die Coverage-Gates – Backend `--cov-fail-under` in `.github/workflows/test.yml`,
+Frontend `coverage.thresholds` in `vite.config.ts` – werden nach jedem Merge, der die
+Abdeckung erhöht, auf den gemessenen Wert (abgerundet) angehoben und **nie gesenkt**.
+Wer Tests hinzufügt, hebt die Schwelle im selben PR an. Ziel laut
+[Qualitätsplan](mkdocs/docs/projekt/qualitaetsplan.md): Backend 70 %, Frontend 60 %.
 
 ## Branch- & Commit-Konventionen
 
