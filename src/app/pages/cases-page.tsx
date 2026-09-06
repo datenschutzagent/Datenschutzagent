@@ -84,7 +84,11 @@ export function CasesPage() {
         description={`${filteredCases.length} ${filteredCases.length === 1 ? "Vorgang" : "Vorgänge"}`}
         action={
           canEdit(auth?.user ?? null) ? (
-            <Button className="gap-2" onClick={() => setIsNewCaseDialogOpen(true)}>
+            <Button
+              className="gap-2"
+              data-testid="new-case-button"
+              onClick={() => setIsNewCaseDialogOpen(true)}
+            >
               <Plus className="size-4" />
               Neuer Vorgang
             </Button>
@@ -173,7 +177,13 @@ export function CasesPage() {
                 const stats = getStatsForCase(caseItem);
                 const deadlineStatus = getDeadlineStatus(caseItem.deadline);
                 return (
-                  <Link key={caseItem.id} to={`/cases/${caseItem.id}`} className="block">
+                  <Link
+                    key={caseItem.id}
+                    to={`/cases/${caseItem.id}`}
+                    className="block"
+                    data-testid="case-card"
+                    data-case-id={caseItem.id}
+                  >
                     <Card className="hover:shadow-md transition-shadow">
                       <CardHeader>
                         <div className="flex items-start justify-between">
@@ -281,7 +291,7 @@ export function CasesPage() {
               })}
 
               {filteredCases.length === 0 && (
-                <Card>
+                <Card data-testid="cases-empty-state">
                   <CardContent className="py-12 text-center">
                     <FileText className="size-12 text-muted-foreground/30 mx-auto mb-4" />
                     <p className="text-muted-foreground">Keine Vorgänge gefunden</p>

@@ -379,21 +379,23 @@ function CaseDetailPageContent({
 
       {/* Tabs */}
       <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
-        <TabsList>
-          <TabsTrigger value="overview">Überblick</TabsTrigger>
-          <TabsTrigger value="documents">Dokumente ({caseData.documents.length})</TabsTrigger>
-          <TabsTrigger value="findings">
+        <TabsList data-testid="case-tabs">
+          <TabsTrigger value="overview" data-testid="case-tab-overview">Überblick</TabsTrigger>
+          <TabsTrigger value="documents" data-testid="case-tab-documents">
+            Dokumente ({caseData.documents.length})
+          </TabsTrigger>
+          <TabsTrigger value="findings" data-testid="case-tab-findings">
             Findings ({caseData.findings.length})
             {openFindings.length > 0 && (
               <Badge className="ml-2 bg-red-600 dark:bg-red-700 text-white">{openFindings.length}</Badge>
             )}
           </TabsTrigger>
-          <TabsTrigger value="audit">Audit Trail</TabsTrigger>
-          <TabsTrigger value="vvt">VVT Normalisierung</TabsTrigger>
-          <TabsTrigger value="dsfa">DSFA</TabsTrigger>
-          <TabsTrigger value="report">DSB-Report</TabsTrigger>
-          <TabsTrigger value="privacy-policy">Datenschutzerklärung</TabsTrigger>
-          <TabsTrigger value="annotated">Annotierte Dokumente</TabsTrigger>
+          <TabsTrigger value="audit" data-testid="case-tab-audit">Audit Trail</TabsTrigger>
+          <TabsTrigger value="vvt" data-testid="case-tab-vvt">VVT Normalisierung</TabsTrigger>
+          <TabsTrigger value="dsfa" data-testid="case-tab-dsfa">DSFA</TabsTrigger>
+          <TabsTrigger value="report" data-testid="case-tab-report">DSB-Report</TabsTrigger>
+          <TabsTrigger value="privacy-policy" data-testid="case-tab-privacy-policy">Datenschutzerklärung</TabsTrigger>
+          <TabsTrigger value="annotated" data-testid="case-tab-annotated">Annotierte Dokumente</TabsTrigger>
         </TabsList>
 
         {/* Overview Tab */}

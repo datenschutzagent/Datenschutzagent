@@ -235,12 +235,13 @@ export function CaseOverviewTab({
                 <Button
                   variant="outline"
                   className="w-full justify-start gap-2"
+                  data-testid="run-checks-button"
                   onClick={() => setRunChecksOpen(true)}
                 >
                   <Shield className="size-4" />
                   Playbook-Checks ausführen
                 </Button>
-                <DialogContent>
+                <DialogContent data-testid="run-checks-dialog">
                   <DialogHeader>
                     <DialogTitle>Playbook-Checks ausführen</DialogTitle>
                     <DialogDescription>
@@ -342,7 +343,11 @@ export function CaseOverviewTab({
                   )}
                   <div className="flex justify-end gap-2">
                     <Button variant="outline" onClick={() => { setRunChecksOpen(false); setRunChecksError(null); }}>Abbrechen</Button>
-                    <Button onClick={() => void handleRunChecks()} disabled={!selectedPlaybookId || runChecksLoading || runChecksStatus === "running"}>
+                    <Button
+                      onClick={() => void handleRunChecks()}
+                      disabled={!selectedPlaybookId || runChecksLoading || runChecksStatus === "running"}
+                      data-testid="run-checks-submit"
+                    >
                       {runChecksLoading ? <Loader2 className="size-4 animate-spin" /> : null}
                       Checks starten
                     </Button>

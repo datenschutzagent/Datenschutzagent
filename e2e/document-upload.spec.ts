@@ -1,77 +1,94 @@
-import { test, expect, type Page } from "@playwright/test";
-import path from "path";
-import fs from "fs";
-import os from "os";
+import fs from "node:fs";
+import { test, expect, expectNoErrorBoundary, csvDocument, uploadDocument } from "./fixtures";
 
 /**
- * E2E: Document upload and extraction status flow.
+ * E2E: document upload and extraction status on the case detail page.
  *
- * These tests require an existing case to upload documents to.
- * They assume OIDC_ENABLED=false (DEV mode).
+ * The stack under test extracts CSV text synchronously when Celery is disabled
+ * (CI) and asynchronously otherwise; both paths are accepted, "failed" is not.
  */
-
-async function openFirstCase(page: Page): Promise<boolean> {
-  await page.goto("/");
-  await page.waitForLoadState("networkidle");
-
-  // Look for any case card/link and click the first one
-  const caseLink = page.getByRole("link", { name: /.+/ }).first();
-  if (!(await caseLink.isVisible({ timeout: 3_000 }).catch(() => false))) {
-    return false;
-  }
-
-  await caseLink.click();
-  await page.waitForLoadState("networkidle");
-  return true;
-}
-
 test.describe("Document Upload", () => {
-  test("document upload section is visible inside a case", async ({ page }) => {
-    const hasCase = await openFirstCase(page);
-    if (!hasCase) {
-      test.skip();
-      return;
-    }
+  test("upload via file input shows the file name and an extraction status @smoke", async ({
+    page,
+    seededCase,
+  }, testInfo) => {
+    const doc = csvDocument("E2E-UI-Upload");
+    const tmpFile = testInfo.outputPath(doc.name);
+    fs.writeFileSync(tmpFile, doc.buffer);
 
-    // Look for a documents section or upload button
-    const uploadSection = page
-      .getByRole("button", { name: /Hochladen|Upload|Dokument/i })
-      .first();
+    await page.goto(`/cases/${seededCase.id}?tab=documents`);
+    await expect(page.getByRole("heading", { name: seededCase.title })).toBeVisible();
+    await expect(page.getByTestId("case-tab-documents")).toContainText("Dokumente (0)");
 
-    // Either the upload section exists, or we're on a page that doesn't have it
-    const isVisible = await uploadSection.isVisible({ timeout: 5_000 }).catch(() => false);
+    await page.getByTestId("document-upload-button").click();
+    const dialog = page.getByTestId("document-upload-dialog");
+    await expect(dialog).toBeVisible();
+    await dialog.getByTestId("document-upload-input").setInputFiles(tmpFile);
 
-    if (isVisible) {
-      await expect(uploadSection).toBeEnabled();
-    }
-    // Test passes regardless — we validated the page doesn't crash
-    await expect(page.getByText(/Etwas ist schiefgelaufen/i)).not.toBeVisible();
+    const item = dialog.getByTestId("document-upload-item");
+    await expect(item).toHaveCount(1);
+    await expect(item).toContainText(doc.name);
+    await expect(item).toHaveAttribute("data-status", "success");
+
+    // The submit button stays disabled until a document type is assigned.
+    const submit = dialog.getByTestId("document-upload-submit");
+    await expect(submit).toBeDisabled();
+    await item.getByTestId("document-type-select").click();
+    await page.getByRole("option", { name: "Sonstiges" }).click();
+    await expect(submit).toBeEnabled();
+    await submit.click();
+    await expect(dialog).toBeHidden();
+
+    const row = page.getByTestId("document-row").filter({ hasText: doc.name });
+    await expect(row).toHaveCount(1);
+    await expect(row).toContainText("Sonstiges");
+    await expect(row).toContainText("v1");
+    await expect(row).toHaveAttribute("data-extraction-status", /^(pending|processing|done)$/);
+    await expect(row.getByText("Extraktion fehlgeschlagen")).toHaveCount(0);
+    await expect(page.getByTestId("case-tab-documents")).toContainText("Dokumente (1)");
+    await expectNoErrorBoundary(page);
   });
 
-  test("uploading a small PDF is accepted", async ({ page }) => {
-    const hasCase = await openFirstCase(page);
-    if (!hasCase) {
-      test.skip();
-      return;
-    }
+  test("API-seeded document is listed and its extracted text is viewable", async ({
+    page,
+    api,
+    seededCase,
+  }) => {
+    const marker = `E2E-Marker-${Date.now()}`;
+    const seededDoc = await uploadDocument(api, seededCase.id, csvDocument(marker), "vvt");
+    expect(seededDoc.extractionStatus).not.toBe("failed");
 
-    // Create a tiny temp file to upload (not a real PDF, but valid for size checks)
-    const tmpFile = path.join(os.tmpdir(), "test-upload.txt");
-    fs.writeFileSync(tmpFile, "Testdokument für E2E-Test");
+    await page.goto(`/cases/${seededCase.id}?tab=documents`);
+    const row = page.getByTestId("document-row").filter({ hasText: seededDoc.name });
+    await expect(row).toHaveCount(1);
+    await expect(row).toHaveAttribute("data-document-id", seededDoc.id);
+    await expect(row).toContainText("VVT / ROPA");
 
-    const fileInput = page.locator('input[type="file"]').first();
-    const isPresent = await fileInput.isVisible({ timeout: 5_000 }).catch(() => false);
+    await row.getByTestId("document-view-button").click();
+    const viewDialog = page.getByRole("dialog");
+    await expect(viewDialog).toBeVisible();
+    // Extraction may still be pending on stacks with Celery; the dialog polls until done.
+    await expect(viewDialog.getByText(marker)).toBeVisible({ timeout: 20_000 });
+    await expect(viewDialog.getByText("Kein Text extrahiert.")).toHaveCount(0);
+    await expectNoErrorBoundary(page);
+  });
 
-    if (isPresent) {
-      await fileInput.setInputFiles(tmpFile);
-      // File name should appear somewhere in the UI
-      await expect(page.getByText("test-upload.txt")).toBeVisible({ timeout: 5_000 }).catch(
-        () => {
-          // Acceptable: some UIs show a different confirmation
-        },
-      );
-    }
+  test("unsupported file formats are rejected before upload", async ({ page, seededCase }, testInfo) => {
+    const tmpFile = testInfo.outputPath("notizen.txt");
+    fs.writeFileSync(tmpFile, "Kein unterstütztes Format");
 
-    fs.unlinkSync(tmpFile);
+    await page.goto(`/cases/${seededCase.id}?tab=documents`);
+    await page.getByTestId("document-upload-button").click();
+    const dialog = page.getByTestId("document-upload-dialog");
+    await dialog.getByTestId("document-upload-input").setInputFiles(tmpFile);
+
+    const item = dialog.getByTestId("document-upload-item");
+    await expect(item).toHaveAttribute("data-status", "error");
+    await expect(item).toContainText("Nicht unterstütztes Format");
+    await expect(dialog.getByTestId("document-upload-submit")).toBeDisabled();
+
+    await page.keyboard.press("Escape");
+    await expect(dialog).toBeHidden();
+    await expect(page.getByTestId("case-tab-documents")).toContainText("Dokumente (0)");
   });
 });

@@ -97,6 +97,7 @@ export function CasesSearchFilter({
             value={filters.searchQuery}
             onChange={(e) => handleSearchChange(e.target.value)}
             className="pl-10"
+            data-testid="cases-search-input"
           />
           {filters.searchQuery && (
             <button

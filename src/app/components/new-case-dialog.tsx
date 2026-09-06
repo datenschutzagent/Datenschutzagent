@@ -214,7 +214,7 @@ export function NewCaseDialog({ open, onOpenChange, onSuccess }: NewCaseDialogPr
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-2xl">
+      <DialogContent className="sm:max-w-2xl" data-testid="new-case-dialog" data-step={step}>
         <DialogHeader>
           <DialogTitle>Neuen Vorgang anlegen</DialogTitle>
           <DialogDescription>
@@ -533,22 +533,27 @@ export function NewCaseDialog({ open, onOpenChange, onSuccess }: NewCaseDialogPr
             </Button>
           )}
           {step === 1 && (
-            <Button onClick={nextStep} disabled={!canProceedToStep2}>
+            <Button onClick={nextStep} disabled={!canProceedToStep2} data-testid="new-case-next">
               Weiter
             </Button>
           )}
           {step === 2 && (
             <>
-              <Button variant="outline" onClick={handleSubmit} disabled={!canSubmit(selectedPlaybookId) || loading}>
+              <Button
+                variant="outline"
+                onClick={handleSubmit}
+                disabled={!canSubmit(selectedPlaybookId) || loading}
+                data-testid="new-case-submit-without-documents"
+              >
                 {loading ? "Wird angelegt…" : "Ohne Dokumente anlegen"}
               </Button>
-              <Button onClick={nextStep} disabled={!canSubmit(selectedPlaybookId)}>
+              <Button onClick={nextStep} disabled={!canSubmit(selectedPlaybookId)} data-testid="new-case-next">
                 Weiter
               </Button>
             </>
           )}
           {step === 3 && (
-            <Button onClick={handleSubmit} disabled={loading}>
+            <Button onClick={handleSubmit} disabled={loading} data-testid="new-case-submit">
               {loading ? "Wird angelegt…" : pendingFiles.length > 0 ? "Vorgang anlegen & Dokumente hochladen" : "Vorgang anlegen"}
             </Button>
           )}
