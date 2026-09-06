@@ -19,8 +19,8 @@ import {
   type ApiFinding,
   type FindingStatsResult,
 } from "../lib/api";
-import { severityColors, severityLabels, findingStatusLabels } from "../lib/mock-data";
-import type { FindingSeverity } from "../lib/mock-data";
+import { severityColors, severityLabels, findingStatusLabels } from "../lib/labels";
+import type { FindingSeverity } from "../lib/labels";
 import { Download, Loader2, ShieldAlert, AlertTriangle, AlertCircle, Info, TrendingUp } from "lucide-react";
 import { toast } from "sonner";
 

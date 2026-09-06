@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { getCaseActivities, type TimelineActivity } from "../lib/api";
-import { activityTypeLabels } from "../lib/mock-data";
+import { activityTypeLabels } from "../lib/labels";
 import { Card, CardContent } from "./ui/card";
 import { Badge } from "./ui/badge";
 import { 

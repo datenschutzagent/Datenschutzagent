@@ -21,7 +21,7 @@ import {
   type ApiCaseTemplate,
 } from "../lib/api";
 import { useAppConfig } from "../contexts/AppConfigContext";
-import { documentTypeLabels, type DocumentType } from "../lib/mock-data";
+import { documentTypeLabels, type DocumentType } from "../lib/labels";
 import { useMultiStepForm } from "../hooks/useMultiStepForm";
 
 interface NewCaseDialogProps {

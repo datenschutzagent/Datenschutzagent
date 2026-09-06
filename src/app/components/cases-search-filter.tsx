@@ -5,7 +5,7 @@ import { Badge } from "./ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./ui/select";
 import { Popover, PopoverContent, PopoverTrigger } from "./ui/popover";
 import { Search, X, Filter, Calendar } from "lucide-react";
-import { CaseStatus, Priority, statusLabels, priorityLabels } from "../lib/mock-data";
+import { CaseStatus, Priority, statusLabels, priorityLabels } from "../lib/labels";
 
 export interface CasesFilters {
   searchQuery: string;

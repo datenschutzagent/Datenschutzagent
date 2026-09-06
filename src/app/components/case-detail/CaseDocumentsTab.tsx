@@ -4,7 +4,7 @@ import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "../ui/dialog";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "../ui/tooltip";
-import { documentTypeLabels } from "../../lib/mock-data";
+import { documentTypeLabels } from "../../lib/labels";
 import { getDocumentDownloadBlob, downloadBlob, type ApiCase, type ApiDocument } from "../../lib/api";
 import { DocumentUploadZone } from "../document-upload-zone";
 import { DocumentViewDialog } from "./DocumentViewDialog";

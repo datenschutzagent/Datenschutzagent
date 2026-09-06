@@ -10,7 +10,7 @@ import { PageHeader } from "../components/page-header";
 import { DashboardStats } from "../components/dashboard-stats";
 import { NewCaseDialog } from "../components/new-case-dialog";
 import { CasesSearchFilter, CasesFilters } from "../components/cases-search-filter";
-import { statusLabels, statusColors, priorityColors, priorityLabels } from "../lib/mock-data";
+import { statusLabels, statusColors, priorityColors, priorityLabels } from "../lib/labels";
 import { unarchiveCase, canEdit, type CasesFilter } from "../lib/api";
 import { getStatsForCase, getDeadlineStatus, formatDeadline } from "../lib/case-utils";
 import { useAuthOptional } from "../contexts/AuthContext";

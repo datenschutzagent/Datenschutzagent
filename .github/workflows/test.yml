@@ -34,6 +34,20 @@ jobs:
         run: |
           npm run generate:api
           git diff --exit-code src/app/lib/api/schema.ts
+      # Production build as a gate plus a per-chunk size report (raw and gzip) so bundle
+      # growth is visible per PR (Qualitätsplan, Phase 3 F6). Routes are lazy: the
+      # report lists one chunk per page next to the shared vendor chunks.
+      - name: Build and report bundle size
+        run: |
+          npm run build
+          node scripts/bundle-size.mjs dist/assets | tee bundle-size.txt
+      - name: Upload bundle size report
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: bundle-size
+          path: bundle-size.txt
+          retention-days: 30
 
   backend:
     runs-on: ubuntu-latest

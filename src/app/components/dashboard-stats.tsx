@@ -15,11 +15,10 @@ import {
 } from "lucide-react";
 import { useState, useEffect, useMemo } from "react";
 import { Link } from "react-router";
-import { mockCases } from "../lib/mock-data";
 import { getPlaybooks, type ApiCase, type ApiPlaybook } from "../lib/api";
 
 interface DashboardStatsProps {
-  cases?: ApiCase[];
+  cases: ApiCase[];
 }
 
 const SEVERITY_ORDER = ["critical", "high", "medium", "low", "info"] as const;
@@ -50,8 +49,7 @@ function scoreBarColor(score: number): string {
   return "[&>div]:bg-red-500";
 }
 
-export function DashboardStats({ cases: casesProp }: DashboardStatsProps = {}) {
-  const cases = casesProp ?? (mockCases as unknown as ApiCase[]);
+export function DashboardStats({ cases }: DashboardStatsProps) {
   const [playbooks, setPlaybooks] = useState<ApiPlaybook[]>([]);
 
   useEffect(() => {

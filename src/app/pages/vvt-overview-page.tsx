@@ -20,8 +20,8 @@ import {
 import { AppLayout } from "../components/app-layout";
 import { PageHeader } from "../components/page-header";
 import { Skeleton } from "../components/ui/skeleton";
-import { statusLabels, statusColors } from "../lib/mock-data";
-import type { CaseStatus } from "../lib/mock-data";
+import { statusLabels, statusColors } from "../lib/labels";
+import type { CaseStatus } from "../lib/labels";
 import {
   getVvtOverview,
   getVvtOverviewStats,

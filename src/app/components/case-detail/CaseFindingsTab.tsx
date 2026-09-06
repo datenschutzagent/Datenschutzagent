@@ -5,8 +5,8 @@ import { Button } from "../ui/button";
 import { Checkbox } from "../ui/checkbox";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../ui/select";
 import { CircleAlert, CheckCircle2, Shield, XCircle, ShieldAlert, AlertTriangle, AlertCircle, Info, Download, Loader2 } from "lucide-react";
-import { findingStatusLabels, severityColors, severityLabels } from "../../lib/mock-data";
-import type { FindingSeverity } from "../../lib/mock-data";
+import { findingStatusLabels, severityColors, severityLabels } from "../../lib/labels";
+import type { FindingSeverity } from "../../lib/labels";
 import {
   downloadFindingsExport,
   downloadBlob,

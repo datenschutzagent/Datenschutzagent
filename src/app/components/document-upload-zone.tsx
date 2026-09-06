@@ -4,7 +4,7 @@ import { Button } from "./ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./ui/select";
 import { Progress } from "./ui/progress";
 import { Upload, X, Check, CircleAlert, Loader2 } from "lucide-react";
-import { documentTypeLabels, type DocumentType } from "../lib/mock-data";
+import { documentTypeLabels, type DocumentType } from "../lib/labels";
 import { randomUUID } from "../lib/uuid";
 import { uploadDocument, uploadDocumentsBulk } from "../lib/api";
 

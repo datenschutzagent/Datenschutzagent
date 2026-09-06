@@ -4,7 +4,7 @@ import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "../ui/dialog";
 import { LineChart, Line, Tooltip, ResponsiveContainer } from "recharts";
-import { severityColors, priorityLabels, priorityColors } from "../../lib/mock-data";
+import { severityColors, priorityLabels, priorityColors } from "../../lib/labels";
 import type { ApiCase, ApiFinding } from "../../lib/api";
 import { updateCase } from "../../lib/api";
 import { useAppConfig } from "../../contexts/AppConfigContext";
