@@ -7,6 +7,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from ".
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "../ui/dialog";
 import { createDataBreach, type ApiDataBreach, type DataBreachCreate } from "../../lib/api";
 import { toast } from "sonner";
+import { errorMessage } from "../../lib/errors";
 import { Loader2 } from "lucide-react";
 
 interface NewBreachForm {
@@ -80,8 +81,8 @@ export function DataBreachCreateDialog({
       setForm(defaultForm);
       onOpenChange(false);
       onCreated(created);
-    } catch {
-      toast.error("Fehler beim Erfassen der Datenpanne.");
+    } catch (e) {
+      toast.error("Fehler beim Erfassen der Datenpanne.", { description: errorMessage(e) });
     } finally {
       setCreating(false);
     }

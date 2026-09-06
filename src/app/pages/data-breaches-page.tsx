@@ -13,6 +13,7 @@ import {
   type ApiDataBreach,
 } from "../lib/api";
 import { toast } from "sonner";
+import { errorMessage } from "../lib/errors";
 import { AlertTriangle, Plus, Clock, CheckCircle, ShieldAlert } from "lucide-react";
 
 const BREACH_TYPE_LABELS: Record<string, string> = {
@@ -100,8 +101,8 @@ export function DataBreachesPage() {
       });
       setBreaches(r.items);
       setTotal(r.total);
-    } catch {
-      toast.error("Datenpannen konnten nicht geladen werden.");
+    } catch (e) {
+      toast.error("Datenpannen konnten nicht geladen werden.", { description: errorMessage(e) });
     } finally {
       setLoading(false);
     }

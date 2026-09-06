@@ -1,6 +1,7 @@
 import { lazy, Suspense, type ComponentType, type LazyExoticComponent } from "react";
 import { createBrowserRouter, useLocation } from "react-router";
 import { useAuthOptional } from "./contexts/AuthContext";
+import { ErrorBoundary } from "./components/ErrorBoundary";
 
 // Every page is its own chunk (React.lazy): the initial bundle carries the shell,
 // the router and the cases list; Recharts, the Markdown editor and the admin area
@@ -70,12 +71,28 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
   return <>{children}</>;
 }
 
+function RouteErrorFallback({ error }: { error: Error }) {
+  return (
+    <div className="flex min-h-screen flex-col items-center justify-center gap-3 p-6 text-center">
+      <p className="text-sm font-medium text-destructive">Diese Seite konnte nicht angezeigt werden.</p>
+      <p className="max-w-xl text-xs text-muted-foreground">{error.message}</p>
+      <a className="text-sm underline" href="/">
+        Zur Vorgangsübersicht
+      </a>
+    </div>
+  );
+}
+
+// One boundary per route: a render error in one page no longer unmounts the whole
+// app (the global boundary in App.tsx stays as last resort for the shell itself).
 function guarded(Page: ComponentType) {
   return (
     <AuthGuard>
-      <Suspense fallback={<Centered text="Lade…" />}>
-        <Page />
-      </Suspense>
+      <ErrorBoundary fallback={(error) => <RouteErrorFallback error={error} />}>
+        <Suspense fallback={<Centered text="Lade…" />}>
+          <Page />
+        </Suspense>
+      </ErrorBoundary>
     </AuthGuard>
   );
 }

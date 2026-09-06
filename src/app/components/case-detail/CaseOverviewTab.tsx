@@ -11,6 +11,7 @@ import { useAppConfig } from "../../contexts/AppConfigContext";
 import { useCaseDetail } from "../../contexts/CaseDetailContext";
 import { CircleAlert, Download, FileCheck, Loader2, Shield, Zap } from "lucide-react";
 import { toast } from "sonner";
+import { errorMessage } from "../../lib/errors";
 
 export interface CaseOverviewTabProps {
   caseData: ApiCase;
@@ -65,8 +66,8 @@ export function CaseOverviewTab({
       const updated = await updateCase(caseData.id, { deadline: deadlineValue || null });
       onCaseUpdated?.(updated);
       toast.success("Frist gespeichert");
-    } catch {
-      toast.error("Frist konnte nicht gespeichert werden");
+    } catch (e) {
+      toast.error("Frist konnte nicht gespeichert werden", { description: errorMessage(e) });
     } finally {
       setDeadlineSaving(false);
     }
@@ -79,9 +80,9 @@ export function CaseOverviewTab({
       const updated = await updateCase(caseData.id, { auto_run_checks: checked });
       onCaseUpdated?.(updated);
       toast.success(checked ? "Auto-Checks aktiviert" : "Auto-Checks deaktiviert");
-    } catch {
+    } catch (e) {
       setAutoRunChecks(!checked);
-      toast.error("Einstellung konnte nicht gespeichert werden");
+      toast.error("Einstellung konnte nicht gespeichert werden", { description: errorMessage(e) });
     } finally {
       setAutoRunSaving(false);
     }

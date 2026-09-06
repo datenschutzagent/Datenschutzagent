@@ -23,6 +23,7 @@ import {
   type AvvRiskAssessment,
 } from "../lib/api";
 import { toast } from "sonner";
+import { errorMessage } from "../lib/errors";
 import { Plus, FileText, Loader2, Trash2, AlertTriangle, Clock, ShieldAlert } from "lucide-react";
 
 const STATUS_LABELS: Record<string, string> = {
@@ -121,8 +122,8 @@ export function AVVPage() {
       });
       setContracts(r.items);
       setTotal(r.total);
-    } catch {
-      toast.error("AVV konnten nicht geladen werden.");
+    } catch (e) {
+      toast.error("AVV konnten nicht geladen werden.", { description: errorMessage(e) });
     } finally {
       setLoading(false);
     }
@@ -149,8 +150,8 @@ export function AVVPage() {
       setShowNew(false);
       setForm(defaultForm);
       void load();
-    } catch {
-      toast.error("Fehler beim Anlegen.");
+    } catch (e) {
+      toast.error("Fehler beim Anlegen.", { description: errorMessage(e) });
     } finally {
       setCreating(false);
     }
@@ -165,8 +166,8 @@ export function AVVPage() {
       setSelected(updated);
       setContracts((prev) => prev.map((c) => c.id === updated.id ? updated : c));
       toast.success("Status aktualisiert.");
-    } catch {
-      toast.error("Fehler beim Aktualisieren.");
+    } catch (e) {
+      toast.error("Fehler beim Aktualisieren.", { description: errorMessage(e) });
     } finally {
       setUpdatingStatus(false);
     }
@@ -194,8 +195,8 @@ export function AVVPage() {
       setTotal((t) => t - 1);
       if (selected?.id === id) setSelected(null);
       toast.success("AVV gelöscht.");
-    } catch {
-      toast.error("Fehler beim Löschen.");
+    } catch (e) {
+      toast.error("Fehler beim Löschen.", { description: errorMessage(e) });
     }
   }
 

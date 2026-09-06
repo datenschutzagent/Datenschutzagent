@@ -50,6 +50,7 @@ import { CaseFindingsTab } from "../components/case-detail/CaseFindingsTab";
 import { CasePrivacyPolicyTab } from "../components/case-detail/CasePrivacyPolicyTab";
 import { Download, MessageSquare, Loader2, CircleAlert } from "lucide-react";
 import { toast } from "sonner";
+import { errorMessage } from "../lib/errors";
 import { useState, useEffect, useMemo } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useAppConfig } from "../contexts/AppConfigContext";
@@ -459,8 +460,8 @@ function CaseDetailPageContent({
                         const blob = await getAuditTrailExportBlob(caseData.id);
                         downloadBlob(blob, `audit-trail-${caseData.id}.csv`);
                         toast.success("Audit Trail exportiert.");
-                      } catch {
-                        toast.error("Export fehlgeschlagen.");
+                      } catch (e) {
+                        toast.error("Export fehlgeschlagen.", { description: errorMessage(e) });
                       }
                     }}
                   >
@@ -475,8 +476,8 @@ function CaseDetailPageContent({
                         const blob = await downloadAuditPackage(caseData.id);
                         downloadBlob(blob, `audit-paket-${caseData.id.slice(0, 8)}.zip`);
                         toast.success("Audit-Paket exportiert.");
-                      } catch {
-                        toast.error("Audit-Export fehlgeschlagen.");
+                      } catch (e) {
+                        toast.error("Audit-Export fehlgeschlagen.", { description: errorMessage(e) });
                       }
                     }}
                   >
@@ -497,8 +498,8 @@ function CaseDetailPageContent({
                         } else {
                           toast.success(`${filename} exportiert.`);
                         }
-                      } catch {
-                        toast.error("Signierter Audit-Export fehlgeschlagen.");
+                      } catch (e) {
+                        toast.error("Signierter Audit-Export fehlgeschlagen.", { description: errorMessage(e) });
                       }
                     }}
                   >

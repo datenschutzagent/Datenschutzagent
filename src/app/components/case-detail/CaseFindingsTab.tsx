@@ -16,6 +16,7 @@ import {
 } from "../../lib/api";
 import { useBulkUpdateFindingStatus } from "../../lib/queries/caseDetailQueries";
 import { toast } from "sonner";
+import { errorMessage } from "../../lib/errors";
 
 function SeverityIcon({ severity }: { severity: FindingSeverity }) {
   switch (severity) {
@@ -96,8 +97,8 @@ export function CaseFindingsTab({ caseData, onSelectFinding }: CaseFindingsTabPr
       const date = new Date().toISOString().slice(0, 10);
       const slug = caseData.title.replace(/[^\w\s-]/g, "").slice(0, 40).trim().replace(/[-\s]+/g, "-") || "Befunde";
       downloadBlob(blob, `Befunde-${slug}-${date}.${format}`);
-    } catch {
-      toast.error("Export fehlgeschlagen");
+    } catch (e) {
+      toast.error("Export fehlgeschlagen", { description: errorMessage(e) });
     } finally {
       setExportLoading(false);
     }

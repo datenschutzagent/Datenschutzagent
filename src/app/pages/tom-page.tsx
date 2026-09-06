@@ -35,6 +35,7 @@ import {
   type TOMStatus,
 } from "../lib/api";
 import { toast } from "sonner";
+import { errorMessage } from "../lib/errors";
 import { Plus, Shield, Loader2, Trash2, CheckCircle, Clock, XCircle, Paperclip, Download, Upload } from "lucide-react";
 import { logger } from "../lib/logger";
 
@@ -128,8 +129,8 @@ export function TOMPage() {
       ]);
       setToms(r.items);
       setStats(s);
-    } catch {
-      toast.error("TOMs konnten nicht geladen werden.");
+    } catch (e) {
+      toast.error("TOMs konnten nicht geladen werden.", { description: errorMessage(e) });
     } finally {
       setLoading(false);
     }
@@ -170,8 +171,8 @@ export function TOMPage() {
       setShowNew(false);
       setForm(defaultForm);
       void load();
-    } catch {
-      toast.error("Fehler beim Anlegen.");
+    } catch (e) {
+      toast.error("Fehler beim Anlegen.", { description: errorMessage(e) });
     } finally {
       setCreating(false);
     }
@@ -185,8 +186,8 @@ export function TOMPage() {
       setSelected(updated);
       setToms((prev) => prev.map((t) => t.id === updated.id ? updated : t));
       toast.success("Status aktualisiert.");
-    } catch {
-      toast.error("Fehler beim Aktualisieren.");
+    } catch (e) {
+      toast.error("Fehler beim Aktualisieren.", { description: errorMessage(e) });
     } finally {
       setUpdatingStatus(false);
     }
@@ -199,8 +200,8 @@ export function TOMPage() {
       if (selected?.id === id) setSelected(null);
       toast.success("TOM gelöscht.");
       void load();
-    } catch {
-      toast.error("Fehler beim Löschen.");
+    } catch (e) {
+      toast.error("Fehler beim Löschen.", { description: errorMessage(e) });
     }
   }
 
@@ -211,8 +212,8 @@ export function TOMPage() {
       const attachment = await uploadTOMAttachment(selected.id, file, currentUser?.display_name ?? "");
       setAttachments((prev) => [...prev, attachment]);
       toast.success(`"${file.name}" hochgeladen.`);
-    } catch {
-      toast.error("Fehler beim Hochladen.");
+    } catch (e) {
+      toast.error("Fehler beim Hochladen.", { description: errorMessage(e) });
     } finally {
       setUploading(false);
     }
@@ -223,8 +224,8 @@ export function TOMPage() {
     try {
       const blob = await getTOMAttachmentBlob(selected.id, att.id);
       downloadBlob(blob, att.name);
-    } catch {
-      toast.error("Download fehlgeschlagen.");
+    } catch (e) {
+      toast.error("Download fehlgeschlagen.", { description: errorMessage(e) });
     }
   }
 
@@ -234,8 +235,8 @@ export function TOMPage() {
       await deleteTOMAttachment(selected.id, attachmentId);
       setAttachments((prev) => prev.filter((a) => a.id !== attachmentId));
       toast.success("Anhang gelöscht.");
-    } catch {
-      toast.error("Fehler beim Löschen.");
+    } catch (e) {
+      toast.error("Fehler beim Löschen.", { description: errorMessage(e) });
     }
   }
 

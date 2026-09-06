@@ -16,6 +16,7 @@ import {
 } from "../lib/api";
 import { useRunningChecks } from "./RunningChecksContext";
 import { caseDetailKeys, useCaseRiskScore, useSimilarCases } from "../lib/queries/caseDetailQueries";
+import { logger } from "../lib/logger";
 
 interface CaseDetailContextValue {
   runChecksOpen: boolean;
@@ -100,9 +101,15 @@ export function CaseDetailProvider({ caseData, children }: CaseDetailProviderPro
           const all = await getPlaybooks();
           if (!cancelled) setPlaybooks(all);
         }
-      } catch {
+      } catch (e) {
+        logger.warn("Playbook selection failed; falling back to the full list", {}, e);
         if (!cancelled) {
-          getPlaybooks().then(setPlaybooks).catch(() => setPlaybooks([]));
+          getPlaybooks()
+            .then(setPlaybooks)
+            .catch((e2: unknown) => {
+              logger.warn("Playbook list failed; no playbooks available", {}, e2);
+              setPlaybooks([]);
+            });
         }
       }
     })();

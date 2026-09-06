@@ -46,7 +46,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     try {
       const u = await getCurrentUser();
       setUser(u);
-    } catch {
+    } catch (e) {
+      logger.warn("Current user could not be refreshed; treating as signed out", {}, e);
       setUser(null);
     }
   }, []);

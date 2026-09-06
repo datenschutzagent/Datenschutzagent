@@ -34,6 +34,7 @@ import {
 } from "../lib/api";
 import { Download, FileText, Loader2, BarChart3 } from "lucide-react";
 import { useState, useEffect, useCallback } from "react";
+import { logger } from "../lib/logger";
 
 const CASE_TYPE_OPTIONS = ["Allgemein", "HR", "IT-System", "Kommunikation"];
 const HAS_VVT_OPTIONS = [
@@ -60,7 +61,8 @@ export function VvtOverviewPage() {
     try {
       const list = await getDepartments();
       setDepartments(list);
-    } catch {
+    } catch (e) {
+      logger.warn("Departments could not be loaded; filter stays empty", {}, e);
       setDepartments([]);
     }
   };
@@ -93,7 +95,8 @@ export function VvtOverviewPage() {
     try {
       const data = await getVvtOverviewStats();
       setStats(data);
-    } catch {
+    } catch (e) {
+      logger.warn("VVT overview stats could not be loaded", {}, e);
       setStats(null);
     } finally {
       setStatsLoading(false);

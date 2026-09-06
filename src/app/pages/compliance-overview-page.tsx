@@ -23,6 +23,7 @@ import { severityColors, severityLabels, findingStatusLabels } from "../lib/labe
 import type { FindingSeverity } from "../lib/labels";
 import { Download, Loader2, ShieldAlert, AlertTriangle, AlertCircle, Info, TrendingUp } from "lucide-react";
 import { toast } from "sonner";
+import { errorMessage } from "../lib/errors";
 
 const SEVERITY_ORDER: FindingSeverity[] = ["critical", "high", "medium", "low", "info"];
 const SEVERITY_CHART_COLORS: Record<string, string> = {
@@ -71,8 +72,8 @@ export function ComplianceOverviewPage() {
       setFindings(result.items);
       setTotal(result.total);
       setOffset(newOffset);
-    } catch {
-      toast.error("Findings konnten nicht geladen werden");
+    } catch (e) {
+      toast.error("Findings konnten nicht geladen werden", { description: errorMessage(e) });
     } finally {
       setLoading(false);
     }

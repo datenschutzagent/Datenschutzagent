@@ -26,6 +26,7 @@ import {
   type DSRStatus,
 } from "../lib/api";
 import { toast } from "sonner";
+import { errorMessage } from "../lib/errors";
 import {
   AlertTriangle,
   Plus,
@@ -131,8 +132,8 @@ export function DSRPage() {
       });
       setRequests(r.items);
       setTotal(r.total);
-    } catch {
-      toast.error("Anfragen konnten nicht geladen werden.");
+    } catch (e) {
+      toast.error("Anfragen konnten nicht geladen werden.", { description: errorMessage(e) });
     } finally {
       setLoading(false);
     }
@@ -169,8 +170,8 @@ export function DSRPage() {
       setShowNew(false);
       setForm(defaultForm);
       void load();
-    } catch {
-      toast.error("Fehler beim Erfassen der Anfrage.");
+    } catch (e) {
+      toast.error("Fehler beim Erfassen der Anfrage.", { description: errorMessage(e) });
     } finally {
       setCreating(false);
     }
@@ -183,8 +184,8 @@ export function DSRPage() {
       const updated = await generateDSRDraft(selected.id);
       setSelected(updated);
       toast.success("Antwortentwurf generiert.");
-    } catch {
-      toast.error("Fehler beim Generieren des Entwurfs.");
+    } catch (e) {
+      toast.error("Fehler beim Generieren des Entwurfs.", { description: errorMessage(e) });
     } finally {
       setGeneratingDraft(false);
     }
@@ -198,8 +199,8 @@ export function DSRPage() {
       setSelected(updated);
       setRequests((prev) => prev.map((r) => r.id === updated.id ? updated : r));
       toast.success("Status aktualisiert.");
-    } catch {
-      toast.error("Fehler beim Aktualisieren.");
+    } catch (e) {
+      toast.error("Fehler beim Aktualisieren.", { description: errorMessage(e) });
     } finally {
       setUpdatingStatus(false);
     }
@@ -212,8 +213,8 @@ export function DSRPage() {
       setTotal((t) => t - 1);
       if (selected?.id === id) setSelected(null);
       toast.success("Anfrage gelöscht.");
-    } catch {
-      toast.error("Fehler beim Löschen.");
+    } catch (e) {
+      toast.error("Fehler beim Löschen.", { description: errorMessage(e) });
     }
   }
 

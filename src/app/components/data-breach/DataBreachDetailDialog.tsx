@@ -24,6 +24,7 @@ import {
   type ApiDataBreachActivity,
 } from "../../lib/api";
 import { toast } from "sonner";
+import { errorMessage } from "../../lib/errors";
 import { AlertTriangle, Clock, CheckCircle, ShieldAlert, Loader2, FileText, Trash2, Eye } from "lucide-react";
 
 const STATUS_LABELS: Record<string, string> = {
@@ -129,8 +130,8 @@ export function DataBreachDetailDialog({
       setCurrent(updated);
       onUpdated(updated);
       toast.success("Status aktualisiert.");
-    } catch {
-      toast.error("Fehler beim Aktualisieren.");
+    } catch (e) {
+      toast.error("Fehler beim Aktualisieren.", { description: errorMessage(e) });
     } finally {
       setUpdatingStatus(false);
     }
@@ -142,8 +143,8 @@ export function DataBreachDetailDialog({
       const updated = await generateBreachNotification(current.id);
       setCurrent(updated);
       toast.success("Meldungsentwurf generiert.");
-    } catch {
-      toast.error("Fehler beim Generieren des Entwurfs.");
+    } catch (e) {
+      toast.error("Fehler beim Generieren des Entwurfs.", { description: errorMessage(e) });
     } finally {
       setGeneratingDraft(false);
     }
@@ -154,8 +155,8 @@ export function DataBreachDetailDialog({
       await deleteDataBreach(current.id);
       toast.success("Datenpanne gelöscht.");
       onDeleted(current.id);
-    } catch {
-      toast.error("Fehler beim Löschen.");
+    } catch (e) {
+      toast.error("Fehler beim Löschen.", { description: errorMessage(e) });
     }
   };
 
