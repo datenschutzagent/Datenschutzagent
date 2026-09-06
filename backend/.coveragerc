@@ -1,0 +1,18 @@
+# Coverage configuration for pytest-cov (see .github/workflows/test.yml).
+#
+# `concurrency = greenlet` is essential: SQLAlchemy's asyncpg driver switches
+# greenlets on every `await db.execute(...)`. Without it coverage stops tracing
+# an async route handler after its first query, so every DB-backed route looks
+# roughly half-covered regardless of the tests that exercise it.
+[run]
+concurrency = greenlet,thread
+branch = False
+source = app
+
+[report]
+skip_empty = True
+exclude_lines =
+    pragma: no cover
+    if TYPE_CHECKING:
+    if __name__ == .__main__.:
+    raise NotImplementedError

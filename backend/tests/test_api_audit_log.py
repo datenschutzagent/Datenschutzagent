@@ -11,6 +11,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from sqlalchemy import func, select
 
+from tests.factories import create_case
+
 pytestmark = pytest.mark.asyncio
 
 _needs_db = pytest.mark.skipif(
@@ -34,23 +36,6 @@ async def _count_audit_rows(
         return result.scalar_one()
 
 
-async def _create_case(client) -> dict:
-    payload = {
-        "title": "Audit-Log-Test-Vorgang",
-        "department": "IT",
-        "case_type": "Softwareeinführung",
-        "language": "de",
-        "created_by": "audit-test@example.com",
-        "assignee": "DSB",
-        "processing_context": None,
-        "special_category_data": False,
-        "international_transfer": False,
-    }
-    resp = await client.post("/api/v1/cases", json=payload)
-    assert resp.status_code == 201, resp.text
-    return resp.json()
-
-
 # ---------------------------------------------------------------------------
 # POST writes an audit entry
 # ---------------------------------------------------------------------------
@@ -59,7 +44,7 @@ async def _create_case(client) -> dict:
 @_needs_db
 async def test_post_creates_audit_entry(client):
     before = await _count_audit_rows(method="POST")
-    await _create_case(client)
+    await create_case(client)
     after = await _count_audit_rows(method="POST")
     assert after == before + 1
 
@@ -88,7 +73,7 @@ async def test_audit_entry_fields(client):
     from app.database import async_session_factory
     from app.models._db.audit import APIAuditLogModel
 
-    await _create_case(client)
+    await create_case(client)
 
     async with async_session_factory() as session:
         result = await session.execute(
@@ -117,7 +102,7 @@ async def test_uuid_path_segments_collapsed(client):
     from app.database import async_session_factory
     from app.models._db.audit import APIAuditLogModel
 
-    case = await _create_case(client)
+    case = await create_case(client)
     case_id = case["id"]
 
     patch_payload = {"title": "Geänderter Titel"}
@@ -197,7 +182,7 @@ async def test_document_content_read_is_audited_with_resource_id(client):
     from app.database import async_session_factory
     from app.models._db.audit import APIAuditLogModel
 
-    case = await _create_case(client)
+    case = await create_case(client)
     doc_id = await _add_document(case["id"])
     before = await _count_audit_rows(method="GET")
 
@@ -235,8 +220,8 @@ async def test_chain_links_and_verifies(client):
     from app.models._db.audit import APIAuditLogModel
     from app.services.audit_service import verify_audit_chain
 
-    await _create_case(client)
-    await _create_case(client)
+    await create_case(client)
+    await create_case(client)
 
     async with async_session_factory() as session:
         rows = (
@@ -265,7 +250,7 @@ async def test_tampering_breaks_chain(client):
     from app.models._db.audit import APIAuditLogModel
     from app.services.audit_service import verify_audit_chain
 
-    case = await _create_case(client)
+    case = await create_case(client)
     async with async_session_factory() as session:
         victim = (
             await session.execute(

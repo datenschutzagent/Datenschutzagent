@@ -14,11 +14,97 @@ verschoben.
 | 0 – Bugs + Gates | **erledigt** (2026-09-05) | B1–B9 behoben, je mit Regressionstest (724 Tests, Coverage 59,9 %). G1–G7 aktiv. Frontend: `tsc` 0 Fehler, ESLint 0/0. Der neue `alembic check` fand sofort einen Drift (partieller Index `ix_users_oidc_sub` fehlte im Modell). |
 | 1 – Security/DSGVO | **erledigt** (2026-09-05) | S1–S10 umgesetzt, je mit Tests: Proxy-Vertrauen erzwungen, DSGVO-Freigabe für externe LLM-Provider, Zip-Bomben-/XXE-/PDF-Limits, absolute Session-Lebensdauer + Widerruf bei Rollenwechsel, hash-verkettetes Audit-Log mit Lesezugriffen und `audit verify`, MultiFernet-Rotation, PII aus Logs, Finding-Chat in Markern, URL-Validatoren. Bewusst nicht umgesetzt: Sperre privater IP-Ranges (S10) – Ollama/Weaviate liegen legitim im LAN/Docker-Netz. |
 | 2 – Backend-Robustheit | **erledigt** (2026-09-05) | R1–R9 umgesetzt: Event-Loop frei, Celery-Fehlerpolitik mit Retry, Domain-Fehler-Handler, LLM-Retry-Klassifikation + Budget, mypy für core/services (Baseline 0, fand den toten MinIO-Check), N+1/Pagination/Unique-Constraint, Zerlegung der vier C901-Funktionen (per-file-Ignores entfernt; Notification-Schleife, `_execute_check` mit Ziel/Strategie, `pipeline_stats`, `generate_dsfa`) und Auszug von Risiko-Scoring/DOCX aus den Routen, Savepoints im Bulk-Upload, keine stillen Swallows, BLE001 auch für Routen. 871 Tests, Coverage 65 % (Gate 63 %). |
-| 3 – Frontend | offen | F1 (Typfehler) wurde für G1 vorgezogen und ist erledigt. |
-| 4 – Tests/Evals | offen | – |
+| 3 – Frontend | Runde 3 umgesetzt (2026-09-06) | F1 für G1 vorgezogen. Offen: F7 für `playbook-detail-page`/`new-case-dialog` und die übrigen zwölf `useEffect`-Seiten, `noUncheckedIndexedAccess` (42 Fehler, eigene Runde). |
+| 4 – Tests/Evals | Runde 3 umgesetzt (2026-09-06) | T6 seit Phase 0 (G2) erledigt. Offen: Frontend-Coverage-Ziel 60 % (Ratchet ab 27 %), Transaktions-Isolation je Test. |
 | 5 – Betrieb/Doku | offen | – |
 
 Entscheidung zu 4.1 (Mandantentrennung): **Single-Org**, siehe Abschnitt 4.
+
+### Runde 3 (Start 2026-09-05): Phase 3 und 4 gemeinsam
+
+Ist-Stand vor der Runde, neu erhoben (weicht teils vom Befund in den Tabellen ab):
+
+- Mock-Daten: nur noch `dashboard-stats.tsx` importiert `mockCases` (Fallback ohne Prop);
+  elf weitere Dateien importieren aus `mock-data.ts` ausschließlich Label-/Farb-Maps und
+  Typen. `mockPlaybooks`/`mockActivities` sind unreferenziert.
+- Fehlerbehandlung: 43 `catch {}` in 19 Dateien; `parseErrorResponse`/`ApiError` werden
+  in Seiten und Komponenten nirgends benutzt. ErrorBoundary nur global in `App.tsx`.
+- Serverstate: TanStack Query in fünf Dateien, in **keiner** Seite; 16 Seiten laden per
+  `useState`+`useEffect`. Key-Factories existieren nur für Cases/Case-Detail.
+- A11y: 60 von 83 `<Label>` ohne `htmlFor`, 8 `DialogContent` ohne `DialogDescription`,
+  vier klickbare `div`/`span`; nur vier jsx-a11y-Regeln aktiv, alle `warn`. Der
+  `ignores`-Eintrag `src/components/ui/**` zeigt auf einen nicht existierenden Pfad.
+- Bundle: kein `React.lazy`; sieben Dependencies ohne Import (`date-fns`, `motion`,
+  `next-themes`, `react-dnd`, `react-dnd-html5-backend`, `react-responsive-masonry`,
+  `react-slick`); 19 nie importierte Dateien in `components/ui/` (darunter `sidebar.tsx`,
+  726 Zeilen); keine Bundle-Messung.
+- Backend-Tests: 14 kopierte Create-Helper in 12 Dateien; keine registrierten Marker;
+  Limiter global aus, kein 429-Test; Coverage 65 % mit Routen zwischen 25 und 40 %,
+  `annotated_document_service` 16 %, `org_profile_loader` 25 %, `cli.py` 0 %.
+- Frontend-Tests: keine Coverage-Messung, `msw` installiert aber ungenutzt, 56× `vi.mock`,
+  5 von 24 Seiten getestet, `useMultiStepForm`/`AuthContext`/`CaseDetailContext` ungetestet.
+- E2E: 8 Tests, 2 mit `@smoke`; die fünf Tests in `checks`/`document-upload` werden ohne
+  fachliche Assertion grün (16 abgeschwächte Stellen, 6 stille `test.skip()`),
+  ein `data-testid` im gesamten Frontend.
+- Evals: kein `--strict`, kein Datei-Output, kein Nightly; LLM-/OCR-Evaluatoren laufen
+  nirgends; Schwelle `VVTFieldRecall` ohne Evaluator.
+
+Reihenfolge und Umfang der Runde (je Punkt ein Commit, CI muss nach jedem grün bleiben):
+
+| # | Schritt | Ziel |
+| :--- | :--- | :--- |
+| 1 | **T2** Factory-Fixtures (`create_case`, `create_avv`, `create_dsr`, `create_tom`, `create_breach`) in `conftest.py`, Marker `requires_db` registriert und automatisch auf `client`-Tests gesetzt, ein echter 429-Test mit temporär aktivem Limiter. | 14 Kopien weg; Testlauf ohne DB überspringt sauber statt zu scheitern. |
+| 2 | **T1** Tests für die schwächsten Module: `mitigations`, `cases/checks`, `playbooks`, `admin_prompt_templates`, `legal_bases`, `case_templates`, `exports`, `annotated_document_service`, `org_profile_loader`, `cli`. | Backend-Coverage ≥ 70 %, Gate auf gemessenen Wert. |
+| 3 | **F2 + F8 + F6** Label-Maps nach `lib/labels.ts`, `mock-data.ts` löschen, Mock-Fallback in `dashboard-stats` entfernen; `package.json`-Name/`pnpm.overrides`/Make-Kommentare bereinigen; sieben tote Dependencies und 19 tote UI-Dateien entfernen; Routen per `React.lazy`; Bundle-Größe als CI-Artefakt. `noUncheckedIndexedAccess` nur, wenn die Fehlerzahl im Rahmen bleibt. | Kleineres Initial-Bundle, keine erfundenen Daten im Produktionspfad. |
+| 4 | **F3** `catch (e)` + `errorMessage(e)` aus `ApiError` + Toast an allen 43 Stellen; ErrorBoundary je Route (`errorElement`). | Nutzer sehen die Ursache; ein Render-Fehler reißt nicht die App. |
+| 5 | **F5** `label-has-associated-control`, `click-events-have-key-events`, `no-static-element-interactions` als `error`; Treffer beheben; `DialogDescription` in den acht Dialogen; `ignores`-Pfad korrigiert. | A11y-Basis erzwungen statt nur dokumentiert. |
+| 6 | **F4 (+F7 teilweise)** Katalog-Seiten `dsr`, `tom`, `avv`, `data-breaches` auf TanStack Query mit Key-Factories (`lib/queries/*`), gemeinsames Katalog-Muster; die Seiten schrumpfen dadurch. | Cache, Dedup, Invalidierung; Stale-Closure-Klasse beseitigt. |
+| 7 | **T3** `@vitest/coverage-v8` + Gate; Tests für `useMultiStepForm`, `AuthContext`, `CaseDetailContext`, `tom-page`; `msw` entweder für die API-Mapper eingesetzt oder als Dependency entfernt. | Frontend-Coverage messbar und gedeckelt. |
+| 8 | **T4** harte Assertions, `data-testid` an Fall-Karten/Tabs, `@smoke` auf ~6 Tests, `retries: 1`, übrige Specs nightly. | E2E, das bei Regressionen rot wird. |
+| 9 | **T5** `--strict`, `--out <json>`, tote Schwelle entfernt; Nightly-Workflow, der die LLM-Evals nur bei konfiguriertem Provider-Secret ausführt und das JSON als Artefakt ablegt. | Kernqualität (Check-Verdikt) wird überhaupt gemessen. |
+
+Bewusst nicht in dieser Runde: F7 für `playbook-detail-page`/`new-case-dialog`
+(eigene Runde nach F4), Transaktions-Isolation je Test (T2, Kosten/Nutzen bei 870
+Tests, die per Fixture-Session schreiben; die Suite läuft mit akkumulierten Daten stabil),
+Phase 5.
+
+#### Ergebnis der Runde 3 (2026-09-06)
+
+Alle neun Schritte sind umgesetzt, je Schritt ein Commit, CI nach jedem grün.
+
+- **Backend:** Coverage 78,3 % (Gate 77 %, vorher 63 %). Der Sprung ist nur zum Teil
+  neuen Tests geschuldet: ohne `concurrency = greenlet,thread` in `.coveragerc` verlor
+  coverage in jedem async Handler alle Zeilen nach dem ersten `await db.execute()`
+  (SQLAlchemy wechselt den Greenlet). Die alten Zahlen der DB-Routen (25–40 %) waren
+  ein Messartefakt; mit korrekter Messung liegen `playbooks`, `cases/vvt`,
+  `case_templates`, `mitigations`, `legal_bases` bei 96–100 %. Zwei echte 500er beim
+  Testen gefunden und behoben (`case-templates/apply`, `run-checks` ohne Checks).
+- **Frontend:** Coverage messbar (29 % Zeilen, Gate 27/25/24/20 für
+  Zeilen/Statements/Funktionen/Zweige); 202 Unit-Tests (vorher 111);
+  `useMultiStepForm`, `AuthContext`, `CaseDetailContext` bei 100 % Zeilen.
+  Initial-Chunk 210 kB statt 2,5 MB. Vier Katalog-Seiten auf TanStack Query;
+  32 stille `catch {}` zeigen jetzt die Ursache. Drei jsx-a11y-Regeln als `error`.
+- **E2E:** Testdaten per API, harte Assertions, `@smoke`-Set im PR-Gate, volle
+  Suite nightly (`nightly.yml`), `retries: 1`.
+- **Evals:** `--strict`/`--out`, tote Schwelle entfernt, Nightly-Job mit Artefakt.
+  Die LLM-Evals laufen erst, wenn `NIGHTLY_LLM_PROVIDER`/`NIGHTLY_LLM_API_KEY`
+  im Repo gesetzt sind – bis dahin meldet der Job das als Notice.
+- **`noUncheckedIndexedAccess`** wurde nicht aktiviert: 42 Fehler, überwiegend
+  Array-Zugriffe in Tabellen/Charts; das ist eine eigene Runde, kein Nebenprodukt.
+
+Beim Testen notierte Auffälligkeiten, bewusst nicht in dieser Runde behoben
+(Kandidaten für die nächste):
+
+- `legal_bases.py` (Lese- und Schreibrouten) ohne `require_roles`; `mitigations.py`
+  toter Fallback-Zweig; `admin_prompt_templates.py` nutzt `datetime.utcnow()`,
+  `PATCH {"is_active": false}` ist ein No-op; `weaviate_service.py` importiert
+  Weaviate hart; `org_profile_loader` ohne Cache und ohne Pfadprüfung des Profilnamens;
+  `PlaybookUpdate.version` ohne `min_length`; der synchrone Run-Checks-Pfad legt keinen
+  Job an, `status` bleibt danach `never_run`.
+- Frontend: Kennzahlen-Karten auf `dsr`/`avv`/`data-breaches` mischen gefilterte Liste
+  und Server-`total`; `defaultForm`-Datumswerte werden beim Modulimport berechnet;
+  Filter-`Select`s ohne Label; `tom-page` lädt den Nutzer selbst statt aus
+  `AuthContext`; `TomBaselineGaps` fetcht noch manuell.
 
 Korrekturen gegenüber der Erstanalyse, beim Umsetzen festgestellt:
 
@@ -221,21 +307,21 @@ offen. Option: Bind an Loopback erzwingen oder Pre-Shared-Token.
 
 ## 5. Zielwerte und Messung
 
-| Metrik | Ist (Analyse) | Nach Phase 0 (gemessen) | Ziel nach Phase 4 | Messung |
-| :--- | :--- | :--- | :--- | :--- |
-| `tsc --noEmit` Fehler | 81 | **0, CI-Gate** | 0 | CI |
-| ESLint Errors / Warnings | 8 / 36 | **0 / 0, CI-Gate** | 0 / 0 | CI |
-| Backend-Coverage | 58 % | **59,9 %, Gate 58 %** | Gate ≥ 70 % (Ratchet) | `pytest --cov` |
-| Frontend-Coverage | nicht messbar | nicht messbar (T3) | Gate ≥ 60 % | `vitest --coverage` |
-| Route-Module ohne Test | 6 | 6 | 0 | Skript in CI |
-| Services ohne Test | 8 | 8 | 0 | Skript in CI |
-| E2E in CI (harte Assertions) | 2 | 2 | ≥ 6 smoke, Rest nightly | Playwright-Report |
-| Ruff C901 > 15 | 4 (nicht geprüft) | **4 (per-file-ignore), Gate aktiv** | 0 | CI |
-| mypy-Fehler | nicht geprüft | nicht geprüft (R5) | 0 in `core/`, `services/` | CI |
-| Security-Scanner gatend | 4 von 6 | **6 von 6** | 6 von 6 | CI |
-| Migrations-Drift-Check | keiner | **aktiv, 1 Drift behoben** | aktiv | CI |
-| LLM-Eval-Trend | nicht gemessen | – | nightly, Artefakt | Nightly-Job |
-| Verifizierte Bugs | 8 offen (B1–B8) | **0 offen (B1–B9)** | 0 | Regressionstests |
+| Metrik | Ist (Analyse) | Nach Phase 0 (gemessen) | Nach Runde 3 (gemessen) | Ziel nach Phase 4 | Messung |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| `tsc --noEmit` Fehler | 81 | **0, CI-Gate** | 0 | 0 | CI |
+| ESLint Errors / Warnings | 8 / 36 | **0 / 0, CI-Gate** | 0 / 0 | 0 / 0 | CI |
+| Backend-Coverage | 58 % | **59,9 %, Gate 58 %** | **78,3 %, Gate 77 %** (Messung mit greenlet korrigiert) | Gate ≥ 70 % (Ratchet) | `pytest --cov` |
+| Frontend-Coverage | nicht messbar | nicht messbar (T3) | **29 %, Gate 27 %** | Gate ≥ 60 % | `vitest --coverage` |
+| Route-Module ohne Test | 6 | 6 | 1 (`app_config`) | 0 | Skript in CI |
+| Services ohne Test | 8 | 8 | 3 (`data_breach_service`, `departments_loader`, `dsr_response_service`) | 0 | Skript in CI |
+| E2E in CI (harte Assertions) | 2 | 2 | **6 smoke von 11, Rest nightly** | ≥ 6 smoke, Rest nightly | Playwright-Report |
+| Ruff C901 > 15 | 4 (nicht geprüft) | **4 (per-file-ignore), Gate aktiv** | 4 | 0 | CI |
+| mypy-Fehler | nicht geprüft | nicht geprüft (R5) | **0 in `core/`, `services/`, Gate** | 0 in `core/`, `services/` | CI |
+| Security-Scanner gatend | 4 von 6 | **6 von 6** | 6 von 6 | 6 von 6 | CI |
+| Migrations-Drift-Check | keiner | **aktiv, 1 Drift behoben** | aktiv | aktiv | CI |
+| LLM-Eval-Trend | nicht gemessen | – | **Nightly-Job, Artefakt; wartet auf Provider-Secret** | nightly, Artefakt | Nightly-Job |
+| Verifizierte Bugs | 8 offen (B1–B8) | **0 offen (B1–B9)** | 0 offen (+2 gefunden und behoben) | 0 | Regressionstests |
 
 Die Zielwerte 85 % FE / 90 % BE aus `system-inspection.md` werden bewusst **nicht**
 übernommen: Bei ~11 000 Backend-Statements liegen die letzten 20 % in Infrastruktur-Glue

@@ -4,7 +4,7 @@ import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "../ui/dialog";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "../ui/tooltip";
-import { documentTypeLabels } from "../../lib/mock-data";
+import { documentTypeLabels } from "../../lib/labels";
 import { getDocumentDownloadBlob, downloadBlob, type ApiCase, type ApiDocument } from "../../lib/api";
 import { DocumentUploadZone } from "../document-upload-zone";
 import { DocumentViewDialog } from "./DocumentViewDialog";
@@ -79,12 +79,12 @@ export function CaseDocumentsTab({
           {canEdit && (
           <Dialog open={isUploadDialogOpen} onOpenChange={setIsUploadDialogOpen}>
             <DialogTrigger asChild>
-              <Button className="gap-2">
+              <Button className="gap-2" data-testid="document-upload-button">
                 <Upload className="size-4" />
                 Dokument hochladen
               </Button>
             </DialogTrigger>
-            <DialogContent className="max-w-3xl">
+            <DialogContent className="max-w-3xl" data-testid="document-upload-dialog">
               <DialogHeader>
                 <DialogTitle>Dokumente hochladen</DialogTitle>
                 <DialogDescription>
@@ -107,7 +107,13 @@ export function CaseDocumentsTab({
       <CardContent>
         <div className="space-y-3">
           {caseData.documents.map((doc) => (
-            <div key={doc.id} className="p-4 border border-border rounded-lg hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors">
+            <div
+              key={doc.id}
+              className="p-4 border border-border rounded-lg hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors"
+              data-testid="document-row"
+              data-document-id={doc.id}
+              data-extraction-status={doc.extractionStatus ?? "unknown"}
+            >
               <div className="flex items-start justify-between">
                 <div className="flex items-start gap-3">
                   <FileText className="size-5 text-blue-600 dark:text-blue-400 mt-0.5" />
@@ -137,6 +143,7 @@ export function CaseDocumentsTab({
                     variant="ghost"
                     size="sm"
                     onClick={() => setViewDocument(doc)}
+                    data-testid="document-view-button"
                   >
                     Anzeigen
                   </Button>

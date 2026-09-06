@@ -83,11 +83,34 @@ export default [
       "react-hooks/exhaustive-deps": "warn",
       "react-hooks/rules-of-hooks": "error",
 
-      // Accessibility
+      // Accessibility — the three structural rules are errors (Qualitätsplan Phase 3 F5):
+      // every form control gets a label, every clickable element is keyboard-reachable.
       "jsx-a11y/alt-text": "warn",
       "jsx-a11y/aria-props": "warn",
       "jsx-a11y/aria-role": "warn",
       "jsx-a11y/no-autofocus": "warn",
+      "jsx-a11y/label-has-associated-control": [
+        "error",
+        {
+          labelComponents: ["Label"],
+          labelAttributes: ["htmlFor"],
+          controlComponents: [
+            "Input",
+            "Textarea",
+            "Select",
+            "SelectTrigger",
+            "Switch",
+            "Checkbox",
+            "RadioGroup",
+            "Slider",
+            "MDEditor",
+          ],
+          assert: "either",
+          depth: 3,
+        },
+      ],
+      "jsx-a11y/click-events-have-key-events": "error",
+      "jsx-a11y/no-static-element-interactions": "error",
 
       // General
       "no-console": "warn",
@@ -104,9 +127,12 @@ export default [
     rules: {
       "@typescript-eslint/no-explicit-any": "off",
       "no-console": "off",
+      // Test doubles for Radix primitives are not real UI.
+      "jsx-a11y/click-events-have-key-events": "off",
+      "jsx-a11y/no-static-element-interactions": "off",
     },
   },
   {
-    ignores: ["dist/", "node_modules/", "*.config.{js,mjs,ts}", "src/components/ui/**"],
+    ignores: ["dist/", "node_modules/", "*.config.{js,mjs,ts}", "src/app/components/ui/**"],
   },
 ];

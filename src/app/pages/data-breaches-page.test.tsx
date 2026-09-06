@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
-import { MemoryRouter } from "react-router";
+import { screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import { renderWithProviders } from "../test-utils";
 import type { ApiDataBreach } from "../lib/api";
 
 // ---------------------------------------------------------------------------
@@ -44,10 +45,20 @@ vi.mock("../contexts/RunningChecksContext", () => ({
 
 vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
 
-import { listDataBreaches } from "../lib/api";
+import {
+  listDataBreaches,
+  updateDataBreach,
+  createDataBreach,
+  getDataBreachActivity,
+} from "../lib/api";
+import { toast } from "sonner";
 import { DataBreachesPage } from "./data-breaches-page";
 
 const mockList = vi.mocked(listDataBreaches);
+const mockUpdate = vi.mocked(updateDataBreach);
+const mockCreate = vi.mocked(createDataBreach);
+const mockActivity = vi.mocked(getDataBreachActivity);
+const mockToastSuccess = vi.mocked(toast.success);
 
 const baseBreach: ApiDataBreach = {
   id: "breach-1",
@@ -77,11 +88,7 @@ const makeFakeBreach = (overrides: Partial<ApiDataBreach> = {}): ApiDataBreach =
 });
 
 function renderPage() {
-  return render(
-    <MemoryRouter>
-      <DataBreachesPage />
-    </MemoryRouter>
-  );
+  return renderWithProviders(<DataBreachesPage />);
 }
 
 // ---------------------------------------------------------------------------
@@ -91,6 +98,7 @@ function renderPage() {
 describe("DataBreachesPage", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockActivity.mockResolvedValue([]);
   });
 
   it("shows a loading skeleton while breaches are being fetched", () => {
@@ -140,5 +148,73 @@ describe("DataBreachesPage", () => {
     await waitFor(() => {
       expect(screen.getByText("Hoch")).toBeTruthy();
     });
+  });
+
+  it("passes server-side filters to listDataBreaches", async () => {
+    mockList.mockResolvedValue({ items: [], total: 0 });
+    renderPage();
+    await waitFor(() => expect(mockList).toHaveBeenCalledTimes(1));
+    expect(mockList).toHaveBeenLastCalledWith({ status: undefined, overdueOnly: false });
+
+    await userEvent.click(screen.getByLabelText("Nur überfällige"));
+    await waitFor(() => expect(mockList).toHaveBeenCalledTimes(2));
+    expect(mockList).toHaveBeenLastCalledWith({ status: undefined, overdueOnly: true });
+  });
+
+  it("shows an error state with retry and reloads on click", async () => {
+    mockList
+      .mockRejectedValueOnce(new Error("Netzwerkfehler"))
+      .mockResolvedValue({ items: [makeFakeBreach()], total: 1 });
+    renderPage();
+
+    expect(await screen.findByText("Datenpannen konnten nicht geladen werden.")).toBeTruthy();
+    expect(screen.getByText("Netzwerkfehler")).toBeTruthy();
+    expect(screen.queryByText("Test-Datenpanne")).toBeNull();
+
+    await userEvent.click(screen.getByRole("button", { name: "Erneut versuchen" }));
+
+    expect(await screen.findByText("Test-Datenpanne")).toBeTruthy();
+    expect(mockList).toHaveBeenCalledTimes(2);
+    expect(screen.queryByText("Datenpannen konnten nicht geladen werden.")).toBeNull();
+  });
+
+  it("reloads the list after a status change in the detail dialog", async () => {
+    mockList.mockResolvedValue({ items: [makeFakeBreach()], total: 1 });
+    mockUpdate.mockResolvedValue(makeFakeBreach({ status: "assessed" }));
+    renderPage();
+
+    await userEvent.click(await screen.findByText("Test-Datenpanne"));
+    expect(await screen.findByText("Status ändern")).toBeTruthy();
+    await waitFor(() => expect(mockActivity).toHaveBeenCalledWith("breach-1"));
+    expect(mockList).toHaveBeenCalledTimes(1);
+
+    await userEvent.click(screen.getByRole("button", { name: "Bewertet" }));
+
+    await waitFor(() => {
+      expect(mockUpdate).toHaveBeenCalledWith("breach-1", { status: "assessed" });
+      expect(mockList).toHaveBeenCalledTimes(2);
+    });
+    expect(mockToastSuccess).toHaveBeenCalledWith("Status aktualisiert.");
+  });
+
+  it("reloads the list after creating a breach", async () => {
+    mockList.mockResolvedValue({ items: [], total: 0 });
+    mockCreate.mockResolvedValue(makeFakeBreach({ id: "breach-new", title: "Neue Panne" }));
+    renderPage();
+
+    await screen.findByText(/Keine Datenpannen/);
+    await userEvent.click(screen.getByRole("button", { name: /Datenpanne erfassen/ }));
+    await userEvent.type(screen.getByLabelText("Titel *"), "Neue Panne");
+    await userEvent.click(screen.getByRole("button", { name: "Erfassen" }));
+
+    await waitFor(() => {
+      expect(mockCreate).toHaveBeenCalledTimes(1);
+      expect(mockList).toHaveBeenCalledTimes(2);
+    });
+    expect(mockCreate.mock.calls[0][0]).toMatchObject({
+      title: "Neue Panne",
+      breach_type: "confidentiality",
+    });
+    expect(mockToastSuccess).toHaveBeenCalledWith("Datenpanne erfasst.");
   });
 });

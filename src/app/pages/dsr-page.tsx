@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { AppLayout } from "../components/app-layout";
 import { PageHeader } from "../components/page-header";
 import { Card, CardContent } from "../components/ui/card";
@@ -8,29 +8,33 @@ import { Input } from "../components/ui/input";
 import { Label } from "../components/ui/label";
 import { Textarea } from "../components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../components/ui/select";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "../components/ui/dialog";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogFooter } from "../components/ui/dialog";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "../components/ui/alert-dialog";
 import { Skeleton } from "../components/ui/skeleton";
 import { Separator } from "../components/ui/separator";
 import {
-  listDSRRequests,
-  createDSRRequest,
-  updateDSRRequest,
-  deleteDSRRequest,
-  generateDSRDraft,
-  getDSRActivity,
   type ApiDSRRequest,
-  type ApiDSRActivity,
   type DSRRequestCreate,
   type DSRRequestType,
   type DSRStatus,
 } from "../lib/api";
+import {
+  useDSRRequests,
+  useDSRActivity,
+  useCreateDSRRequest,
+  useUpdateDSRRequest,
+  useDeleteDSRRequest,
+  useGenerateDSRDraft,
+  type DSRListFilter,
+} from "../lib/queries/dsrQueries";
 import { toast } from "sonner";
+import { errorMessage } from "../lib/errors";
 import {
   AlertTriangle,
   Plus,
   Clock,
   CheckCircle,
+  CircleAlert,
   Loader2,
   FileText,
   Trash2,
@@ -104,55 +108,49 @@ const defaultForm: NewDSRForm = {
 };
 
 export function DSRPage() {
-  const [requests, setRequests] = useState<ApiDSRRequest[]>([]);
-  const [total, setTotal] = useState(0);
-  const [loading, setLoading] = useState(true);
   const [statusFilter, setStatusFilter] = useState("all");
   const [typeFilter, setTypeFilter] = useState("all");
   const [overdueOnly, setOverdueOnly] = useState(false);
 
   const [showNew, setShowNew] = useState(false);
-  const [creating, setCreating] = useState(false);
   const [form, setForm] = useState<NewDSRForm>(defaultForm);
 
   const [selected, setSelected] = useState<ApiDSRRequest | null>(null);
-  const [activity, setActivity] = useState<ApiDSRActivity[]>([]);
-  const [loadingActivity, setLoadingActivity] = useState(false);
-  const [generatingDraft, setGeneratingDraft] = useState(false);
-  const [updatingStatus, setUpdatingStatus] = useState(false);
 
-  const load = useCallback(async () => {
-    setLoading(true);
-    try {
-      const r = await listDSRRequests({
-        status: statusFilter !== "all" ? statusFilter : undefined,
-        requestType: typeFilter !== "all" ? typeFilter : undefined,
-        overdueOnly,
-      });
-      setRequests(r.items);
-      setTotal(r.total);
-    } catch {
-      toast.error("Anfragen konnten nicht geladen werden.");
-    } finally {
-      setLoading(false);
+  const filter = useMemo<DSRListFilter>(() => ({
+    status: statusFilter !== "all" ? statusFilter : undefined,
+    requestType: typeFilter !== "all" ? typeFilter : undefined,
+    overdueOnly,
+  }), [statusFilter, typeFilter, overdueOnly]);
+
+  const listQuery = useDSRRequests(filter);
+  const requests = useMemo(() => listQuery.data?.items ?? [], [listQuery.data]);
+  const total = listQuery.data?.total ?? 0;
+  const loading = listQuery.isPending;
+
+  useEffect(() => {
+    if (listQuery.isError) {
+      toast.error("Anfragen konnten nicht geladen werden.", { description: errorMessage(listQuery.error) });
     }
-  }, [statusFilter, typeFilter, overdueOnly]);
+  }, [listQuery.isError, listQuery.error]);
 
-  useEffect(() => { void load(); }, [load]);
+  const activityQuery = useDSRActivity(selected?.id ?? null);
+  const activity = activityQuery.data ?? [];
+  const loadingActivity = activityQuery.isPending;
 
-  async function openDetail(r: ApiDSRRequest) {
+  const createMutation = useCreateDSRRequest();
+  const updateMutation = useUpdateDSRRequest();
+  const deleteMutation = useDeleteDSRRequest();
+  const draftMutation = useGenerateDSRDraft();
+  const creating = createMutation.isPending;
+  const updatingStatus = updateMutation.isPending;
+  const generatingDraft = draftMutation.isPending;
+
+  function openDetail(r: ApiDSRRequest) {
     setSelected(r);
-    setLoadingActivity(true);
-    try {
-      const acts = await getDSRActivity(r.id);
-      setActivity(acts);
-    } finally {
-      setLoadingActivity(false);
-    }
   }
 
   async function handleCreate() {
-    setCreating(true);
     try {
       const body: DSRRequestCreate = {
         request_type: form.request_type,
@@ -164,56 +162,44 @@ export function DSRPage() {
         received_at: form.received_at,
         deadline_extension_days: Number(form.deadline_extension_days) || 0,
       };
-      await createDSRRequest(body);
+      await createMutation.mutateAsync(body);
       toast.success("Anfrage erfasst.");
       setShowNew(false);
       setForm(defaultForm);
-      void load();
-    } catch {
-      toast.error("Fehler beim Erfassen der Anfrage.");
-    } finally {
-      setCreating(false);
+    } catch (e) {
+      toast.error("Fehler beim Erfassen der Anfrage.", { description: errorMessage(e) });
     }
   }
 
   async function handleGenerateDraft() {
     if (!selected) return;
-    setGeneratingDraft(true);
     try {
-      const updated = await generateDSRDraft(selected.id);
+      const updated = await draftMutation.mutateAsync(selected.id);
       setSelected(updated);
       toast.success("Antwortentwurf generiert.");
-    } catch {
-      toast.error("Fehler beim Generieren des Entwurfs.");
-    } finally {
-      setGeneratingDraft(false);
+    } catch (e) {
+      toast.error("Fehler beim Generieren des Entwurfs.", { description: errorMessage(e) });
     }
   }
 
   async function handleStatusChange(newStatus: DSRStatus) {
     if (!selected) return;
-    setUpdatingStatus(true);
     try {
-      const updated = await updateDSRRequest(selected.id, { status: newStatus });
+      const updated = await updateMutation.mutateAsync({ id: selected.id, body: { status: newStatus } });
       setSelected(updated);
-      setRequests((prev) => prev.map((r) => r.id === updated.id ? updated : r));
       toast.success("Status aktualisiert.");
-    } catch {
-      toast.error("Fehler beim Aktualisieren.");
-    } finally {
-      setUpdatingStatus(false);
+    } catch (e) {
+      toast.error("Fehler beim Aktualisieren.", { description: errorMessage(e) });
     }
   }
 
   async function handleDelete(id: string) {
     try {
-      await deleteDSRRequest(id);
-      setRequests((prev) => prev.filter((r) => r.id !== id));
-      setTotal((t) => t - 1);
+      await deleteMutation.mutateAsync(id);
       if (selected?.id === id) setSelected(null);
       toast.success("Anfrage gelöscht.");
-    } catch {
-      toast.error("Fehler beim Löschen.");
+    } catch (e) {
+      toast.error("Fehler beim Löschen.", { description: errorMessage(e) });
     }
   }
 
@@ -391,6 +377,16 @@ export function DSRPage() {
         <div className="space-y-3">
           {[...Array(4)].map((_, i) => <Skeleton key={i} className="h-20 w-full" />)}
         </div>
+      ) : listQuery.isError ? (
+        <Card>
+          <CardContent className="py-12 text-center">
+            <CircleAlert className="size-10 text-red-500 dark:text-red-400 mx-auto mb-3" />
+            <p className="text-muted-foreground">Anfragen konnten nicht geladen werden.</p>
+            <Button className="mt-4" variant="outline" onClick={() => void listQuery.refetch()}>
+              Erneut versuchen
+            </Button>
+          </CardContent>
+        </Card>
       ) : requests.length === 0 ? (
         <Card>
           <CardContent className="py-12 text-center text-muted-foreground">
@@ -404,7 +400,7 @@ export function DSRPage() {
             <Card
               key={r.id}
               className="hover:shadow-md transition-shadow cursor-pointer"
-              onClick={() => void openDetail(r)}
+              onClick={() => openDetail(r)}
             >
               <CardContent className="py-4 px-5">
                 <div className="flex items-start justify-between gap-4">
@@ -442,12 +438,13 @@ export function DSRPage() {
         <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Betroffenenrechts-Anfrage erfassen</DialogTitle>
+            <DialogDescription>Neue Anfrage einer betroffenen Person erfassen; die Antwortfrist wird automatisch berechnet.</DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-2">
             <div>
-              <Label>Art der Anfrage *</Label>
+              <Label htmlFor="dsr-create-request-type">Art der Anfrage *</Label>
               <Select value={form.request_type} onValueChange={(v) => setForm((f) => ({ ...f, request_type: v as DSRRequestType }))}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectTrigger id="dsr-create-request-type"><SelectValue /></SelectTrigger>
                 <SelectContent>
                   {Object.entries(REQUEST_TYPE_LABELS).map(([v, l]) => (
                     <SelectItem key={v} value={v}>{l}</SelectItem>
@@ -457,36 +454,37 @@ export function DSRPage() {
             </div>
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <Label>Name der betroffenen Person</Label>
-                <Input value={form.requestor_name} onChange={(e) => setForm((f) => ({ ...f, requestor_name: e.target.value }))} placeholder="Max Mustermann" />
+                <Label htmlFor="dsr-create-requestor-name">Name der betroffenen Person</Label>
+                <Input id="dsr-create-requestor-name" value={form.requestor_name} onChange={(e) => setForm((f) => ({ ...f, requestor_name: e.target.value }))} placeholder="Max Mustermann" />
               </div>
               <div>
-                <Label>E-Mail</Label>
-                <Input type="email" value={form.requestor_email} onChange={(e) => setForm((f) => ({ ...f, requestor_email: e.target.value }))} placeholder="max@beispiel.de" />
+                <Label htmlFor="dsr-create-requestor-email">E-Mail</Label>
+                <Input id="dsr-create-requestor-email" type="email" value={form.requestor_email} onChange={(e) => setForm((f) => ({ ...f, requestor_email: e.target.value }))} placeholder="max@beispiel.de" />
               </div>
             </div>
             <div>
-              <Label>Beschreibung</Label>
-              <Textarea value={form.description} onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))} rows={3} placeholder="Details zur Anfrage..." />
+              <Label htmlFor="dsr-create-description">Beschreibung</Label>
+              <Textarea id="dsr-create-description" value={form.description} onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))} rows={3} placeholder="Details zur Anfrage..." />
             </div>
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <Label>Abteilung</Label>
-                <Input value={form.department} onChange={(e) => setForm((f) => ({ ...f, department: e.target.value }))} />
+                <Label htmlFor="dsr-create-department">Abteilung</Label>
+                <Input id="dsr-create-department" value={form.department} onChange={(e) => setForm((f) => ({ ...f, department: e.target.value }))} />
               </div>
               <div>
-                <Label>Zuständig</Label>
-                <Input value={form.assignee} onChange={(e) => setForm((f) => ({ ...f, assignee: e.target.value }))} />
+                <Label htmlFor="dsr-create-assignee">Zuständig</Label>
+                <Input id="dsr-create-assignee" value={form.assignee} onChange={(e) => setForm((f) => ({ ...f, assignee: e.target.value }))} />
               </div>
             </div>
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <Label>Eingegangen am *</Label>
-                <Input type="date" value={form.received_at} onChange={(e) => setForm((f) => ({ ...f, received_at: e.target.value }))} />
+                <Label htmlFor="dsr-create-received-at">Eingegangen am *</Label>
+                <Input id="dsr-create-received-at" type="date" value={form.received_at} onChange={(e) => setForm((f) => ({ ...f, received_at: e.target.value }))} />
               </div>
               <div>
-                <Label>Fristverlängerung (Tage)</Label>
+                <Label htmlFor="dsr-create-deadline-extension">Fristverlängerung (Tage)</Label>
                 <Input
+                  id="dsr-create-deadline-extension"
                   type="number"
                   min={0}
                   max={60}
@@ -516,6 +514,7 @@ export function DSRPage() {
                 <UserCheck className="size-5 text-blue-500" />
                 {REQUEST_TYPE_LABELS[selected.requestType]} – {selected.requestorName || "Anonyme Anfrage"}
               </DialogTitle>
+              <DialogDescription>Details, Status, Fristen und Antwortentwurf der Betroffenenanfrage.</DialogDescription>
             </DialogHeader>
 
             <div className="space-y-5">
@@ -600,6 +599,13 @@ export function DSRPage() {
                 <p className="text-sm font-medium mb-2">Aktivitätsprotokoll</p>
                 {loadingActivity ? (
                   <div className="space-y-1">{[...Array(3)].map((_, i) => <Skeleton key={i} className="h-6 w-full" />)}</div>
+                ) : activityQuery.isError ? (
+                  <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                    <span>Aktivitäten konnten nicht geladen werden.</span>
+                    <Button size="sm" variant="ghost" className="h-6 px-2 text-xs" onClick={() => void activityQuery.refetch()}>
+                      Erneut versuchen
+                    </Button>
+                  </div>
                 ) : activity.length === 0 ? (
                   <p className="text-xs text-muted-foreground">Keine Aktivitäten.</p>
                 ) : (

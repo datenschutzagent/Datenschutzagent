@@ -5,8 +5,8 @@ import { Button } from "../ui/button";
 import { Checkbox } from "../ui/checkbox";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../ui/select";
 import { CircleAlert, CheckCircle2, Shield, XCircle, ShieldAlert, AlertTriangle, AlertCircle, Info, Download, Loader2 } from "lucide-react";
-import { findingStatusLabels, severityColors, severityLabels } from "../../lib/mock-data";
-import type { FindingSeverity } from "../../lib/mock-data";
+import { findingStatusLabels, severityColors, severityLabels } from "../../lib/labels";
+import type { FindingSeverity } from "../../lib/labels";
 import {
   downloadFindingsExport,
   downloadBlob,
@@ -16,6 +16,8 @@ import {
 } from "../../lib/api";
 import { useBulkUpdateFindingStatus } from "../../lib/queries/caseDetailQueries";
 import { toast } from "sonner";
+import { errorMessage } from "../../lib/errors";
+import { onEnterOrSpace } from "../../lib/a11y";
 
 function SeverityIcon({ severity }: { severity: FindingSeverity }) {
   switch (severity) {
@@ -96,8 +98,8 @@ export function CaseFindingsTab({ caseData, onSelectFinding }: CaseFindingsTabPr
       const date = new Date().toISOString().slice(0, 10);
       const slug = caseData.title.replace(/[^\w\s-]/g, "").slice(0, 40).trim().replace(/[-\s]+/g, "-") || "Befunde";
       downloadBlob(blob, `Befunde-${slug}-${date}.${format}`);
-    } catch {
-      toast.error("Export fehlgeschlagen");
+    } catch (e) {
+      toast.error("Export fehlgeschlagen", { description: errorMessage(e) });
     } finally {
       setExportLoading(false);
     }
@@ -208,7 +210,12 @@ export function CaseFindingsTab({ caseData, onSelectFinding }: CaseFindingsTabPr
               }`}
             >
               <div className="flex items-start gap-3">
-                <div className="mt-0.5 shrink-0" onClick={(e) => e.stopPropagation()}>
+                <div
+                  className="mt-0.5 shrink-0"
+                  role="presentation"
+                  onClick={(e) => e.stopPropagation()}
+                  onKeyDown={(e) => e.stopPropagation()}
+                >
                   <Checkbox
                     checked={selectedIds.has(finding.id)}
                     onCheckedChange={() => toggleSelect(finding.id)}
@@ -217,7 +224,10 @@ export function CaseFindingsTab({ caseData, onSelectFinding }: CaseFindingsTabPr
                 </div>
                 <div
                   className="flex items-start gap-3 flex-1 cursor-pointer"
+                  role="button"
+                  tabIndex={0}
                   onClick={() => onSelectFinding(finding)}
+                  onKeyDown={onEnterOrSpace(() => onSelectFinding(finding))}
                 >
                   {finding.status === "open" && <CircleAlert className="size-5 text-red-600 dark:text-red-400 mt-0.5 shrink-0" />}
                   {finding.status === "fixed" && <CheckCircle2 className="size-5 text-green-600 dark:text-green-400 mt-0.5 shrink-0" />}

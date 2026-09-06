@@ -4,9 +4,18 @@ import { Input } from "../ui/input";
 import { Label } from "../ui/label";
 import { Textarea } from "../ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../ui/select";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "../ui/dialog";
-import { createDataBreach, type ApiDataBreach, type DataBreachCreate } from "../../lib/api";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from "../ui/dialog";
+import { type ApiDataBreach, type DataBreachCreate } from "../../lib/api";
+import { useCreateDataBreach } from "../../lib/queries/dataBreachQueries";
 import { toast } from "sonner";
+import { errorMessage } from "../../lib/errors";
 import { Loader2 } from "lucide-react";
 
 interface NewBreachForm {
@@ -38,7 +47,8 @@ const defaultForm: NewBreachForm = {
 interface DataBreachCreateDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  onCreated: (breach: ApiDataBreach) => void;
+  /** Optional – die Liste wird über die Query-Invalidierung ohnehin neu geladen. */
+  onCreated?: (breach: ApiDataBreach) => void;
 }
 
 export function DataBreachCreateDialog({
@@ -47,14 +57,14 @@ export function DataBreachCreateDialog({
   onCreated,
 }: DataBreachCreateDialogProps) {
   const [form, setForm] = useState<NewBreachForm>(defaultForm);
-  const [creating, setCreating] = useState(false);
+  const createMutation = useCreateDataBreach();
+  const creating = createMutation.isPending;
 
   const handleCreate = async () => {
     if (!form.title.trim()) {
       toast.error("Titel ist erforderlich.");
       return;
     }
-    setCreating(true);
     try {
       const body: DataBreachCreate = {
         title: form.title.trim(),
@@ -75,15 +85,13 @@ export function DataBreachCreateDialog({
         risk_level: (form.risk_level || undefined) as DataBreachCreate["risk_level"],
         measures_taken: form.measures_taken.trim() || undefined,
       };
-      const created = await createDataBreach(body);
+      const created = await createMutation.mutateAsync(body);
       toast.success("Datenpanne erfasst.");
       setForm(defaultForm);
       onOpenChange(false);
-      onCreated(created);
-    } catch {
-      toast.error("Fehler beim Erfassen der Datenpanne.");
-    } finally {
-      setCreating(false);
+      onCreated?.(created);
+    } catch (e) {
+      toast.error("Fehler beim Erfassen der Datenpanne.", { description: errorMessage(e) });
     }
   };
 
@@ -92,19 +100,25 @@ export function DataBreachCreateDialog({
       <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>Datenpanne erfassen</DialogTitle>
+          <DialogDescription>
+            Erfassen Sie die Eckdaten der Verletzung des Schutzes personenbezogener Daten. Die
+            72-Stunden-Meldefrist wird ab dem Entdeckungszeitpunkt berechnet.
+          </DialogDescription>
         </DialogHeader>
         <div className="space-y-4 py-2">
           <div>
-            <Label>Titel *</Label>
+            <Label htmlFor="breach-title">Titel *</Label>
             <Input
+              id="breach-title"
               value={form.title}
               onChange={(e) => setForm((f) => ({ ...f, title: e.target.value }))}
               placeholder="Kurze Beschreibung der Verletzung"
             />
           </div>
           <div>
-            <Label>Beschreibung</Label>
+            <Label htmlFor="breach-description">Beschreibung</Label>
             <Textarea
+              id="breach-description"
               value={form.description}
               onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))}
               rows={3}
@@ -112,22 +126,23 @@ export function DataBreachCreateDialog({
           </div>
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <Label>Entdeckt am *</Label>
+              <Label htmlFor="breach-discovered-at">Entdeckt am *</Label>
               <Input
+                id="breach-discovered-at"
                 type="datetime-local"
                 value={form.discovered_at}
                 onChange={(e) => setForm((f) => ({ ...f, discovered_at: e.target.value }))}
               />
             </div>
             <div>
-              <Label>Art der Verletzung *</Label>
+              <Label htmlFor="breach-type">Art der Verletzung *</Label>
               <Select
                 value={form.breach_type}
                 onValueChange={(v) =>
                   setForm((f) => ({ ...f, breach_type: v as NewBreachForm["breach_type"] }))
                 }
               >
-                <SelectTrigger>
+                <SelectTrigger id="breach-type">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -140,8 +155,9 @@ export function DataBreachCreateDialog({
           </div>
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <Label>Datenkategorien (kommasepariert)</Label>
+              <Label htmlFor="breach-data-categories">Datenkategorien (kommasepariert)</Label>
               <Input
+                id="breach-data-categories"
                 value={form.affected_data_categories}
                 onChange={(e) =>
                   setForm((f) => ({ ...f, affected_data_categories: e.target.value }))
@@ -150,8 +166,9 @@ export function DataBreachCreateDialog({
               />
             </div>
             <div>
-              <Label>Betroffene Personen (ca.)</Label>
+              <Label htmlFor="breach-persons-count">Betroffene Personen (ca.)</Label>
               <Input
+                id="breach-persons-count"
                 type="number"
                 value={form.affected_persons_count}
                 onChange={(e) =>
@@ -162,29 +179,31 @@ export function DataBreachCreateDialog({
           </div>
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <Label>Abteilung</Label>
+              <Label htmlFor="breach-department">Abteilung</Label>
               <Input
+                id="breach-department"
                 value={form.department}
                 onChange={(e) => setForm((f) => ({ ...f, department: e.target.value }))}
               />
             </div>
             <div>
-              <Label>Zuständig</Label>
+              <Label htmlFor="breach-assignee">Zuständig</Label>
               <Input
+                id="breach-assignee"
                 value={form.assignee}
                 onChange={(e) => setForm((f) => ({ ...f, assignee: e.target.value }))}
               />
             </div>
           </div>
           <div>
-            <Label>Risikostufe</Label>
+            <Label htmlFor="breach-risk-level">Risikostufe</Label>
             <Select
               value={form.risk_level || "none"}
               onValueChange={(v) =>
                 setForm((f) => ({ ...f, risk_level: v === "none" ? "" : v }))
               }
             >
-              <SelectTrigger>
+              <SelectTrigger id="breach-risk-level">
                 <SelectValue placeholder="Risiko bewerten" />
               </SelectTrigger>
               <SelectContent>
@@ -197,8 +216,9 @@ export function DataBreachCreateDialog({
             </Select>
           </div>
           <div>
-            <Label>Ergriffene Maßnahmen</Label>
+            <Label htmlFor="breach-measures">Ergriffene Maßnahmen</Label>
             <Textarea
+              id="breach-measures"
               value={form.measures_taken}
               onChange={(e) => setForm((f) => ({ ...f, measures_taken: e.target.value }))}
               rows={2}

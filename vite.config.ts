@@ -9,13 +9,28 @@ export default defineConfig({
     environment: 'jsdom',
     globals: true,
     include: ['src/**/*.{test,spec}.{ts,tsx}'],
+    coverage: {
+      provider: 'v8',
+      reporter: ['text-summary', 'lcov'],
+      reportsDirectory: 'coverage',
+      // Only application code counts: generated API types, the shadcn/Radix
+      // wrappers and test scaffolding would inflate the denominator without
+      // telling us anything about our own logic.
+      include: ['src/app/**/*.{ts,tsx}'],
+      exclude: [
+        'src/app/lib/api/schema.ts',
+        'src/app/components/ui/**',
+        'src/app/**/*.test.{ts,tsx}',
+        'src/app/**/*.d.ts',
+        'src/app/test-utils.tsx',
+      ],
+      // Ratchet, not target: set just under the measured value and raised whenever a
+      // round adds tests, never lowered (measured 29 % lines on 2026-09-06, see
+      // mkdocs/docs/projekt/qualitaetsplan.md). `npm run test:coverage` fails below it.
+      thresholds: { lines: 27, statements: 25, functions: 24, branches: 20 },
+    },
   },
-  plugins: [
-    // The React and Tailwind plugins are both required for Make, even if
-    // Tailwind is not being actively used – do not remove them
-    react(),
-    tailwindcss(),
-  ],
+  plugins: [react(), tailwindcss()],
   resolve: {
     alias: {
       // Alias @ to the src directory
@@ -33,6 +48,6 @@ export default defineConfig({
     },
   },
 
-  // File types to support raw imports. Never add .css, .tsx, or .ts files to this.
+  // Raw-import asset types.
   assetsInclude: ['**/*.svg', '**/*.csv'],
 })

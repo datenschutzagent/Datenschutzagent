@@ -6,31 +6,14 @@ They test listing, filtering, updating, and bulk-updating findings.
 
 import pytest
 
+from tests.factories import create_case
+
 pytestmark = pytest.mark.asyncio
 
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
-
-
-async def _create_case(client, title: str = "Findings Test Case") -> dict:
-    resp = await client.post(
-        "/api/v1/cases",
-        json={
-            "title": title,
-            "department": "IT",
-            "case_type": "Softwareeinführung",
-            "language": "de",
-            "created_by": "test@example.com",
-            "assignee": "DSB",
-            "processing_context": None,
-            "special_category_data": False,
-            "international_transfer": False,
-        },
-    )
-    assert resp.status_code == 201, resp.text
-    return resp.json()
 
 
 # ---------------------------------------------------------------------------
@@ -40,7 +23,7 @@ async def _create_case(client, title: str = "Findings Test Case") -> dict:
 
 async def test_list_findings_empty_for_new_case(client):
     """Newly created cases have no findings."""
-    case = await _create_case(client, title="Empty Findings")
+    case = await create_case(client, title="Empty Findings")
     resp = await client.get("/api/v1/findings", params={"case_id": case["id"]})
     assert resp.status_code == 200
     body = resp.json()
@@ -95,7 +78,7 @@ async def test_list_findings_status_filter(client):
 
 async def test_export_findings_csv_returns_csv(client):
     """Export endpoint returns CSV content for a case."""
-    case = await _create_case(client, title="CSV Export Test")
+    case = await create_case(client, title="CSV Export Test")
     resp = await client.get("/api/v1/findings/export", params={"case_id": case["id"]})
     assert resp.status_code == 200
     assert "csv" in resp.headers.get("content-type", "").lower()
@@ -164,7 +147,7 @@ async def _add_findings(case_id: str, n: int, status: str = "open") -> list[str]
 
 async def test_bulk_update_counts_only_changed_findings(client):
     """Regression: ``updated`` was incremented for every finding, changed or not."""
-    case = await _create_case(client, title="Bulk-Count")
+    case = await create_case(client, title="Bulk-Count")
     ids = await _add_findings(case["id"], 3, status="open")
 
     same = await client.patch(

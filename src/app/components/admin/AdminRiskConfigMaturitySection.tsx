@@ -33,8 +33,11 @@ export function AdminRiskConfigMaturitySection() {
           <div className="grid grid-cols-2 md:grid-cols-5 gap-3 max-w-3xl">
             {SEVERITY_KEYS.map((sev) => (
               <div key={sev}>
-                <Label className="text-xs capitalize">{sev}</Label>
+                <Label htmlFor={`case-score-weight-${sev}`} className="text-xs capitalize">
+                  {sev}
+                </Label>
                 <Input
+                  id={`case-score-weight-${sev}`}
                   type="number"
                   min="0"
                   value={config.case_score.severity_weights[sev] ?? 0}
@@ -51,8 +54,11 @@ export function AdminRiskConfigMaturitySection() {
             ))}
           </div>
           <div className="max-w-md">
-            <Label className="text-xs">max_score</Label>
+            <Label htmlFor="case-score-max" className="text-xs">
+              max_score
+            </Label>
             <Input
+              id="case-score-max"
               type="number"
               min="1"
               value={config.case_score.max_score}
@@ -81,12 +87,15 @@ export function AdminRiskConfigMaturitySection() {
         </CardHeader>
         <CardContent className="space-y-4">
           <div>
-            <Label className="text-sm font-medium">Sub-Score-Gewichte</Label>
+            <p className="text-sm font-medium">Sub-Score-Gewichte</p>
             <div className="grid md:grid-cols-5 gap-3 mt-2">
               {MATURITY_KEYS.map((k) => (
                 <div key={k}>
-                  <Label className="text-xs uppercase">{k}</Label>
+                  <Label htmlFor={`maturity-weight-${k}`} className="text-xs uppercase">
+                    {k}
+                  </Label>
                   <Input
+                    id={`maturity-weight-${k}`}
                     type="number"
                     step="0.05"
                     min="0"
@@ -126,8 +135,11 @@ export function AdminRiskConfigMaturitySection() {
 
           <div className="grid grid-cols-2 gap-3 max-w-md">
             <div>
-              <Label className="text-xs">Velocity optimal_days (Score=100)</Label>
+              <Label htmlFor="maturity-velocity-optimal-days" className="text-xs">
+                Velocity optimal_days (Score=100)
+              </Label>
               <Input
+                id="maturity-velocity-optimal-days"
                 type="number"
                 min="0"
                 value={config.maturity.velocity.optimal_days}
@@ -142,8 +154,11 @@ export function AdminRiskConfigMaturitySection() {
               />
             </div>
             <div>
-              <Label className="text-xs">Velocity worst_days (Score=0)</Label>
+              <Label htmlFor="maturity-velocity-worst-days" className="text-xs">
+                Velocity worst_days (Score=0)
+              </Label>
               <Input
+                id="maturity-velocity-worst-days"
                 type="number"
                 min="1"
                 value={config.maturity.velocity.worst_days}
@@ -178,6 +193,7 @@ export function AdminRiskConfigMaturitySection() {
         <CardContent className="space-y-4">
           <div className="flex items-center gap-3">
             <Switch
+              id="risk-velocity-enabled"
               checked={config.risk_velocity.enabled}
               onCheckedChange={(checked) =>
                 setConfig((c) => {
@@ -188,14 +204,19 @@ export function AdminRiskConfigMaturitySection() {
                 })
               }
             />
-            <Label className="text-sm">Risk-Velocity-Endpoint aktiv</Label>
+            <Label htmlFor="risk-velocity-enabled" className="text-sm">
+              Risk-Velocity-Endpoint aktiv
+            </Label>
           </div>
 
           <div className="max-w-md space-y-3">
             <div>
-              <Label className="text-xs">Vergleichsfenster (Tage)</Label>
+              <Label htmlFor="risk-velocity-window-days" className="text-xs">
+                Vergleichsfenster (Tage)
+              </Label>
               <div className="flex items-center gap-3 mt-1">
                 <Slider
+                  id="risk-velocity-window-days"
                   value={[config.risk_velocity.window_days]}
                   onValueChange={(values) =>
                     setConfig((c) => {
@@ -216,9 +237,12 @@ export function AdminRiskConfigMaturitySection() {
               </div>
             </div>
             <div>
-              <Label className="text-xs">Signifikanz-Schwelle (Punkte Delta)</Label>
+              <Label htmlFor="risk-velocity-significant-change" className="text-xs">
+                Signifikanz-Schwelle (Punkte Delta)
+              </Label>
               <div className="flex items-center gap-3 mt-1">
                 <Slider
+                  id="risk-velocity-significant-change"
                   value={[config.risk_velocity.significant_change_pct]}
                   onValueChange={(values) =>
                     setConfig((c) => {

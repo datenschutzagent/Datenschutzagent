@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState } from "react";
 import { AppLayout } from "../components/app-layout";
 import { PageHeader } from "../components/page-header";
 import { Card, CardContent } from "../components/ui/card";
@@ -7,23 +7,21 @@ import { Input } from "../components/ui/input";
 import { Label } from "../components/ui/label";
 import { Textarea } from "../components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../components/ui/select";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "../components/ui/dialog";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogFooter } from "../components/ui/dialog";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "../components/ui/alert-dialog";
 import { Skeleton } from "../components/ui/skeleton";
 import { Separator } from "../components/ui/separator";
+import { type ApiAVVContract, type AVVCreate, type AVVUpdate } from "../lib/api";
 import {
-  listAVVContracts,
-  createAVVContract,
-  updateAVVContract,
-  deleteAVVContract,
-  assessAvvRisk,
-  type ApiAVVContract,
-  type AVVCreate,
-  type AVVUpdate,
-  type AvvRiskAssessment,
-} from "../lib/api";
+  useAVVContracts,
+  useCreateAVVContract,
+  useUpdateAVVContract,
+  useDeleteAVVContract,
+  useAssessAvvRisk,
+} from "../lib/queries/avvQueries";
 import { toast } from "sonner";
-import { Plus, FileText, Loader2, Trash2, AlertTriangle, Clock, ShieldAlert } from "lucide-react";
+import { errorMessage } from "../lib/errors";
+import { Plus, FileText, Loader2, Trash2, AlertTriangle, Clock, ShieldAlert, CircleAlert } from "lucide-react";
 
 const STATUS_LABELS: Record<string, string> = {
   pending: "Ausstehend",
@@ -97,42 +95,35 @@ const defaultForm: NewAVVForm = {
 };
 
 export function AVVPage() {
-  const [contracts, setContracts] = useState<ApiAVVContract[]>([]);
-  const [total, setTotal] = useState(0);
-  const [loading, setLoading] = useState(true);
   const [statusFilter, setStatusFilter] = useState("all");
   const [expiringSoon, setExpiringSoon] = useState(false);
 
   const [showNew, setShowNew] = useState(false);
-  const [creating, setCreating] = useState(false);
   const [form, setForm] = useState<NewAVVForm>(defaultForm);
 
   const [selected, setSelected] = useState<ApiAVVContract | null>(null);
-  const [updatingStatus, setUpdatingStatus] = useState(false);
-  const [riskAssessment, setRiskAssessment] = useState<AvvRiskAssessment | null>(null);
-  const [assessingRisk, setAssessingRisk] = useState(false);
 
-  const load = useCallback(async () => {
-    setLoading(true);
-    try {
-      const r = await listAVVContracts({
-        status: statusFilter !== "all" ? statusFilter : undefined,
-        expiringSoon,
-      });
-      setContracts(r.items);
-      setTotal(r.total);
-    } catch {
-      toast.error("AVV konnten nicht geladen werden.");
-    } finally {
-      setLoading(false);
-    }
-  }, [statusFilter, expiringSoon]);
+  const listQuery = useAVVContracts({
+    status: statusFilter !== "all" ? statusFilter : undefined,
+    expiringSoon,
+  });
+  const contracts = listQuery.data?.items ?? [];
+  const total = listQuery.data?.total ?? 0;
+  const loading = listQuery.isPending;
 
-  useEffect(() => { void load(); }, [load]);
+  const createMutation = useCreateAVVContract();
+  const updateMutation = useUpdateAVVContract();
+  const deleteMutation = useDeleteAVVContract();
+  const riskMutation = useAssessAvvRisk();
+  const riskAssessment = riskMutation.data ?? null;
+
+  function closeDetail() {
+    setSelected(null);
+    riskMutation.reset();
+  }
 
   async function handleCreate() {
     if (!form.partner_name.trim()) { toast.error("Partnername ist erforderlich."); return; }
-    setCreating(true);
     try {
       const body: AVVCreate = {
         partner_name: form.partner_name.trim(),
@@ -144,58 +135,44 @@ export function AVVPage() {
         expiry_date: form.expiry_date || undefined,
         notes: form.notes.trim() || undefined,
       };
-      await createAVVContract(body);
+      await createMutation.mutateAsync(body);
       toast.success("AVV angelegt.");
       setShowNew(false);
       setForm(defaultForm);
-      void load();
-    } catch {
-      toast.error("Fehler beim Anlegen.");
-    } finally {
-      setCreating(false);
+    } catch (e) {
+      toast.error("Fehler beim Anlegen.", { description: errorMessage(e) });
     }
   }
 
   async function handleStatusChange(newStatus: string) {
     if (!selected) return;
-    setUpdatingStatus(true);
     try {
       const body: AVVUpdate = { status: newStatus };
-      const updated = await updateAVVContract(selected.id, body);
+      const updated = await updateMutation.mutateAsync({ id: selected.id, body });
       setSelected(updated);
-      setContracts((prev) => prev.map((c) => c.id === updated.id ? updated : c));
       toast.success("Status aktualisiert.");
-    } catch {
-      toast.error("Fehler beim Aktualisieren.");
-    } finally {
-      setUpdatingStatus(false);
+    } catch (e) {
+      toast.error("Fehler beim Aktualisieren.", { description: errorMessage(e) });
     }
   }
 
   async function handleRiskAssessment() {
     if (!selected) return;
-    setAssessingRisk(true);
-    setRiskAssessment(null);
     try {
-      const result = await assessAvvRisk(selected.id);
-      setRiskAssessment(result);
+      await riskMutation.mutateAsync(selected.id);
       toast.success("Risikobewertung abgeschlossen.");
     } catch (err) {
       toast.error(`Risikobewertung fehlgeschlagen: ${err instanceof Error ? err.message : String(err)}`);
-    } finally {
-      setAssessingRisk(false);
     }
   }
 
   async function handleDelete(id: string) {
     try {
-      await deleteAVVContract(id);
-      setContracts((prev) => prev.filter((c) => c.id !== id));
-      setTotal((t) => t - 1);
-      if (selected?.id === id) setSelected(null);
+      await deleteMutation.mutateAsync(id);
+      if (selected?.id === id) closeDetail();
       toast.success("AVV gelöscht.");
-    } catch {
-      toast.error("Fehler beim Löschen.");
+    } catch (e) {
+      toast.error("Fehler beim Löschen.", { description: errorMessage(e) });
     }
   }
 
@@ -251,6 +228,15 @@ export function AVVPage() {
 
       {loading ? (
         <div className="space-y-3">{[...Array(5)].map((_, i) => <Skeleton key={i} className="h-16 w-full" />)}</div>
+      ) : listQuery.isError ? (
+        <Card><CardContent className="py-12 text-center">
+          <CircleAlert className="size-10 mx-auto mb-3 text-red-500 dark:text-red-400" />
+          <p className="text-muted-foreground">AVV konnten nicht geladen werden.</p>
+          <p className="text-xs text-muted-foreground mt-1">{errorMessage(listQuery.error)}</p>
+          <Button className="mt-4" variant="outline" onClick={() => void listQuery.refetch()}>
+            Erneut versuchen
+          </Button>
+        </CardContent></Card>
       ) : contracts.length === 0 ? (
         <Card><CardContent className="py-12 text-center text-muted-foreground">
           <FileText className="size-10 mx-auto mb-3 opacity-40" />
@@ -289,17 +275,20 @@ export function AVVPage() {
       {/* New dialog */}
       <Dialog open={showNew} onOpenChange={setShowNew}>
         <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
-          <DialogHeader><DialogTitle>AVV anlegen</DialogTitle></DialogHeader>
+          <DialogHeader>
+            <DialogTitle>AVV anlegen</DialogTitle>
+            <DialogDescription>Neuen Auftragsverarbeitungsvertrag mit Partner, Laufzeit und Zuständigkeit erfassen.</DialogDescription>
+          </DialogHeader>
           <div className="space-y-4 py-2">
             <div>
-              <Label>Partnername *</Label>
-              <Input value={form.partner_name} onChange={(e) => setForm((f) => ({ ...f, partner_name: e.target.value }))} placeholder="Unternehmen / Dienstleister" />
+              <Label htmlFor="avv-create-partner-name">Partnername *</Label>
+              <Input id="avv-create-partner-name" value={form.partner_name} onChange={(e) => setForm((f) => ({ ...f, partner_name: e.target.value }))} placeholder="Unternehmen / Dienstleister" />
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <Label>Typ</Label>
+                <Label htmlFor="avv-create-partner-type">Typ</Label>
                 <Select value={form.partner_type} onValueChange={(v) => setForm((f) => ({ ...f, partner_type: v as NewAVVForm["partner_type"] }))}>
-                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectTrigger id="avv-create-partner-type"><SelectValue /></SelectTrigger>
                   <SelectContent>
                     <SelectItem value="processor">Auftragsverarbeiter</SelectItem>
                     <SelectItem value="sub_processor">Unter-Auftragsverarbeiter</SelectItem>
@@ -307,37 +296,37 @@ export function AVVPage() {
                 </Select>
               </div>
               <div>
-                <Label>Abteilung</Label>
-                <Input value={form.department} onChange={(e) => setForm((f) => ({ ...f, department: e.target.value }))} />
+                <Label htmlFor="avv-create-department">Abteilung</Label>
+                <Input id="avv-create-department" value={form.department} onChange={(e) => setForm((f) => ({ ...f, department: e.target.value }))} />
               </div>
             </div>
             <div>
-              <Label>Vertragsgegenstand</Label>
-              <Textarea value={form.subject_matter} onChange={(e) => setForm((f) => ({ ...f, subject_matter: e.target.value }))} rows={2} />
+              <Label htmlFor="avv-create-subject-matter">Vertragsgegenstand</Label>
+              <Textarea id="avv-create-subject-matter" value={form.subject_matter} onChange={(e) => setForm((f) => ({ ...f, subject_matter: e.target.value }))} rows={2} />
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <Label>Vertragsdatum</Label>
-                <Input type="date" value={form.contract_date} onChange={(e) => setForm((f) => ({ ...f, contract_date: e.target.value }))} />
+                <Label htmlFor="avv-create-contract-date">Vertragsdatum</Label>
+                <Input id="avv-create-contract-date" type="date" value={form.contract_date} onChange={(e) => setForm((f) => ({ ...f, contract_date: e.target.value }))} />
               </div>
               <div>
-                <Label>Ablaufdatum</Label>
-                <Input type="date" value={form.expiry_date} onChange={(e) => setForm((f) => ({ ...f, expiry_date: e.target.value }))} />
+                <Label htmlFor="avv-create-expiry-date">Ablaufdatum</Label>
+                <Input id="avv-create-expiry-date" type="date" value={form.expiry_date} onChange={(e) => setForm((f) => ({ ...f, expiry_date: e.target.value }))} />
               </div>
             </div>
             <div>
-              <Label>Zuständig</Label>
-              <Input value={form.assignee} onChange={(e) => setForm((f) => ({ ...f, assignee: e.target.value }))} />
+              <Label htmlFor="avv-create-assignee">Zuständig</Label>
+              <Input id="avv-create-assignee" value={form.assignee} onChange={(e) => setForm((f) => ({ ...f, assignee: e.target.value }))} />
             </div>
             <div>
-              <Label>Notizen</Label>
-              <Textarea value={form.notes} onChange={(e) => setForm((f) => ({ ...f, notes: e.target.value }))} rows={2} />
+              <Label htmlFor="avv-create-notes">Notizen</Label>
+              <Textarea id="avv-create-notes" value={form.notes} onChange={(e) => setForm((f) => ({ ...f, notes: e.target.value }))} rows={2} />
             </div>
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setShowNew(false)}>Abbrechen</Button>
-            <Button onClick={() => void handleCreate()} disabled={creating}>
-              {creating && <Loader2 className="size-4 mr-1 animate-spin" />}
+            <Button onClick={() => void handleCreate()} disabled={createMutation.isPending}>
+              {createMutation.isPending && <Loader2 className="size-4 mr-1 animate-spin" />}
               Anlegen
             </Button>
           </DialogFooter>
@@ -346,9 +335,12 @@ export function AVVPage() {
 
       {/* Detail dialog */}
       {selected && (
-        <Dialog open onOpenChange={() => { setSelected(null); setRiskAssessment(null); }}>
+        <Dialog open onOpenChange={closeDetail}>
           <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
-            <DialogHeader><DialogTitle>{selected.partnerName}</DialogTitle></DialogHeader>
+            <DialogHeader>
+              <DialogTitle>{selected.partnerName}</DialogTitle>
+              <DialogDescription>Details, Status und Risikobewertung des Auftragsverarbeitungsvertrags.</DialogDescription>
+            </DialogHeader>
             <div className="space-y-4">
               <div className="flex gap-2 flex-wrap">
                 <span className={`text-xs px-2 py-1 rounded-full font-medium ${STATUS_COLORS[selected.status] ?? ""}`}>
@@ -376,8 +368,8 @@ export function AVVPage() {
                 <p className="text-sm font-medium mb-2">Status ändern</p>
                 <div className="flex flex-wrap gap-2">
                   {Object.entries(STATUS_LABELS).filter(([v]) => v !== selected.status).map(([v, l]) => (
-                    <Button key={v} size="sm" variant="outline" disabled={updatingStatus} onClick={() => void handleStatusChange(v)}>
-                      {updatingStatus && <Loader2 className="size-3 mr-1 animate-spin" />}
+                    <Button key={v} size="sm" variant="outline" disabled={updateMutation.isPending} onClick={() => void handleStatusChange(v)}>
+                      {updateMutation.isPending && <Loader2 className="size-3 mr-1 animate-spin" />}
                       {l}
                     </Button>
                   ))}
@@ -393,8 +385,8 @@ export function AVVPage() {
                     <ShieldAlert className="size-4" /> Risikobewertung
                   </p>
                   {!["expired", "terminated"].includes(selected.status) && (
-                    <Button size="sm" variant="outline" onClick={() => void handleRiskAssessment()} disabled={assessingRisk}>
-                      {assessingRisk ? <Loader2 className="size-3 mr-1 animate-spin" /> : <ShieldAlert className="size-3 mr-1" />}
+                    <Button size="sm" variant="outline" onClick={() => void handleRiskAssessment()} disabled={riskMutation.isPending}>
+                      {riskMutation.isPending ? <Loader2 className="size-3 mr-1 animate-spin" /> : <ShieldAlert className="size-3 mr-1" />}
                       {riskAssessment ? "Neu bewerten" : "Bewertung durchführen"}
                     </Button>
                   )}
@@ -498,7 +490,7 @@ export function AVVPage() {
                   </AlertDialogFooter>
                 </AlertDialogContent>
               </AlertDialog>
-              <Button variant="outline" onClick={() => { setSelected(null); setRiskAssessment(null); }}>Schließen</Button>
+              <Button variant="outline" onClick={closeDetail}>Schließen</Button>
             </DialogFooter>
           </DialogContent>
         </Dialog>

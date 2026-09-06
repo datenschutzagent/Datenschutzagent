@@ -4,7 +4,7 @@ import { Button } from "./ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./ui/select";
 import { Progress } from "./ui/progress";
 import { Upload, X, Check, CircleAlert, Loader2 } from "lucide-react";
-import { documentTypeLabels, type DocumentType } from "../lib/mock-data";
+import { documentTypeLabels, type DocumentType } from "../lib/labels";
 import { randomUUID } from "../lib/uuid";
 import { uploadDocument, uploadDocumentsBulk } from "../lib/api";
 
@@ -166,8 +166,10 @@ export function DocumentUploadZone({ caseId, uploadedBy = "", onUploadComplete }
 
   return (
     <div className="space-y-4">
-      {/* Drop Zone */}
+      {/* Drop Zone: drag handlers only; the file input below is the keyboard path */}
       <div
+        role="presentation"
+        data-testid="document-upload-zone"
         className={`border-2 border-dashed rounded-lg p-12 text-center transition-all duration-150 ${
           isDragging
             ? "border-primary bg-primary/5 scale-[1.01]"
@@ -190,6 +192,7 @@ export function DocumentUploadZone({ caseId, uploadedBy = "", onUploadComplete }
                 multiple
                 accept=".docx,.pdf,.xlsx,.pptx,.csv,.doc,.jpg,.jpeg,.png,.tif,.tiff"
                 className="hidden"
+                data-testid="document-upload-input"
                 onChange={handleFileSelect}
               />
             </label>
@@ -206,7 +209,12 @@ export function DocumentUploadZone({ caseId, uploadedBy = "", onUploadComplete }
           <h4 className="font-medium text-foreground">Hochgeladene Dateien ({uploadedFiles.length})</h4>
           
           {uploadedFiles.map((uploadedFile) => (
-            <Card key={uploadedFile.id} className="p-4">
+            <Card
+              key={uploadedFile.id}
+              className="p-4"
+              data-testid="document-upload-item"
+              data-status={uploadedFile.status}
+            >
               <div className="flex items-start gap-3">
                 <div className="mt-1">
                   {uploadedFile.status === "uploading" && (
@@ -261,7 +269,7 @@ export function DocumentUploadZone({ caseId, uploadedBy = "", onUploadComplete }
                         value={uploadedFile.type || undefined}
                         onValueChange={(value) => handleTypeChange(uploadedFile.id, value as DocumentType)}
                       >
-                        <SelectTrigger className="w-full">
+                        <SelectTrigger className="w-full" data-testid="document-type-select">
                           <SelectValue placeholder="Dokumenttyp auswählen..." />
                         </SelectTrigger>
                         <SelectContent>
@@ -292,7 +300,7 @@ export function DocumentUploadZone({ caseId, uploadedBy = "", onUploadComplete }
             <Button variant="outline" onClick={() => setUploadedFiles([])}>
               Alle entfernen
             </Button>
-            <Button onClick={handleComplete} disabled={!canComplete}>
+            <Button onClick={handleComplete} disabled={!canComplete} data-testid="document-upload-submit">
               {completing ? <Loader2 className="size-4 animate-spin mr-2" /> : null}
               {caseId ? "Hochladen & abschließen" : "Upload abschließen"}
             </Button>

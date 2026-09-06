@@ -4,13 +4,15 @@ import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "../ui/dialog";
 import { LineChart, Line, Tooltip, ResponsiveContainer } from "recharts";
-import { severityColors, priorityLabels, priorityColors } from "../../lib/mock-data";
+import { severityColors, priorityLabels, priorityColors } from "../../lib/labels";
 import type { ApiCase, ApiFinding } from "../../lib/api";
 import { updateCase } from "../../lib/api";
 import { useAppConfig } from "../../contexts/AppConfigContext";
 import { useCaseDetail } from "../../contexts/CaseDetailContext";
 import { CircleAlert, Download, FileCheck, Loader2, Shield, Zap } from "lucide-react";
 import { toast } from "sonner";
+import { errorMessage } from "../../lib/errors";
+import { onEnterOrSpace } from "../../lib/a11y";
 
 export interface CaseOverviewTabProps {
   caseData: ApiCase;
@@ -65,8 +67,8 @@ export function CaseOverviewTab({
       const updated = await updateCase(caseData.id, { deadline: deadlineValue || null });
       onCaseUpdated?.(updated);
       toast.success("Frist gespeichert");
-    } catch {
-      toast.error("Frist konnte nicht gespeichert werden");
+    } catch (e) {
+      toast.error("Frist konnte nicht gespeichert werden", { description: errorMessage(e) });
     } finally {
       setDeadlineSaving(false);
     }
@@ -79,9 +81,9 @@ export function CaseOverviewTab({
       const updated = await updateCase(caseData.id, { auto_run_checks: checked });
       onCaseUpdated?.(updated);
       toast.success(checked ? "Auto-Checks aktiviert" : "Auto-Checks deaktiviert");
-    } catch {
+    } catch (e) {
       setAutoRunChecks(!checked);
-      toast.error("Einstellung konnte nicht gespeichert werden");
+      toast.error("Einstellung konnte nicht gespeichert werden", { description: errorMessage(e) });
     } finally {
       setAutoRunSaving(false);
     }
@@ -233,12 +235,13 @@ export function CaseOverviewTab({
                 <Button
                   variant="outline"
                   className="w-full justify-start gap-2"
+                  data-testid="run-checks-button"
                   onClick={() => setRunChecksOpen(true)}
                 >
                   <Shield className="size-4" />
                   Playbook-Checks ausführen
                 </Button>
-                <DialogContent>
+                <DialogContent data-testid="run-checks-dialog">
                   <DialogHeader>
                     <DialogTitle>Playbook-Checks ausführen</DialogTitle>
                     <DialogDescription>
@@ -246,8 +249,11 @@ export function CaseOverviewTab({
                     </DialogDescription>
                   </DialogHeader>
                   <div className="space-y-2">
-                    <label className="text-sm font-medium">Playbook</label>
+                    <label className="text-sm font-medium" htmlFor="run-checks-playbook">
+                      Playbook
+                    </label>
                     <select
+                      id="run-checks-playbook"
                       className="w-full border border-input rounded-md px-3 py-2 bg-input-background"
                       value={selectedPlaybookId}
                       onChange={(e) => setSelectedPlaybookId(e.target.value)}
@@ -259,8 +265,11 @@ export function CaseOverviewTab({
                     </select>
                   </div>
                   <div className="space-y-2">
-                    <label className="text-sm font-medium">Prüfvariante</label>
+                    <label className="text-sm font-medium" htmlFor="run-checks-strategy">
+                      Prüfvariante
+                    </label>
                     <select
+                      id="run-checks-strategy"
                       className="w-full border border-input rounded-md px-3 py-2 bg-input-background"
                       value={runChecksStrategy}
                       onChange={(e) => setRunChecksStrategy(e.target.value as "full_text" | "rag" | "both")}
@@ -334,7 +343,11 @@ export function CaseOverviewTab({
                   )}
                   <div className="flex justify-end gap-2">
                     <Button variant="outline" onClick={() => { setRunChecksOpen(false); setRunChecksError(null); }}>Abbrechen</Button>
-                    <Button onClick={() => void handleRunChecks()} disabled={!selectedPlaybookId || runChecksLoading || runChecksStatus === "running"}>
+                    <Button
+                      onClick={() => void handleRunChecks()}
+                      disabled={!selectedPlaybookId || runChecksLoading || runChecksStatus === "running"}
+                      data-testid="run-checks-submit"
+                    >
                       {runChecksLoading ? <Loader2 className="size-4 animate-spin" /> : null}
                       Checks starten
                     </Button>
@@ -459,7 +472,10 @@ export function CaseOverviewTab({
               <div
                 key={finding.id}
                 className="p-4 border border-border rounded-lg hover:bg-slate-50 dark:hover:bg-slate-800/50 cursor-pointer transition-colors"
+                role="button"
+                tabIndex={0}
                 onClick={() => onSelectFinding(finding)}
+                onKeyDown={onEnterOrSpace(() => onSelectFinding(finding))}
               >
                 <div className="flex items-start gap-3">
                   <CircleAlert className="size-5 text-red-600 dark:text-red-400 mt-0.5" />

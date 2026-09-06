@@ -3,7 +3,14 @@ import { Button } from "../ui/button";
 import { Badge } from "../ui/badge";
 import { Skeleton } from "../ui/skeleton";
 import { Separator } from "../ui/separator";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "../ui/dialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from "../ui/dialog";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -15,15 +22,15 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "../ui/alert-dialog";
+import { type ApiDataBreach } from "../../lib/api";
 import {
-  updateDataBreach,
-  deleteDataBreach,
-  generateBreachNotification,
-  getDataBreachActivity,
-  type ApiDataBreach,
-  type ApiDataBreachActivity,
-} from "../../lib/api";
+  useDataBreachActivity,
+  useUpdateDataBreach,
+  useDeleteDataBreach,
+  useGenerateBreachNotification,
+} from "../../lib/queries/dataBreachQueries";
 import { toast } from "sonner";
+import { errorMessage } from "../../lib/errors";
 import { AlertTriangle, Clock, CheckCircle, ShieldAlert, Loader2, FileText, Trash2, Eye } from "lucide-react";
 
 const STATUS_LABELS: Record<string, string> = {
@@ -109,53 +116,52 @@ export function DataBreachDetailDialog({
   onDeleted,
 }: DataBreachDetailDialogProps) {
   const [current, setCurrent] = useState<ApiDataBreach>(breach);
-  const [activity, setActivity] = useState<ApiDataBreachActivity[]>([]);
-  const [loadingActivity, setLoadingActivity] = useState(false);
-  const [generatingDraft, setGeneratingDraft] = useState(false);
-  const [updatingStatus, setUpdatingStatus] = useState(false);
 
   useEffect(() => {
     setCurrent(breach);
-    setLoadingActivity(true);
-    getDataBreachActivity(breach.id)
-      .then(setActivity)
-      .finally(() => setLoadingActivity(false));
   }, [breach]);
 
+  const activityQuery = useDataBreachActivity(breach.id);
+  const activity = activityQuery.data ?? [];
+  const loadingActivity = activityQuery.isPending;
+
+  const updateMutation = useUpdateDataBreach();
+  const generateMutation = useGenerateBreachNotification();
+  const deleteMutation = useDeleteDataBreach();
+  const updatingStatus = updateMutation.isPending;
+  const generatingDraft = generateMutation.isPending;
+
   const handleStatusChange = async (newStatus: string) => {
-    setUpdatingStatus(true);
     try {
-      const updated = await updateDataBreach(current.id, { status: newStatus });
+      const updated = await updateMutation.mutateAsync({
+        id: current.id,
+        body: { status: newStatus },
+      });
       setCurrent(updated);
       onUpdated(updated);
       toast.success("Status aktualisiert.");
-    } catch {
-      toast.error("Fehler beim Aktualisieren.");
-    } finally {
-      setUpdatingStatus(false);
+    } catch (e) {
+      toast.error("Fehler beim Aktualisieren.", { description: errorMessage(e) });
     }
   };
 
   const handleGenerateDraft = async () => {
-    setGeneratingDraft(true);
     try {
-      const updated = await generateBreachNotification(current.id);
+      const updated = await generateMutation.mutateAsync(current.id);
       setCurrent(updated);
       toast.success("Meldungsentwurf generiert.");
-    } catch {
-      toast.error("Fehler beim Generieren des Entwurfs.");
-    } finally {
-      setGeneratingDraft(false);
+    } catch (e) {
+      toast.error("Fehler beim Generieren des Entwurfs.", { description: errorMessage(e) });
     }
   };
 
   const handleDelete = async () => {
     try {
-      await deleteDataBreach(current.id);
+      await deleteMutation.mutateAsync(current.id);
       toast.success("Datenpanne gelöscht.");
       onDeleted(current.id);
-    } catch {
-      toast.error("Fehler beim Löschen.");
+    } catch (e) {
+      toast.error("Fehler beim Löschen.", { description: errorMessage(e) });
     }
   };
 
@@ -167,6 +173,9 @@ export function DataBreachDetailDialog({
             <ShieldAlert className="size-5 text-orange-500" />
             {current.title}
           </DialogTitle>
+          <DialogDescription>
+            Details, Status und Meldefrist der erfassten Datenpanne einsehen und bearbeiten.
+          </DialogDescription>
         </DialogHeader>
 
         <div className="space-y-5">
@@ -302,6 +311,13 @@ export function DataBreachDetailDialog({
                 {[...Array(3)].map((_, i) => (
                   <Skeleton key={i} className="h-6 w-full" />
                 ))}
+              </div>
+            ) : activityQuery.isError ? (
+              <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                <span>Aktivitäten konnten nicht geladen werden.</span>
+                <Button size="sm" variant="ghost" onClick={() => void activityQuery.refetch()}>
+                  Erneut versuchen
+                </Button>
               </div>
             ) : activity.length === 0 ? (
               <p className="text-xs text-muted-foreground">Keine Aktivitäten.</p>

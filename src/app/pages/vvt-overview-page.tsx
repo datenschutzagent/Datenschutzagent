@@ -20,8 +20,8 @@ import {
 import { AppLayout } from "../components/app-layout";
 import { PageHeader } from "../components/page-header";
 import { Skeleton } from "../components/ui/skeleton";
-import { statusLabels, statusColors } from "../lib/mock-data";
-import type { CaseStatus } from "../lib/mock-data";
+import { statusLabels, statusColors } from "../lib/labels";
+import type { CaseStatus } from "../lib/labels";
 import {
   getVvtOverview,
   getVvtOverviewStats,
@@ -34,6 +34,7 @@ import {
 } from "../lib/api";
 import { Download, FileText, Loader2, BarChart3 } from "lucide-react";
 import { useState, useEffect, useCallback } from "react";
+import { logger } from "../lib/logger";
 
 const CASE_TYPE_OPTIONS = ["Allgemein", "HR", "IT-System", "Kommunikation"];
 const HAS_VVT_OPTIONS = [
@@ -60,7 +61,8 @@ export function VvtOverviewPage() {
     try {
       const list = await getDepartments();
       setDepartments(list);
-    } catch {
+    } catch (e) {
+      logger.warn("Departments could not be loaded; filter stays empty", {}, e);
       setDepartments([]);
     }
   };
@@ -93,7 +95,8 @@ export function VvtOverviewPage() {
     try {
       const data = await getVvtOverviewStats();
       setStats(data);
-    } catch {
+    } catch (e) {
+      logger.warn("VVT overview stats could not be loaded", {}, e);
       setStats(null);
     } finally {
       setStatsLoading(false);
@@ -268,9 +271,9 @@ export function VvtOverviewPage() {
           <CardContent className="pt-6">
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
               <div className="space-y-2">
-                <label className="text-sm font-medium">Einheit</label>
+                <label htmlFor="vvt-filter-department" className="text-sm font-medium">Einheit</label>
                 <Select value={department} onValueChange={setDepartment}>
-                  <SelectTrigger className="w-full">
+                  <SelectTrigger id="vvt-filter-department" className="w-full">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
@@ -284,9 +287,9 @@ export function VvtOverviewPage() {
                 </Select>
               </div>
               <div className="space-y-2">
-                <label className="text-sm font-medium">Vorgangstyp</label>
+                <label htmlFor="vvt-filter-case-type" className="text-sm font-medium">Vorgangstyp</label>
                 <Select value={caseType} onValueChange={setCaseType}>
-                  <SelectTrigger className="w-full">
+                  <SelectTrigger id="vvt-filter-case-type" className="w-full">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
@@ -300,9 +303,9 @@ export function VvtOverviewPage() {
                 </Select>
               </div>
               <div className="space-y-2">
-                <label className="text-sm font-medium">Status</label>
+                <label htmlFor="vvt-filter-status" className="text-sm font-medium">Status</label>
                 <Select value={status} onValueChange={setStatus}>
-                  <SelectTrigger className="w-full">
+                  <SelectTrigger id="vvt-filter-status" className="w-full">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
@@ -316,9 +319,9 @@ export function VvtOverviewPage() {
                 </Select>
               </div>
               <div className="space-y-2">
-                <label className="text-sm font-medium">VVT</label>
+                <label htmlFor="vvt-filter-has-vvt" className="text-sm font-medium">VVT</label>
                 <Select value={hasVvt} onValueChange={setHasVvt}>
-                  <SelectTrigger className="w-full">
+                  <SelectTrigger id="vvt-filter-has-vvt" className="w-full">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>

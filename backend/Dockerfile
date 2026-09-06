@@ -30,9 +30,14 @@ RUN apt-get purge -y --auto-remove build-essential \
 
 COPY . .
 
-# Run as non-root user for security (prevents privilege escalation on container escape)
+# Run as non-root user for security (prevents privilege escalation on container escape).
+# /app/storage must exist in the image with appuser ownership: docker-compose mounts the
+# named volume `backend_storage` there, and Docker copies owner/permissions from the
+# image directory only when it exists. Without it the volume root is owned by root and
+# every local-storage upload fails with "Permission denied: '/app/storage/cases'".
 RUN groupadd --gid 1001 appgroup \
     && useradd --uid 1001 --gid appgroup --no-create-home --shell /bin/false appuser \
+    && mkdir -p /app/storage \
     && chown -R appuser:appgroup /app
 
 USER appuser

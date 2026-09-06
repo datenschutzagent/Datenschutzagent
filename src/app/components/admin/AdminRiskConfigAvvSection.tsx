@@ -27,7 +27,7 @@ export function AdminRiskConfigAvvSection() {
       </CardHeader>
       <CardContent className="space-y-4">
         <div>
-          <Label className="text-sm font-medium">Schwellenwerte (Score → Level)</Label>
+          <p className="text-sm font-medium">Schwellenwerte (Score → Level)</p>
           <div className="mt-2 space-y-2">
             {config.avv.level_thresholds.map((t, idx) => (
               <div key={idx} className="flex items-center gap-2">
@@ -111,8 +111,11 @@ export function AdminRiskConfigAvvSection() {
 
         <div className="grid grid-cols-2 gap-3 max-w-md">
           <div>
-            <Label className="text-xs">Score-Min</Label>
+            <Label htmlFor="avv-score-min" className="text-xs">
+              Score-Min
+            </Label>
             <Input
+              id="avv-score-min"
               type="number"
               step="0.5"
               value={config.avv.score_normalization.score_min}
@@ -127,8 +130,11 @@ export function AdminRiskConfigAvvSection() {
             />
           </div>
           <div>
-            <Label className="text-xs">Score-Max</Label>
+            <Label htmlFor="avv-score-max" className="text-xs">
+              Score-Max
+            </Label>
             <Input
+              id="avv-score-max"
               type="number"
               step="0.5"
               value={config.avv.score_normalization.score_max}
@@ -150,9 +156,12 @@ export function AdminRiskConfigAvvSection() {
         )}
 
         <div>
-          <Label className="text-xs">Mindest-Konfidenz (0-1)</Label>
+          <Label htmlFor="avv-min-confidence" className="text-xs">
+            Mindest-Konfidenz (0-1)
+          </Label>
           <div className="flex items-center gap-3 mt-1 max-w-md">
             <Slider
+              id="avv-min-confidence"
               value={[config.avv.min_confidence * 100]}
               onValueChange={(values) =>
                 setConfig((c) => {

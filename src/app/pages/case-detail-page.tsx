@@ -7,7 +7,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "../components/ui/tabs"
 import { Alert, AlertDescription } from "../components/ui/alert";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "../components/ui/dialog";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "../components/ui/alert-dialog";
-import { statusLabels, statusColors, findingStatusLabels, severityColors, severityLabels } from "../lib/mock-data";
+import { statusLabels, statusColors, findingStatusLabels, severityColors, severityLabels } from "../lib/labels";
 import {
   canEdit,
   getAuditTrailExportBlob,
@@ -50,6 +50,7 @@ import { CaseFindingsTab } from "../components/case-detail/CaseFindingsTab";
 import { CasePrivacyPolicyTab } from "../components/case-detail/CasePrivacyPolicyTab";
 import { Download, MessageSquare, Loader2, CircleAlert } from "lucide-react";
 import { toast } from "sonner";
+import { errorMessage } from "../lib/errors";
 import { useState, useEffect, useMemo } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useAppConfig } from "../contexts/AppConfigContext";
@@ -378,21 +379,23 @@ function CaseDetailPageContent({
 
       {/* Tabs */}
       <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
-        <TabsList>
-          <TabsTrigger value="overview">Überblick</TabsTrigger>
-          <TabsTrigger value="documents">Dokumente ({caseData.documents.length})</TabsTrigger>
-          <TabsTrigger value="findings">
+        <TabsList data-testid="case-tabs">
+          <TabsTrigger value="overview" data-testid="case-tab-overview">Überblick</TabsTrigger>
+          <TabsTrigger value="documents" data-testid="case-tab-documents">
+            Dokumente ({caseData.documents.length})
+          </TabsTrigger>
+          <TabsTrigger value="findings" data-testid="case-tab-findings">
             Findings ({caseData.findings.length})
             {openFindings.length > 0 && (
               <Badge className="ml-2 bg-red-600 dark:bg-red-700 text-white">{openFindings.length}</Badge>
             )}
           </TabsTrigger>
-          <TabsTrigger value="audit">Audit Trail</TabsTrigger>
-          <TabsTrigger value="vvt">VVT Normalisierung</TabsTrigger>
-          <TabsTrigger value="dsfa">DSFA</TabsTrigger>
-          <TabsTrigger value="report">DSB-Report</TabsTrigger>
-          <TabsTrigger value="privacy-policy">Datenschutzerklärung</TabsTrigger>
-          <TabsTrigger value="annotated">Annotierte Dokumente</TabsTrigger>
+          <TabsTrigger value="audit" data-testid="case-tab-audit">Audit Trail</TabsTrigger>
+          <TabsTrigger value="vvt" data-testid="case-tab-vvt">VVT Normalisierung</TabsTrigger>
+          <TabsTrigger value="dsfa" data-testid="case-tab-dsfa">DSFA</TabsTrigger>
+          <TabsTrigger value="report" data-testid="case-tab-report">DSB-Report</TabsTrigger>
+          <TabsTrigger value="privacy-policy" data-testid="case-tab-privacy-policy">Datenschutzerklärung</TabsTrigger>
+          <TabsTrigger value="annotated" data-testid="case-tab-annotated">Annotierte Dokumente</TabsTrigger>
         </TabsList>
 
         {/* Overview Tab */}
@@ -459,8 +462,8 @@ function CaseDetailPageContent({
                         const blob = await getAuditTrailExportBlob(caseData.id);
                         downloadBlob(blob, `audit-trail-${caseData.id}.csv`);
                         toast.success("Audit Trail exportiert.");
-                      } catch {
-                        toast.error("Export fehlgeschlagen.");
+                      } catch (e) {
+                        toast.error("Export fehlgeschlagen.", { description: errorMessage(e) });
                       }
                     }}
                   >
@@ -475,8 +478,8 @@ function CaseDetailPageContent({
                         const blob = await downloadAuditPackage(caseData.id);
                         downloadBlob(blob, `audit-paket-${caseData.id.slice(0, 8)}.zip`);
                         toast.success("Audit-Paket exportiert.");
-                      } catch {
-                        toast.error("Audit-Export fehlgeschlagen.");
+                      } catch (e) {
+                        toast.error("Audit-Export fehlgeschlagen.", { description: errorMessage(e) });
                       }
                     }}
                   >
@@ -497,8 +500,8 @@ function CaseDetailPageContent({
                         } else {
                           toast.success(`${filename} exportiert.`);
                         }
-                      } catch {
-                        toast.error("Signierter Audit-Export fehlgeschlagen.");
+                      } catch (e) {
+                        toast.error("Signierter Audit-Export fehlgeschlagen.", { description: errorMessage(e) });
                       }
                     }}
                   >

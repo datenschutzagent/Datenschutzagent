@@ -5,61 +5,14 @@ Voraussetzung: lebende PostgreSQL-DB (DATABASE_URL env var) — wie bei den ande
 
 import pytest
 
+from tests.factories import create_avv, create_dsr, create_tom
+
 pytestmark = pytest.mark.asyncio
 
 
 # ---------------------------------------------------------------------------
 # Hilfsfunktionen zum Befuellen
 # ---------------------------------------------------------------------------
-
-
-async def _create_avv(client, **overrides) -> dict:
-    payload = {
-        "partner_name": "Analytics Test Partner GmbH",
-        "partner_type": "processor",
-        "subject_matter": "Cloud-Hosting",
-        "department": "IT",
-        "assignee": "DSB Team",
-        "contract_date": "2025-01-01",
-        "expiry_date": "2026-01-01",
-        "notes": "Test",
-        **overrides,
-    }
-    resp = await client.post("/api/v1/avv", json=payload)
-    assert resp.status_code == 201, resp.text
-    return resp.json()
-
-
-async def _create_dsr(client, **overrides) -> dict:
-    payload = {
-        "request_type": "access",
-        "requestor_name": "Velocity Test User",
-        "requestor_email": "velo@example.com",
-        "description": "Auskunft",
-        "department": "HR",
-        "assignee": "DSB Team",
-        "received_at": "2026-03-01",
-        "deadline_extension_days": 0,
-        **overrides,
-    }
-    resp = await client.post("/api/v1/dsr", json=payload)
-    assert resp.status_code == 201, resp.text
-    return resp.json()
-
-
-async def _create_tom(client, **overrides) -> dict:
-    payload = {
-        "title": "Analytics Test TOM",
-        "description": "Tests",
-        "category": "access_control",
-        "implementation_status": "implemented",
-        "responsible": "IT-Team",
-        "department_codes": ["IT"],
-        **overrides,
-    }
-    resp = await client.post("/api/v1/tom", json=payload)
-    assert resp.status_code == 201, resp.text
-    return resp.json()
 
 
 # ---------------------------------------------------------------------------
@@ -88,7 +41,7 @@ async def test_pipeline_avv_buckets_classify_expiry(client):
     from datetime import date, timedelta
 
     soon = (date.today() + timedelta(days=20)).isoformat()
-    avv = await _create_avv(client, partner_name="Pipeline Soon", expiry_date=soon)
+    avv = await create_avv(client, partner_name="Pipeline Soon", expiry_date=soon)
     resp = await client.patch(f"/api/v1/avv/{avv['id']}", json={"status": "signed"})
     assert resp.status_code == 200
 
@@ -99,7 +52,7 @@ async def test_pipeline_avv_buckets_classify_expiry(client):
 
 
 async def test_pipeline_dept_filter(client):
-    await _create_avv(
+    await create_avv(
         client, partner_name="Pipeline Dept Filter", department="OnlyMe-XYZ-Dept"
     )
     resp = await client.get("/api/v1/analytics/pipeline?department=OnlyMe-XYZ-Dept")
@@ -129,7 +82,7 @@ async def test_velocity_returns_structure(client):
 
 async def test_velocity_dsr_mttr_after_response(client):
     """Wenn ein DSR responded_at hat, muss er in der Velocity-Stichprobe auftauchen."""
-    dsr = await _create_dsr(client, received_at="2026-02-01")
+    dsr = await create_dsr(client, received_at="2026-02-01")
     # Markiere als beantwortet (responded_at = received_at + 5 Tage)
     resp = await client.patch(
         f"/api/v1/dsr/{dsr['id']}",
@@ -162,7 +115,7 @@ async def test_maturity_returns_structure(client):
 
 
 async def test_maturity_dept_filter(client):
-    await _create_tom(
+    await create_tom(
         client, title="Maturity-Filter-TOM", department_codes=["UniqueMaturityDept"]
     )
     resp = await client.get("/api/v1/analytics/maturity?department=UniqueMaturityDept")

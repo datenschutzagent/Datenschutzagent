@@ -6,7 +6,6 @@ Two layers:
   number of related rows (requires DATABASE_URL).
 """
 
-import os
 import uuid
 
 import pytest
@@ -20,8 +19,7 @@ from app.services.query_helpers import (
 # asyncio_mode=auto (pytest.ini) runs async tests without an explicit marker,
 # so no module-level pytestmark — it would warn on the sync unit tests below.
 
-_HAS_DB = bool((os.environ.get("DATABASE_URL") or "").strip())
-_requires_db = pytest.mark.skipif(not _HAS_DB, reason="requires a database")
+_requires_db = pytest.mark.requires_db  # skipped by conftest without DATABASE_URL
 
 
 # ---------------------------------------------------------------------------

@@ -17,6 +17,7 @@ from app.models.schemas import (
     CaseTemplateCreate,
     CaseTemplateResponse,
 )
+from app.services.query_helpers import case_relations
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -126,5 +127,10 @@ async def apply_template(
     )
     db.add(case)
     await db.flush()
-    await db.refresh(case)
-    return CaseResponse.model_validate(case)
+    # Reload with the relationships CaseResponse serialises (documents, findings):
+    # after refresh() they are expired and a lazy load inside the async session
+    # raises MissingGreenlet → HTTP 500. Same pattern as the clone route.
+    reloaded = await db.execute(
+        select(CaseModel).where(CaseModel.id == case.id).options(*case_relations())
+    )
+    return CaseResponse.model_validate(reloaded.scalar_one())

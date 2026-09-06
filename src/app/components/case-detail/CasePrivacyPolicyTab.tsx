@@ -36,6 +36,7 @@ import {
 } from "../../lib/api";
 import { Download, FileText, Loader2, Pencil, Plus, Trash2 } from "lucide-react";
 import { toast } from "sonner";
+import { errorMessage } from "../../lib/errors";
 
 function formatDateTime(iso: string) {
   try {
@@ -87,8 +88,8 @@ export function CasePrivacyPolicyTab({ caseData, canEdit }: Props) {
         if (!prev) return data[0] ?? null;
         return data.find((p) => p.id === prev.id) ?? data[0] ?? null;
       });
-    } catch {
-      toast.error("Datenschutzerklärungen konnten nicht geladen werden.");
+    } catch (e) {
+      toast.error("Datenschutzerklärungen konnten nicht geladen werden.", { description: errorMessage(e) });
     } finally {
       setLoading(false);
     }
@@ -135,8 +136,8 @@ export function CasePrivacyPolicyTab({ caseData, canEdit }: Props) {
       setSelected(updated);
       setEditMode(false);
       toast.success("Gespeichert.");
-    } catch {
-      toast.error("Speichern fehlgeschlagen.");
+    } catch (e) {
+      toast.error("Speichern fehlgeschlagen.", { description: errorMessage(e) });
     } finally {
       setSaving(false);
     }
@@ -148,8 +149,8 @@ export function CasePrivacyPolicyTab({ caseData, canEdit }: Props) {
       setPolicies((prev) => prev.filter((p) => p.id !== id));
       if (selected?.id === id) setSelected(null);
       toast.success("Gelöscht.");
-    } catch {
-      toast.error("Löschen fehlgeschlagen.");
+    } catch (e) {
+      toast.error("Löschen fehlgeschlagen.", { description: errorMessage(e) });
     }
   }
 

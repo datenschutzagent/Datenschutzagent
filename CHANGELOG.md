@@ -6,6 +6,65 @@ Das Format orientiert sich an [Keep a Changelog](https://keepachangelog.com/de/1
 
 ## [Unreleased]
 
+### Added (Runde 3 – Frontend und Tests)
+- **Frontend-Coverage-Gate:** `npm run test:coverage` (`@vitest/coverage-v8`,
+  Konfiguration in `vite.config.ts`, nur App-Code) mit Ratchet-Schwellen knapp
+  unter dem Messwert (29 % Zeilen); lcov-Artefakt in CI. Neue Tests für
+  `useMultiStepForm`, `AuthContext`, `CaseDetailContext` (je 100 % Zeilen), die
+  `tom-page` und die Key-Factories der Katalog-Seiten (202 statt 111 Tests).
+- **Backend-Tests** für die schwächsten Module (`mitigations`, `cases/checks`,
+  `playbooks`, `admin_prompt_templates`, `legal_bases`, `case_templates`,
+  `exports`, `cases/vvt`, `annotated_document_service`, `org_profile_loader`,
+  `cli`); Factory-Helfer in `tests/factories.py`, Marker `requires_db`
+  (automatisch für `client`-Tests, ohne `DATABASE_URL` übersprungen), ein
+  echter 429-Test mit aktivem Limiter. `.coveragerc` mit
+  `concurrency = greenlet,thread` – ohne diese Einstellung verlor coverage in
+  jedem async Handler alle Zeilen nach dem ersten `await db.execute()`, die
+  bisherigen Zahlen für DB-Routen waren systematisch zu niedrig. Gate von 63 %
+  auf 77 % angehoben (gemessen 78,3 %).
+- **Evals:** `python -m evals.run --strict` lässt eine angeforderte, aber nicht
+  lauffähige Suite (`--llm`/`--ocr`) fehlschlagen statt still zu warnen;
+  `--out FILE` schreibt die Zusammenfassung als JSON. Neuer Workflow
+  `nightly.yml`: Offline-Evals als Artefakt, LLM-Evals nur bei konfiguriertem
+  `NIGHTLY_LLM_PROVIDER`/`NIGHTLY_LLM_API_KEY`, sowie die vollständige
+  Playwright-Suite gegen den Docker-Stack.
+- **Bundle-Größe als CI-Artefakt** (`scripts/bundle-size.mjs`), alle Routen per
+  `React.lazy` (Initial-Chunk 2,5 MB → 210 kB), eine ErrorBoundary je Route.
+
+### Changed (Runde 3 – Frontend und Tests)
+- **Katalog-Seiten `dsr`, `tom`, `avv`, `data-breaches`** laden über TanStack
+  Query mit Key-Factories (`lib/queries/*Queries.ts`); Mutationen invalidieren
+  statt lokal nachzuziehen, Ladefehler werden mit „Erneut versuchen“ angezeigt.
+- **Fehler sichtbar:** 32 leere `catch {}` zeigen jetzt die Ursache aus
+  `ApiError` als Toast-Beschreibung (`lib/errors.ts`), drei weitere loggen.
+- **A11y-Regeln als Fehler:** `label-has-associated-control`,
+  `click-events-have-key-events`, `no-static-element-interactions`; 77 Treffer
+  behoben (Labels mit `htmlFor`, `DialogDescription`, Tastaturbedienung für
+  klickbare Karten/Zeilen).
+- **Aufgeräumt:** Label-/Farb-Maps nach `lib/labels.ts`, `mock-data.ts` und
+  der Mock-Fallback im Dashboard entfernt; 24 ungenutzte Dependencies
+  (u. a. `msw`, `date-fns`, `motion`, `react-dnd`) und 20 nie importierte
+  `components/ui`-Dateien gelöscht.
+- **E2E:** Testdaten werden per API angelegt statt „erster Vorgang, falls
+  vorhanden“; harte Assertions statt `.catch(() => {})`; `data-testid` an
+  Vorgangs-Karten, Tabs und Upload; `retries: 1`; das `@smoke`-Set läuft im
+  PR-Gate, die volle Suite nightly.
+
+### Fixed (Runde 3)
+- `POST /case-templates/apply` und `POST /cases/{id}/run-checks` mit einem
+  Playbook ohne Checks antworteten 500 (`MissingGreenlet`: `db.refresh()`
+  verwarf die eager geladenen Relationen, das Antwortmodell lud `findings`
+  dann lazy). Beide Stellen laden den Vorgang jetzt neu mit `case_relations()`.
+- Die Eval-Schwelle `VVTFieldRecall` hatte keinen Evaluator mehr und gatete
+  nichts; entfernt, ein Test prüft die Zuordnung Schwelle → Evaluator.
+- **Dokument-Upload im Docker-Stack** (`STORAGE_BACKEND=local`, Standard):
+  `/app/storage` fehlte im Image (`.dockerignore`), das benannte Volume
+  `backend_storage` wurde daher root-eigen angelegt und jeder Upload endete mit
+  `Permission denied` (500). Das Verzeichnis wird jetzt im Image mit
+  `appuser`-Besitz angelegt. Gefunden durch die neuen E2E-Tests; bestehende
+  Installationen mit bereits angelegtem Volume müssen es einmalig neu anlegen
+  (`docker compose down -v` bei leerem Speicher) oder den Besitzer ändern.
+
 ### Security
 - **Audit-Log hash-verkettet und um Lesezugriffe erweitert** (Phase 1, S6):
   `api_audit_log` bekommt `seq`, `prev_hash`, `entry_hash`, `resource_id`

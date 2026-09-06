@@ -14,6 +14,15 @@ os.environ.setdefault("RBAC_DEFAULT_ROLE", "admin")
 os.environ.setdefault("CELERY_ENABLED", "false")
 # Mark environment as test so the production-profile validator stays lenient.
 os.environ.setdefault("APP_ENVIRONMENT", "test")
+# Settings() refuses to load without DATABASE_URL, which would break even the pure
+# unit tests. Remember whether a real database was configured *before* falling back
+# to a placeholder that is never connected to: DB-bound tests (marker ``requires_db``)
+# are skipped in that case, everything else runs.
+_HAS_DB = bool((os.environ.get("DATABASE_URL") or "").strip())
+if not _HAS_DB:  # also covers an explicitly empty DATABASE_URL=
+    os.environ["DATABASE_URL"] = (
+        "postgresql+asyncpg://unused:unused@localhost:5432/unavailable"  # pragma: allowlist secret
+    )
 
 # Disable rate limiting in tests: the whole suite shares the single default user,
 # so per-user buckets (e.g. 30/min on case creation) would trip across unrelated
@@ -22,6 +31,23 @@ os.environ.setdefault("APP_ENVIRONMENT", "test")
 from app.core.rate_limit import limiter  # noqa: E402
 
 limiter.enabled = False
+
+
+def pytest_collection_modifyitems(config, items):
+    """Tag DB-bound tests and skip them cleanly when no database is configured.
+
+    Every test that requests the ``client`` fixture talks to PostgreSQL through the
+    app; modules that use the session factory directly carry the marker themselves
+    (``pytestmark = pytest.mark.requires_db``). Without DATABASE_URL those tests are
+    skipped with a reason instead of failing on connection errors, so the pure-unit
+    subset stays runnable on a laptop without Docker.
+    """
+    skip = pytest.mark.skip(reason="requires_db: DATABASE_URL is not set")
+    for item in items:
+        if "client" in getattr(item, "fixturenames", ()):
+            item.add_marker(pytest.mark.requires_db)
+        if not _HAS_DB and item.get_closest_marker("requires_db"):
+            item.add_marker(skip)
 
 
 @pytest.fixture
@@ -41,7 +67,7 @@ def _seed_database():
     disposed afterwards because asyncpg connections are bound to the loop they were
     created on.
     """
-    if not (os.environ.get("DATABASE_URL") or "").strip():
+    if not _HAS_DB:
         yield  # pure tests without a database
         return
     import asyncio

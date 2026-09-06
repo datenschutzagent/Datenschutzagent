@@ -8,6 +8,8 @@ import io
 
 import pytest
 
+from tests.factories import create_case
+
 pytestmark = pytest.mark.asyncio
 
 
@@ -25,23 +27,6 @@ def _make_docx_bytes() -> bytes:
     buf = io.BytesIO()
     doc.save(buf)
     return buf.getvalue()
-
-
-async def _create_case(client, title: str = "Test-Vorgang") -> dict:
-    payload = {
-        "title": title,
-        "department": "IT",
-        "case_type": "Softwareeinführung",
-        "language": "de",
-        "created_by": "test@example.com",
-        "assignee": "DSB",
-        "processing_context": None,
-        "special_category_data": False,
-        "international_transfer": False,
-    }
-    resp = await client.post("/api/v1/cases", json=payload)
-    assert resp.status_code == 201, resp.text
-    return resp.json()
 
 
 async def _upload_document(client, case_id: str, filename: str = "test.docx") -> dict:
@@ -67,7 +52,7 @@ async def _upload_document(client, case_id: str, filename: str = "test.docx") ->
 
 
 async def test_upload_document_returns_id(client):
-    case = await _create_case(client, title="Upload Test")
+    case = await create_case(client, title="Upload Test")
     doc = await _upload_document(client, case["id"])
     assert "id" in doc
     assert doc["case_id"] == case["id"]
@@ -76,7 +61,7 @@ async def test_upload_document_returns_id(client):
 
 
 async def test_upload_document_unsupported_format_returns_400(client):
-    case = await _create_case(client, title="Bad Format Test")
+    case = await create_case(client, title="Bad Format Test")
     resp = await client.post(
         "/api/v1/documents",
         data={"case_id": case["id"], "document_type": "other"},
@@ -104,7 +89,7 @@ async def test_upload_document_nonexistent_case_returns_404(client):
 
 
 async def test_upload_document_auto_increments_version(client):
-    case = await _create_case(client, title="Version Test")
+    case = await create_case(client, title="Version Test")
     doc1 = await _upload_document(client, case["id"], filename="vvt_v1.docx")
     doc2_resp = await client.post(
         "/api/v1/documents",
@@ -128,14 +113,14 @@ async def test_upload_document_auto_increments_version(client):
 
 
 async def test_list_documents_empty_for_new_case(client):
-    case = await _create_case(client, title="Empty Docs Test")
+    case = await create_case(client, title="Empty Docs Test")
     resp = await client.get("/api/v1/documents", params={"case_id": case["id"]})
     assert resp.status_code == 200
     assert resp.json() == []
 
 
 async def test_list_documents_includes_uploaded(client):
-    case = await _create_case(client, title="List Docs Test")
+    case = await create_case(client, title="List Docs Test")
     doc = await _upload_document(client, case["id"])
     resp = await client.get("/api/v1/documents", params={"case_id": case["id"]})
     assert resp.status_code == 200
@@ -149,7 +134,7 @@ async def test_list_documents_includes_uploaded(client):
 
 
 async def test_get_document_by_id(client):
-    case = await _create_case(client, title="Get Doc Test")
+    case = await create_case(client, title="Get Doc Test")
     doc = await _upload_document(client, case["id"])
     resp = await client.get(f"/api/v1/documents/{doc['id']}")
     assert resp.status_code == 200
@@ -162,7 +147,7 @@ async def test_get_document_not_found(client):
 
 
 async def test_get_document_content(client):
-    case = await _create_case(client, title="Content Test")
+    case = await create_case(client, title="Content Test")
     doc = await _upload_document(client, case["id"])
     resp = await client.get(f"/api/v1/documents/{doc['id']}/content")
     assert resp.status_code == 200
@@ -177,14 +162,14 @@ async def test_get_document_content(client):
 
 
 async def test_delete_document_returns_204(client):
-    case = await _create_case(client, title="Delete Doc Test")
+    case = await create_case(client, title="Delete Doc Test")
     doc = await _upload_document(client, case["id"])
     resp = await client.delete(f"/api/v1/documents/{doc['id']}")
     assert resp.status_code == 204
 
 
 async def test_delete_document_then_get_returns_404(client):
-    case = await _create_case(client, title="Delete Verify Test")
+    case = await create_case(client, title="Delete Verify Test")
     doc = await _upload_document(client, case["id"])
     await client.delete(f"/api/v1/documents/{doc['id']}")
     resp = await client.get(f"/api/v1/documents/{doc['id']}")
@@ -202,7 +187,7 @@ async def test_delete_nonexistent_document_returns_404(client):
 
 
 async def test_list_documents_pagination(client):
-    case = await _create_case(client, title="Pagination Test")
+    case = await create_case(client, title="Pagination Test")
     await _upload_document(client, case["id"], filename="a.docx")
     await _upload_document(client, case["id"], filename="b.docx")
     first = await client.get(
@@ -227,7 +212,7 @@ async def test_duplicate_version_is_rejected_by_database(client):
     from app.database import async_session_factory
     from app.models.db import DocumentModel
 
-    case = await _create_case(client, title="Unique Version")
+    case = await create_case(client, title="Unique Version")
     doc = await _upload_document(client, case["id"], filename="v.docx")
     async with async_session_factory() as session:
         session.add(
@@ -249,7 +234,7 @@ async def test_upload_retries_on_version_collision(client, monkeypatch):
     """A stale max(version) (parallel upload) must not produce a 500 or a duplicate."""
     from app.api.routes import documents as documents_route
 
-    case = await _create_case(client, title="Version Collision")
+    case = await create_case(client, title="Version Collision")
     first = await _upload_document(client, case["id"], filename="one.docx")
     real_next = documents_route._next_version_for_type
     calls: list[int] = []
@@ -266,7 +251,7 @@ async def test_upload_retries_on_version_collision(client, monkeypatch):
 
 
 async def test_case_activities_pagination(client):
-    case = await _create_case(client, title="Activities Pagination")
+    case = await create_case(client, title="Activities Pagination")
     resp = await client.get(
         f"/api/v1/cases/{case['id']}/activities", params={"limit": 1}
     )
@@ -282,7 +267,7 @@ async def test_bulk_upload_isolates_failing_file(client, monkeypatch):
     """One broken file must not take the other files of the batch down (savepoints)."""
     from app.api.routes import documents as documents_route
 
-    case = await _create_case(client, title="Bulk Isolation")
+    case = await create_case(client, title="Bulk Isolation")
     real_save = documents_route.save_file
 
     def _save(case_id, doc_id, filename, content):

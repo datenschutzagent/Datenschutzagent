@@ -21,8 +21,9 @@ import {
   type ApiCaseTemplate,
 } from "../lib/api";
 import { useAppConfig } from "../contexts/AppConfigContext";
-import { documentTypeLabels, type DocumentType } from "../lib/mock-data";
+import { documentTypeLabels, type DocumentType } from "../lib/labels";
 import { useMultiStepForm } from "../hooks/useMultiStepForm";
+import { onEnterOrSpace } from "../lib/a11y";
 
 interface NewCaseDialogProps {
   open: boolean;
@@ -213,7 +214,7 @@ export function NewCaseDialog({ open, onOpenChange, onSuccess }: NewCaseDialogPr
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-2xl">
+      <DialogContent className="sm:max-w-2xl" data-testid="new-case-dialog" data-step={step}>
         <DialogHeader>
           <DialogTitle>Neuen Vorgang anlegen</DialogTitle>
           <DialogDescription>
@@ -424,9 +425,9 @@ export function NewCaseDialog({ open, onOpenChange, onSuccess }: NewCaseDialogPr
             </div>
 
             <div className="space-y-2">
-              <Label>
+              <p className="text-sm font-medium leading-none" id="new-case-playbook-heading">
                 Case-Typ / Playbook auswählen <span className="text-red-600 dark:text-red-400">*</span>
-              </Label>
+              </p>
               <div className="space-y-3">
                 {selectedPlaybooks.length === 0 && (
                   <div className="text-center py-8 text-muted-foreground">
@@ -445,7 +446,11 @@ export function NewCaseDialog({ open, onOpenChange, onSuccess }: NewCaseDialogPr
                         ? "border-blue-600 bg-blue-50 dark:bg-blue-950/30"
                         : "border-border hover:border-blue-300 dark:hover:border-blue-700"
                     }`}
+                    role="button"
+                    tabIndex={0}
+                    aria-pressed={selectedPlaybookId === playbook.id}
                     onClick={() => selectPlaybook(playbook)}
+                    onKeyDown={onEnterOrSpace(() => selectPlaybook(playbook))}
                   >
                     <div className="flex items-start justify-between">
                       <div className="flex-1">
@@ -475,9 +480,9 @@ export function NewCaseDialog({ open, onOpenChange, onSuccess }: NewCaseDialogPr
               Sie können jetzt Dokumente hinzufügen oder den Vorgang ohne Dokumente anlegen und später hochladen.
             </p>
             <div className="space-y-2">
-              <Label>Dokumenttyp (für alle ausgewählten Dateien)</Label>
+              <Label htmlFor="new-case-document-type">Dokumenttyp (für alle ausgewählten Dateien)</Label>
               <Select value={pendingDocumentType} onValueChange={(v) => setPendingDocumentType(v as DocumentType)}>
-                <SelectTrigger>
+                <SelectTrigger id="new-case-document-type">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -528,22 +533,27 @@ export function NewCaseDialog({ open, onOpenChange, onSuccess }: NewCaseDialogPr
             </Button>
           )}
           {step === 1 && (
-            <Button onClick={nextStep} disabled={!canProceedToStep2}>
+            <Button onClick={nextStep} disabled={!canProceedToStep2} data-testid="new-case-next">
               Weiter
             </Button>
           )}
           {step === 2 && (
             <>
-              <Button variant="outline" onClick={handleSubmit} disabled={!canSubmit(selectedPlaybookId) || loading}>
+              <Button
+                variant="outline"
+                onClick={handleSubmit}
+                disabled={!canSubmit(selectedPlaybookId) || loading}
+                data-testid="new-case-submit-without-documents"
+              >
                 {loading ? "Wird angelegt…" : "Ohne Dokumente anlegen"}
               </Button>
-              <Button onClick={nextStep} disabled={!canSubmit(selectedPlaybookId)}>
+              <Button onClick={nextStep} disabled={!canSubmit(selectedPlaybookId)} data-testid="new-case-next">
                 Weiter
               </Button>
             </>
           )}
           {step === 3 && (
-            <Button onClick={handleSubmit} disabled={loading}>
+            <Button onClick={handleSubmit} disabled={loading} data-testid="new-case-submit">
               {loading ? "Wird angelegt…" : pendingFiles.length > 0 ? "Vorgang anlegen & Dokumente hochladen" : "Vorgang anlegen"}
             </Button>
           )}

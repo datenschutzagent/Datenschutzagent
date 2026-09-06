@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import { AppLayout } from "../components/app-layout";
 import { PageHeader } from "../components/page-header";
 import { TomBaselineGaps } from "../components/tom-baseline-gaps";
@@ -9,33 +9,36 @@ import { Input } from "../components/ui/input";
 import { Label } from "../components/ui/label";
 import { Textarea } from "../components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../components/ui/select";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "../components/ui/dialog";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogFooter } from "../components/ui/dialog";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "../components/ui/alert-dialog";
 import { Skeleton } from "../components/ui/skeleton";
 import { Progress } from "../components/ui/progress";
 import {
-  listTOMs,
-  getTOMStats,
-  createTOM,
-  updateTOM,
-  deleteTOM,
-  listTOMAttachments,
-  uploadTOMAttachment,
   getTOMAttachmentBlob,
-  deleteTOMAttachment,
   downloadBlob,
   getCurrentUser,
   canEdit,
   type ApiUser,
   type ApiTOM,
-  type ApiTOMStats,
   type ApiTOMAttachment,
   type TOMCreate,
   type TOMCategory,
   type TOMStatus,
 } from "../lib/api";
+import {
+  useTOMs,
+  useTOMStats,
+  useTOMAttachments,
+  useCreateTOM,
+  useUpdateTOM,
+  useDeleteTOM,
+  useUploadTOMAttachment,
+  useDeleteTOMAttachment,
+  type TOMListFilter,
+} from "../lib/queries/tomQueries";
 import { toast } from "sonner";
-import { Plus, Shield, Loader2, Trash2, CheckCircle, Clock, XCircle, Paperclip, Download, Upload } from "lucide-react";
+import { errorMessage } from "../lib/errors";
+import { Plus, Shield, Loader2, Trash2, CheckCircle, CircleAlert, Clock, XCircle, Paperclip, Download, Upload } from "lucide-react";
 import { logger } from "../lib/logger";
 
 const CATEGORY_LABELS: Record<string, string> = {
@@ -97,45 +100,33 @@ const defaultForm: NewTOMForm = {
 };
 
 export function TOMPage() {
-  const [toms, setToms] = useState<ApiTOM[]>([]);
-  const [stats, setStats] = useState<ApiTOMStats | null>(null);
-  const [loading, setLoading] = useState(true);
   const [categoryFilter, setCategoryFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState("all");
 
   const [showNew, setShowNew] = useState(false);
-  const [creating, setCreating] = useState(false);
   const [form, setForm] = useState<NewTOMForm>(defaultForm);
 
   const [selected, setSelected] = useState<ApiTOM | null>(null);
-  const [updatingStatus, setUpdatingStatus] = useState(false);
 
   const [currentUser, setCurrentUser] = useState<ApiUser | null>(null);
-  const [attachments, setAttachments] = useState<ApiTOMAttachment[]>([]);
-  const [attachmentsLoading, setAttachmentsLoading] = useState(false);
-  const [uploading, setUploading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const load = useCallback(async () => {
-    setLoading(true);
-    try {
-      const [r, s] = await Promise.all([
-        listTOMs({
-          category: categoryFilter !== "all" ? categoryFilter : undefined,
-          implementationStatus: statusFilter !== "all" ? statusFilter : undefined,
-        }),
-        getTOMStats(),
-      ]);
-      setToms(r.items);
-      setStats(s);
-    } catch {
-      toast.error("TOMs konnten nicht geladen werden.");
-    } finally {
-      setLoading(false);
-    }
-  }, [categoryFilter, statusFilter]);
+  const filter = useMemo<TOMListFilter>(() => ({
+    category: categoryFilter !== "all" ? categoryFilter : undefined,
+    implementationStatus: statusFilter !== "all" ? statusFilter : undefined,
+  }), [categoryFilter, statusFilter]);
 
-  useEffect(() => { void load(); }, [load]);
+  const tomsQuery = useTOMs(filter);
+  const statsQuery = useTOMStats();
+  const toms = tomsQuery.data?.items ?? [];
+  const stats = statsQuery.data ?? null;
+  const loading = tomsQuery.isPending;
+
+  useEffect(() => {
+    if (tomsQuery.isError) {
+      toast.error("TOMs konnten nicht geladen werden.", { description: errorMessage(tomsQuery.error) });
+    }
+  }, [tomsQuery.isError, tomsQuery.error]);
 
   useEffect(() => {
     getCurrentUser()
@@ -143,18 +134,26 @@ export function TOMPage() {
       .catch((e) => logger.warn("Benutzerprofil konnte nicht geladen werden", {}, e));
   }, []);
 
+  const selectedId = selected?.id ?? "";
+  const attachmentsQuery = useTOMAttachments(selected?.id ?? null);
+  const attachments = attachmentsQuery.data ?? [];
+  const attachmentsLoading = attachmentsQuery.isPending;
+
   useEffect(() => {
-    if (!selected) { setAttachments([]); return; }
-    setAttachmentsLoading(true);
-    listTOMAttachments(selected.id)
-      .then(setAttachments)
-      .catch(() => toast.error("Anhänge konnten nicht geladen werden."))
-      .finally(() => setAttachmentsLoading(false));
-  }, [selected]);
+    if (attachmentsQuery.isError) toast.error("Anhänge konnten nicht geladen werden.");
+  }, [attachmentsQuery.isError]);
+
+  const createMutation = useCreateTOM();
+  const updateMutation = useUpdateTOM();
+  const deleteMutation = useDeleteTOM();
+  const uploadMutation = useUploadTOMAttachment(selectedId);
+  const deleteAttachmentMutation = useDeleteTOMAttachment(selectedId);
+  const creating = createMutation.isPending;
+  const updatingStatus = updateMutation.isPending;
+  const uploading = uploadMutation.isPending;
 
   async function handleCreate() {
     if (!form.title.trim()) { toast.error("Titel erforderlich."); return; }
-    setCreating(true);
     try {
       const body: TOMCreate = {
         title: form.title.trim(),
@@ -165,56 +164,46 @@ export function TOMPage() {
         review_date: form.review_date || undefined,
         evidence: form.evidence.trim() || undefined,
       };
-      await createTOM(body);
+      await createMutation.mutateAsync(body);
       toast.success("TOM angelegt.");
       setShowNew(false);
       setForm(defaultForm);
-      void load();
-    } catch {
-      toast.error("Fehler beim Anlegen.");
-    } finally {
-      setCreating(false);
+    } catch (e) {
+      toast.error("Fehler beim Anlegen.", { description: errorMessage(e) });
     }
   }
 
   async function handleStatusChange(newStatus: string) {
     if (!selected) return;
-    setUpdatingStatus(true);
     try {
-      const updated = await updateTOM(selected.id, { implementation_status: newStatus as TOMStatus });
+      const updated = await updateMutation.mutateAsync({
+        id: selected.id,
+        body: { implementation_status: newStatus as TOMStatus },
+      });
       setSelected(updated);
-      setToms((prev) => prev.map((t) => t.id === updated.id ? updated : t));
       toast.success("Status aktualisiert.");
-    } catch {
-      toast.error("Fehler beim Aktualisieren.");
-    } finally {
-      setUpdatingStatus(false);
+    } catch (e) {
+      toast.error("Fehler beim Aktualisieren.", { description: errorMessage(e) });
     }
   }
 
   async function handleDelete(id: string) {
     try {
-      await deleteTOM(id);
-      setToms((prev) => prev.filter((t) => t.id !== id));
+      await deleteMutation.mutateAsync(id);
       if (selected?.id === id) setSelected(null);
       toast.success("TOM gelöscht.");
-      void load();
-    } catch {
-      toast.error("Fehler beim Löschen.");
+    } catch (e) {
+      toast.error("Fehler beim Löschen.", { description: errorMessage(e) });
     }
   }
 
   async function handleAttachmentUpload(file: File) {
     if (!selected) return;
-    setUploading(true);
     try {
-      const attachment = await uploadTOMAttachment(selected.id, file, currentUser?.display_name ?? "");
-      setAttachments((prev) => [...prev, attachment]);
+      await uploadMutation.mutateAsync({ file, uploadedBy: currentUser?.display_name ?? "" });
       toast.success(`"${file.name}" hochgeladen.`);
-    } catch {
-      toast.error("Fehler beim Hochladen.");
-    } finally {
-      setUploading(false);
+    } catch (e) {
+      toast.error("Fehler beim Hochladen.", { description: errorMessage(e) });
     }
   }
 
@@ -223,19 +212,18 @@ export function TOMPage() {
     try {
       const blob = await getTOMAttachmentBlob(selected.id, att.id);
       downloadBlob(blob, att.name);
-    } catch {
-      toast.error("Download fehlgeschlagen.");
+    } catch (e) {
+      toast.error("Download fehlgeschlagen.", { description: errorMessage(e) });
     }
   }
 
   async function handleAttachmentDelete(attachmentId: string) {
     if (!selected) return;
     try {
-      await deleteTOMAttachment(selected.id, attachmentId);
-      setAttachments((prev) => prev.filter((a) => a.id !== attachmentId));
+      await deleteAttachmentMutation.mutateAsync(attachmentId);
       toast.success("Anhang gelöscht.");
-    } catch {
-      toast.error("Fehler beim Löschen.");
+    } catch (e) {
+      toast.error("Fehler beim Löschen.", { description: errorMessage(e) });
     }
   }
 
@@ -259,6 +247,17 @@ export function TOMPage() {
       </div>
 
       {/* Implementation progress */}
+      {statsQuery.isError && (
+        <Card className="mb-6">
+          <CardContent className="py-4 flex flex-wrap items-center gap-3 text-sm text-muted-foreground">
+            <CircleAlert className="size-4 text-red-500 dark:text-red-400" />
+            <span>Implementierungsstand konnte nicht geladen werden.</span>
+            <Button size="sm" variant="outline" onClick={() => void statsQuery.refetch()}>
+              Erneut versuchen
+            </Button>
+          </CardContent>
+        </Card>
+      )}
       {stats && (
         <Card className="mb-6">
           <CardHeader className="pb-3">
@@ -309,6 +308,16 @@ export function TOMPage() {
 
       {loading ? (
         <div className="space-y-3">{[...Array(6)].map((_, i) => <Skeleton key={i} className="h-16 w-full" />)}</div>
+      ) : tomsQuery.isError ? (
+        <Card>
+          <CardContent className="py-12 text-center">
+            <CircleAlert className="size-10 text-red-500 dark:text-red-400 mx-auto mb-3" />
+            <p className="text-muted-foreground">TOMs konnten nicht geladen werden.</p>
+            <Button className="mt-4" variant="outline" onClick={() => void tomsQuery.refetch()}>
+              Erneut versuchen
+            </Button>
+          </CardContent>
+        </Card>
       ) : toms.length === 0 ? (
         <Card><CardContent className="py-12 text-center text-muted-foreground">
           <Shield className="size-10 mx-auto mb-3 opacity-40" />
@@ -349,26 +358,29 @@ export function TOMPage() {
       {/* New TOM dialog */}
       <Dialog open={showNew} onOpenChange={setShowNew}>
         <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
-          <DialogHeader><DialogTitle>TOM anlegen</DialogTitle></DialogHeader>
+          <DialogHeader>
+            <DialogTitle>TOM anlegen</DialogTitle>
+            <DialogDescription>Neue technische oder organisatorische Maßnahme mit Kategorie und Umsetzungsstatus erfassen.</DialogDescription>
+          </DialogHeader>
           <div className="space-y-4 py-2">
             <div>
-              <Label>Titel *</Label>
-              <Input value={form.title} onChange={(e) => setForm((f) => ({ ...f, title: e.target.value }))} placeholder="Bezeichnung der Maßnahme" />
+              <Label htmlFor="tom-create-title">Titel *</Label>
+              <Input id="tom-create-title" value={form.title} onChange={(e) => setForm((f) => ({ ...f, title: e.target.value }))} placeholder="Bezeichnung der Maßnahme" />
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <Label>Kategorie *</Label>
+                <Label htmlFor="tom-create-category">Kategorie *</Label>
                 <Select value={form.category} onValueChange={(v) => setForm((f) => ({ ...f, category: v as TOMCategory }))}>
-                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectTrigger id="tom-create-category"><SelectValue /></SelectTrigger>
                   <SelectContent>
                     {Object.entries(CATEGORY_LABELS).map(([v, l]) => <SelectItem key={v} value={v}>{l}</SelectItem>)}
                   </SelectContent>
                 </Select>
               </div>
               <div>
-                <Label>Status</Label>
+                <Label htmlFor="tom-create-status">Status</Label>
                 <Select value={form.implementation_status} onValueChange={(v) => setForm((f) => ({ ...f, implementation_status: v as TOMStatus }))}>
-                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectTrigger id="tom-create-status"><SelectValue /></SelectTrigger>
                   <SelectContent>
                     {Object.entries(STATUS_LABELS).map(([v, l]) => <SelectItem key={v} value={v}>{l}</SelectItem>)}
                   </SelectContent>
@@ -376,22 +388,22 @@ export function TOMPage() {
               </div>
             </div>
             <div>
-              <Label>Beschreibung</Label>
-              <Textarea value={form.description} onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))} rows={3} />
+              <Label htmlFor="tom-create-description">Beschreibung</Label>
+              <Textarea id="tom-create-description" value={form.description} onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))} rows={3} />
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <Label>Zuständig</Label>
-                <Input value={form.responsible} onChange={(e) => setForm((f) => ({ ...f, responsible: e.target.value }))} />
+                <Label htmlFor="tom-create-responsible">Zuständig</Label>
+                <Input id="tom-create-responsible" value={form.responsible} onChange={(e) => setForm((f) => ({ ...f, responsible: e.target.value }))} />
               </div>
               <div>
-                <Label>Überprüfungsdatum</Label>
-                <Input type="date" value={form.review_date} onChange={(e) => setForm((f) => ({ ...f, review_date: e.target.value }))} />
+                <Label htmlFor="tom-create-review-date">Überprüfungsdatum</Label>
+                <Input id="tom-create-review-date" type="date" value={form.review_date} onChange={(e) => setForm((f) => ({ ...f, review_date: e.target.value }))} />
               </div>
             </div>
             <div>
-              <Label>Nachweise / Belege</Label>
-              <Textarea value={form.evidence} onChange={(e) => setForm((f) => ({ ...f, evidence: e.target.value }))} rows={2} placeholder="Dokumentation, Zertifikate, etc." />
+              <Label htmlFor="tom-create-evidence">Nachweise / Belege</Label>
+              <Textarea id="tom-create-evidence" value={form.evidence} onChange={(e) => setForm((f) => ({ ...f, evidence: e.target.value }))} rows={2} placeholder="Dokumentation, Zertifikate, etc." />
             </div>
           </div>
           <DialogFooter>
@@ -413,6 +425,7 @@ export function TOMPage() {
                 <StatusIcon status={selected.implementationStatus} />
                 {selected.title}
               </DialogTitle>
+              <DialogDescription>Details, Umsetzungsstatus und Nachweise der Maßnahme.</DialogDescription>
             </DialogHeader>
             <div className="space-y-4">
               <div className="flex gap-2">
@@ -483,6 +496,13 @@ export function TOMPage() {
                 </div>
                 {attachmentsLoading ? (
                   <Skeleton className="h-10 w-full" />
+                ) : attachmentsQuery.isError ? (
+                  <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                    <span>Anhänge konnten nicht geladen werden.</span>
+                    <Button size="sm" variant="ghost" className="h-6 px-2 text-xs" onClick={() => void attachmentsQuery.refetch()}>
+                      Erneut versuchen
+                    </Button>
+                  </div>
                 ) : attachments.length === 0 ? (
                   <p className="text-xs text-muted-foreground">Keine Anhänge vorhanden.</p>
                 ) : (

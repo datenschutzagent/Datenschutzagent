@@ -5,7 +5,7 @@ import { Badge } from "./ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./ui/select";
 import { Popover, PopoverContent, PopoverTrigger } from "./ui/popover";
 import { Search, X, Filter, Calendar } from "lucide-react";
-import { CaseStatus, Priority, statusLabels, priorityLabels } from "../lib/mock-data";
+import { CaseStatus, Priority, statusLabels, priorityLabels } from "../lib/labels";
 
 export interface CasesFilters {
   searchQuery: string;
@@ -97,6 +97,7 @@ export function CasesSearchFilter({
             value={filters.searchQuery}
             onChange={(e) => handleSearchChange(e.target.value)}
             className="pl-10"
+            data-testid="cases-search-input"
           />
           {filters.searchQuery && (
             <button
@@ -133,9 +134,11 @@ export function CasesSearchFilter({
 
               {/* Status Filter */}
               <div className="space-y-2">
-                <label className="text-sm font-medium">Status</label>
+                <label htmlFor="case-filter-status" className="text-sm font-medium">
+                  Status
+                </label>
                 <Select value={filters.status} onValueChange={handleStatusChange}>
-                  <SelectTrigger>
+                  <SelectTrigger id="case-filter-status">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
@@ -151,9 +154,11 @@ export function CasesSearchFilter({
 
               {/* Priority Filter */}
               <div className="space-y-2">
-                <label className="text-sm font-medium">Priorität</label>
+                <label htmlFor="case-filter-priority" className="text-sm font-medium">
+                  Priorität
+                </label>
                 <Select value={filters.priority} onValueChange={handlePriorityChange}>
-                  <SelectTrigger>
+                  <SelectTrigger id="case-filter-priority">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
@@ -169,9 +174,11 @@ export function CasesSearchFilter({
 
               {/* Department Filter */}
               <div className="space-y-2">
-                <label className="text-sm font-medium">Abteilung</label>
+                <label htmlFor="case-filter-department" className="text-sm font-medium">
+                  Abteilung
+                </label>
                 <Select value={filters.department} onValueChange={handleDepartmentChange}>
-                  <SelectTrigger>
+                  <SelectTrigger id="case-filter-department">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
@@ -187,7 +194,7 @@ export function CasesSearchFilter({
 
               {/* Deadline Filter */}
               <div className="space-y-2">
-                <label className="text-sm font-medium">
+                <label htmlFor="case-filter-deadline" className="text-sm font-medium">
                   <Calendar className="size-4 inline mr-1" />
                   Frist
                 </label>
@@ -201,7 +208,7 @@ export function CasesSearchFilter({
                   } 
                   onValueChange={handleDeadlineFilter}
                 >
-                  <SelectTrigger>
+                  <SelectTrigger id="case-filter-deadline">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
@@ -215,7 +222,7 @@ export function CasesSearchFilter({
               {/* Tags Filter */}
               {availableTags.length > 0 && (
                 <div className="space-y-2">
-                  <label className="text-sm font-medium">Tags</label>
+                  <p className="text-sm font-medium">Tags</p>
                   <div className="flex flex-wrap gap-2">
                     {availableTags.map((tag) => (
                       <Badge

@@ -14,6 +14,7 @@ import {
   type ApiPrivacyPolicy,
 } from "../lib/api";
 import { toast } from "sonner";
+import { errorMessage } from "../lib/errors";
 import { ArrowRight, Download, FileText, Search } from "lucide-react";
 
 function formatDateTime(iso: string) {
@@ -67,8 +68,12 @@ export function PrivacyPolicyPage() {
         const map: Record<string, ApiCase> = {};
         for (const c of caseList) map[c.id] = c;
         setCases(map);
-      } catch {
-        if (!cancelled) toast.error("Datenschutzerklärungen konnten nicht geladen werden.");
+      } catch (e) {
+        if (!cancelled) {
+          toast.error("Datenschutzerklärungen konnten nicht geladen werden.", {
+            description: errorMessage(e),
+          });
+        }
       } finally {
         if (!cancelled) setLoading(false);
       }

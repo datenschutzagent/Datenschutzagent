@@ -226,8 +226,14 @@ async def run_checks(
         playbook.content.get("checks") if isinstance(playbook.content, dict) else []
     )
     if not raw_checks:
-        await db.refresh(case)
-        return CaseResponse.model_validate(case)
+        # Nothing to run: answer with the unchanged case. Re-select with the full
+        # relation set instead of `refresh()` – refresh expires the eagerly loaded
+        # relations and the response model would then lazy-load `findings`
+        # outside a greenlet context (MissingGreenlet → 500).
+        reloaded = await db.execute(
+            select(CaseModel).where(CaseModel.id == case_id).options(*case_relations())
+        )
+        return CaseResponse.model_validate(reloaded.scalar_one())
 
     strategies = body.strategies or ["full_text"]
     use_async = settings.celery_enabled and bool(
