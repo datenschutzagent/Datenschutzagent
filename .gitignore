@@ -11,6 +11,11 @@ backend/venv/
 backend/*.pyc
 backend/.pytest_cache/
 backend/.coverage
+backend/coverage.xml
+# Frontend coverage (vitest --coverage) and Playwright output
+coverage/
+playwright-report/
+test-results/
 backend/htmlcov/
 backend/storage/
 
