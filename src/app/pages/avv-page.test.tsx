@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
-import { MemoryRouter } from "react-router";
+import { screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import { renderWithProviders } from "../test-utils";
 import type { ApiAVVContract } from "../lib/api";
 
 // ---------------------------------------------------------------------------
@@ -43,10 +44,14 @@ vi.mock("../contexts/RunningChecksContext", () => ({
 
 vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
 
-import { listAVVContracts } from "../lib/api";
+import { listAVVContracts, updateAVVContract, createAVVContract } from "../lib/api";
+import { toast } from "sonner";
 import { AVVPage } from "./avv-page";
 
 const mockList = vi.mocked(listAVVContracts);
+const mockUpdate = vi.mocked(updateAVVContract);
+const mockCreate = vi.mocked(createAVVContract);
+const mockToastSuccess = vi.mocked(toast.success);
 
 const baseAVV: ApiAVVContract = {
   id: "avv-1",
@@ -74,11 +79,7 @@ const makeFakeAVV = (overrides: Partial<ApiAVVContract> = {}): ApiAVVContract =>
 });
 
 function renderPage() {
-  return render(
-    <MemoryRouter>
-      <AVVPage />
-    </MemoryRouter>
-  );
+  return renderWithProviders(<AVVPage />);
 }
 
 // ---------------------------------------------------------------------------
@@ -137,5 +138,72 @@ describe("AVVPage", () => {
     await waitFor(() => {
       expect(screen.getByText("Unterzeichnet")).toBeTruthy();
     });
+  });
+
+  it("passes server-side filters to listAVVContracts", async () => {
+    mockList.mockResolvedValue({ items: [], total: 0 });
+    renderPage();
+    await waitFor(() => expect(mockList).toHaveBeenCalledTimes(1));
+    expect(mockList).toHaveBeenLastCalledWith({ status: undefined, expiringSoon: false });
+
+    await userEvent.click(screen.getByLabelText("Bald ablaufend (90 Tage)"));
+    await waitFor(() => expect(mockList).toHaveBeenCalledTimes(2));
+    expect(mockList).toHaveBeenLastCalledWith({ status: undefined, expiringSoon: true });
+  });
+
+  it("shows an error state with retry and reloads on click", async () => {
+    mockList
+      .mockRejectedValueOnce(new Error("Netzwerkfehler"))
+      .mockResolvedValue({ items: [makeFakeAVV()], total: 1 });
+    renderPage();
+
+    expect(await screen.findByText("AVV konnten nicht geladen werden.")).toBeTruthy();
+    expect(screen.getByText("Netzwerkfehler")).toBeTruthy();
+    expect(screen.queryByText("Cloud Corp GmbH")).toBeNull();
+
+    await userEvent.click(screen.getByRole("button", { name: "Erneut versuchen" }));
+
+    expect(await screen.findByText("Cloud Corp GmbH")).toBeTruthy();
+    expect(mockList).toHaveBeenCalledTimes(2);
+    expect(screen.queryByText("AVV konnten nicht geladen werden.")).toBeNull();
+  });
+
+  it("reloads the list after a status change in the detail dialog", async () => {
+    mockList.mockResolvedValue({ items: [makeFakeAVV()], total: 1 });
+    mockUpdate.mockResolvedValue(makeFakeAVV({ status: "pending" }));
+    renderPage();
+
+    await userEvent.click(await screen.findByText("Cloud Corp GmbH"));
+    expect(await screen.findByText("Status ändern")).toBeTruthy();
+    expect(mockList).toHaveBeenCalledTimes(1);
+
+    await userEvent.click(screen.getByRole("button", { name: "Ausstehend" }));
+
+    await waitFor(() => {
+      expect(mockUpdate).toHaveBeenCalledWith("avv-1", { status: "pending" });
+      expect(mockList).toHaveBeenCalledTimes(2);
+    });
+    expect(mockToastSuccess).toHaveBeenCalledWith("Status aktualisiert.");
+  });
+
+  it("reloads the list after creating a contract", async () => {
+    mockList.mockResolvedValue({ items: [], total: 0 });
+    mockCreate.mockResolvedValue(makeFakeAVV({ id: "avv-new", partnerName: "Neue Firma" }));
+    renderPage();
+
+    await screen.findByText(/Keine AVV/);
+    await userEvent.click(screen.getByRole("button", { name: /AVV anlegen/ }));
+    await userEvent.type(screen.getByLabelText("Partnername *"), "Neue Firma");
+    await userEvent.click(screen.getByRole("button", { name: "Anlegen" }));
+
+    await waitFor(() => {
+      expect(mockCreate).toHaveBeenCalledTimes(1);
+      expect(mockList).toHaveBeenCalledTimes(2);
+    });
+    expect(mockCreate.mock.calls[0][0]).toMatchObject({
+      partner_name: "Neue Firma",
+      partner_type: "processor",
+    });
+    expect(mockToastSuccess).toHaveBeenCalledWith("AVV angelegt.");
   });
 });

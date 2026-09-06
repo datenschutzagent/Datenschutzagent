@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { AppLayout } from "../components/app-layout";
 import { PageHeader } from "../components/page-header";
 import { Card, CardContent } from "../components/ui/card";
@@ -13,18 +13,20 @@ import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, 
 import { Skeleton } from "../components/ui/skeleton";
 import { Separator } from "../components/ui/separator";
 import {
-  listDSRRequests,
-  createDSRRequest,
-  updateDSRRequest,
-  deleteDSRRequest,
-  generateDSRDraft,
-  getDSRActivity,
   type ApiDSRRequest,
-  type ApiDSRActivity,
   type DSRRequestCreate,
   type DSRRequestType,
   type DSRStatus,
 } from "../lib/api";
+import {
+  useDSRRequests,
+  useDSRActivity,
+  useCreateDSRRequest,
+  useUpdateDSRRequest,
+  useDeleteDSRRequest,
+  useGenerateDSRDraft,
+  type DSRListFilter,
+} from "../lib/queries/dsrQueries";
 import { toast } from "sonner";
 import { errorMessage } from "../lib/errors";
 import {
@@ -32,6 +34,7 @@ import {
   Plus,
   Clock,
   CheckCircle,
+  CircleAlert,
   Loader2,
   FileText,
   Trash2,
@@ -105,55 +108,49 @@ const defaultForm: NewDSRForm = {
 };
 
 export function DSRPage() {
-  const [requests, setRequests] = useState<ApiDSRRequest[]>([]);
-  const [total, setTotal] = useState(0);
-  const [loading, setLoading] = useState(true);
   const [statusFilter, setStatusFilter] = useState("all");
   const [typeFilter, setTypeFilter] = useState("all");
   const [overdueOnly, setOverdueOnly] = useState(false);
 
   const [showNew, setShowNew] = useState(false);
-  const [creating, setCreating] = useState(false);
   const [form, setForm] = useState<NewDSRForm>(defaultForm);
 
   const [selected, setSelected] = useState<ApiDSRRequest | null>(null);
-  const [activity, setActivity] = useState<ApiDSRActivity[]>([]);
-  const [loadingActivity, setLoadingActivity] = useState(false);
-  const [generatingDraft, setGeneratingDraft] = useState(false);
-  const [updatingStatus, setUpdatingStatus] = useState(false);
 
-  const load = useCallback(async () => {
-    setLoading(true);
-    try {
-      const r = await listDSRRequests({
-        status: statusFilter !== "all" ? statusFilter : undefined,
-        requestType: typeFilter !== "all" ? typeFilter : undefined,
-        overdueOnly,
-      });
-      setRequests(r.items);
-      setTotal(r.total);
-    } catch (e) {
-      toast.error("Anfragen konnten nicht geladen werden.", { description: errorMessage(e) });
-    } finally {
-      setLoading(false);
+  const filter = useMemo<DSRListFilter>(() => ({
+    status: statusFilter !== "all" ? statusFilter : undefined,
+    requestType: typeFilter !== "all" ? typeFilter : undefined,
+    overdueOnly,
+  }), [statusFilter, typeFilter, overdueOnly]);
+
+  const listQuery = useDSRRequests(filter);
+  const requests = useMemo(() => listQuery.data?.items ?? [], [listQuery.data]);
+  const total = listQuery.data?.total ?? 0;
+  const loading = listQuery.isPending;
+
+  useEffect(() => {
+    if (listQuery.isError) {
+      toast.error("Anfragen konnten nicht geladen werden.", { description: errorMessage(listQuery.error) });
     }
-  }, [statusFilter, typeFilter, overdueOnly]);
+  }, [listQuery.isError, listQuery.error]);
 
-  useEffect(() => { void load(); }, [load]);
+  const activityQuery = useDSRActivity(selected?.id ?? null);
+  const activity = activityQuery.data ?? [];
+  const loadingActivity = activityQuery.isPending;
 
-  async function openDetail(r: ApiDSRRequest) {
+  const createMutation = useCreateDSRRequest();
+  const updateMutation = useUpdateDSRRequest();
+  const deleteMutation = useDeleteDSRRequest();
+  const draftMutation = useGenerateDSRDraft();
+  const creating = createMutation.isPending;
+  const updatingStatus = updateMutation.isPending;
+  const generatingDraft = draftMutation.isPending;
+
+  function openDetail(r: ApiDSRRequest) {
     setSelected(r);
-    setLoadingActivity(true);
-    try {
-      const acts = await getDSRActivity(r.id);
-      setActivity(acts);
-    } finally {
-      setLoadingActivity(false);
-    }
   }
 
   async function handleCreate() {
-    setCreating(true);
     try {
       const body: DSRRequestCreate = {
         request_type: form.request_type,
@@ -165,52 +162,40 @@ export function DSRPage() {
         received_at: form.received_at,
         deadline_extension_days: Number(form.deadline_extension_days) || 0,
       };
-      await createDSRRequest(body);
+      await createMutation.mutateAsync(body);
       toast.success("Anfrage erfasst.");
       setShowNew(false);
       setForm(defaultForm);
-      void load();
     } catch (e) {
       toast.error("Fehler beim Erfassen der Anfrage.", { description: errorMessage(e) });
-    } finally {
-      setCreating(false);
     }
   }
 
   async function handleGenerateDraft() {
     if (!selected) return;
-    setGeneratingDraft(true);
     try {
-      const updated = await generateDSRDraft(selected.id);
+      const updated = await draftMutation.mutateAsync(selected.id);
       setSelected(updated);
       toast.success("Antwortentwurf generiert.");
     } catch (e) {
       toast.error("Fehler beim Generieren des Entwurfs.", { description: errorMessage(e) });
-    } finally {
-      setGeneratingDraft(false);
     }
   }
 
   async function handleStatusChange(newStatus: DSRStatus) {
     if (!selected) return;
-    setUpdatingStatus(true);
     try {
-      const updated = await updateDSRRequest(selected.id, { status: newStatus });
+      const updated = await updateMutation.mutateAsync({ id: selected.id, body: { status: newStatus } });
       setSelected(updated);
-      setRequests((prev) => prev.map((r) => r.id === updated.id ? updated : r));
       toast.success("Status aktualisiert.");
     } catch (e) {
       toast.error("Fehler beim Aktualisieren.", { description: errorMessage(e) });
-    } finally {
-      setUpdatingStatus(false);
     }
   }
 
   async function handleDelete(id: string) {
     try {
-      await deleteDSRRequest(id);
-      setRequests((prev) => prev.filter((r) => r.id !== id));
-      setTotal((t) => t - 1);
+      await deleteMutation.mutateAsync(id);
       if (selected?.id === id) setSelected(null);
       toast.success("Anfrage gelöscht.");
     } catch (e) {
@@ -392,6 +377,16 @@ export function DSRPage() {
         <div className="space-y-3">
           {[...Array(4)].map((_, i) => <Skeleton key={i} className="h-20 w-full" />)}
         </div>
+      ) : listQuery.isError ? (
+        <Card>
+          <CardContent className="py-12 text-center">
+            <CircleAlert className="size-10 text-red-500 dark:text-red-400 mx-auto mb-3" />
+            <p className="text-muted-foreground">Anfragen konnten nicht geladen werden.</p>
+            <Button className="mt-4" variant="outline" onClick={() => void listQuery.refetch()}>
+              Erneut versuchen
+            </Button>
+          </CardContent>
+        </Card>
       ) : requests.length === 0 ? (
         <Card>
           <CardContent className="py-12 text-center text-muted-foreground">
@@ -405,7 +400,7 @@ export function DSRPage() {
             <Card
               key={r.id}
               className="hover:shadow-md transition-shadow cursor-pointer"
-              onClick={() => void openDetail(r)}
+              onClick={() => openDetail(r)}
             >
               <CardContent className="py-4 px-5">
                 <div className="flex items-start justify-between gap-4">
@@ -604,6 +599,13 @@ export function DSRPage() {
                 <p className="text-sm font-medium mb-2">Aktivitätsprotokoll</p>
                 {loadingActivity ? (
                   <div className="space-y-1">{[...Array(3)].map((_, i) => <Skeleton key={i} className="h-6 w-full" />)}</div>
+                ) : activityQuery.isError ? (
+                  <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                    <span>Aktivitäten konnten nicht geladen werden.</span>
+                    <Button size="sm" variant="ghost" className="h-6 px-2 text-xs" onClick={() => void activityQuery.refetch()}>
+                      Erneut versuchen
+                    </Button>
+                  </div>
                 ) : activity.length === 0 ? (
                   <p className="text-xs text-muted-foreground">Keine Aktivitäten.</p>
                 ) : (

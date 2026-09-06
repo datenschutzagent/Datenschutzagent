@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
-import { MemoryRouter } from "react-router";
+import { screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import { renderWithProviders } from "../test-utils";
 import type { ApiDSRRequest } from "../lib/api";
 
 // ---------------------------------------------------------------------------
@@ -44,10 +45,13 @@ vi.mock("../contexts/RunningChecksContext", () => ({
 
 vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
 
-import { listDSRRequests } from "../lib/api";
+import { listDSRRequests, updateDSRRequest, getDSRActivity } from "../lib/api";
+import { toast } from "sonner";
 import { DSRPage } from "./dsr-page";
 
 const mockList = vi.mocked(listDSRRequests);
+const mockUpdate = vi.mocked(updateDSRRequest);
+const mockActivity = vi.mocked(getDSRActivity);
 
 const baseDSR: ApiDSRRequest = {
   id: "dsr-1",
@@ -73,11 +77,7 @@ const makeFakeDSR = (overrides: Partial<ApiDSRRequest> = {}): ApiDSRRequest => (
 });
 
 function renderPage() {
-  return render(
-    <MemoryRouter>
-      <DSRPage />
-    </MemoryRouter>
-  );
+  return renderWithProviders(<DSRPage />);
 }
 
 // ---------------------------------------------------------------------------
@@ -146,6 +146,46 @@ describe("DSRPage", () => {
     renderPage();
     await waitFor(() => {
       expect(screen.getByText("Anonyme Anfrage")).toBeTruthy();
+    });
+  });
+
+  it("shows an error state with retry when the list query fails", async () => {
+    mockList.mockRejectedValueOnce(new Error("Netzwerkfehler"));
+    mockList.mockResolvedValueOnce({ items: [makeFakeDSR()], total: 1 });
+    renderPage();
+
+    await screen.findByText("Anfragen konnten nicht geladen werden.");
+    expect(toast.error).toHaveBeenCalledWith(
+      "Anfragen konnten nicht geladen werden.",
+      expect.objectContaining({ description: "Netzwerkfehler" }),
+    );
+
+    await userEvent.click(screen.getByRole("button", { name: "Erneut versuchen" }));
+    await screen.findByText("Max Mustermann");
+    expect(mockList).toHaveBeenCalledTimes(2);
+  });
+
+  it("loads the activity log and updates the status from the detail dialog", async () => {
+    mockList.mockResolvedValue({ items: [makeFakeDSR()], total: 1 });
+    mockActivity.mockResolvedValue([
+      { id: "act-1", requestId: "dsr-1", eventType: "created", payload: {}, createdAt: "2026-04-14T10:00:00Z" },
+    ]);
+    mockUpdate.mockResolvedValue(makeFakeDSR({ status: "in_progress" }));
+    renderPage();
+
+    await userEvent.click(await screen.findByText("Max Mustermann"));
+    await screen.findByText("created");
+    expect(mockActivity).toHaveBeenCalledWith("dsr-1");
+
+    await userEvent.click(screen.getByRole("button", { name: "In Bearbeitung" }));
+    await waitFor(() => {
+      expect(mockUpdate).toHaveBeenCalledWith("dsr-1", { status: "in_progress" });
+    });
+    expect(toast.success).toHaveBeenCalledWith("Status aktualisiert.");
+    // Mutation invalidates the list and the activity log
+    await waitFor(() => {
+      expect(mockList).toHaveBeenCalledTimes(2);
+      expect(mockActivity).toHaveBeenCalledTimes(2);
     });
   });
 });

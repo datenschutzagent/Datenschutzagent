@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import { AppLayout } from "../components/app-layout";
 import { PageHeader } from "../components/page-header";
 import { TomBaselineGaps } from "../components/tom-baseline-gaps";
@@ -14,29 +14,31 @@ import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, 
 import { Skeleton } from "../components/ui/skeleton";
 import { Progress } from "../components/ui/progress";
 import {
-  listTOMs,
-  getTOMStats,
-  createTOM,
-  updateTOM,
-  deleteTOM,
-  listTOMAttachments,
-  uploadTOMAttachment,
   getTOMAttachmentBlob,
-  deleteTOMAttachment,
   downloadBlob,
   getCurrentUser,
   canEdit,
   type ApiUser,
   type ApiTOM,
-  type ApiTOMStats,
   type ApiTOMAttachment,
   type TOMCreate,
   type TOMCategory,
   type TOMStatus,
 } from "../lib/api";
+import {
+  useTOMs,
+  useTOMStats,
+  useTOMAttachments,
+  useCreateTOM,
+  useUpdateTOM,
+  useDeleteTOM,
+  useUploadTOMAttachment,
+  useDeleteTOMAttachment,
+  type TOMListFilter,
+} from "../lib/queries/tomQueries";
 import { toast } from "sonner";
 import { errorMessage } from "../lib/errors";
-import { Plus, Shield, Loader2, Trash2, CheckCircle, Clock, XCircle, Paperclip, Download, Upload } from "lucide-react";
+import { Plus, Shield, Loader2, Trash2, CheckCircle, CircleAlert, Clock, XCircle, Paperclip, Download, Upload } from "lucide-react";
 import { logger } from "../lib/logger";
 
 const CATEGORY_LABELS: Record<string, string> = {
@@ -98,45 +100,33 @@ const defaultForm: NewTOMForm = {
 };
 
 export function TOMPage() {
-  const [toms, setToms] = useState<ApiTOM[]>([]);
-  const [stats, setStats] = useState<ApiTOMStats | null>(null);
-  const [loading, setLoading] = useState(true);
   const [categoryFilter, setCategoryFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState("all");
 
   const [showNew, setShowNew] = useState(false);
-  const [creating, setCreating] = useState(false);
   const [form, setForm] = useState<NewTOMForm>(defaultForm);
 
   const [selected, setSelected] = useState<ApiTOM | null>(null);
-  const [updatingStatus, setUpdatingStatus] = useState(false);
 
   const [currentUser, setCurrentUser] = useState<ApiUser | null>(null);
-  const [attachments, setAttachments] = useState<ApiTOMAttachment[]>([]);
-  const [attachmentsLoading, setAttachmentsLoading] = useState(false);
-  const [uploading, setUploading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const load = useCallback(async () => {
-    setLoading(true);
-    try {
-      const [r, s] = await Promise.all([
-        listTOMs({
-          category: categoryFilter !== "all" ? categoryFilter : undefined,
-          implementationStatus: statusFilter !== "all" ? statusFilter : undefined,
-        }),
-        getTOMStats(),
-      ]);
-      setToms(r.items);
-      setStats(s);
-    } catch (e) {
-      toast.error("TOMs konnten nicht geladen werden.", { description: errorMessage(e) });
-    } finally {
-      setLoading(false);
-    }
-  }, [categoryFilter, statusFilter]);
+  const filter = useMemo<TOMListFilter>(() => ({
+    category: categoryFilter !== "all" ? categoryFilter : undefined,
+    implementationStatus: statusFilter !== "all" ? statusFilter : undefined,
+  }), [categoryFilter, statusFilter]);
 
-  useEffect(() => { void load(); }, [load]);
+  const tomsQuery = useTOMs(filter);
+  const statsQuery = useTOMStats();
+  const toms = tomsQuery.data?.items ?? [];
+  const stats = statsQuery.data ?? null;
+  const loading = tomsQuery.isPending;
+
+  useEffect(() => {
+    if (tomsQuery.isError) {
+      toast.error("TOMs konnten nicht geladen werden.", { description: errorMessage(tomsQuery.error) });
+    }
+  }, [tomsQuery.isError, tomsQuery.error]);
 
   useEffect(() => {
     getCurrentUser()
@@ -144,18 +134,26 @@ export function TOMPage() {
       .catch((e) => logger.warn("Benutzerprofil konnte nicht geladen werden", {}, e));
   }, []);
 
+  const selectedId = selected?.id ?? "";
+  const attachmentsQuery = useTOMAttachments(selected?.id ?? null);
+  const attachments = attachmentsQuery.data ?? [];
+  const attachmentsLoading = attachmentsQuery.isPending;
+
   useEffect(() => {
-    if (!selected) { setAttachments([]); return; }
-    setAttachmentsLoading(true);
-    listTOMAttachments(selected.id)
-      .then(setAttachments)
-      .catch(() => toast.error("Anhänge konnten nicht geladen werden."))
-      .finally(() => setAttachmentsLoading(false));
-  }, [selected]);
+    if (attachmentsQuery.isError) toast.error("Anhänge konnten nicht geladen werden.");
+  }, [attachmentsQuery.isError]);
+
+  const createMutation = useCreateTOM();
+  const updateMutation = useUpdateTOM();
+  const deleteMutation = useDeleteTOM();
+  const uploadMutation = useUploadTOMAttachment(selectedId);
+  const deleteAttachmentMutation = useDeleteTOMAttachment(selectedId);
+  const creating = createMutation.isPending;
+  const updatingStatus = updateMutation.isPending;
+  const uploading = uploadMutation.isPending;
 
   async function handleCreate() {
     if (!form.title.trim()) { toast.error("Titel erforderlich."); return; }
-    setCreating(true);
     try {
       const body: TOMCreate = {
         title: form.title.trim(),
@@ -166,40 +164,34 @@ export function TOMPage() {
         review_date: form.review_date || undefined,
         evidence: form.evidence.trim() || undefined,
       };
-      await createTOM(body);
+      await createMutation.mutateAsync(body);
       toast.success("TOM angelegt.");
       setShowNew(false);
       setForm(defaultForm);
-      void load();
     } catch (e) {
       toast.error("Fehler beim Anlegen.", { description: errorMessage(e) });
-    } finally {
-      setCreating(false);
     }
   }
 
   async function handleStatusChange(newStatus: string) {
     if (!selected) return;
-    setUpdatingStatus(true);
     try {
-      const updated = await updateTOM(selected.id, { implementation_status: newStatus as TOMStatus });
+      const updated = await updateMutation.mutateAsync({
+        id: selected.id,
+        body: { implementation_status: newStatus as TOMStatus },
+      });
       setSelected(updated);
-      setToms((prev) => prev.map((t) => t.id === updated.id ? updated : t));
       toast.success("Status aktualisiert.");
     } catch (e) {
       toast.error("Fehler beim Aktualisieren.", { description: errorMessage(e) });
-    } finally {
-      setUpdatingStatus(false);
     }
   }
 
   async function handleDelete(id: string) {
     try {
-      await deleteTOM(id);
-      setToms((prev) => prev.filter((t) => t.id !== id));
+      await deleteMutation.mutateAsync(id);
       if (selected?.id === id) setSelected(null);
       toast.success("TOM gelöscht.");
-      void load();
     } catch (e) {
       toast.error("Fehler beim Löschen.", { description: errorMessage(e) });
     }
@@ -207,15 +199,11 @@ export function TOMPage() {
 
   async function handleAttachmentUpload(file: File) {
     if (!selected) return;
-    setUploading(true);
     try {
-      const attachment = await uploadTOMAttachment(selected.id, file, currentUser?.display_name ?? "");
-      setAttachments((prev) => [...prev, attachment]);
+      await uploadMutation.mutateAsync({ file, uploadedBy: currentUser?.display_name ?? "" });
       toast.success(`"${file.name}" hochgeladen.`);
     } catch (e) {
       toast.error("Fehler beim Hochladen.", { description: errorMessage(e) });
-    } finally {
-      setUploading(false);
     }
   }
 
@@ -232,8 +220,7 @@ export function TOMPage() {
   async function handleAttachmentDelete(attachmentId: string) {
     if (!selected) return;
     try {
-      await deleteTOMAttachment(selected.id, attachmentId);
-      setAttachments((prev) => prev.filter((a) => a.id !== attachmentId));
+      await deleteAttachmentMutation.mutateAsync(attachmentId);
       toast.success("Anhang gelöscht.");
     } catch (e) {
       toast.error("Fehler beim Löschen.", { description: errorMessage(e) });
@@ -260,6 +247,17 @@ export function TOMPage() {
       </div>
 
       {/* Implementation progress */}
+      {statsQuery.isError && (
+        <Card className="mb-6">
+          <CardContent className="py-4 flex flex-wrap items-center gap-3 text-sm text-muted-foreground">
+            <CircleAlert className="size-4 text-red-500 dark:text-red-400" />
+            <span>Implementierungsstand konnte nicht geladen werden.</span>
+            <Button size="sm" variant="outline" onClick={() => void statsQuery.refetch()}>
+              Erneut versuchen
+            </Button>
+          </CardContent>
+        </Card>
+      )}
       {stats && (
         <Card className="mb-6">
           <CardHeader className="pb-3">
@@ -310,6 +308,16 @@ export function TOMPage() {
 
       {loading ? (
         <div className="space-y-3">{[...Array(6)].map((_, i) => <Skeleton key={i} className="h-16 w-full" />)}</div>
+      ) : tomsQuery.isError ? (
+        <Card>
+          <CardContent className="py-12 text-center">
+            <CircleAlert className="size-10 text-red-500 dark:text-red-400 mx-auto mb-3" />
+            <p className="text-muted-foreground">TOMs konnten nicht geladen werden.</p>
+            <Button className="mt-4" variant="outline" onClick={() => void tomsQuery.refetch()}>
+              Erneut versuchen
+            </Button>
+          </CardContent>
+        </Card>
       ) : toms.length === 0 ? (
         <Card><CardContent className="py-12 text-center text-muted-foreground">
           <Shield className="size-10 mx-auto mb-3 opacity-40" />
@@ -488,6 +496,13 @@ export function TOMPage() {
                 </div>
                 {attachmentsLoading ? (
                   <Skeleton className="h-10 w-full" />
+                ) : attachmentsQuery.isError ? (
+                  <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                    <span>Anhänge konnten nicht geladen werden.</span>
+                    <Button size="sm" variant="ghost" className="h-6 px-2 text-xs" onClick={() => void attachmentsQuery.refetch()}>
+                      Erneut versuchen
+                    </Button>
+                  </div>
                 ) : attachments.length === 0 ? (
                   <p className="text-xs text-muted-foreground">Keine Anhänge vorhanden.</p>
                 ) : (

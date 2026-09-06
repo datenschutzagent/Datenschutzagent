@@ -12,7 +12,8 @@ import {
   DialogTitle,
   DialogFooter,
 } from "../ui/dialog";
-import { createDataBreach, type ApiDataBreach, type DataBreachCreate } from "../../lib/api";
+import { type ApiDataBreach, type DataBreachCreate } from "../../lib/api";
+import { useCreateDataBreach } from "../../lib/queries/dataBreachQueries";
 import { toast } from "sonner";
 import { errorMessage } from "../../lib/errors";
 import { Loader2 } from "lucide-react";
@@ -46,7 +47,8 @@ const defaultForm: NewBreachForm = {
 interface DataBreachCreateDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  onCreated: (breach: ApiDataBreach) => void;
+  /** Optional – die Liste wird über die Query-Invalidierung ohnehin neu geladen. */
+  onCreated?: (breach: ApiDataBreach) => void;
 }
 
 export function DataBreachCreateDialog({
@@ -55,14 +57,14 @@ export function DataBreachCreateDialog({
   onCreated,
 }: DataBreachCreateDialogProps) {
   const [form, setForm] = useState<NewBreachForm>(defaultForm);
-  const [creating, setCreating] = useState(false);
+  const createMutation = useCreateDataBreach();
+  const creating = createMutation.isPending;
 
   const handleCreate = async () => {
     if (!form.title.trim()) {
       toast.error("Titel ist erforderlich.");
       return;
     }
-    setCreating(true);
     try {
       const body: DataBreachCreate = {
         title: form.title.trim(),
@@ -83,15 +85,13 @@ export function DataBreachCreateDialog({
         risk_level: (form.risk_level || undefined) as DataBreachCreate["risk_level"],
         measures_taken: form.measures_taken.trim() || undefined,
       };
-      const created = await createDataBreach(body);
+      const created = await createMutation.mutateAsync(body);
       toast.success("Datenpanne erfasst.");
       setForm(defaultForm);
       onOpenChange(false);
-      onCreated(created);
+      onCreated?.(created);
     } catch (e) {
       toast.error("Fehler beim Erfassen der Datenpanne.", { description: errorMessage(e) });
-    } finally {
-      setCreating(false);
     }
   };
 

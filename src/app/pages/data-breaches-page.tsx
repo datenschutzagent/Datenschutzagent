@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo } from "react";
+import { useState, useMemo } from "react";
 import { AppLayout } from "../components/app-layout";
 import { PageHeader } from "../components/page-header";
 import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card";
@@ -8,13 +8,10 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from ".
 import { Skeleton } from "../components/ui/skeleton";
 import { DataBreachCreateDialog } from "../components/data-breach/DataBreachCreateDialog";
 import { DataBreachDetailDialog } from "../components/data-breach/DataBreachDetailDialog";
-import {
-  listDataBreaches,
-  type ApiDataBreach,
-} from "../lib/api";
-import { toast } from "sonner";
+import { type ApiDataBreach } from "../lib/api";
+import { useDataBreaches } from "../lib/queries/dataBreachQueries";
 import { errorMessage } from "../lib/errors";
-import { AlertTriangle, Plus, Clock, CheckCircle, ShieldAlert } from "lucide-react";
+import { AlertTriangle, Plus, Clock, CheckCircle, ShieldAlert, CircleAlert } from "lucide-react";
 
 const BREACH_TYPE_LABELS: Record<string, string> = {
   confidentiality: "Vertraulichkeit",
@@ -84,33 +81,18 @@ function DeadlineIndicator({ deadline, status }: { deadline: string; status: str
 }
 
 export function DataBreachesPage() {
-  const [breaches, setBreaches] = useState<ApiDataBreach[]>([]);
-  const [total, setTotal] = useState(0);
-  const [loading, setLoading] = useState(true);
   const [statusFilter, setStatusFilter] = useState("all");
   const [overdueOnly, setOverdueOnly] = useState(false);
   const [showNew, setShowNew] = useState(false);
   const [selected, setSelected] = useState<ApiDataBreach | null>(null);
 
-  const load = useCallback(async () => {
-    setLoading(true);
-    try {
-      const r = await listDataBreaches({
-        status: statusFilter !== "all" ? statusFilter : undefined,
-        overdueOnly,
-      });
-      setBreaches(r.items);
-      setTotal(r.total);
-    } catch (e) {
-      toast.error("Datenpannen konnten nicht geladen werden.", { description: errorMessage(e) });
-    } finally {
-      setLoading(false);
-    }
-  }, [statusFilter, overdueOnly]);
-
-  useEffect(() => {
-    void load();
-  }, [load]);
+  const listQuery = useDataBreaches({
+    status: statusFilter !== "all" ? statusFilter : undefined,
+    overdueOnly,
+  });
+  const breaches = useMemo(() => listQuery.data?.items ?? [], [listQuery.data]);
+  const total = listQuery.data?.total ?? 0;
+  const loading = listQuery.isPending;
 
   const overdue = breaches.filter(
     (b) =>
@@ -318,6 +300,17 @@ export function DataBreachesPage() {
             <Skeleton key={i} className="h-20 w-full" />
           ))}
         </div>
+      ) : listQuery.isError ? (
+        <Card>
+          <CardContent className="py-12 text-center">
+            <CircleAlert className="size-10 mx-auto mb-3 text-red-500 dark:text-red-400" />
+            <p className="text-muted-foreground">Datenpannen konnten nicht geladen werden.</p>
+            <p className="text-xs text-muted-foreground mt-1">{errorMessage(listQuery.error)}</p>
+            <Button className="mt-4" variant="outline" onClick={() => void listQuery.refetch()}>
+              Erneut versuchen
+            </Button>
+          </CardContent>
+        </Card>
       ) : breaches.length === 0 ? (
         <Card>
           <CardContent className="py-12 text-center text-muted-foreground">
@@ -372,28 +365,14 @@ export function DataBreachesPage() {
         </div>
       )}
 
-      <DataBreachCreateDialog
-        open={showNew}
-        onOpenChange={setShowNew}
-        onCreated={(breach) => {
-          setBreaches((prev) => [breach, ...prev]);
-          setTotal((t) => t + 1);
-        }}
-      />
+      <DataBreachCreateDialog open={showNew} onOpenChange={setShowNew} />
 
       {selected && (
         <DataBreachDetailDialog
           breach={selected}
           onClose={() => setSelected(null)}
-          onUpdated={(updated) => {
-            setBreaches((prev) => prev.map((b) => (b.id === updated.id ? updated : b)));
-            setSelected(updated);
-          }}
-          onDeleted={(id) => {
-            setBreaches((prev) => prev.filter((b) => b.id !== id));
-            setTotal((t) => t - 1);
-            setSelected(null);
-          }}
+          onUpdated={(updated) => setSelected(updated)}
+          onDeleted={() => setSelected(null)}
         />
       )}
     </AppLayout>
